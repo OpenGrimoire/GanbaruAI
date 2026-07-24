@@ -1,10 +1,29 @@
 <script module lang="ts">
   import { ChatInspectorSessionState } from "$lib/chat/inspector-model";
+  import { TerminalPanelRegistry } from "$lib/chat/terminal-model";
 
   const workspacePanelSessions = {
     inspector: new ChatInspectorSessionState("files"),
     bottom: new ChatInspectorSessionState("terminal"),
   };
+  const terminalPanels = new TerminalPanelRegistry();
+  const terminalLoadLocks = new Map<string, Promise<void>>();
+
+  /** Serializes terminal discovery and creation within one thread and workspace. */
+  async function withTerminalLoadLock<T>(scopeKey: string, operation: () => Promise<T>): Promise<T> {
+    const previous = terminalLoadLocks.get(scopeKey) ?? Promise.resolve();
+    let release: () => void = () => undefined;
+    const current = new Promise<void>((resolve) => { release = resolve; });
+    const queued = previous.then(() => current);
+    terminalLoadLocks.set(scopeKey, queued);
+    await previous;
+    try {
+      return await operation();
+    } finally {
+      release();
+      if (terminalLoadLocks.get(scopeKey) === queued) terminalLoadLocks.delete(scopeKey);
+    }
+  }
 </script>
 
 <script lang="ts">
@@ -25,7 +44,7 @@
     openInspectorTab,
     type ChatInspectorThreadState,
   } from "$lib/chat/inspector-model";
-  import { selectedTerminalByThread } from "$lib/chat/terminal-model";
+  import { terminalErrorMessage } from "$lib/chat/terminal-model";
   import {
     pickSelectPopoverGeometry,
     type SelectPopoverGeometry,
@@ -43,10 +62,12 @@
 
   let {
     placement,
+    visible = true,
     onClose,
     onMaximizedChange = () => undefined,
   }: {
     placement: "inspector" | "bottom";
+    visible?: boolean;
     onClose: () => void;
     onMaximizedChange?: (maximized: boolean) => void;
   } = $props();
@@ -121,9 +142,13 @@
       selectedTerminalId = null;
       return;
     }
-    if (terminalScopeKey === nextKey) return;
+    if (!visible) {
+      if (terminals.length === 0) terminalScopeKey = "";
+      return;
+    }
+    if (terminalScopeKey === nextKey && (terminalsLoading || terminals.length > 0 || error)) return;
     terminalScopeKey = nextKey;
-    void loadTerminals(thread, workspace);
+    void loadTerminals(thread, workspace, nextKey);
   });
 
   function update(updateValue: Partial<ChatInspectorThreadState>): void {
@@ -160,20 +185,26 @@
     return panelState.filePreviewPath.split("/").filter(Boolean).at(-1) ?? t("chat.inspector.files");
   }
 
-  async function loadTerminals(thread: string, workspace: string): Promise<void> {
+  async function loadTerminals(
+    thread: string,
+    workspace: string,
+    scopeKey: string,
+  ): Promise<void> {
     terminalsLoading = true;
     terminals = [];
     selectedTerminalId = null;
     error = null;
     try {
-      let loaded = await chatApi.listChatTerminals(thread, workspace);
-      if (loaded.length === 0) {
+      const loaded = await withTerminalLoadLock(scopeKey, async () => {
+        const available = await chatApi.listChatTerminals(thread, workspace);
+        const owned = terminalPanels.claimAvailable(available, placement);
+        if (owned.length > 0) return owned;
         const snapshot = await createTerminal(thread, workspace);
-        loaded = [snapshot.terminal];
-      }
+        return [snapshot.terminal];
+      });
       if (thread !== threadId || workspace !== workspaceId) return;
       terminals = loaded;
-      const remembered = selectedTerminalByThread.get(thread);
+      const remembered = terminalPanels.selected(thread, placement);
       selectTerminal(loaded.some((terminal) => terminal.id === remembered)
         ? remembered ?? null
         : loaded[0]?.id ?? null);
@@ -184,17 +215,19 @@
     }
   }
 
-  function createTerminal(
+  async function createTerminal(
     thread: string,
     workspace: string,
   ): ReturnType<typeof chatApi.createChatTerminal> {
-    return chatApi.createChatTerminal({
+    const snapshot = await chatApi.createChatTerminal({
       terminalId: crypto.randomUUID(),
       threadId: thread,
       workspaceId: workspace,
       columns: 80,
       rows: 24,
     });
+    terminalPanels.assign(snapshot.terminal.id, placement);
+    return snapshot;
   }
 
   async function addTerminal(): Promise<void> {
@@ -204,6 +237,15 @@
     terminals = [...terminals, snapshot.terminal];
     selectTerminal(snapshot.terminal.id);
     openPanel("terminal");
+  }
+
+  function retryTerminalLoad(): void {
+    const thread = threadId;
+    const workspace = workspaceId;
+    if (!thread || !workspace) return;
+    const scopeKey = `${thread}:${workspace}`;
+    terminalScopeKey = scopeKey;
+    void loadTerminals(thread, workspace, scopeKey);
   }
 
   function openOrAddTerminal(): void {
@@ -216,7 +258,7 @@
 
   function selectTerminal(terminalId: string | null): void {
     selectedTerminalId = terminalId;
-    if (threadId && terminalId) selectedTerminalByThread.set(threadId, terminalId);
+    if (threadId) terminalPanels.select(threadId, placement, terminalId);
   }
 
   function updateTerminal(terminal: ChatTerminalRead): void {
@@ -231,6 +273,7 @@
       result = await chatApi.closeChatTerminal(terminal.id, threadId, workspaceId, true);
     }
     if (!result.closed) return;
+    terminalPanels.release(terminal.id);
     const next = terminals.filter((entry) => entry.id !== terminal.id);
     terminals = next;
     if (selectedTerminalId === terminal.id) selectTerminal(next[0]?.id ?? null);
@@ -284,7 +327,10 @@
   }
 
   function message(reason: unknown): string {
-    return reason instanceof Error ? reason.message : String(reason);
+    return terminalErrorMessage(
+      reason,
+      t("common.viewLoadFailed", t("chat.inspector.terminal")),
+    );
   }
 
   function rect(value: DOMRect): SelectPopoverRect {
@@ -466,14 +512,18 @@
         <p class="grid h-full place-items-center text-xs text-muted-foreground">{t("common.loading")}</p>
       {:else if selectedTerminal}
         <div class="flex h-full min-h-0 flex-col">
-          {#if !selectedTerminal.running}<p class="border-b border-border px-2 py-1 text-[0.666667rem] text-muted-foreground">{selectedTerminal.exitCode === null ? t("chat.inspector.terminalStopped") : t("chat.inspector.terminalExited", formatNumber(localization.locale, selectedTerminal.exitCode))}</p>{/if}
+          {#if !selectedTerminal.running}
+            <div class="terminal-stopped-bar">
+              <span>{selectedTerminal.exitCode === null ? t("chat.inspector.terminalStopped") : t("chat.inspector.terminalExited", formatNumber(localization.locale, selectedTerminal.exitCode))}</span>
+            </div>
+          {/if}
           {#key `${selectedTerminal.id}:${selectedTerminal.generation}`}
             <ChatTerminalView terminalRead={selectedTerminal} onState={updateTerminal} />
           {/key}
         </div>
       {:else}
-        <div class="grid h-full place-items-center p-4 text-center text-xs text-muted-foreground">
-          <button type="button" class="chat-secondary-button" onclick={() => void run(addTerminal)}><Plus size={13} />{t("chat.inspector.newTerminal")}</button>
+        <div class="grid h-full place-items-center p-4">
+          <button type="button" class="chat-secondary-button" onclick={retryTerminalLoad}>{t("common.retry")}</button>
         </div>
       {/if}
     {:else if panelState.tab === "changes"}
@@ -527,6 +577,7 @@
   .terminal-tab-shell:hover .tab-close, .panel-tab-shell:hover .tab-close, .tab-close:focus-visible { opacity: 1; }
   .tab-close:hover { background: var(--accent); }
   .terminal-close { margin-right: 0.2rem; }
+  .terminal-stopped-bar { min-height: 1.8rem; flex: 0 0 auto; border-bottom: 1px solid var(--border); padding: 0.45rem 0.55rem; color: var(--muted-foreground); font-size: 0.666667rem; }
   .panel-picker { position: fixed; z-index: 80; overflow-y: auto; border: 1px solid var(--border); border-radius: 0.65rem; background: var(--popover); padding: 0.35rem; color: var(--popover-foreground); box-shadow: 0 12px 32px rgb(0 0 0 / 0.2); }
   .panel-picker > p { padding: 0.35rem 0.55rem; color: var(--muted-foreground); font-size: 0.666667rem; font-weight: 600; }
   .panel-picker button { display: flex; width: 100%; align-items: flex-start; gap: 0.65rem; border-radius: 0.45rem; padding: 0.55rem; text-align: left; }

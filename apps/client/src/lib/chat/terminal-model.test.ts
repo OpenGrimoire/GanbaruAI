@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { applyTerminalOutput, boundTerminalContext, terminalPasteNeedsConfirmation } from "./terminal-model";
+import {
+  applyTerminalOutput,
+  boundTerminalContext,
+  TerminalPanelRegistry,
+  terminalErrorMessage,
+  terminalPasteNeedsConfirmation,
+} from "./terminal-model";
 
 function chunk(generation: number, sequence: number, text: string) {
   return {
@@ -35,5 +41,45 @@ describe("Chat terminal model", () => {
     expect(result.byteSize).toBe(4);
     expect(result.truncated).toBe(true);
     expect(boundTerminalContext("abécd", 3).text).toBe("ab");
+  });
+
+  it("reads structured terminal errors without exposing object coercion", () => {
+    expect(terminalErrorMessage({
+      code: "invalid_state_transition",
+      message: "Chat terminal is not running",
+      field: null,
+      recoverable: true,
+      details: null,
+    }, "Terminal operation failed")).toBe("Chat terminal is not running");
+    expect(terminalErrorMessage({
+      message: "Terminal dimensions are outside the supported range",
+      field: "dimensions",
+    }, "Terminal operation failed")).toBe(
+      "dimensions: Terminal dimensions are outside the supported range",
+    );
+    expect(terminalErrorMessage({ code: "internal" }, "Terminal operation failed")).toBe(
+      "Terminal operation failed",
+    );
+  });
+
+  it("keeps terminal collections and selections independent by panel", () => {
+    const registry = new TerminalPanelRegistry();
+    const first = { id: "first" };
+    const second = { id: "second" };
+
+    expect(registry.claimAvailable([first], "inspector")).toEqual([first]);
+    expect(registry.claimAvailable([first], "bottom")).toEqual([]);
+
+    registry.assign(second.id, "bottom");
+    expect(registry.claimAvailable([first, second], "inspector")).toEqual([first]);
+    expect(registry.claimAvailable([first, second], "bottom")).toEqual([second]);
+
+    registry.select("thread", "inspector", first.id);
+    registry.select("thread", "bottom", second.id);
+    expect(registry.selected("thread", "inspector")).toBe(first.id);
+    expect(registry.selected("thread", "bottom")).toBe(second.id);
+
+    registry.release(first.id);
+    expect(registry.claimAvailable([first, second], "bottom")).toEqual([first, second]);
   });
 });

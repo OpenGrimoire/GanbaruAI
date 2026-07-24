@@ -1,12 +1,18 @@
 import { describe, expect, it } from "vitest";
 import {
   alignPanelSizeToDevicePixel,
+  chatBottomPanelResizeMaximum,
   chatLayoutDecision,
   chatLayoutPrimaryActions,
   chatInspectorResizeMaximum,
   chatScrollBehavior,
+  chatRailResizeMaximum,
   clampPanelSizeToWholePixel,
+  fittedChatBottomPanelHeight,
+  fittedChatInspectorWidth,
+  fittedChatRailWidth,
   middleTruncate,
+  panelSizeWithCollapseSnap,
   panelWidthFromKey,
   preferredPanelWidth,
   type ChatLayoutVariant,
@@ -179,6 +185,94 @@ describe("Chat responsive layout", () => {
     expect(maximum(2_000)).toBe(960);
     expect(maximum(700)).toBe(240);
     expect(maximum(1_399.75)).toBe(699);
+  });
+
+  it("limits the rail without displacing visible adjacent content", () => {
+    const maximum = (containerWidth: number, inspectorVisible = true) => chatRailResizeMaximum({
+      containerWidth,
+      inspectorVisible,
+      inspectorWidth: 520,
+      minimum: 160,
+      maximum: 520,
+    });
+    expect(maximum(1_400)).toBe(440);
+    expect(maximum(1_400, false)).toBe(520);
+    expect(maximum(800, false)).toBe(360);
+    expect(maximum(1_400, true)).toBeLessThan(maximum(1_400, false));
+  });
+
+  it("fits each outer panel to its content role and available space", () => {
+    expect(fittedChatRailWidth({
+      containerWidth: 1_200,
+      inspectorVisible: false,
+      inspectorWidth: 520,
+      minimum: 160,
+      maximum: 520,
+    })).toBe(300);
+    expect(fittedChatRailWidth({
+      containerWidth: 1_920,
+      inspectorVisible: false,
+      inspectorWidth: 520,
+      minimum: 160,
+      maximum: 520,
+    })).toBe(400);
+    expect(fittedChatRailWidth({
+      containerWidth: 1_200,
+      inspectorVisible: false,
+      inspectorWidth: 520,
+      fontScale: 1.5,
+      minimum: 160,
+      maximum: 520,
+    })).toBe(420);
+    expect(fittedChatInspectorWidth({
+      containerWidth: 1_400,
+      railVisible: true,
+      railWidth: 320,
+      minimum: 240,
+      maximum: 960,
+    })).toBe(532);
+    expect(fittedChatInspectorWidth({
+      containerWidth: 1_920,
+      railVisible: true,
+      railWidth: 400,
+      minimum: 240,
+      maximum: 960,
+    })).toBe(720);
+    expect(fittedChatBottomPanelHeight({
+      containerHeight: 700,
+      minimum: 96,
+      maximum: 520,
+    })).toBe(224);
+    expect(fittedChatBottomPanelHeight({
+      containerHeight: 1_000,
+      minimum: 96,
+      maximum: 520,
+    })).toBe(320);
+    expect(fittedChatBottomPanelHeight({
+      containerHeight: 700,
+      fontScale: 1.5,
+      minimum: 96,
+      maximum: 520,
+    })).toBe(285);
+  });
+
+  it("caps bottom panel growth and keeps the conversation reachable", () => {
+    const maximum = (containerHeight: number) => chatBottomPanelResizeMaximum({
+      containerHeight,
+      minimum: 96,
+      maximum: 520,
+    });
+    expect(maximum(700)).toBe(350);
+    expect(maximum(1_000)).toBe(500);
+    expect(maximum(400)).toBe(160);
+    expect(maximum(280)).toBe(96);
+  });
+
+  it("uses a magnetic collapse zone without leaving unusably small panels", () => {
+    expect(panelSizeWithCollapseSnap(70, 160, 480)).toBe(0);
+    expect(panelSizeWithCollapseSnap(73, 160, 480)).toBe(160);
+    expect(panelSizeWithCollapseSnap(319.6, 160, 480)).toBe(320);
+    expect(panelSizeWithCollapseSnap(900, 160, 480)).toBe(480);
   });
 
   it("removes smooth scrolling when reduced motion is requested", () => {

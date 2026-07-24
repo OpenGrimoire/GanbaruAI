@@ -1,10 +1,18 @@
+<script module lang="ts">
+  const terminalResizeOwners = new Map<string, symbol>();
+</script>
+
 <script lang="ts">
   import { onMount } from "svelte";
   import { listen } from "@tauri-apps/api/event";
   import * as chatApi from "$lib/api/chat";
   import type { ChatTerminalRead } from "$lib/chat/contracts";
   import { parseChatTerminal, parseChatTerminalOutput } from "$lib/chat/validation";
-  import { applyTerminalOutput, terminalPasteNeedsConfirmation } from "$lib/chat/terminal-model";
+  import {
+    applyTerminalOutput,
+    terminalErrorMessage,
+    terminalPasteNeedsConfirmation,
+  } from "$lib/chat/terminal-model";
   import { getLocalization } from "$lib/i18n/translator.svelte";
   import { getChat } from "$lib/stores/chat.svelte";
   import "@xterm/xterm/css/xterm.css";
@@ -21,9 +29,9 @@
   const chat = getChat();
   let host: HTMLDivElement | undefined = $state();
   let xterm: import("@xterm/xterm").Terminal | null = null;
-  let fitAddon: import("@xterm/addon-fit").FitAddon | null = null;
   let outputState = { generation: 0, lastSequence: 0 };
   let error = $state<string | null>(null);
+  const resizeOwnerId = Symbol("terminal-resize-owner");
   const TERMINAL_FONT_FAMILY = '"SF Mono", "SFMono-Regular", "JetBrains Mono", "Cascadia Code", Consolas, "Liberation Mono", Menlo, monospace';
   const TERMINAL_FONT_SIZE = 12;
 
@@ -32,6 +40,10 @@
     let resizeTimer: number | null = null;
     let resizeObserver: ResizeObserver | null = null;
     const disposers: (() => void)[] = [];
+    const ownsResize = () => terminalResizeOwners.get(terminalRead.id) === resizeOwnerId;
+    const releaseResize = () => {
+      if (ownsResize()) terminalResizeOwners.delete(terminalRead.id);
+    };
     void Promise.all([
       import("@xterm/xterm"),
       import("@xterm/addon-fit"),
@@ -45,6 +57,7 @@
         allowProposedApi: false,
         convertEol: false,
         cursorBlink: true,
+        disableStdin: !snapshot.terminal.running,
         scrollback: chat.settings?.configuration.behavior.terminalScrollbackLines ?? 10_000,
         fontFamily: TERMINAL_FONT_FAMILY,
         fontSize: TERMINAL_FONT_SIZE,
@@ -63,61 +76,90 @@
       terminal.loadAddon(fit);
       terminal.open(host);
       xterm = terminal;
-      fitAddon = fit;
       outputState = { generation: snapshot.terminal.generation, lastSequence: 0 };
       for (const chunk of snapshot.scrollback) applyChunk(chunk);
       terminal.onData((data) => {
+        if (!terminalRead.running) return;
+        claimResize();
         void chatApi.writeChatTerminal(
           terminalRead.id,
           terminalRead.threadId,
           terminalRead.workspaceId,
           data,
-        ).catch((reason: unknown) => { error = message(reason); });
+        ).catch((reason: unknown) => { error = terminalMessage(reason); });
+      });
+      const resizeTerminal = () => {
+        const proposed = fit.proposeDimensions();
+        if (!proposed || proposed.cols < 20 || proposed.rows < 2) return;
+        fit.fit();
+        if (!terminalResizeOwners.has(terminalRead.id)) {
+          terminalResizeOwners.set(terminalRead.id, resizeOwnerId);
+        }
+        if (!ownsResize()) return;
+        void chatApi.resizeChatTerminal(
+          terminalRead.id,
+          terminalRead.threadId,
+          terminalRead.workspaceId,
+          terminal.cols,
+          terminal.rows,
+        ).catch(() => undefined);
+      };
+      const scheduleResize = (delay: number) => {
+        if (resizeTimer !== null) window.clearTimeout(resizeTimer);
+        resizeTimer = window.setTimeout(resizeTerminal, delay);
+      };
+      const claimResize = () => {
+        terminalResizeOwners.set(terminalRead.id, resizeOwnerId);
+        scheduleResize(0);
+      };
+      const claimResizeFromInteraction = () => claimResize();
+      host.addEventListener("focusin", claimResizeFromInteraction);
+      host.addEventListener("pointerdown", claimResizeFromInteraction);
+      disposers.push(() => {
+        host?.removeEventListener("focusin", claimResizeFromInteraction);
+        host?.removeEventListener("pointerdown", claimResizeFromInteraction);
       });
       resizeObserver = new ResizeObserver(() => {
-        if (resizeTimer !== null) window.clearTimeout(resizeTimer);
-        resizeTimer = window.setTimeout(() => {
-          fit.fit();
-          if (terminal.cols < 20 || terminal.rows < 2) return;
-          void chatApi.resizeChatTerminal(
-            terminalRead.id,
-            terminalRead.threadId,
-            terminalRead.workspaceId,
-            terminal.cols,
-            terminal.rows,
-          ).catch(() => undefined);
-        }, 80);
+        scheduleResize(80);
       });
       resizeObserver.observe(host);
-      fit.fit();
-      terminal.focus();
+      resizeTerminal();
 
       const unlistenOutput = await listen<unknown>("chat://terminal-output", (event) => {
         try {
           const chunk = parseChatTerminalOutput(event.payload);
           if (chunk.terminalId === terminalRead.id) applyChunk(chunk);
         } catch (reason: unknown) {
-          error = message(reason);
+          error = terminalMessage(reason);
         }
       });
+      if (disposed) {
+        unlistenOutput();
+        return;
+      }
+      disposers.push(unlistenOutput);
       const unlistenState = await listen<unknown>("chat://terminal-state", (event) => {
         try {
           const state = parseChatTerminal(event.payload);
           if (state.id === terminalRead.id) onState(state);
         } catch (reason: unknown) {
-          error = message(reason);
+          error = terminalMessage(reason);
         }
       });
-      disposers.push(unlistenOutput, unlistenState);
-    }).catch((reason: unknown) => { error = message(reason); });
+      if (disposed) {
+        unlistenState();
+        return;
+      }
+      disposers.push(unlistenState);
+    }).catch((reason: unknown) => { error = terminalMessage(reason); });
     return () => {
       disposed = true;
+      releaseResize();
       if (resizeTimer !== null) window.clearTimeout(resizeTimer);
       resizeObserver?.disconnect();
       for (const dispose of disposers) dispose();
       xterm?.dispose();
       xterm = null;
-      fitAddon = null;
     };
   });
 
@@ -128,7 +170,7 @@
       outputState = decision.state;
       xterm.write(decision.bytes);
     } else if (decision.kind === "gap") {
-      void replay();
+      void replay().catch((reason: unknown) => { error = terminalMessage(reason); });
     }
   }
 
@@ -156,9 +198,16 @@
     }
   }
 
-  function message(reason: unknown): string {
-    return reason instanceof Error ? reason.message : String(reason);
+  function terminalMessage(reason: unknown): string {
+    return terminalErrorMessage(
+      reason,
+      t("common.viewLoadFailed", t("chat.inspector.terminal")),
+    );
   }
+
+  $effect(() => {
+    if (xterm) xterm.options.disableStdin = !terminalRead.running;
+  });
 </script>
 
 <div class="terminal-view" data-terminal-capture>
@@ -167,7 +216,7 @@
 </div>
 
 <style>
-  .terminal-view { container-type: inline-size; display: flex; height: 100%; min-height: 0; flex-direction: column; background: var(--cal-bg); }
+  .terminal-view { contain: layout paint; container-type: inline-size; display: flex; height: 100%; min-height: 0; flex-direction: column; background: var(--cal-bg); }
   .terminal-host { min-height: 0; flex: 1; overflow: hidden; color: var(--foreground); background: var(--cal-bg); }
   :global(.xterm) { height: 100%; padding: 0.45rem 0.55rem; }
   :global(.xterm-viewport), :global(.xterm-screen) { background: var(--cal-bg) !important; }

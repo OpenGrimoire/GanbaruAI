@@ -29,11 +29,40 @@ const BASE_MINIMUM_EXIT_WIDTH = 360;
 const BASE_MINIMUM_ENTER_HEIGHT = 210;
 const BASE_MINIMUM_EXIT_HEIGHT = 240;
 const BASE_HYSTERESIS = 24;
+const RAIL_FIT_RATIO = 0.25;
+const RAIL_FIT_MINIMUM = 280;
+const RAIL_FIT_MAXIMUM = 400;
+const INSPECTOR_FIT_RATIO = 0.38;
+const INSPECTOR_FIT_MINIMUM = 420;
+const INSPECTOR_FIT_MAXIMUM = 720;
+const BOTTOM_PANEL_FIT_RATIO = 0.32;
+const BOTTOM_PANEL_FIT_MINIMUM = 190;
+const BOTTOM_PANEL_FIT_MAXIMUM = 360;
+const BOTTOM_PANEL_MAXIMUM_RATIO = 0.5;
+const BASE_CONVERSATION_HEIGHT_MIN = 240;
+const COLLAPSE_SNAP_RATIO = 0.45;
 
 export interface ChatInspectorResizeInput {
   containerWidth: number;
   railVisible: boolean;
   railWidth: number;
+  fontScale?: number;
+  minimum: number;
+  maximum: number;
+}
+
+export interface ChatRailResizeInput {
+  containerWidth: number;
+  inspectorVisible: boolean;
+  inspectorWidth: number;
+  fontScale?: number;
+  minimum: number;
+  maximum: number;
+}
+
+export interface ChatBottomPanelResizeInput {
+  containerHeight: number;
+  fontScale?: number;
   minimum: number;
   maximum: number;
 }
@@ -64,12 +93,115 @@ export function chatInspectorResizeMaximum(input: ChatInspectorResizeInput): num
   const occupiedByRail = input.railVisible ? input.railWidth : 0;
   const available = input.containerWidth
     - occupiedByRail
-    - BASE_CONVERSATION_MIN;
+    - scaledConversationWidth(input.fontScale);
   return clampPanelSizeToWholePixel(
     available,
     input.minimum,
     Math.min(input.maximum, available),
   );
+}
+
+/**
+ * Bounds the thread rail without displacing a visible column inspector or the
+ * minimum useful conversation width.
+ *
+ * @param input Current shell and adjacent panel constraints.
+ * @returns The largest useful rail width for the current layout.
+ */
+export function chatRailResizeMaximum(input: ChatRailResizeInput): number {
+  const occupiedByInspector = input.inspectorVisible ? input.inspectorWidth : 0;
+  const available = input.containerWidth
+    - occupiedByInspector
+    - scaledConversationWidth(input.fontScale);
+  return clampPanelSizeToWholePixel(
+    available,
+    input.minimum,
+    Math.min(input.maximum, available),
+  );
+}
+
+/**
+ * Selects a comfortable thread rail width from the available shell width.
+ *
+ * @param input Current shell and adjacent panel constraints.
+ * @returns A context-sensitive rail width inside the hard resize bounds.
+ */
+export function fittedChatRailWidth(input: ChatRailResizeInput): number {
+  const scale = boundedFontScale(input.fontScale);
+  return fittedPanelSize(
+    input.containerWidth * RAIL_FIT_RATIO,
+    RAIL_FIT_MINIMUM * scale,
+    RAIL_FIT_MAXIMUM * scale,
+    chatRailResizeMaximum(input),
+  );
+}
+
+/**
+ * Selects a comfortable inspector width for code, files, and plans.
+ *
+ * @param input Current shell and rail constraints.
+ * @returns A context-sensitive inspector width inside the hard resize bounds.
+ */
+export function fittedChatInspectorWidth(input: ChatInspectorResizeInput): number {
+  const scale = boundedFontScale(input.fontScale);
+  return fittedPanelSize(
+    input.containerWidth * INSPECTOR_FIT_RATIO,
+    INSPECTOR_FIT_MINIMUM * scale,
+    INSPECTOR_FIT_MAXIMUM * scale,
+    chatInspectorResizeMaximum(input),
+  );
+}
+
+/**
+ * Bounds the bottom panel while retaining a useful conversation height.
+ *
+ * @param input Current shell height and panel constraints.
+ * @returns The largest useful bottom panel height for the current layout.
+ */
+export function chatBottomPanelResizeMaximum(input: ChatBottomPanelResizeInput): number {
+  const scale = boundedFontScale(input.fontScale);
+  const ratioMaximum = Math.floor(input.containerHeight * BOTTOM_PANEL_MAXIMUM_RATIO);
+  const conversationMaximum = Math.floor(
+    input.containerHeight - BASE_CONVERSATION_HEIGHT_MIN * scale,
+  );
+  return clampPanelSizeToWholePixel(
+    Math.min(input.maximum, ratioMaximum, conversationMaximum),
+    input.minimum,
+    input.maximum,
+  );
+}
+
+/**
+ * Selects a comfortable bottom panel height for terminals and diffs.
+ *
+ * @param input Current shell height and panel constraints.
+ * @returns A context-sensitive height inside the hard resize bounds.
+ */
+export function fittedChatBottomPanelHeight(input: ChatBottomPanelResizeInput): number {
+  const scale = boundedFontScale(input.fontScale);
+  return fittedPanelSize(
+    input.containerHeight * BOTTOM_PANEL_FIT_RATIO,
+    BOTTOM_PANEL_FIT_MINIMUM * scale,
+    BOTTOM_PANEL_FIT_MAXIMUM * scale,
+    chatBottomPanelResizeMaximum(input),
+  );
+}
+
+/**
+ * Snaps a dragged panel into an explicit collapsed state near its closed edge.
+ *
+ * @param requested Raw pointer-derived size.
+ * @param minimum Smallest usable open size.
+ * @param maximum Largest allowed open size.
+ * @returns Zero for the collapse zone, otherwise a bounded open size.
+ */
+export function panelSizeWithCollapseSnap(
+  requested: number,
+  minimum: number,
+  maximum: number,
+): number {
+  if (requested <= minimum * COLLAPSE_SNAP_RATIO) return 0;
+  return clampPanelSizeToWholePixel(requested, minimum, maximum);
 }
 
 /**
@@ -270,6 +402,25 @@ export function middleTruncate(value: string, maximumCodePoints = 40): string {
   const start = Math.ceil(available / 2);
   const end = Math.floor(available / 2);
   return `${points.slice(0, start).join("")}…${points.slice(points.length - end).join("")}`;
+}
+
+function boundedFontScale(fontScale = 1): number {
+  return Math.max(1, Math.min(2, fontScale));
+}
+
+function scaledConversationWidth(fontScale = 1): number {
+  return BASE_CONVERSATION_MIN * boundedFontScale(fontScale);
+}
+
+function fittedPanelSize(
+  requested: number,
+  preferredMinimum: number,
+  preferredMaximum: number,
+  hardMaximum: number,
+): number {
+  const maximum = Math.min(preferredMaximum, hardMaximum);
+  const minimum = Math.min(preferredMinimum, maximum);
+  return clampPanelSizeToWholePixel(requested, minimum, maximum);
 }
 
 function stableFit(

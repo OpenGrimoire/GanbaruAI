@@ -56,7 +56,84 @@ export function boundTerminalContext(text: string, byteLimit: number): {
   };
 }
 
-export const selectedTerminalByThread = new Map<string, string>();
+export type TerminalPanelPlacement = "inspector" | "bottom";
+
+/** Keeps terminal ownership and selection independent between workspace panels. */
+export class TerminalPanelRegistry {
+  readonly #placementByTerminal = new Map<string, TerminalPanelPlacement>();
+  readonly #selectionByPanelThread = new Map<string, string>();
+
+  /**
+   * Claims unassigned terminals for a panel and returns only that panel's terminals.
+   *
+   * @param terminals - Terminals available for the current thread and workspace.
+   * @param placement - Panel requesting its terminal collection.
+   * @returns Terminals owned by the requesting panel.
+   */
+  claimAvailable<T extends { id: string }>(
+    terminals: readonly T[],
+    placement: TerminalPanelPlacement,
+  ): T[] {
+    const claimed: T[] = [];
+    for (const terminal of terminals) {
+      const owner = this.#placementByTerminal.get(terminal.id);
+      if (owner === placement) claimed.push(terminal);
+      else if (owner === undefined) {
+        this.#placementByTerminal.set(terminal.id, placement);
+        claimed.push(terminal);
+      }
+    }
+    return claimed;
+  }
+
+  /** Assigns a newly created terminal to one panel. */
+  assign(terminalId: string, placement: TerminalPanelPlacement): void {
+    this.#placementByTerminal.set(terminalId, placement);
+  }
+
+  /** Releases ownership after a terminal is closed. */
+  release(terminalId: string): void {
+    this.#placementByTerminal.delete(terminalId);
+  }
+
+  /** Returns the selected terminal for one panel and thread. */
+  selected(threadId: string, placement: TerminalPanelPlacement): string | null {
+    return this.#selectionByPanelThread.get(this.#selectionKey(threadId, placement)) ?? null;
+  }
+
+  /** Updates the selected terminal for one panel and thread. */
+  select(
+    threadId: string,
+    placement: TerminalPanelPlacement,
+    terminalId: string | null,
+  ): void {
+    const key = this.#selectionKey(threadId, placement);
+    if (terminalId) this.#selectionByPanelThread.set(key, terminalId);
+    else this.#selectionByPanelThread.delete(key);
+  }
+
+  #selectionKey(threadId: string, placement: TerminalPanelPlacement): string {
+    return `${placement}:${threadId}`;
+  }
+}
+
+/**
+ * Converts an unknown terminal API rejection into a useful user-facing message.
+ *
+ * @param reason - The rejected value from the terminal API boundary.
+ * @param fallback - Localized text used when the rejection has no readable message.
+ * @returns The validated error message.
+ */
+export function terminalErrorMessage(reason: unknown, fallback: string): string {
+  if (reason instanceof Error) return reason.message;
+  if (typeof reason === "string") return reason;
+  if (typeof reason !== "object" || reason === null || Array.isArray(reason)) return fallback;
+  const record = reason as Record<string, unknown>;
+  if (typeof record.message !== "string" || record.message.length === 0) return fallback;
+  return typeof record.field === "string" && record.field.length > 0
+    ? `${record.field}: ${record.message}`
+    : record.message;
+}
 
 function decodeBase64(value: string): Uint8Array {
   const decoded = atob(value);
