@@ -911,14 +911,14 @@
         {/if}
         <div class="effort-footer" class:holding={effortDragging}>
           <div class="quick-actions" inert={effortDragging} aria-hidden={effortDragging}>
-            <button bind:this={advancedToggle} type="button" class="advanced-toggle" onclick={() => setPickerView("advanced")}><span>{t("chat.composer.advanced")}</span><ChevronRight size={15} /></button>
+            <button bind:this={advancedToggle} type="button" class="advanced-toggle" onclick={() => setPickerView("advanced")}><span>{t("chat.composer.advanced")}</span><span class="advanced-chevron" class:expanded={view === "advanced"}><ChevronRight size={15} /></span></button>
             {#if speedDefinition}<button type="button" class="fast-button" class:active={isFastSelected()} class:ultra={isUltraSelected()} title={isFastSelected() ? t("chat.composer.fastEnabled") : t("chat.composer.enableFast")} aria-label={isFastSelected() ? t("chat.composer.fastEnabled") : t("chat.composer.enableFast")} aria-pressed={isFastSelected()} onclick={() => setFastMode(!isFastSelected())}><Zap size={16} /></button>{/if}
           </div>
           <div class="effort-guidance" aria-hidden="true"><span>{t("chat.composer.faster")}</span><span>{t("chat.composer.smarter")}</span></div>
         </div>
         </div>
         <div bind:this={advancedPanel} class="picker-view advanced-view" class:active={view === "advanced"} inert={view !== "advanced"} aria-hidden={view !== "advanced"}>
-        <button bind:this={advancedHeading} type="button" class="advanced-heading" onclick={() => setPickerView("overview")}><span>{t("chat.composer.advanced")}</span><ChevronDown size={15} /></button>
+        <button bind:this={advancedHeading} type="button" class="advanced-heading" onclick={() => setPickerView("overview")}><span>{t("chat.composer.advanced")}</span><span class="advanced-chevron" class:expanded={view === "advanced"}><ChevronRight size={15} /></span></button>
         <div class="advanced-list">
           <button type="button" onpointerenter={(event) => handleNamedFlyoutPointerEnter("models", event)} onfocus={(event) => openFlyout("models", event.currentTarget)} onclick={(event) => { openFlyout("models", event.currentTarget); void tick().then(() => modelSearch?.focus()); }}><span>{t("chat.hero.model")}</span><small>{selection.providerManaged ? t("chat.composer.providerManagedModel") : displayModelName(selectedModel)}</small><ChevronRight size={15} /></button>
           {#if effortDefinition}<button type="button" onpointerenter={(event) => handleOptionPointerEnter(effortDefinition, event)} onfocus={(event) => openOption(effortDefinition, event.currentTarget)} onclick={(event) => openOption(effortDefinition, event.currentTarget)}><span>{t("chat.composer.effort")}</span><small>{selectedOptionLabel(effortDefinition)}</small><ChevronRight size={15} /></button>{/if}
@@ -1080,11 +1080,12 @@
   .effort-guidance { display: flex; align-items: center; justify-content: space-between; padding-inline: 0.15rem; color: var(--muted-foreground); opacity: 0; pointer-events: none; transform: translateY(0.28rem); transition: opacity 170ms ease, transform 210ms cubic-bezier(0.2, 0.8, 0.2, 1); }
   .effort-footer.holding .quick-actions { opacity: 0; pointer-events: none; transform: translateY(0.22rem); }
   .effort-footer.holding .effort-guidance { opacity: 1; transform: translateY(0); }
-  .advanced-toggle, .advanced-heading { display: flex; min-height: 2rem; align-items: center; gap: 0.35rem; border-radius: 0.5rem; padding: 0.35rem 0.5rem; color: var(--muted-foreground); text-align: left; }
-  .advanced-toggle { width: auto; min-width: 0; flex: 0 0 auto; gap: 0.2rem; padding: 0.3rem 0.2rem; }
+  .advanced-toggle, .advanced-heading { display: flex; min-height: 2rem; align-items: center; gap: 0.2rem; border-radius: 0.5rem; padding: 0.3rem 0.2rem; color: var(--muted-foreground); text-align: left; }
+  .advanced-toggle { width: 100%; min-width: 0; flex: 1 1 auto; }
   .advanced-toggle:hover, .advanced-heading:hover { background: color-mix(in srgb, var(--accent) 65%, transparent); color: var(--foreground); }
-  .advanced-heading span { flex: 1; }
-  .advanced-heading { width: 100%; border-bottom: 1px solid var(--border); border-radius: 0.55rem 0.55rem 0 0; }
+  .advanced-heading { width: 100%; }
+  .advanced-chevron { display: grid; width: 0.95rem; height: 0.95rem; flex: 0 0 0.95rem; place-items: center; transform: rotate(0deg); transition: transform 240ms cubic-bezier(0.22, 0.75, 0.18, 1); }
+  .advanced-chevron.expanded { transform: rotate(90deg); }
   .fast-button { display: flex; width: 2rem; height: 2rem; flex: 0 0 auto; align-items: center; justify-content: flex-end; border-radius: 0.55rem; color: var(--muted-foreground); transition: color 240ms ease, background-color 240ms ease, transform 180ms cubic-bezier(0.2, 0.8, 0.2, 1); }
   .fast-button :global(svg) { fill: transparent; transform: scale(0.94); transition: fill 200ms ease, transform 220ms cubic-bezier(0.2, 0.8, 0.2, 1); }
   .fast-button.active :global(svg) { fill: currentColor; transform: scale(1); }
