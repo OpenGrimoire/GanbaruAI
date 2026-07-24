@@ -286,6 +286,13 @@ describe("ChatComposer", () => {
     expect(target.querySelector(".model-flyout")?.textContent).not.toContain("ProviderCodex");
     expect(advancedRows.some((button) => button.textContent?.startsWith("Interaction"))).toBe(false);
     expect(target.querySelector('[data-chat-field="interaction"]')).toBeNull();
+    trigger?.click();
+    await tick();
+    expect(target.querySelector(".model-popover")).toBeNull();
+    trigger?.click();
+    await tick();
+    expect(target.querySelector(".advanced-view.active")).not.toBeNull();
+    expect(target.querySelector<HTMLElement>(".overview-view")?.inert).toBe(true);
   });
 
   it("switches provider and model together from the model picker", async () => {

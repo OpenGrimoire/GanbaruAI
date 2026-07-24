@@ -257,7 +257,7 @@
     if (!anchoredChoices.some((choice) => choice.modelId === selection.modelId && choice.effortValue === selectedEffortValue())) {
       quickAnchorModelId = selectedModel?.id ?? null;
     }
-    view = provider ? "overview" : "advanced";
+    if (!provider) view = "advanced";
     flyout = provider ? null : "models";
     openPicker();
   }
@@ -1043,7 +1043,7 @@
   .effort-name { flex: 0 0 auto; color: var(--primary); transition: color 260ms ease; }
   .effort-name.ultra { color: #7c3aed; }
   .model-popover { position: absolute; right: 0; bottom: calc(100% + 0.45rem); z-index: 45; width: min(18.5rem, calc(100vw - 1rem)); overflow: visible; border: 1px solid var(--border); border-radius: 0.8rem; background: var(--popover); padding: 0.65rem 0.6rem 0.5rem; color: var(--popover-foreground); font-size: 0.875rem; box-shadow: 0 4px 12px rgb(0 0 0 / 0.08); }
-  .picker-stage { position: relative; overflow: clip; transition: height 320ms cubic-bezier(0.22, 0.75, 0.18, 1); }
+  .picker-stage { position: relative; overflow-x: visible; overflow-y: clip; transition: height 320ms cubic-bezier(0.22, 0.75, 0.18, 1); }
   .picker-view { width: 100%; opacity: 0; pointer-events: none; transition: opacity 190ms ease, transform 300ms cubic-bezier(0.22, 0.75, 0.18, 1); will-change: opacity, transform; }
   .picker-view:not(.active) { position: absolute; inset: 0 0 auto; }
   .overview-view { padding-top: 0.45rem; transform: translateY(-0.7rem) scale(0.99); }
@@ -1096,7 +1096,7 @@
   :global(.dark) .fast-button.active { background: rgb(22 129 220 / 0.16); color: #3b9aeb; }
   :global(.dark) .fast-button.active.ultra { background: rgb(167 139 250 / 0.15); color: #b794ff; }
   .advanced-list { padding-top: 0.3rem; }
-  .advanced-list button { display: grid; width: 100%; grid-template-columns: minmax(0, 1fr) minmax(0, auto) 1rem; align-items: center; gap: 0.5rem; border-radius: 0.55rem; padding: 0.5rem 0.6rem; text-align: left; }
+  .advanced-list button { display: grid; width: 100%; grid-template-columns: minmax(0, 1fr) minmax(0, auto) 1rem; align-items: center; gap: 0.5rem; border-radius: 0.55rem; padding: 0.5rem 0.2rem; text-align: left; }
   .advanced-list button:hover, .advanced-list button:focus-visible { background: color-mix(in srgb, var(--accent) 70%, transparent); outline: none; }
   .advanced-list small { overflow: hidden; max-width: 9rem; text-overflow: ellipsis; white-space: nowrap; color: var(--muted-foreground); font-size: 0.8125rem; }
   .model-flyout { position: absolute; z-index: 46; width: min(16.5rem, calc(100vw - 1rem)); max-height: min(28rem, 72vh); overflow: hidden auto; border: 1px solid var(--border); border-radius: 0.8rem; background: var(--popover); padding: 0.35rem; font-size: 0.875rem; box-shadow: 0 4px 12px rgb(0 0 0 / 0.09); }
@@ -1137,7 +1137,7 @@
   .model-company-content-inner { min-height: 0; overflow: hidden; }
   .company-setup { color: var(--muted-foreground); }
   .model-row { display: grid; grid-template-columns: minmax(0, 1fr) 2rem; align-items: center; border-radius: 0.55rem; }
-  .model-row:hover, .model-row:focus-within { background: var(--accent); }
+  .model-row:hover, .model-row:has(:focus-visible) { background: var(--accent); }
   .model-choice { display: grid; min-width: 0; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 0.4rem; padding: 0.38rem 0.5rem; text-align: left; }
   .model-choice:focus-visible, .model-favorite:focus-visible { outline: 1px solid color-mix(in srgb, var(--ring) 55%, transparent); outline-offset: -2px; }
   .model-choice:disabled { opacity: 0.55; }
