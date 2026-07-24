@@ -52,6 +52,7 @@ pub(super) struct ClaudeLiveSession {
     pub(super) session_id: ProviderSessionId,
     pub(super) effective_model: Option<ModelId>,
     pub(super) effective_effort: Option<String>,
+    pub(super) effective_fast_mode: Option<bool>,
 }
 
 impl Drop for ClaudeLiveSession {
@@ -125,6 +126,7 @@ impl ClaudeProviderDriver {
                     last_assistant_uuid: None,
                     model: None,
                     effort: None,
+                    fast_mode: None,
                     modes: TurnModeSnapshot {
                         safety_mode: SafetyMode::Supervised,
                         interaction_mode: InteractionMode::Build,
@@ -218,6 +220,7 @@ impl ClaudeProviderDriver {
         let cursor = input.cursor(&self.configuration.instance_id)?;
         let model = input.model_id().cloned();
         let effort = selected_effort(input.model_options())?;
+        let fast_mode = selected_fast_mode(input.model_options())?;
         let fresh_uuid =
             matches!(&input, SessionOpenInput::Fresh(_)).then_some(cursor.session_uuid.as_str());
         let resume_uuid =
@@ -231,6 +234,7 @@ impl ClaudeProviderDriver {
                     last_assistant_uuid: cursor.last_assistant_uuid.as_deref(),
                     model: model.as_ref(),
                     effort: effort.as_deref(),
+                    fast_mode,
                     modes: input.modes(),
                 },
             )
@@ -339,6 +343,7 @@ impl ClaudeProviderDriver {
             session_id: session_id.clone(),
             effective_model: model,
             effective_effort: effort,
+            effective_fast_mode: fast_mode,
         });
         Ok(ProviderSessionSnapshot {
             session_id,

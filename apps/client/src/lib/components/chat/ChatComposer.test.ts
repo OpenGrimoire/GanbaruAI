@@ -391,6 +391,9 @@ describe("ChatComposer", () => {
     expect(selection.options).toEqual([{
       key: "effort",
       value: { kind: "choice", value: "high" },
+    }, {
+      key: "fastMode",
+      value: { kind: "boolean", value: false },
     }]);
     const trigger = target.querySelector<HTMLButtonElement>("[data-chat-model-trigger]");
     expect(trigger?.textContent).toContain("Opus 4.8");
@@ -398,6 +401,7 @@ describe("ChatComposer", () => {
 
     trigger?.click();
     await tick();
+    expect(target.querySelector(".fast-button")).not.toBeNull();
     const choices = [...target.querySelectorAll<HTMLButtonElement>(".effort-options button")];
     expect(choices).toHaveLength(5);
     expect(choices[2]?.getAttribute("aria-pressed")).toBe("true");
@@ -635,6 +639,12 @@ function claudeModelSettings(): ChatSettingsRead {
           label: value,
           description: null,
         })),
+      }, {
+        kind: "boolean",
+        key: "fastMode",
+        label: "Fast mode",
+        description: "Lower latency with higher usage cost",
+        defaultValue: false,
       }],
     }],
   };

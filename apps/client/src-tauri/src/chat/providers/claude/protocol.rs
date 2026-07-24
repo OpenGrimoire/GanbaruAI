@@ -162,6 +162,7 @@ pub struct ClaudeLaunchOptions<'a> {
     pub last_assistant_uuid: Option<&'a str>,
     pub model: Option<&'a ModelId>,
     pub effort: Option<&'a str>,
+    pub fast_mode: Option<bool>,
     pub modes: TurnModeSnapshot,
 }
 
@@ -225,6 +226,10 @@ pub fn launch_arguments(
         }
         arguments.push("--effort".to_string());
         arguments.push(effort.to_string());
+    }
+    if let Some(fast_mode) = options.fast_mode {
+        arguments.push("--settings".to_string());
+        arguments.push(json!({ "fastMode": fast_mode }).to_string());
     }
     arguments.extend(configured.iter().cloned());
     Ok(arguments)
@@ -457,7 +462,11 @@ pub fn provider_models(
             continue;
         }
         let display_name = claude_model_display_name(&model);
-        let options = claude_model_options(model.supports_effort, &model.supported_effort_levels);
+        let options = claude_model_options(
+            model.supports_effort,
+            &model.supported_effort_levels,
+            claude_model_supports_fast_mode(&model),
+        );
         output.push(ProviderModel {
             id: ModelId::new(model.value.clone()).map_err(|_| protocol_error("model ID"))?,
             display_name: if display_name.is_empty() {
@@ -478,9 +487,13 @@ pub fn provider_models(
             continue;
         }
         validate_model_id(id)?;
+        let display_name = custom_labels.get(id).cloned().unwrap_or_else(|| id.clone());
+        let supports_fast_mode = [id.as_str(), display_name.as_str()]
+            .into_iter()
+            .any(claude_identity_supports_fast_mode);
         output.push(ProviderModel {
             id: ModelId::new(id.clone()).map_err(|_| protocol_error("custom model ID"))?,
-            display_name: custom_labels.get(id).cloned().unwrap_or_else(|| id.clone()),
+            display_name,
             description: Some("Custom Claude model ID".to_string()),
             context_limit: None,
             availability: ModelAvailability::Unknown,
@@ -488,6 +501,7 @@ pub fn provider_models(
             options: claude_model_options(
                 true,
                 &["low", "medium", "high", "xhigh", "max"].map(str::to_string),
+                supports_fast_mode,
             ),
             custom: true,
         });
@@ -586,35 +600,75 @@ fn resolved_claude_model_label(model_id: &str) -> Option<String> {
 fn claude_model_options(
     supports_effort: bool,
     supported_effort_levels: &[String],
+    supports_fast_mode: bool,
 ) -> Vec<ModelOptionDefinition> {
-    if !supports_effort {
-        return Vec::new();
+    let mut definitions = Vec::new();
+    if supports_effort {
+        let mut seen = BTreeSet::new();
+        let levels = supported_effort_levels
+            .iter()
+            .filter(|level| matches!(level.as_str(), "low" | "medium" | "high" | "xhigh" | "max"))
+            .filter(|level| seen.insert(level.as_str()))
+            .map(|level| ModelChoiceOption {
+                value: level.clone(),
+                label: level.clone(),
+                description: None,
+            })
+            .collect::<Vec<_>>();
+        if !levels.is_empty() {
+            let default_value = levels
+                .iter()
+                .find(|level| level.value == "high")
+                .map(|level| level.value.clone());
+            definitions.push(ModelOptionDefinition::Choice {
+                key: "effort".to_string(),
+                label: "Effort".to_string(),
+                description: Some("Provider-supported reasoning effort".to_string()),
+                options: levels,
+                default_value,
+            });
+        }
     }
-    let mut seen = BTreeSet::new();
-    let levels = supported_effort_levels
-        .iter()
-        .filter(|level| matches!(level.as_str(), "low" | "medium" | "high" | "xhigh" | "max"))
-        .filter(|level| seen.insert(level.as_str()))
-        .map(|level| ModelChoiceOption {
-            value: level.clone(),
-            label: level.clone(),
-            description: None,
-        })
-        .collect::<Vec<_>>();
-    if levels.is_empty() {
-        return Vec::new();
+    if supports_fast_mode {
+        definitions.push(ModelOptionDefinition::Boolean {
+            key: "fastMode".to_string(),
+            label: "Fast mode".to_string(),
+            description: Some("Lower latency with higher usage cost".to_string()),
+            default_value: Some(false),
+        });
     }
-    let default_value = levels
-        .iter()
-        .find(|level| level.value == "high")
-        .map(|level| level.value.clone());
-    vec![ModelOptionDefinition::Choice {
-        key: "effort".to_string(),
-        label: "Effort".to_string(),
-        description: Some("Provider-supported reasoning effort".to_string()),
-        options: levels,
-        default_value,
-    }]
+    definitions
+}
+
+fn claude_model_supports_fast_mode(model: &ClaudeModel) -> bool {
+    [
+        Some(model.value.as_str()),
+        model.resolved_model.as_deref(),
+        Some(model.display_name.as_str()),
+        model.description.as_deref(),
+    ]
+    .into_iter()
+    .flatten()
+    .any(claude_identity_supports_fast_mode)
+}
+
+fn claude_identity_supports_fast_mode(identity: &str) -> bool {
+    let normalized = identity.trim().to_ascii_lowercase();
+    if matches!(normalized.as_str(), "default" | "opus") {
+        return true;
+    }
+    let Some(opus_index) = normalized.find("opus") else {
+        return false;
+    };
+    let mut version_parts = normalized[opus_index + "opus".len()..]
+        .split(|character: char| !character.is_ascii_digit())
+        .filter(|part| !part.is_empty())
+        .filter_map(|part| part.parse::<u64>().ok());
+    let Some(major) = version_parts.next() else {
+        return false;
+    };
+    let minor = version_parts.next().unwrap_or_default();
+    (major, minor) >= (4, 6)
 }
 
 pub fn selected_effort(options: &[ModelOptionSelection]) -> ChatResult<Option<String>> {
@@ -633,6 +687,22 @@ pub fn selected_effort(options: &[ModelOptionSelection]) -> ChatResult<Option<St
     Ok(None)
 }
 
+pub fn selected_fast_mode(options: &[ModelOptionSelection]) -> ChatResult<Option<bool>> {
+    validate_model_options(options)?;
+    for option in options {
+        if option.key == "fastMode" {
+            let ModelOptionValue::Boolean(value) = &option.value else {
+                return Err(ChatError::validation(
+                    "modelOptions",
+                    "Claude Fast mode must use a boolean",
+                ));
+            };
+            return Ok(Some(*value));
+        }
+    }
+    Ok(None)
+}
+
 fn validate_model_options(options: &[ModelOptionSelection]) -> ChatResult<()> {
     if options.len() > MAX_MODEL_OPTIONS {
         return Err(ChatError::validation(
@@ -642,23 +712,34 @@ fn validate_model_options(options: &[ModelOptionSelection]) -> ChatResult<()> {
     }
     let mut keys = BTreeSet::new();
     for option in options {
-        if !keys.insert(option.key.as_str()) || option.key != "effort" {
+        if !keys.insert(option.key.as_str()) {
             return Err(ChatError::validation(
                 "modelOptions",
                 "Claude model option is unsupported or duplicated",
             ));
         }
-        let ModelOptionValue::Choice(value) = &option.value else {
-            return Err(ChatError::validation(
-                "modelOptions",
-                "Claude model option must use a single choice",
-            ));
-        };
-        if !matches!(value.as_str(), "low" | "medium" | "high" | "xhigh" | "max") {
-            return Err(ChatError::validation(
-                "modelOptions",
-                "Claude effort value is unsupported",
-            ));
+        match option.key.as_str() {
+            "effort" => {
+                let ModelOptionValue::Choice(value) = &option.value else {
+                    return Err(ChatError::validation(
+                        "modelOptions",
+                        "Claude effort must use a single choice",
+                    ));
+                };
+                if !matches!(value.as_str(), "low" | "medium" | "high" | "xhigh" | "max") {
+                    return Err(ChatError::validation(
+                        "modelOptions",
+                        "Claude effort value is unsupported",
+                    ));
+                }
+            }
+            "fastMode" if matches!(&option.value, ModelOptionValue::Boolean(_)) => {}
+            _ => {
+                return Err(ChatError::validation(
+                    "modelOptions",
+                    "Claude model option is unsupported or has the wrong type",
+                ));
+            }
         }
     }
     Ok(())
@@ -681,6 +762,7 @@ fn validate_launch_arguments(arguments: &[String]) -> ChatResult<()> {
         "--session-id",
         "--model",
         "--effort",
+        "--settings",
     ];
     if arguments.len() > MAX_LAUNCH_ARGUMENTS
         || arguments.iter().any(|argument| {

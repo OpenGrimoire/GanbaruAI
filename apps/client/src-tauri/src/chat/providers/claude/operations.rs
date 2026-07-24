@@ -161,10 +161,16 @@ impl ProviderDriver for ClaudeProviderDriver {
         Box::pin(async move {
             let message = build_user_message(&request)?;
             let requested_effort = selected_effort(&request.model_options)?;
+            let requested_fast_mode = selected_fast_mode(&request.model_options)?;
             let live = self.live_mut(&request.session_id)?;
             if requested_effort.is_some() && requested_effort != live.effective_effort {
                 return Err(ChatError::unsupported(
                     "Claude effort can only be changed when starting a session",
+                ));
+            }
+            if requested_fast_mode.is_some() && requested_fast_mode != live.effective_fast_mode {
+                return Err(ChatError::unsupported(
+                    "Claude Fast mode can only be changed when starting a session",
                 ));
             }
             let client = live.connection.client();

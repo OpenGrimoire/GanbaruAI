@@ -209,9 +209,10 @@ describe("Chat provider contracts", () => {
     expect(normalizeProviderModelCatalogForFamily(catalog, "claude").models.map((model) => ({
       id: model.id,
       displayName: model.displayName,
+      optionKeys: model.options.map((option) => option.key),
     }))).toEqual([
-      { id: "opus", displayName: "Opus 4.8" },
-      { id: "sonnet", displayName: "Sonnet 5" },
+      { id: "opus", displayName: "Opus 4.8", optionKeys: ["fastMode"] },
+      { id: "sonnet", displayName: "Sonnet 5", optionKeys: [] },
     ]);
   });
 

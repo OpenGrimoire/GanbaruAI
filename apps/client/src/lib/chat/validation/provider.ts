@@ -252,21 +252,49 @@ export function normalizeProviderModelCatalogForFamily(
     const normalized = defaultAlias && resolvedName !== model.displayName
       ? { ...model, displayName: resolvedName }
       : model;
-    const nameKey = normalized.displayName.toLocaleLowerCase();
+    const enriched = withClaudeFastMode(normalized);
+    const nameKey = enriched.displayName.toLocaleLowerCase();
     const existingIndex = modelIndexByName.get(nameKey);
     if (existingIndex === undefined) {
       modelIndexByName.set(nameKey, models.length);
       if (defaultAlias) defaultAliasIndexes.add(models.length);
-      models.push(normalized);
+      models.push(enriched);
       continue;
     }
     if (!defaultAlias && defaultAliasIndexes.has(existingIndex)) {
-      models[existingIndex] = normalized;
+      models[existingIndex] = enriched;
       defaultAliasIndexes.delete(existingIndex);
     }
   }
 
   return { ...catalog, models };
+}
+
+function withClaudeFastMode(model: ProviderModel): ProviderModel {
+  if (model.options.some((option) => option.key === "fastMode")) return model;
+  const supportsFastMode = [model.id, model.displayName, model.description ?? ""]
+    .some(claudeIdentitySupportsFastMode);
+  if (!supportsFastMode) return model;
+  return {
+    ...model,
+    options: [...model.options, {
+      kind: "boolean",
+      key: "fastMode",
+      label: "Fast mode",
+      description: "Lower latency with higher usage cost",
+      defaultValue: false,
+    }],
+  };
+}
+
+function claudeIdentitySupportsFastMode(identity: string): boolean {
+  const normalized = identity.trim().toLocaleLowerCase();
+  if (["default", "opus"].includes(normalized)) return true;
+  const match = /opus[^\d]*(\d+)(?:[.-](\d+))?/i.exec(normalized);
+  if (!match?.[1]) return false;
+  const major = Number.parseInt(match[1], 10);
+  const minor = Number.parseInt(match[2] ?? "0", 10);
+  return major > 4 || major === 4 && minor >= 6;
 }
 
 function isClaudeDefaultAlias(model: ProviderModel): boolean {

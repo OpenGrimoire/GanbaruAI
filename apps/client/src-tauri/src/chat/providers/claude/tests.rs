@@ -215,7 +215,33 @@ fn native_model_metadata_resolves_names_and_supported_effort_levels() {
         vec!["low", "medium", "high", "xhigh", "max"]
     );
     assert_eq!(default_value.as_deref(), Some("high"));
+    assert!(matches!(
+        models[0].options.get(1),
+        Some(ModelOptionDefinition::Boolean {
+            key,
+            default_value: Some(false),
+            ..
+        }) if key == "fastMode"
+    ));
+    assert_eq!(models[1].options.len(), 1);
     assert!(models[2].options.is_empty());
+}
+
+#[test]
+fn fast_mode_selection_accepts_only_boolean_values() {
+    assert_eq!(
+        selected_fast_mode(&[ModelOptionSelection {
+            key: "fastMode".to_string(),
+            value: ModelOptionValue::Boolean(true),
+        }])
+        .unwrap(),
+        Some(true)
+    );
+    assert!(selected_fast_mode(&[ModelOptionSelection {
+        key: "fastMode".to_string(),
+        value: ModelOptionValue::Choice("fast".to_string()),
+    }])
+    .is_err());
 }
 
 #[test]
@@ -227,8 +253,9 @@ fn launch_arguments_preserve_native_safety_and_resume_semantics() {
             fresh_session_uuid: Some("11111111-1111-4111-8111-111111111111"),
             resume_session_uuid: None,
             last_assistant_uuid: None,
-            model: Some(&ModelId::new("claude-sonnet-4-5".to_string()).unwrap()),
+            model: Some(&ModelId::new("claude-opus-4-8".to_string()).unwrap()),
             effort: Some("high"),
+            fast_mode: Some(true),
             modes: modes(SafetyMode::FullAccess, InteractionMode::Build),
         },
     )
@@ -243,6 +270,9 @@ fn launch_arguments_preserve_native_safety_and_resume_semantics() {
         .iter()
         .any(|value| value == "--allow-dangerously-skip-permissions"));
     assert!(fresh.windows(2).any(|pair| pair == ["--effort", "high"]));
+    assert!(fresh
+        .windows(2)
+        .any(|pair| pair == ["--settings", r#"{"fastMode":true}"#]));
 
     let resumed = launch_arguments(
         Vec::new(),
@@ -253,6 +283,7 @@ fn launch_arguments_preserve_native_safety_and_resume_semantics() {
             last_assistant_uuid: Some("22222222-2222-4222-8222-222222222222"),
             model: None,
             effort: None,
+            fast_mode: None,
             modes: modes(SafetyMode::Supervised, InteractionMode::Plan),
         },
     )
@@ -281,6 +312,7 @@ fn protected_transport_arguments_cannot_be_overridden() {
             last_assistant_uuid: None,
             model: None,
             effort: None,
+            fast_mode: None,
             modes: modes(SafetyMode::Supervised, InteractionMode::Build),
         },
     )
