@@ -83,3 +83,96 @@ export function modelCompany(familyId: string, model: ProviderModel | null): Mod
 export function integrationCompany(familyId: string): ModelCompanyIdentity {
   return COMPANIES[FAMILY_DEFAULTS[familyId] ?? "opencode"];
 }
+
+/**
+ * Compares models in the capability order people expect within a company catalog.
+ *
+ * Provider catalogs do not consistently arrive newest-first, and alphabetical order
+ * puts lightweight variants ahead of flagship models. Known product families use
+ * their public capability hierarchy, then semantic model versions. Unknown families
+ * retain the provider's original order through the stable caller sort.
+ *
+ * @param companyId - Company subsection containing both models.
+ * @param left - First model to compare.
+ * @param right - Second model to compare.
+ * @returns A standard array-sort comparison value.
+ */
+export function compareCompanyModels(
+  companyId: ModelCompanyId,
+  left: ProviderModel,
+  right: ProviderModel,
+): number {
+  const leftIdentity = modelIdentity(left);
+  const rightIdentity = modelIdentity(right);
+  if (companyId === "anthropic") {
+    return anthropicFamilyRank(leftIdentity) - anthropicFamilyRank(rightIdentity)
+      || compareVersionsDescending(leftIdentity, rightIdentity);
+  }
+  if (companyId === "xai") {
+    return xaiFamilyRank(leftIdentity) - xaiFamilyRank(rightIdentity)
+      || compareVersionsDescending(leftIdentity, rightIdentity)
+      || genericVariantRank(leftIdentity) - genericVariantRank(rightIdentity);
+  }
+  if (companyId === "openai") {
+    return compareVersionsDescending(leftIdentity, rightIdentity)
+      || openAiVariantRank(leftIdentity) - openAiVariantRank(rightIdentity);
+  }
+  if (["google", "meta", "mistral", "deepseek", "alibaba", "moonshot", "minimax"].includes(companyId)) {
+    return compareVersionsDescending(leftIdentity, rightIdentity)
+      || genericVariantRank(leftIdentity) - genericVariantRank(rightIdentity);
+  }
+  return 0;
+}
+
+function modelIdentity(model: ProviderModel): string {
+  return `${model.displayName} ${model.id}`.toLowerCase();
+}
+
+function anthropicFamilyRank(identity: string): number {
+  if (identity.includes("opus")) return 0;
+  if (identity.includes("sonnet")) return 1;
+  if (identity.includes("haiku")) return 2;
+  return 3;
+}
+
+function xaiFamilyRank(identity: string): number {
+  if (/grok[\s/_.-]*build/.test(identity)) return 0;
+  if (/grok[\s/_.-]*code[\s/_.-]*fast/.test(identity)) return 2;
+  return 1;
+}
+
+function openAiVariantRank(identity: string): number {
+  if (identity.includes("sol")) return 0;
+  if (identity.includes("terra")) return 1;
+  if (identity.includes("luna")) return 2;
+  if (identity.includes("pro")) return 3;
+  if (identity.includes("spark")) return 8;
+  if (identity.includes("nano")) return 7;
+  if (identity.includes("mini")) return 6;
+  if (identity.includes("codex")) return 5;
+  return 4;
+}
+
+function genericVariantRank(identity: string): number {
+  if (identity.includes("ultra") || identity.includes("max") || identity.includes("pro")) return 0;
+  if (identity.includes("flash-lite") || identity.includes("flash lite")) return 4;
+  if (identity.includes("flash") || identity.includes("fast")) return 3;
+  if (identity.includes("mini") || identity.includes("nano") || identity.includes("lite")) return 2;
+  return 1;
+}
+
+function compareVersionsDescending(leftIdentity: string, rightIdentity: string): number {
+  const leftVersion = modelVersion(leftIdentity);
+  const rightVersion = modelVersion(rightIdentity);
+  const length = Math.max(leftVersion.length, rightVersion.length);
+  for (let index = 0; index < length; index += 1) {
+    const comparison = (rightVersion[index] ?? 0) - (leftVersion[index] ?? 0);
+    if (comparison !== 0) return comparison;
+  }
+  return 0;
+}
+
+function modelVersion(identity: string): number[] {
+  const match = /(?:^|[^\d])(\d+(?:[.-]\d+){0,2})(?=$|[^\d])/.exec(identity);
+  return match?.[1]?.split(/[.-]/).map(Number) ?? [];
+}

@@ -12,6 +12,7 @@ import {
   parseProviderInstanceConfig,
   parseProviderModelCatalog,
   parseProviderProbeResult,
+  normalizeProviderModelCatalogForFamily,
 } from "./provider";
 import {
   readArray,
@@ -26,11 +27,15 @@ import {
 
 export function parseProviderInstanceRead(value: unknown, label = "provider instance"): ProviderInstanceRead {
   const record = readRecord(value, label);
+  const configuration = parseProviderInstanceConfig(record.configuration, `${label}.configuration`);
+  const modelCatalog = readNullable(record.modelCatalog, `${label}.modelCatalog`, parseProviderModelCatalog);
   return {
-    configuration: parseProviderInstanceConfig(record.configuration, `${label}.configuration`),
+    configuration,
     lastProbe: readNullable(record.lastProbe, `${label}.lastProbe`, parseProviderProbeResult),
     lastSuccessfulProbeAt: readNullable(record.lastSuccessfulProbeAt, `${label}.lastSuccessfulProbeAt`, readUtcTimestamp),
-    modelCatalog: readNullable(record.modelCatalog, `${label}.modelCatalog`, parseProviderModelCatalog),
+    modelCatalog: modelCatalog
+      ? normalizeProviderModelCatalogForFamily(modelCatalog, configuration.familyId)
+      : null,
   };
 }
 

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { ProviderModel } from "$lib/chat/contracts";
-import { integrationCompany, modelCompany } from "./model-company";
+import { compareCompanyModels, integrationCompany, modelCompany, type ModelCompanyId } from "./model-company";
 
 function model(id: string, displayName = id): ProviderModel {
   return {
@@ -31,4 +31,41 @@ describe("Chat model companies", () => {
     expect(modelCompany("opencode", model("qwen3-coder")).name).toBe("Alibaba");
     expect(modelCompany("cursor", model("composer-2")).name).toBe("Cursor");
   });
+
+  it("orders OpenAI models newest-first and strongest-first within a generation", () => {
+    expect(sorted("openai", [
+      model("gpt-5.3-codex-spark", "GPT-5.3-Codex-Spark"),
+      model("gpt-5.6-terra", "GPT-5.6-Terra"),
+      model("gpt-5.5", "GPT-5.5"),
+      model("gpt-5.6-luna", "GPT-5.6-Luna"),
+      model("gpt-5.6-sol", "GPT-5.6-Sol"),
+    ])).toEqual([
+      "gpt-5.6-sol",
+      "gpt-5.6-terra",
+      "gpt-5.6-luna",
+      "gpt-5.5",
+      "gpt-5.3-codex-spark",
+    ]);
+  });
+
+  it("orders Anthropic by capability family and newest version within each family", () => {
+    expect(sorted("anthropic", [
+      model("haiku", "Haiku 4.5"),
+      model("sonnet", "Sonnet 5"),
+      model("opus-old", "Opus 4.7"),
+      model("default", "Opus 4.8"),
+    ])).toEqual(["default", "opus-old", "sonnet", "haiku"]);
+  });
+
+  it("keeps Grok Build ahead of general and retired coding families", () => {
+    expect(sorted("xai", [
+      model("grok-code-fast-1"),
+      model("grok-4.3"),
+      model("grok-build-0.1"),
+    ])).toEqual(["grok-build-0.1", "grok-4.3", "grok-code-fast-1"]);
+  });
 });
+
+function sorted(companyId: ModelCompanyId, models: ProviderModel[]): string[] {
+  return models.sort((left, right) => compareCompanyModels(companyId, left, right)).map((entry) => entry.id);
+}

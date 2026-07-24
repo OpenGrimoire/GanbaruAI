@@ -517,20 +517,20 @@ fn claude_model_display_name(model: &ClaudeModel) -> String {
     if display_name.is_empty() {
         return String::new();
     }
-    if display_name
-        .chars()
-        .any(|character| character.is_ascii_digit())
-    {
-        return display_name.to_string();
-    }
     if model.value == "default" {
         if let Some(resolved) = model
             .resolved_model
             .as_deref()
             .and_then(resolved_claude_model_label)
         {
-            return format!("Default ({resolved})");
+            return resolved;
         }
+    }
+    if display_name
+        .chars()
+        .any(|character| character.is_ascii_digit())
+    {
+        return display_name.to_string();
     }
     if let Some(versioned_name) = model
         .description

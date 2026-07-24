@@ -13,6 +13,7 @@ import {
   parseProviderInstanceConfig,
   parseProviderModelCatalog,
   parseProviderRefreshResult,
+  normalizeProviderModelCatalogForFamily,
 } from "./validation";
 
 const timestamp = "2026-07-20T12:00:00Z";
@@ -163,6 +164,55 @@ describe("Chat provider contracts", () => {
     });
 
     expect(parsed.models).toEqual([]);
+  });
+
+  it("replaces cached Claude default aliases with the concrete model entry", () => {
+    const catalog = parseProviderModelCatalog({
+      instanceId: "claude",
+      models: [
+        {
+          id: "default",
+          displayName: "Default (Opus 4.8)",
+          description: "Use the default model (currently Opus 4.8)",
+          contextLimit: null,
+          availability: "available",
+          capabilities: [],
+          options: [],
+          custom: false,
+        },
+        {
+          id: "opus",
+          displayName: "Opus 4.8",
+          description: null,
+          contextLimit: null,
+          availability: "available",
+          capabilities: [],
+          options: [],
+          custom: false,
+        },
+        {
+          id: "sonnet",
+          displayName: "Sonnet 5",
+          description: null,
+          contextLimit: null,
+          availability: "available",
+          capabilities: [],
+          options: [],
+          custom: false,
+        },
+      ],
+      source: "provider",
+      discoveredAt: timestamp,
+      stale: false,
+    });
+
+    expect(normalizeProviderModelCatalogForFamily(catalog, "claude").models.map((model) => ({
+      id: model.id,
+      displayName: model.displayName,
+    }))).toEqual([
+      { id: "opus", displayName: "Opus 4.8" },
+      { id: "sonnet", displayName: "Sonnet 5" },
+    ]);
   });
 
   it("rejects partial metadata and unsupported capability values", () => {

@@ -11,6 +11,7 @@ import {
   type ProviderCapabilities,
   type ProviderCapabilitySupport,
   type ProviderFamilyMetadataRead,
+  type ProviderFamilyId,
   type ProviderInstanceConfig,
   type ProviderModel,
   type ProviderModelCatalog,
@@ -221,4 +222,66 @@ export function parseProviderModelCatalog(value: unknown, label = "provider mode
     discoveredAt: readUtcTimestamp(record.discoveredAt, `${label}.discoveredAt`),
     stale: readBoolean(record.stale, `${label}.stale`),
   };
+}
+
+/**
+ * Normalizes provider aliases that should not appear as separate model choices.
+ *
+ * Claude Code can report a `default` routing alias alongside the concrete model it
+ * currently resolves to. Older cached catalogs also retain the word Default in the
+ * display name. The picker should expose the concrete model once, while preserving
+ * the alias ID when it is the only available route.
+ *
+ * @param catalog - Validated provider model catalog.
+ * @param familyId - Execution integration family owning the catalog.
+ * @returns A catalog suitable for every frontend model consumer.
+ */
+export function normalizeProviderModelCatalogForFamily(
+  catalog: ProviderModelCatalog,
+  familyId: ProviderFamilyId,
+): ProviderModelCatalog {
+  if (familyId !== "claude") return catalog;
+  const models: ProviderModel[] = [];
+  const modelIndexByName = new Map<string, number>();
+  const defaultAliasIndexes = new Set<number>();
+
+  for (const model of catalog.models) {
+    const defaultAlias = isClaudeDefaultAlias(model);
+    const resolvedName = defaultAlias ? resolvedClaudeAliasName(model) : model.displayName.trim();
+    if (!resolvedName) continue;
+    const normalized = defaultAlias && resolvedName !== model.displayName
+      ? { ...model, displayName: resolvedName }
+      : model;
+    const nameKey = normalized.displayName.toLocaleLowerCase();
+    const existingIndex = modelIndexByName.get(nameKey);
+    if (existingIndex === undefined) {
+      modelIndexByName.set(nameKey, models.length);
+      if (defaultAlias) defaultAliasIndexes.add(models.length);
+      models.push(normalized);
+      continue;
+    }
+    if (!defaultAlias && defaultAliasIndexes.has(existingIndex)) {
+      models[existingIndex] = normalized;
+      defaultAliasIndexes.delete(existingIndex);
+    }
+  }
+
+  return { ...catalog, models };
+}
+
+function isClaudeDefaultAlias(model: ProviderModel): boolean {
+  return model.id.toLocaleLowerCase() === "default"
+    || /^default(?:\s|\()/i.test(model.displayName.trim());
+}
+
+function resolvedClaudeAliasName(model: ProviderModel): string {
+  const displayName = model.displayName.trim();
+  const concreteMatch = /^(?:claude\s+)?(?:opus|sonnet|haiku)\s+\d+(?:\.\d+)*$/i.exec(displayName);
+  if (concreteMatch) return displayName;
+  const displayMatch = /^default\s*\(\s*((?:claude\s+)?(?:opus|sonnet|haiku)\s+\d+(?:\.\d+)*)\s*\)$/i
+    .exec(displayName);
+  if (displayMatch?.[1]) return displayMatch[1];
+  const descriptionMatch = /\bcurrently\s+((?:claude\s+)?(?:opus|sonnet|haiku)\s+\d+(?:\.\d+)*)/i
+    .exec(model.description ?? "");
+  return descriptionMatch?.[1] ?? "";
 }

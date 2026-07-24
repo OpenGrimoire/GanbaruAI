@@ -317,7 +317,7 @@ describe("ChatComposer", () => {
     expect(target.querySelector('[data-model-company="openai"]')).not.toBeNull();
     expect(target.querySelector('[data-model-company="anthropic"]')).not.toBeNull();
     const claudeModel = [...target.querySelectorAll<HTMLButtonElement>('[data-model-company="anthropic"] .model-choice')]
-      .find((button) => button.textContent?.includes("Default (Opus 4.8)"));
+      .find((button) => button.textContent?.includes("Opus 4.8"));
     claudeModel?.click();
     await tick();
 
@@ -357,7 +357,7 @@ describe("ChatComposer", () => {
     expect(providerModelRow?.querySelector(".model-provider-caption")).toBeNull();
     const favoriteText = target.querySelector(".favorite-company-section")?.textContent ?? "";
     expect(favoriteText).toContain("5.6 Sol");
-    expect(favoriteText).toContain("Default (Opus 4.8)");
+    expect(favoriteText).toContain("Opus 4.8");
     expect(favoriteText).toContain("OpenAI");
     expect(favoriteText).toContain("Anthropic");
     expect(favoriteText).not.toContain("gpt-5.6-sol");
@@ -393,7 +393,7 @@ describe("ChatComposer", () => {
       value: { kind: "choice", value: "high" },
     }]);
     const trigger = target.querySelector<HTMLButtonElement>("[data-chat-model-trigger]");
-    expect(trigger?.textContent).toContain("Default (Opus 4.8)");
+    expect(trigger?.textContent).toContain("Opus 4.8");
     expect(trigger?.textContent).toContain("High");
 
     trigger?.click();
@@ -618,7 +618,7 @@ function claudeModelSettings(): ChatSettingsRead {
     stale: false,
     models: [{
       id: "default",
-      displayName: "Default (Opus 4.8)",
+      displayName: "Opus 4.8",
       description: "Use the default model (currently Opus 4.8)",
       contextLimit: null,
       availability: "available",

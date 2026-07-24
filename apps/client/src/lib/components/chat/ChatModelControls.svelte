@@ -17,7 +17,7 @@
     ProviderModel,
   } from "$lib/chat/contracts";
   import { composerModelSelection, rankedModels, readComposerModelSelection } from "$lib/chat/composer-model";
-  import { integrationCompany, modelCompany, type ModelCompanyIdentity } from "$lib/chat/model-company";
+  import { compareCompanyModels, integrationCompany, modelCompany, type ModelCompanyIdentity } from "$lib/chat/model-company";
   import * as chatApi from "$lib/api/chat";
   import { formatNumber } from "$lib/i18n/formatters";
   import { getLocalization } from "$lib/i18n/translator.svelte";
@@ -750,10 +750,7 @@
 
     for (const entry of entries) {
       const visible = visibleModels(entry);
-      const recentIds = chat.settings?.configuration.rememberedSelections
-        .filter((selectionEntry) => selectionEntry.providerInstanceId === entry.configuration.instanceId && selectionEntry.modelId)
-        .map((selectionEntry) => selectionEntry.modelId as string) ?? [];
-      const ranked = rankedModels(visible, entry.configuration.favoriteModelIds, recentIds, query);
+      const ranked = rankedModels(visible, [], [], query);
       for (const model of ranked) {
         sectionFor(modelCompany(entry.configuration.familyId, model)).models.push({ provider: entry, model });
       }
@@ -771,9 +768,15 @@
       }
     }
 
-    return [...sections.values()]
+    const results = [...sections.values()]
       .filter((section) => section.models.length > 0 || section.managedProviders.length > 0 || section.setupFamilies.length > 0)
       .sort((left, right) => left.company.order - right.company.order || left.company.name.localeCompare(right.company.name));
+    if (!query.trim()) {
+      for (const section of results) {
+        section.models.sort((left, right) => compareCompanyModels(section.company.id, left.model, right.model));
+      }
+    }
+    return results;
   }
 
   function buildQuickEffortChoices(anchor: ProviderModel | null, availableModels: ProviderModel[]): QuickEffortChoice[] {
