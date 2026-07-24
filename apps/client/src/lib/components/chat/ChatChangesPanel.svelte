@@ -17,31 +17,41 @@
     ChatCheckpointFileDiffRead,
     ChatChangedFileRead,
   } from "$lib/chat/contracts";
-  import { splitDiffFits } from "$lib/chat/inspector-model";
+  import { splitDiffFits, splitPaneResizeBounds } from "$lib/chat/inspector-model";
+  import { alignPanelSizeToDevicePixel } from "$lib/chat/responsive-layout";
   import { formatNumber } from "$lib/i18n/formatters";
   import { getLocalization } from "$lib/i18n/translator.svelte";
   import { getChat } from "$lib/stores/chat.svelte";
   import ChatChangedFileTree from "./ChatChangedFileTree.svelte";
   import ChatFileIcon from "./ChatFileIcon.svelte";
+  import ChatPaneResizeHandle from "./ChatPaneResizeHandle.svelte";
 
   let {
     scope,
     selectedFile,
+    fileListHeightPx,
     whitespaceIgnored,
     diffView,
     onStateChange,
   }: {
     scope: ChatChangeScope;
     selectedFile: string | null;
+    fileListHeightPx: number;
     whitespaceIgnored: boolean;
     diffView: "auto" | "unified" | "split";
     onStateChange: (update: {
       scope?: ChatChangeScope;
       selectedFile?: string | null;
+      fileListHeightPx?: number;
       whitespaceIgnored?: boolean;
       diffView?: "auto" | "unified" | "split";
     }) => void;
   } = $props();
+
+  const DEFAULT_FILE_LIST_HEIGHT = 160;
+  const MIN_FILE_LIST_HEIGHT = 112;
+  const MIN_DIFF_HEIGHT = 64;
+  const MAX_FILE_LIST_HEIGHT = 420;
 
   const localization = getLocalization();
   const { t } = localization;
@@ -53,18 +63,42 @@
   let error = $state<string | null>(null);
   let restoring = $state(false);
   let diffHost: HTMLElement | undefined = $state();
+  let splitElement: HTMLDivElement | undefined = $state();
   let diffScroller: HTMLElement | undefined = $state();
   let diffWidth = $state(0);
+  let splitHeight = $state(0);
+  let renderedFileListHeight = $state(DEFAULT_FILE_LIST_HEIGHT);
+  let resizingFileList = $state(false);
+  let fileListResizeFrame: number | null = null;
+  let fileListResizeEndFrame: number | null = null;
   const threadId = $derived(chat.selectedThreadId);
   const workspaceId = $derived(chat.selectedWorkspaceId);
   const splitView = $derived(diffView === "split" || (diffView === "auto" && splitDiffFits(diffWidth)));
 
   onMount(() => {
-    const observer = new ResizeObserver(([entry]) => {
-      if (entry) diffWidth = entry.contentRect.width;
+    const observer = new ResizeObserver((entries) => {
+      for (const entry of entries) {
+        if (entry.target === diffHost) diffWidth = entry.contentRect.width;
+        if (entry.target === splitElement) splitHeight = entry.contentRect.height;
+      }
     });
     if (diffHost) observer.observe(diffHost);
-    return () => observer.disconnect();
+    if (splitElement) observer.observe(splitElement);
+    return () => {
+      observer.disconnect();
+      if (fileListResizeFrame !== null) window.cancelAnimationFrame(fileListResizeFrame);
+      if (fileListResizeEndFrame !== null) window.cancelAnimationFrame(fileListResizeEndFrame);
+    };
+  });
+
+  $effect(() => {
+    const configuredHeight = fileListHeightPx;
+    const availableHeight = splitHeight;
+    if (!resizingFileList) {
+      renderedFileListHeight = availableHeight > 0
+        ? alignFileListHeight(configuredHeight)
+        : configuredHeight;
+    }
   });
 
   $effect(() => {
@@ -164,6 +198,84 @@
     chat.setComposerMentions([...mentions, { relativePath: path, kind: "file", ignored: false }]);
   }
 
+  function fileListResizeBounds(): { minimum: number; maximum: number } {
+    return splitPaneResizeBounds(
+      splitHeight,
+      MIN_FILE_LIST_HEIGHT,
+      MIN_DIFF_HEIGHT,
+      MAX_FILE_LIST_HEIGHT,
+    );
+  }
+
+  function alignFileListHeight(value: number): number {
+    const bounds = fileListResizeBounds();
+    const anchor = splitElement?.getBoundingClientRect().top ?? 0;
+    return alignPanelSizeToDevicePixel({
+      value,
+      minimum: bounds.minimum,
+      maximum: bounds.maximum,
+      anchor,
+      direction: "from-start",
+      devicePixelRatio: window.devicePixelRatio,
+    });
+  }
+
+  function beginFileListResize(event: PointerEvent): void {
+    event.preventDefault();
+    if (splitElement) splitHeight = splitElement.getBoundingClientRect().height;
+    if (fileListResizeEndFrame !== null) window.cancelAnimationFrame(fileListResizeEndFrame);
+    fileListResizeEndFrame = null;
+    resizingFileList = true;
+    const startY = event.clientY;
+    const startHeight = renderedFileListHeight;
+    const target = event.currentTarget as HTMLElement;
+    let pendingHeight = startHeight;
+    target.focus();
+    target.setPointerCapture(event.pointerId);
+    const move = (moveEvent: PointerEvent) => {
+      pendingHeight = alignFileListHeight(startHeight + moveEvent.clientY - startY);
+      if (fileListResizeFrame !== null) return;
+      fileListResizeFrame = window.requestAnimationFrame(() => {
+        renderedFileListHeight = pendingHeight;
+        fileListResizeFrame = null;
+      });
+    };
+    const end = () => {
+      target.removeEventListener("pointermove", move);
+      target.removeEventListener("pointerup", end);
+      target.removeEventListener("pointercancel", end);
+      if (fileListResizeFrame !== null) window.cancelAnimationFrame(fileListResizeFrame);
+      fileListResizeFrame = null;
+      renderedFileListHeight = pendingHeight;
+      onStateChange({ fileListHeightPx: pendingHeight });
+      fileListResizeEndFrame = window.requestAnimationFrame(() => {
+        fileListResizeEndFrame = window.requestAnimationFrame(() => {
+          resizingFileList = false;
+          fileListResizeEndFrame = null;
+        });
+      });
+    };
+    target.addEventListener("pointermove", move);
+    target.addEventListener("pointerup", end);
+    target.addEventListener("pointercancel", end);
+  }
+
+  function resizeFileListFromKey(event: KeyboardEvent): void {
+    const bounds = fileListResizeBounds();
+    let next: number;
+    switch (event.key) {
+      case "ArrowUp": next = renderedFileListHeight - 16; break;
+      case "ArrowDown": next = renderedFileListHeight + 16; break;
+      case "Home": next = bounds.minimum; break;
+      case "End": next = bounds.maximum; break;
+      case "Enter": next = DEFAULT_FILE_LIST_HEIGHT; break;
+      default: return;
+    }
+    event.preventDefault();
+    renderedFileListHeight = alignFileListHeight(next);
+    onStateChange({ fileListHeightPx: renderedFileListHeight });
+  }
+
   async function restoreCheckpoint(): Promise<void> {
     if (!threadId || !diff?.preCheckpointId || !chat.selectedThread) return;
     restoring = true;
@@ -219,8 +331,8 @@
     <p class="border-b border-border p-2 text-xs text-muted-foreground">{t("chat.inspector.nonGitNotice")}</p>
   {/if}
 
-  <div class="grid min-h-0 flex-1 grid-rows-[minmax(7rem,0.65fr)_minmax(12rem,1.35fr)]">
-    <div class="min-h-0 overflow-auto border-b border-border p-2">
+  <div bind:this={splitElement} class="changes-layout" class:resizing={resizingFileList} style={`--changed-file-list-height:${renderedFileListHeight}px`}>
+    <div class="changed-file-list min-h-0 overflow-auto p-2">
       {#if loading}
         <p class="p-2 text-xs text-muted-foreground">{t("common.loading")}</p>
       {:else if diff?.files.length}
@@ -230,7 +342,9 @@
       {/if}
     </div>
 
-    <section bind:this={diffHost} class="flex min-h-0 flex-col">
+    <ChatPaneResizeHandle orientation="horizontal" value={renderedFileListHeight} minimum={fileListResizeBounds().minimum} maximum={fileListResizeBounds().maximum} label={t("chat.resizeChangedFileList")} active={resizingFileList} onPointerDown={beginFileListResize} onKeyDown={resizeFileListFromKey} />
+
+    <section bind:this={diffHost} class="diff-pane">
       {#if selectedFile}
         <header class="diff-heading">
           <ChatFileIcon path={selectedFile} />
@@ -273,6 +387,10 @@
 </div>
 
 <style>
+  .changes-layout { display: flex; min-height: 0; flex: 1; flex-direction: column; }
+  .changes-layout.resizing, .changes-layout.resizing * { user-select: none; }
+  .changed-file-list { height: var(--changed-file-list-height); flex: 0 0 var(--changed-file-list-height); }
+  .diff-pane { display: flex; min-height: 0; flex: 1; flex-direction: column; }
   .diff-toolbar { display: flex; min-height: 2.7rem; flex: 0 0 auto; align-items: center; gap: 0.3rem; overflow-x: auto; border-bottom: 1px solid var(--border); padding: 0.35rem 0.4rem; }
   .scope-control { display: flex; flex: 0 0 auto; border: 1px solid var(--border); border-radius: 0.45rem; padding: 0.15rem; }
   .chat-scope-button { display: inline-flex; min-height: 1.65rem; align-items: center; gap: 0.3rem; border-radius: 0.3rem; padding: 0.2rem 0.4rem; color: var(--muted-foreground); font-size: 0.633333rem; }

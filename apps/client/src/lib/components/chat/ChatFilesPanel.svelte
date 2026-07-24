@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { onMount } from "svelte";
   import Copy from "@lucide/svelte/icons/copy";
   import ExternalLink from "@lucide/svelte/icons/external-link";
   import Eye from "@lucide/svelte/icons/eye";
@@ -15,29 +16,40 @@
     ChatWorkspacePathRead,
   } from "$lib/chat/contracts";
   import { flattenChatFileTree, type ChatFileTreeRow } from "$lib/chat/file-tree-model";
+  import { splitPaneResizeBounds } from "$lib/chat/inspector-model";
+  import { alignPanelSizeToDevicePixel, panelWidthFromKey } from "$lib/chat/responsive-layout";
   import { boundTerminalContext } from "$lib/chat/terminal-model";
   import { formatNumber } from "$lib/i18n/formatters";
   import { getLocalization } from "$lib/i18n/translator.svelte";
   import { getChat } from "$lib/stores/chat.svelte";
   import ChatCodePreview from "./ChatCodePreview.svelte";
   import ChatFileIcon from "./ChatFileIcon.svelte";
+  import ChatPaneResizeHandle from "./ChatPaneResizeHandle.svelte";
   import ChatWorkspaceFileTree from "./ChatWorkspaceFileTree.svelte";
 
   let {
     directoryPath,
     selectedPath,
     treeVisible,
+    treeWidthPx,
     onStateChange,
   }: {
     directoryPath: string;
     selectedPath: string | null;
     treeVisible: boolean;
+    treeWidthPx: number;
     onStateChange: (change: {
       directoryPath?: string;
       selectedPath?: string | null;
       treeVisible?: boolean;
+      treeWidthPx?: number;
     }) => void;
   } = $props();
+
+  const DEFAULT_TREE_WIDTH = 220;
+  const MIN_TREE_WIDTH = 144;
+  const MIN_PREVIEW_WIDTH = 120;
+  const MAX_TREE_WIDTH = 360;
 
   const localization = getLocalization();
   const { t } = localization;
@@ -48,6 +60,10 @@
   let loadingPaths = $state<string[]>([]);
   let preview = $state<ChatWorkspaceFilePreview | null>(null);
   let previewElement: HTMLElement | undefined = $state();
+  let panelElement: HTMLDivElement | undefined = $state();
+  let panelWidth = $state(0);
+  let renderedTreeWidth = $state(DEFAULT_TREE_WIDTH);
+  let resizingTree = $state(false);
   let query = $state("");
   let searchResults = $state<ChatWorkspacePathRead[]>([]);
   let includeIgnored = $state(false);
@@ -57,6 +73,8 @@
   let loadedScope = "";
   let treeRequestId = 0;
   let previewRequestId = 0;
+  let treeResizeFrame: number | null = null;
+  let treeResizeEndFrame: number | null = null;
   const workspaceId = $derived(chat.selectedWorkspaceId);
   const treeRows = $derived(flattenChatFileTree(rootEntries, childrenByDirectory, expandedPaths));
   const shownRows = $derived.by<ChatFileTreeRow[]>(() => {
@@ -70,6 +88,28 @@
   const changedPaths = $derived(new Set(
     chat.timelinePages.flatMap((page) => page.turns.flatMap((turn) => turn.changedFiles.map((file) => file.relativePath))),
   ));
+
+  onMount(() => {
+    const observer = new ResizeObserver(([entry]) => {
+      if (entry) panelWidth = entry.contentRect.width;
+    });
+    if (panelElement) observer.observe(panelElement);
+    return () => {
+      observer.disconnect();
+      if (treeResizeFrame !== null) window.cancelAnimationFrame(treeResizeFrame);
+      if (treeResizeEndFrame !== null) window.cancelAnimationFrame(treeResizeEndFrame);
+    };
+  });
+
+  $effect(() => {
+    const configuredWidth = treeWidthPx;
+    const availableWidth = panelWidth;
+    if (!resizingTree) {
+      renderedTreeWidth = availableWidth > 0
+        ? alignTreeWidth(configuredWidth)
+        : configuredWidth;
+    }
+  });
 
   $effect(() => {
     const workspace = workspaceId;
@@ -205,6 +245,85 @@
     chat.setComposerMentions([...mentions, { relativePath: path, kind: "file", ignored: false }]);
   }
 
+  function treeResizeBounds(): { minimum: number; maximum: number } {
+    return splitPaneResizeBounds(
+      panelWidth,
+      MIN_TREE_WIDTH,
+      MIN_PREVIEW_WIDTH,
+      MAX_TREE_WIDTH,
+    );
+  }
+
+  function alignTreeWidth(value: number): number {
+    const bounds = treeResizeBounds();
+    const anchor = panelElement?.getBoundingClientRect().left ?? 0;
+    return alignPanelSizeToDevicePixel({
+      value,
+      minimum: bounds.minimum,
+      maximum: bounds.maximum,
+      anchor,
+      direction: "from-start",
+      devicePixelRatio: window.devicePixelRatio,
+    });
+  }
+
+  function beginTreeResize(event: PointerEvent): void {
+    event.preventDefault();
+    if (panelElement) panelWidth = panelElement.getBoundingClientRect().width;
+    if (treeResizeEndFrame !== null) window.cancelAnimationFrame(treeResizeEndFrame);
+    treeResizeEndFrame = null;
+    resizingTree = true;
+    const startX = event.clientX;
+    const startWidth = renderedTreeWidth;
+    const target = event.currentTarget as HTMLElement;
+    let pendingWidth = startWidth;
+    target.focus();
+    target.setPointerCapture(event.pointerId);
+    const move = (moveEvent: PointerEvent) => {
+      pendingWidth = alignTreeWidth(startWidth + moveEvent.clientX - startX);
+      if (treeResizeFrame !== null) return;
+      treeResizeFrame = window.requestAnimationFrame(() => {
+        renderedTreeWidth = pendingWidth;
+        treeResizeFrame = null;
+      });
+    };
+    const end = () => {
+      target.removeEventListener("pointermove", move);
+      target.removeEventListener("pointerup", end);
+      target.removeEventListener("pointercancel", end);
+      if (treeResizeFrame !== null) window.cancelAnimationFrame(treeResizeFrame);
+      treeResizeFrame = null;
+      renderedTreeWidth = pendingWidth;
+      onStateChange({ treeWidthPx: pendingWidth });
+      treeResizeEndFrame = window.requestAnimationFrame(() => {
+        treeResizeEndFrame = window.requestAnimationFrame(() => {
+          resizingTree = false;
+          treeResizeEndFrame = null;
+        });
+      });
+    };
+    target.addEventListener("pointermove", move);
+    target.addEventListener("pointerup", end);
+    target.addEventListener("pointercancel", end);
+  }
+
+  function resizeTreeFromKey(event: KeyboardEvent): void {
+    const bounds = treeResizeBounds();
+    const next = panelWidthFromKey({
+      current: renderedTreeWidth,
+      minimum: bounds.minimum,
+      maximum: bounds.maximum,
+      defaultValue: DEFAULT_TREE_WIDTH,
+      step: 16,
+      direction: "standard",
+      key: event.key,
+    });
+    if (next === null) return;
+    event.preventDefault();
+    renderedTreeWidth = alignTreeWidth(next);
+    onStateChange({ treeWidthPx: renderedTreeWidth });
+  }
+
   async function attachSelection(): Promise<void> {
     if (!workspaceId || !selectedPath) return;
     const browserSelection = window.getSelection();
@@ -227,7 +346,7 @@
 </script>
 
 <div class="files-panel">
-  <div class="files-layout" class:tree-hidden={!treeVisible}>
+  <div bind:this={panelElement} class="files-layout" class:resizing={resizingTree} style={`--file-tree-width:${renderedTreeWidth}px`}>
     {#if treeVisible}
       <aside class="file-tree-pane" aria-label={t("chat.inspector.files")}>
         <div class="tree-toolbar">
@@ -252,6 +371,7 @@
           <p class="p-2 text-xs text-muted-foreground">{query.trim() ? t("chat.inspector.noFileResults") : t("chat.inspector.emptyDirectory")}</p>
         {/if}
       </aside>
+      <ChatPaneResizeHandle orientation="vertical" value={renderedTreeWidth} minimum={treeResizeBounds().minimum} maximum={treeResizeBounds().maximum} label={t("chat.resizeFileTree")} active={resizingTree} onPointerDown={beginTreeResize} onKeyDown={resizeTreeFromKey} />
     {/if}
 
     <section bind:this={previewElement} class="file-editor" aria-label={t("chat.inspector.filePreview")}>
@@ -286,17 +406,16 @@
 </div>
 
 <style>
-  .files-panel { container: files-panel / inline-size; display: flex; height: 100%; min-height: 0; flex-direction: column; }
-  .files-layout { display: grid; min-height: 0; flex: 1; grid-template-columns: clamp(9rem, 38%, 16rem) minmax(0, 1fr); }
-  .files-layout.tree-hidden { grid-template-columns: minmax(0, 1fr); }
-  .file-tree-pane { display: flex; min-width: 0; min-height: 0; flex-direction: column; overflow: hidden; border-right: 1px solid var(--border); background: color-mix(in srgb, var(--cal-bg) 96%, var(--muted)); }
+  .files-panel { display: flex; height: 100%; min-height: 0; flex-direction: column; }
+  .files-layout { display: flex; min-height: 0; flex: 1; }
+  .files-layout.resizing, .files-layout.resizing * { user-select: none; }
+  .file-tree-pane { display: flex; width: var(--file-tree-width); min-width: 0; min-height: 0; flex: 0 0 var(--file-tree-width); flex-direction: column; overflow: hidden; background: color-mix(in srgb, var(--cal-bg) 96%, var(--muted)); }
   .tree-toolbar { display: flex; min-height: 2.45rem; flex: 0 0 auto; align-items: center; gap: 0.15rem; border-bottom: 1px solid var(--border); padding: 0.3rem; }
   .file-search { display: flex; min-width: 0; min-height: 1.75rem; flex: 1; align-items: center; gap: 0.35rem; border-radius: 0.4rem; padding-inline: 0.4rem; color: var(--muted-foreground); }
   .file-search:focus-within { background: var(--background); box-shadow: inset 0 0 0 1px var(--ring); color: var(--foreground); }
   .file-search input { min-width: 0; flex: 1; background: transparent; color: var(--foreground); font-size: 0.7rem; outline: none; }
   .tree-action { display: inline-grid; width: 1.7rem; height: 1.7rem; flex: 0 0 auto; place-items: center; border-radius: 0.35rem; color: var(--muted-foreground); }
   .tree-action:hover, .tree-action.active { background: var(--accent); color: var(--foreground); }
-  .file-editor { display: flex; min-width: 0; min-height: 0; flex-direction: column; overflow: hidden; }
+  .file-editor { display: flex; min-width: 0; min-height: 0; flex: 1; flex-direction: column; overflow: hidden; }
   .editor-heading { display: flex; min-height: 2.45rem; flex: 0 0 auto; align-items: center; gap: 0.25rem; border-bottom: 1px solid var(--border); padding: 0.3rem 0.4rem; }
-  @container files-panel (max-width: 360px) { .files-layout { grid-template-columns: clamp(8rem, 42%, 10rem) minmax(0, 1fr); } }
 </style>

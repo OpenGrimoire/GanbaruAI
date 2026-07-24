@@ -480,11 +480,13 @@
       <ChatChangesPanel
         scope={panelState.changeScope}
         selectedFile={panelState.selectedFile}
+        fileListHeightPx={panelState.changedFileListHeightPx}
         whitespaceIgnored={panelState.whitespaceIgnored}
         diffView={panelState.diffView}
         onStateChange={(change) => update({
           ...(change.scope === undefined ? {} : { changeScope: change.scope }),
           ...(change.selectedFile === undefined ? {} : { selectedFile: change.selectedFile }),
+          ...(change.fileListHeightPx === undefined ? {} : { changedFileListHeightPx: change.fileListHeightPx }),
           ...(change.whitespaceIgnored === undefined ? {} : { whitespaceIgnored: change.whitespaceIgnored }),
           ...(change.diffView === undefined ? {} : { diffView: change.diffView }),
         })}
@@ -496,10 +498,12 @@
         directoryPath={panelState.fileBrowserPath}
         selectedPath={panelState.filePreviewPath}
         treeVisible={panelState.fileTreeVisible}
+        treeWidthPx={panelState.fileTreeWidthPx}
         onStateChange={(change) => update({
           ...(change.directoryPath === undefined ? {} : { fileBrowserPath: change.directoryPath }),
           ...(change.selectedPath === undefined ? {} : { filePreviewPath: change.selectedPath }),
           ...(change.treeVisible === undefined ? {} : { fileTreeVisible: change.treeVisible }),
+          ...(change.treeWidthPx === undefined ? {} : { fileTreeWidthPx: change.treeWidthPx }),
         })}
       />
     {/if}

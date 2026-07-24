@@ -7,6 +7,7 @@ import {
   inspectorPresentation,
   inspectorSessionKey,
   openInspectorTab,
+  splitPaneResizeBounds,
   splitDiffFits,
 } from "./inspector-model";
 
@@ -33,6 +34,17 @@ describe("Chat inspector model", () => {
     expect(state.read(null).tab).toBe("terminal");
     expect(state.read("thread-a").openTabs).toEqual(["terminal"]);
     expect(state.read("thread-a").fileTreeVisible).toBe(false);
+  });
+
+  it("preserves internal pane sizes independently per placement session", () => {
+    const inspector = new ChatInspectorSessionState("files");
+    const bottom = new ChatInspectorSessionState("terminal");
+    inspector.update("thread-a", { fileTreeWidthPx: 280, changedFileListHeightPx: 190 });
+    bottom.update("thread-a", { fileTreeWidthPx: 180, changedFileListHeightPx: 72 });
+    expect(inspector.read("thread-a").fileTreeWidthPx).toBe(280);
+    expect(inspector.read("thread-a").changedFileListHeightPx).toBe(190);
+    expect(bottom.read("thread-a").fileTreeWidthPx).toBe(180);
+    expect(bottom.read("thread-a").changedFileListHeightPx).toBe(72);
   });
 
   it("selects the nearest tab when a workspace panel closes", () => {
@@ -87,6 +99,13 @@ describe("Chat inspector model", () => {
     expect(splitDiffFits(900)).toBe(true);
     expect(splitDiffFits(700)).toBe(false);
     expect(splitDiffFits(900, 1.5)).toBe(false);
+  });
+
+  it("keeps internal split panes reachable as their container shrinks", () => {
+    expect(splitPaneResizeBounds(800, 144, 120, 360)).toEqual({ minimum: 144, maximum: 360 });
+    expect(splitPaneResizeBounds(240, 144, 120, 360)).toEqual({ minimum: 120, maximum: 120 });
+    expect(splitPaneResizeBounds(105, 112, 64, 420)).toEqual({ minimum: 41, maximum: 41 });
+    expect(splitPaneResizeBounds(40, 112, 64, 420)).toEqual({ minimum: 0, maximum: 0 });
   });
 
   it("uses a sheet when a third column does not fit and preserves full maximize", () => {

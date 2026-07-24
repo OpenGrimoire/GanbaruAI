@@ -11,7 +11,9 @@ export interface ChatInspectorThreadState {
   fileBrowserPath: string;
   filePreviewPath: string | null;
   fileTreeVisible: boolean;
+  fileTreeWidthPx: number;
   changeScope: "current_turn" | "entire_thread";
+  changedFileListHeightPx: number;
   whitespaceIgnored: boolean;
   diffView: "auto" | "unified" | "split";
   maximized: boolean;
@@ -32,7 +34,9 @@ const DEFAULT_STATE: ChatInspectorThreadState = {
   fileBrowserPath: "",
   filePreviewPath: null,
   fileTreeVisible: true,
+  fileTreeWidthPx: 220,
   changeScope: "current_turn",
+  changedFileListHeightPx: 160,
   whitespaceIgnored: false,
   diffView: "auto",
   maximized: false,
@@ -149,6 +153,34 @@ export function buildChangedFileTree(files: readonly ChatChangedFileRead[]): Cha
 
 export function splitDiffFits(availableWidth: number, fontScale = 1): boolean {
   return availableWidth >= 720 * Math.max(1, fontScale);
+}
+
+export interface SplitPaneResizeBounds {
+  minimum: number;
+  maximum: number;
+}
+
+/**
+ * Keeps both sides of an internal pane split reachable at constrained sizes.
+ *
+ * @param availableSize Total width or height available to the split.
+ * @param primaryMinimum Comfortable minimum for the resizable first pane.
+ * @param secondaryMinimum Reserved space for the second pane.
+ * @param primaryMaximum Largest useful size for the first pane.
+ * @returns Whole-pixel resize bounds adapted to the available space.
+ */
+export function splitPaneResizeBounds(
+  availableSize: number,
+  primaryMinimum: number,
+  secondaryMinimum: number,
+  primaryMaximum: number,
+): SplitPaneResizeBounds {
+  const available = Math.max(0, Math.floor(availableSize));
+  const maximum = Math.max(0, Math.min(primaryMaximum, available - secondaryMinimum));
+  return {
+    minimum: Math.min(primaryMinimum, maximum),
+    maximum,
+  };
 }
 
 export type ChatInspectorPresentation = "column" | "sheet" | "full";

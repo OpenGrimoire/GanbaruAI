@@ -7,6 +7,8 @@ export const chat = {
   resizeRail: "Resize thread rail",
   resizeInspector: "Resize workspace inspector",
   resizeBottomPanel: "Resize bottom panel",
+  resizeFileTree: "Resize file tree",
+  resizeChangedFileList: "Resize changed-file list",
   openRail: "Open thread rail",
   openInspector: "Open workspace inspector",
   closeInspector: "Close workspace inspector",

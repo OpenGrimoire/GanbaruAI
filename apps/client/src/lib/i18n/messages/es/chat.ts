@@ -10,6 +10,8 @@ export const chat = {
   resizeRail: "Cambiar tamaño del panel de chats",
   resizeInspector: "Cambiar tamaño del inspector del espacio de trabajo",
   resizeBottomPanel: "Cambiar tamaño del panel inferior",
+  resizeFileTree: "Cambiar tamaño del árbol de archivos",
+  resizeChangedFileList: "Cambiar tamaño de la lista de archivos modificados",
   openRail: "Abrir panel de chats",
   openInspector: "Abrir inspector del espacio de trabajo",
   closeInspector: "Cerrar inspector del espacio de trabajo",
