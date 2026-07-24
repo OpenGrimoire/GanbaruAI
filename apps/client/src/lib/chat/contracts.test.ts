@@ -144,6 +144,27 @@ describe("Chat provider contracts", () => {
     expect(parseProviderModelCatalog(fixture)).toEqual(fixture);
   });
 
+  it("removes deprecated models from validated catalogs", () => {
+    const parsed = parseProviderModelCatalog({
+      instanceId: "codex-personal",
+      models: [{
+        id: "gpt-old",
+        displayName: "GPT Old",
+        description: null,
+        contextLimit: null,
+        availability: "deprecated",
+        capabilities: [],
+        options: [],
+        custom: false,
+      }],
+      source: "provider",
+      discoveredAt: timestamp,
+      stale: false,
+    });
+
+    expect(parsed.models).toEqual([]);
+  });
+
   it("rejects partial metadata and unsupported capability values", () => {
     const missing = metadataFixture();
     delete missing.displayName;

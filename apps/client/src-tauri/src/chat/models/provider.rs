@@ -176,3 +176,16 @@ pub struct ProviderModelCatalog {
     pub discovered_at: UtcTimestamp,
     pub stale: bool,
 }
+
+impl ProviderModelCatalog {
+    /// Removes models that the provider has explicitly deprecated.
+    ///
+    /// Deprecated entries are provider migration hints, not selectable Chat
+    /// models. Filtering them at the catalog boundary keeps every consumer
+    /// consistent while retaining unavailable and stale model semantics.
+    pub fn without_deprecated_models(mut self) -> Self {
+        self.models
+            .retain(|model| model.availability != super::ModelAvailability::Deprecated);
+        self
+    }
+}

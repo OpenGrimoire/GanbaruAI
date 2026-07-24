@@ -277,6 +277,7 @@ describe("ChatComposer", () => {
     expect(modelList.classList.contains("model-list-scroll-top")).toBe(true);
     expect(target.querySelector<HTMLInputElement>(".model-search input")?.placeholder).toBe("Search models...");
     expect(target.querySelector(".model-flyout")?.textContent).not.toContain("gpt-5.6-sol");
+    expect(target.querySelector(".model-flyout")?.textContent).not.toContain("GPT-5.4 Deprecated");
     expect(target.querySelector(".favorite-company-section .model-company-heading")?.textContent).toContain("Favorites");
     expect(target.querySelector(".favorite-company-section .model-company-content-inner > p")?.textContent).toBe("No favorites yet.");
     const setupAction = target.querySelector<HTMLElement>('[data-model-company="anthropic"] .company-setup');
@@ -584,6 +585,15 @@ function modelSettings(): ChatSettingsRead {
               { value: "fast", label: "Fast", description: "Faster responses" },
             ],
           }],
+        }, {
+          id: "gpt-5.4",
+          displayName: "GPT-5.4 Deprecated",
+          description: null,
+          contextLimit: 200_000,
+          availability: "deprecated",
+          capabilities: [],
+          custom: false,
+          options: [],
         }],
       },
     }],

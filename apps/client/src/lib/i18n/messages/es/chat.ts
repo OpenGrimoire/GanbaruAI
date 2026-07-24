@@ -166,7 +166,6 @@ export const chat = {
     modelContext: (tokens: string) => `${tokens} tokens de contexto`,
     modelStale: "Desactualizado",
     modelUnavailable: "No disponible",
-    modelDeprecated: "Obsoleto",
     favorite: "Favorito",
     recent: "Reciente",
     unavailable: "No disponible",

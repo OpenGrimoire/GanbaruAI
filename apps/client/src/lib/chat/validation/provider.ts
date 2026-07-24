@@ -212,9 +212,11 @@ export function parseProviderModel(value: unknown, label = "provider model"): Pr
 
 export function parseProviderModelCatalog(value: unknown, label = "provider model catalog"): ProviderModelCatalog {
   const record = readRecord(value, label);
+  const models = readArray(record.models, `${label}.models`, parseProviderModel)
+    .filter((model) => model.availability !== "deprecated");
   return {
     instanceId: readIdentifier(record.instanceId, `${label}.instanceId`),
-    models: readArray(record.models, `${label}.models`, parseProviderModel),
+    models,
     source: readEnum(record.source, MODEL_CATALOG_SOURCES, `${label}.source`),
     discoveredAt: readUtcTimestamp(record.discoveredAt, `${label}.discoveredAt`),
     stale: readBoolean(record.stale, `${label}.stale`),

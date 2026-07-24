@@ -260,7 +260,9 @@ async fn probe_installed_provider(
         if probe.state == ProbeState::ExecutableMissing {
             continue;
         }
-        let model_catalog = driver.cached_model_catalog();
+        let model_catalog = driver
+            .cached_model_catalog()
+            .map(ProviderModelCatalog::without_deprecated_models);
         let candidate = (configuration, probe.clone(), model_catalog);
         if matches!(
             probe.state,
@@ -611,7 +613,8 @@ pub async fn chat_test_provider(
         Some(
             driver
                 .discover_models(&operation_context("test-provider-models"))
-                .await?,
+                .await?
+                .without_deprecated_models(),
         )
     } else {
         None
@@ -652,7 +655,7 @@ fn apply_provider_probe(
         device.last_successful_probe_at = Some(probe.checked_at.clone());
     }
     if let Some(catalog) = model_catalog {
-        device.model_catalog = Some(catalog);
+        device.model_catalog = Some(catalog.without_deprecated_models());
     }
 }
 
@@ -667,7 +670,8 @@ pub async fn chat_refresh_provider_models(
     let mut driver = ProviderDriverRegistry.create_driver(configuration)?;
     let catalog = driver
         .discover_models(&operation_context("discover-provider-models"))
-        .await?;
+        .await?
+        .without_deprecated_models();
     update_active_device_scope(&app, |scope| {
         scope
             .provider_instances
@@ -925,7 +929,9 @@ fn provider_instance_read(
         },
         last_probe: device.and_then(|entry| entry.last_probe.clone()),
         last_successful_probe_at: device.and_then(|entry| entry.last_successful_probe_at.clone()),
-        model_catalog: device.and_then(|entry| entry.model_catalog.clone()),
+        model_catalog: device
+            .and_then(|entry| entry.model_catalog.clone())
+            .map(ProviderModelCatalog::without_deprecated_models),
     }
 }
 
@@ -1220,6 +1226,53 @@ mod tests {
         assert_eq!(device.last_probe, Some(probe.clone()));
         assert_eq!(device.last_successful_probe_at, Some(probe.checked_at));
         assert_eq!(device.model_catalog, Some(catalog));
+    }
+
+    #[test]
+    fn successful_provider_probe_drops_deprecated_models() {
+        let probe: ProviderProbeResult = serde_json::from_value(serde_json::json!({
+            "instanceId": "codex",
+            "state": "healthy",
+            "version": "1.0.0",
+            "accountLabel": null,
+            "capabilities": { "entries": [] },
+            "checkedAt": "2026-07-23T03:18:50.240Z",
+            "detail": null
+        }))
+        .unwrap();
+        let catalog: ProviderModelCatalog = serde_json::from_value(serde_json::json!({
+            "instanceId": "codex",
+            "models": [{
+                "id": "gpt-current",
+                "displayName": "GPT Current",
+                "description": null,
+                "contextLimit": null,
+                "availability": "available",
+                "capabilities": [],
+                "options": [],
+                "custom": false
+            }, {
+                "id": "gpt-old",
+                "displayName": "GPT Old",
+                "description": null,
+                "contextLimit": null,
+                "availability": "deprecated",
+                "capabilities": [],
+                "options": [],
+                "custom": false
+            }],
+            "source": "provider",
+            "discoveredAt": "2026-07-23T03:18:50.240Z",
+            "stale": false
+        }))
+        .unwrap();
+        let mut device = ChatProviderDeviceState::default();
+
+        apply_provider_probe(&mut device, &probe, Some(catalog));
+
+        let models = &device.model_catalog.as_ref().unwrap().models;
+        assert_eq!(models.len(), 1);
+        assert_eq!(models[0].id.as_str(), "gpt-current");
     }
 
     #[cfg(unix)]

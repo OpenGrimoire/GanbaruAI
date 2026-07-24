@@ -116,7 +116,7 @@
   const provider = $derived(providers.find((entry) => entry.configuration.instanceId === chat.composer.providerInstanceId) ?? null);
   const unconfiguredFamilies = $derived((chat.settings?.providerFamilies ?? []).filter((family) => !providers.some((entry) => entry.configuration.familyId === family.familyId)));
   const selection = $derived(readComposerModelSelection(chat.composer.modelSelection));
-  const models = $derived(provider?.modelCatalog?.models.filter((model) => provider.configuration.visibleModelIds.length === 0 || provider.configuration.visibleModelIds.includes(model.id) || model.id === selection.modelId) ?? []);
+  const models = $derived(provider?.modelCatalog?.models.filter((model) => model.availability !== "deprecated" && (provider.configuration.visibleModelIds.length === 0 || provider.configuration.visibleModelIds.includes(model.id) || model.id === selection.modelId)) ?? []);
   const favoriteModelEntries = $derived.by(() => buildFavoriteModelEntries(providers, modelQuery));
   const modelCompanySections = $derived.by(() => buildModelCompanySections(providers, unconfiguredFamilies, modelQuery));
   const selectedModel = $derived(models.find((model) => model.id === selection.modelId) ?? null);
@@ -709,9 +709,12 @@
       ? selection.modelId
       : null;
     return entry.modelCatalog?.models.filter((model) => (
-      entry.configuration.visibleModelIds.length === 0
-      || entry.configuration.visibleModelIds.includes(model.id)
-      || model.id === selectedId
+      model.availability !== "deprecated"
+      && (
+        entry.configuration.visibleModelIds.length === 0
+        || entry.configuration.visibleModelIds.includes(model.id)
+        || model.id === selectedId
+      )
     )) ?? [];
   }
 
@@ -832,7 +835,6 @@
     if (contextLimit !== null) values.push(t("chat.composer.modelContext", formatNumber(localization.locale, contextLimit)));
     if (availability === "stale") values.push(t("chat.composer.modelStale"));
     if (availability === "unavailable") values.push(t("chat.composer.modelUnavailable"));
-    if (availability === "deprecated") values.push(t("chat.composer.modelDeprecated"));
     return values;
   }
 
@@ -949,7 +951,7 @@
                             {@const metadata = modelMetadata(favorite.model.contextLimit, favorite.model.availability)}
                             {@const company = modelCompany(favorite.provider.configuration.familyId, favorite.model)}
                             <div class="model-row">
-                              <button type="button" class="model-choice" disabled={!providerAvailable(favorite.provider) || favorite.model.availability === "unavailable" || favorite.model.availability === "deprecated"} title={favorite.model.availability === "available" ? undefined : metadata.join(" · ")} onclick={() => chooseModel(favorite.provider, favorite.model.id, false)}>
+                              <button type="button" class="model-choice" disabled={!providerAvailable(favorite.provider) || favorite.model.availability === "unavailable"} title={favorite.model.availability === "available" ? undefined : metadata.join(" · ")} onclick={() => chooseModel(favorite.provider, favorite.model.id, false)}>
                                 <span><strong>{favorite.model.displayName}</strong><small class="model-provider-caption"><ChatProviderIcon familyId={company.iconFamilyId} label={company.name} size={12} />{company.name}{#if metadata.length > 0}<span aria-hidden="true">·</span>{metadata.join(" · ")}{/if}</small></span>
                                 {#if favorite.provider.configuration.instanceId === provider?.configuration.instanceId && selection.modelId === favorite.model.id}<Check size={15} />{/if}
                               </button>
@@ -976,7 +978,7 @@
                             {#each section.models as entry (`${entry.provider.configuration.instanceId}:${entry.model.id}`)}
                               {@const metadata = modelMetadata(entry.model.contextLimit, entry.model.availability)}
                               <div class="model-row">
-                                <button type="button" class="model-choice" disabled={!providerAvailable(entry.provider) || entry.model.availability === "unavailable" || entry.model.availability === "deprecated"} title={entry.model.availability === "available" ? undefined : metadata.join(" · ")} onclick={() => chooseModel(entry.provider, entry.model.id, false)}>
+                                <button type="button" class="model-choice" disabled={!providerAvailable(entry.provider) || entry.model.availability === "unavailable"} title={entry.model.availability === "available" ? undefined : metadata.join(" · ")} onclick={() => chooseModel(entry.provider, entry.model.id, false)}>
                                   <span><strong>{entry.model.displayName}</strong></span>
                                   {#if entry.provider.configuration.instanceId === provider?.configuration.instanceId && selection.modelId === entry.model.id}<Check size={15} />{/if}
                                 </button>
