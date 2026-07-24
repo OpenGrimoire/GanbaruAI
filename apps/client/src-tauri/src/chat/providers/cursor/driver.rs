@@ -22,9 +22,43 @@ pub const SESSION_GRACEFUL_STOP: Duration = Duration::from_millis(500);
 pub const SESSION_FORCE_STOP: Duration = Duration::from_secs(2);
 static NEXT_SESSION_ID: AtomicU64 = AtomicU64::new(1);
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum AcpProviderFlavor {
+    Cursor,
+    Grok,
+}
+
+impl AcpProviderFlavor {
+    pub fn family_id(self) -> &'static str {
+        match self {
+            Self::Cursor => "cursor",
+            Self::Grok => "grok",
+        }
+    }
+
+    pub fn display_name(self) -> &'static str {
+        match self {
+            Self::Cursor => "Cursor",
+            Self::Grok => "Grok",
+        }
+    }
+
+    pub fn metadata_display_name(self) -> &'static str {
+        match self {
+            Self::Cursor => "Cursor",
+            Self::Grok => "xAI",
+        }
+    }
+
+    pub fn turn_prefix(self) -> &'static str {
+        self.family_id()
+    }
+}
+
 pub struct CursorProviderDriver {
     pub(super) configuration: ProviderInstanceConfig,
     pub(super) settings: CursorProviderSettings,
+    pub(super) flavor: AcpProviderFlavor,
     pub(super) live: Option<CursorLiveSession>,
     pub(super) cached_models: Option<ProviderModelCatalog>,
     #[cfg(test)]
@@ -33,7 +67,7 @@ pub struct CursorProviderDriver {
 
 #[cfg(test)]
 type TestConnectionFactory =
-    Arc<dyn Fn(&Path) -> ChatResult<(AcpRpcConnection, CursorAbout)> + Send + Sync>;
+    Arc<dyn Fn(&Path) -> ChatResult<(AcpRpcConnection, AcpProviderAbout)> + Send + Sync>;
 
 pub(super) struct CursorLiveSession {
     pub connection: AcpRpcConnection,
@@ -42,6 +76,7 @@ pub(super) struct CursorLiveSession {
     pub route: Arc<Mutex<CursorRouteState>>,
     pub setup: Arc<Mutex<AcpSessionSetup>>,
     pub pending: PendingCursorRequests,
+    pub prompt_completions: PendingPromptCompletions,
     pub normalizer: Arc<CursorEventNormalizer>,
     pub capabilities: ProviderCapabilities,
     pub sink: Arc<dyn ProviderEventSink>,
@@ -129,16 +164,32 @@ impl CursorSessionInput {
 
 impl CursorProviderDriver {
     pub fn new(configuration: ProviderInstanceConfig) -> ChatResult<Self> {
-        if configuration.family_id.as_str() != "cursor" {
+        Self::new_for(configuration, AcpProviderFlavor::Cursor)
+    }
+
+    pub fn new_grok(configuration: ProviderInstanceConfig) -> ChatResult<Self> {
+        Self::new_for(configuration, AcpProviderFlavor::Grok)
+    }
+
+    fn new_for(
+        configuration: ProviderInstanceConfig,
+        flavor: AcpProviderFlavor,
+    ) -> ChatResult<Self> {
+        if configuration.family_id.as_str() != flavor.family_id() {
             return Err(ChatError::validation(
                 "familyId",
-                "Cursor driver requires the Cursor provider family",
+                format!(
+                    "{} driver requires the {} provider family",
+                    flavor.display_name(),
+                    flavor.display_name()
+                ),
             ));
         }
-        let settings = CursorProviderSettings::parse(&configuration)?;
+        let settings = CursorProviderSettings::parse_for(&configuration, flavor.display_name())?;
         Ok(Self {
             configuration,
             settings,
+            flavor,
             live: None,
             cached_models: None,
             #[cfg(test)]
@@ -152,20 +203,34 @@ impl CursorProviderDriver {
     }
 
     pub fn metadata_read() -> ProviderFamilyMetadataRead {
+        Self::metadata_for(AcpProviderFlavor::Cursor)
+    }
+
+    pub fn grok_metadata_read() -> ProviderFamilyMetadataRead {
+        Self::metadata_for(AcpProviderFlavor::Grok)
+    }
+
+    fn metadata_for(flavor: AcpProviderFlavor) -> ProviderFamilyMetadataRead {
         ProviderFamilyMetadataRead {
-            family_id: ProviderFamilyId::new("cursor")
-                .expect("static Cursor family ID must be valid"),
-            display_name: "Cursor".to_string(),
+            family_id: ProviderFamilyId::new(flavor.family_id())
+                .expect("static ACP provider family ID must be valid"),
+            display_name: flavor.metadata_display_name().to_string(),
             configuration_schema_version: 1,
             supported_platforms: vec![
                 "linux".to_string(),
                 "windows".to_string(),
                 "macos".to_string(),
             ],
-            minimum_tested_cli_version: Some(MINIMUM_CURSOR_VERSION.to_string()),
-            default_executable_candidates: vec!["cursor-agent".to_string(), "agent".to_string()],
+            minimum_tested_cli_version: (flavor == AcpProviderFlavor::Cursor)
+                .then(|| MINIMUM_CURSOR_VERSION.to_string()),
+            default_executable_candidates: match flavor {
+                AcpProviderFlavor::Cursor => {
+                    vec!["cursor-agent".to_string(), "agent".to_string()]
+                }
+                AcpProviderFlavor::Grok => vec!["grok".to_string()],
+            },
             implementation_status: ProviderImplementationStatus::Available,
-            potential_capabilities: cursor_capability_kinds(),
+            potential_capabilities: acp_capability_kinds(flavor),
             unavailable_reason: None,
         }
     }
@@ -173,35 +238,52 @@ impl CursorProviderDriver {
     pub(super) async fn open_connection(
         &self,
         workspace: &Path,
-    ) -> ChatResult<(AcpRpcConnection, CursorAbout)> {
+    ) -> ChatResult<(AcpRpcConnection, AcpProviderAbout)> {
         #[cfg(test)]
         if let Some(factory) = self.connection_factory.as_ref() {
             return factory(workspace);
         }
-        let environment = process_environment(&self.configuration)?;
+        let environment = process_environment_for(&self.configuration, self.flavor.display_name())?;
         let executable = resolve_executable(&self.configuration.executable, &environment)?;
-        let about = probe_about(&executable, workspace, environment).await?;
-        ensure_supported_version(about.version)?;
-        let process = spawn_connection_process(&self.configuration, &self.settings, workspace)?;
+        let about = match self.flavor {
+            AcpProviderFlavor::Cursor => {
+                let about = probe_about(&executable, workspace, environment).await?;
+                ensure_supported_version(about.version)?;
+                AcpProviderAbout::from(about)
+            }
+            AcpProviderFlavor::Grok => {
+                probe_grok_about(&executable, workspace, environment).await?
+            }
+        };
+        let process = spawn_acp_connection_process(
+            &self.configuration,
+            &self.settings,
+            self.flavor,
+            workspace,
+        )?;
         Ok((AcpRpcConnection::from_process(process)?, about))
     }
 
     pub(super) async fn probe_snapshot(
         &self,
         context: &DriverOperationContext,
-    ) -> ChatResult<(AcpStartedSession, CursorAbout)> {
+    ) -> ChatResult<(AcpStartedSession, AcpProviderAbout)> {
         let workspace = canonical_current_directory()?;
         let (mut connection, about) = self.open_connection(&workspace).await?;
-        let result = initialize_session(
+        let result = initialize_provider_session(
+            self.flavor,
+            self.grok_uses_api_key(),
             &connection,
             workspace.to_string_lossy().as_ref(),
             None,
-            TurnModeSnapshot {
-                safety_mode: SafetyMode::Supervised,
-                interaction_mode: InteractionMode::Build,
+            AcpRequestedConfiguration {
+                modes: TurnModeSnapshot {
+                    safety_mode: SafetyMode::Supervised,
+                    interaction_mode: InteractionMode::Build,
+                },
+                model_id: None,
+                model_options: &[],
             },
-            None,
-            &[],
             context,
         )
         .await;
@@ -226,23 +308,27 @@ impl CursorProviderDriver {
         if self.live.is_some() {
             return Err(ChatError::new(
                 ChatErrorCode::Conflict,
-                "Cursor session is already running",
+                format!("{} session is already running", self.flavor.display_name()),
                 true,
             ));
         }
         if input.provider_instance_id() != &self.configuration.instance_id {
             return Err(ChatError::new(
                 ChatErrorCode::Conflict,
-                "Cursor provider instance does not match the session request",
+                format!(
+                    "{} provider instance does not match the session request",
+                    self.flavor.display_name()
+                ),
                 false,
             ));
         }
         let workspace = canonical_verified_workspace(input.workspace())?;
         let cursor = input.resume_cursor()?;
         let (mut connection, about) = self.open_connection(&workspace).await?;
-        let group = continuation_group(
+        let group = acp_continuation_group(
             &self.configuration,
             &self.settings,
+            self.flavor,
             about.account_label.as_deref(),
         )?;
         if input
@@ -254,17 +340,24 @@ impl CursorProviderDriver {
                 .await;
             return Err(ChatError::new(
                 ChatErrorCode::Conflict,
-                "Cursor account context change requires a thread fork",
+                format!(
+                    "{} account context change requires a thread fork",
+                    self.flavor.display_name()
+                ),
                 true,
             ));
         }
-        let started = match initialize_session(
+        let started = match initialize_provider_session(
+            self.flavor,
+            self.grok_uses_api_key(),
             &connection,
             workspace.to_string_lossy().as_ref(),
             cursor.as_ref().map(|cursor| cursor.session_id.as_str()),
-            input.modes(),
-            input.model_id(),
-            input.model_options(),
+            AcpRequestedConfiguration {
+                modes: input.modes(),
+                model_id: input.model_id(),
+                model_options: input.model_options(),
+            },
             context,
         )
         .await
@@ -277,23 +370,34 @@ impl CursorProviderDriver {
                 return Err(error);
             }
         };
-        let local_session_id = new_session_id(&self.configuration.instance_id)?;
+        let local_session_id = new_session_id_for(self.flavor, &self.configuration.instance_id)?;
         let provider_thread_id = ProviderThreadId::new(started.session_id.clone())
             .map_err(|_| protocol_error("session ID"))?;
-        let capabilities = negotiated_capabilities(&started.initialize, &started.setup);
+        let capabilities =
+            negotiated_capabilities_for(self.flavor, &started.initialize, &started.setup);
+        let effective_model_id = input.model_id().cloned().or_else(|| {
+            started
+                .setup
+                .models
+                .as_ref()
+                .and_then(|models| ModelId::new(models.current_model_id.clone()).ok())
+        });
         let route = Arc::new(Mutex::new(CursorRouteState::new(
             started.session_id.clone(),
             input.modes(),
-            input.model_id().cloned(),
+            effective_model_id.clone(),
             started.setup.config_options.clone(),
             workspace,
         )));
         let setup = Arc::new(Mutex::new(started.setup));
         let pending = Arc::new(Mutex::new(HashMap::new()));
-        let normalizer = Arc::new(CursorEventNormalizer::new(
+        let prompt_completions = Arc::new(Mutex::new(HashMap::new()));
+        let normalizer = Arc::new(CursorEventNormalizer::new_for_provider(
             self.configuration.instance_id.clone(),
             input.thread_id().clone(),
             local_session_id.clone(),
+            self.flavor.family_id(),
+            self.flavor.display_name(),
         ));
         let expected_shutdown = Arc::new(AtomicBool::new(false));
         let terminal_error = Arc::new(Mutex::new(None));
@@ -307,6 +411,8 @@ impl CursorProviderDriver {
             sink: Arc::clone(&sink),
             expected_shutdown: Arc::clone(&expected_shutdown),
             terminal_error: Arc::clone(&terminal_error),
+            flavor: self.flavor,
+            prompt_completions: Arc::clone(&prompt_completions),
         });
         let state = route.lock().map_err(|_| driver_state_error())?.clone();
         let cursor = resume_cursor(&started.session_id);
@@ -335,7 +441,7 @@ impl CursorProviderDriver {
             CanonicalEvent::SessionConfigured(SessionConfiguredEvent {
                 session_id: local_session_id.clone(),
                 effective_modes: input.modes(),
-                effective_model_id: input.model_id().cloned(),
+                effective_model_id,
                 effective_model_options: input.model_options().to_vec(),
             }),
         )?)
@@ -355,6 +461,7 @@ impl CursorProviderDriver {
             route,
             setup,
             pending,
+            prompt_completions,
             normalizer,
             capabilities: capabilities.clone(),
             sink,
@@ -374,18 +481,31 @@ impl CursorProviderDriver {
         })
     }
 
+    fn grok_uses_api_key(&self) -> bool {
+        self.flavor == AcpProviderFlavor::Grok
+            && self
+                .configuration
+                .environment
+                .iter()
+                .find(|(name, _)| name.eq_ignore_ascii_case("XAI_API_KEY"))
+                .map(|(_, value)| !value.trim().is_empty())
+                .unwrap_or_else(|| {
+                    std::env::var("XAI_API_KEY").is_ok_and(|value| !value.trim().is_empty())
+                })
+    }
+
     pub(super) fn live_mut(
         &mut self,
         session_id: &ProviderSessionId,
     ) -> ChatResult<&mut CursorLiveSession> {
-        let live = self
-            .live
-            .as_mut()
-            .ok_or_else(|| ChatError::driver_unavailable("Cursor session is not running"))?;
+        let provider_name = self.flavor.display_name();
+        let live = self.live.as_mut().ok_or_else(|| {
+            ChatError::driver_unavailable(format!("{provider_name} session is not running"))
+        })?;
         if &live.session_id != session_id {
             return Err(ChatError::new(
                 ChatErrorCode::Conflict,
-                "Cursor session identity does not match the active session",
+                format!("{provider_name} session identity does not match the active session"),
                 false,
             ));
         }
@@ -406,11 +526,14 @@ fn canonical_verified_workspace(input: &VerifiedWorkspaceContext) -> ChatResult<
     if !path.is_absolute() || !path.is_dir() {
         return Err(ChatError::validation(
             "workspace.canonicalPath",
-            "Cursor workspace is unavailable",
+            "ACP provider workspace is unavailable",
         ));
     }
     std::fs::canonicalize(path).map_err(|_| {
-        ChatError::validation("workspace.canonicalPath", "Cursor workspace is unavailable")
+        ChatError::validation(
+            "workspace.canonicalPath",
+            "ACP provider workspace is unavailable",
+        )
     })
 }
 
@@ -418,22 +541,26 @@ pub(super) fn canonical_current_directory() -> ChatResult<PathBuf> {
     let current = std::env::current_dir().map_err(|_| {
         ChatError::new(
             ChatErrorCode::ConfigurationInvalid,
-            "Cursor probe directory is unavailable",
+            "ACP provider probe directory is unavailable",
             true,
         )
     })?;
     std::fs::canonicalize(current).map_err(|_| {
         ChatError::new(
             ChatErrorCode::ConfigurationInvalid,
-            "Cursor probe directory is unavailable",
+            "ACP provider probe directory is unavailable",
             true,
         )
     })
 }
 
 pub(super) fn potential_capabilities() -> ProviderCapabilities {
+    potential_capabilities_for(AcpProviderFlavor::Cursor)
+}
+
+pub(super) fn potential_capabilities_for(flavor: AcpProviderFlavor) -> ProviderCapabilities {
     ProviderCapabilities {
-        entries: cursor_capability_kinds()
+        entries: acp_capability_kinds(flavor)
             .into_iter()
             .map(|capability| ProviderCapabilitySupport {
                 capability,
@@ -444,18 +571,26 @@ pub(super) fn potential_capabilities() -> ProviderCapabilities {
     }
 }
 
-pub(super) fn new_session_id(instance: &ProviderInstanceId) -> ChatResult<ProviderSessionId> {
+pub(super) fn new_session_id_for(
+    flavor: AcpProviderFlavor,
+    instance: &ProviderInstanceId,
+) -> ChatResult<ProviderSessionId> {
     let created = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map_err(|_| driver_state_error())?
         .as_nanos();
     ProviderSessionId::new(format!(
-        "cursor-{}-{}-{created}-{}",
+        "{}-{}-{}-{created}-{}",
+        flavor.family_id(),
         instance.as_str(),
         std::process::id(),
         NEXT_SESSION_ID.fetch_add(1, Ordering::Relaxed)
     ))
     .map_err(|_| protocol_error("local session ID"))
+}
+
+pub(super) fn new_session_id(instance: &ProviderInstanceId) -> ChatResult<ProviderSessionId> {
+    new_session_id_for(AcpProviderFlavor::Cursor, instance)
 }
 
 pub(super) fn now_utc() -> ChatResult<UtcTimestamp> {

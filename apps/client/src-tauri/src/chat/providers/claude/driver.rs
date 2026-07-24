@@ -95,7 +95,7 @@ impl ClaudeProviderDriver {
         ProviderFamilyMetadataRead {
             family_id: ProviderFamilyId::new("claude")
                 .expect("static Claude family ID must be valid"),
-            display_name: "Claude".to_string(),
+            display_name: "Anthropic".to_string(),
             configuration_schema_version: 1,
             supported_platforms: vec![
                 "linux".to_string(),

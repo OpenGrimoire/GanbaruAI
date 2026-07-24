@@ -7,6 +7,7 @@ import {
   contextMeter,
   filterPromptCatalog,
   filterWorkspacePaths,
+  interactionModeForPrompt,
   parseApprovalChoices,
   parseUserInputQuestions,
   queuedFollowupDispatchReady,
@@ -62,6 +63,13 @@ describe("Chat composer model", () => {
     expect(composerTokenTrigger("Inspect @src/cal", 16)).toMatchObject({ kind: "mention", query: "src/cal" });
     expect(composerTokenTrigger("Use $doc", 8)).toMatchObject({ kind: "skill", query: "doc" });
     expect(composerTokenTrigger("/review", 7)).toMatchObject({ kind: "command", query: "review" });
+  });
+
+  it("maps the universal plan command to Plan mode and otherwise preserves the current mode", () => {
+    expect(interactionModeForPrompt("  /plan inspect the architecture", "build")).toBe("plan");
+    expect(interactionModeForPrompt("/PLAN", null)).toBe("plan");
+    expect(interactionModeForPrompt("Implement the plan", "plan")).toBe("plan");
+    expect(interactionModeForPrompt("Implement the change", null)).toBe("build");
   });
 
   it("fuzzy-ranks provider menus and workspace paths while preserving stale entries", () => {

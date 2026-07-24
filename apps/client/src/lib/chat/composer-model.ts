@@ -42,6 +42,13 @@ export interface ComposerSelectionError {
   message: string;
 }
 
+export function interactionModeForPrompt(
+  text: string,
+  current: InteractionMode | null,
+): InteractionMode {
+  return /^\/plan(?:\s|$)/i.test(text.trimStart()) ? "plan" : current ?? "build";
+}
+
 export interface ComposerTokenTrigger {
   kind: "mention" | "skill" | "command";
   query: string;

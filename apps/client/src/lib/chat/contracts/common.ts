@@ -25,7 +25,7 @@ export type ContinuationGroupId = string;
 export type ModelId = string;
 export type UtcTimestamp = string;
 
-export const KNOWN_PROVIDER_FAMILIES = ["codex", "claude", "cursor", "opencode"] as const;
+export const KNOWN_PROVIDER_FAMILIES = ["codex", "claude", "cursor", "grok", "opencode"] as const;
 export type KnownProviderFamily = (typeof KNOWN_PROVIDER_FAMILIES)[number];
 
 export const SAFETY_MODES = ["supervised", "auto_accept_edits", "full_access"] as const;

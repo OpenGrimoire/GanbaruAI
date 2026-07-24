@@ -3,41 +3,60 @@
   import Check from "@lucide/svelte/icons/check";
   import ChevronDown from "@lucide/svelte/icons/chevron-down";
   import ChevronRight from "@lucide/svelte/icons/chevron-right";
-  import CircleAlert from "@lucide/svelte/icons/circle-alert";
   import Plus from "@lucide/svelte/icons/plus";
   import Search from "@lucide/svelte/icons/search";
   import Star from "@lucide/svelte/icons/star";
   import Zap from "@lucide/svelte/icons/zap";
+  import CalendarScrollbar from "$lib/components/calendar/CalendarScrollbar.svelte";
   import type {
-    InteractionMode,
     ModelOptionDefinition,
     ModelOptionSelection,
     ModelOptionValue,
+    ProviderFamilyMetadataRead,
+    ProviderInstanceRead,
     ProviderModel,
   } from "$lib/chat/contracts";
   import { composerModelSelection, rankedModels, readComposerModelSelection } from "$lib/chat/composer-model";
+  import { integrationCompany, modelCompany, type ModelCompanyIdentity } from "$lib/chat/model-company";
   import * as chatApi from "$lib/api/chat";
   import { formatNumber } from "$lib/i18n/formatters";
   import { getLocalization } from "$lib/i18n/translator.svelte";
-  import {
-    isPointerAimingAtSubmenu,
-    type MenuAimPoint,
-    type MenuAimRect,
-    type MenuAimSide,
-  } from "$lib/projects/menu-aim";
   import { getChat } from "$lib/stores/chat.svelte";
   import { getSettingsLauncher } from "$lib/stores/settingsLauncher.svelte";
   import ChatProviderIcon from "./ChatProviderIcon.svelte";
 
   type KnownModelOption = Exclude<ModelOptionDefinition, { kind: "unknown" }>;
   type PickerView = "overview" | "advanced";
-  type FlyoutView = "providers" | "models" | "option" | "interaction";
+  type FlyoutView = "models" | "option";
   interface QuickEffortChoice {
     modelId: string;
     modelName: string;
     effortKey: string;
     effortValue: string;
     effortLabel: string;
+  }
+  interface PendingProviderModelSelection {
+    providerInstanceId: string;
+    modelId: string | null;
+    providerManaged: boolean;
+  }
+  interface FavoriteModelEntry {
+    provider: ProviderInstanceRead;
+    model: ProviderModel;
+  }
+  interface CompanyModelEntry {
+    provider: ProviderInstanceRead;
+    model: ProviderModel;
+  }
+  interface ModelCompanySection {
+    company: ModelCompanyIdentity;
+    models: CompanyModelEntry[];
+    managedProviders: ProviderInstanceRead[];
+    setupFamilies: ProviderFamilyMetadataRead[];
+  }
+  interface FlyoutPosition {
+    left: number;
+    top: number;
   }
 
   const localization = getLocalization();
@@ -61,28 +80,33 @@
   let effortDragging = $state(false);
   let effortHandleHovered = $state(false);
   let modelSearch: HTMLInputElement | undefined = $state();
+  let modelListElement: HTMLDivElement | undefined = $state();
+  let modelListContentElement: HTMLDivElement | undefined = $state();
+  let modelListScrollable = $state(false);
+  let modelListCanScrollUp = $state(false);
+  let modelListCanScrollDown = $state(false);
+  let modelListScrollFrame: number | null = null;
   let providerForkDialog: HTMLElement | undefined = $state();
   let confirmationReturnFocus: HTMLElement | null = null;
-  let pendingProviderId = $state<string | null>(null);
+  let pendingProviderModel = $state<PendingProviderModelSelection | null>(null);
   let modelQuery = $state("");
+  let modelPickerError = $state<string | null>(null);
+  let collapsedModelSections = $state<Set<string>>(new Set());
   let view = $state<PickerView>("overview");
   let flyout = $state<FlyoutView | null>(null);
+  let flyoutPosition = $state<FlyoutPosition | null>(null);
   let optionViewKey = $state<string | null>(null);
   let quickAnchorModelId = $state<string | null>(null);
   let restoredKey = $state("");
   let activeFlyoutTrigger: HTMLElement | null = null;
-  let hoveredFlyoutTrigger: HTMLElement | null = null;
-  let flyoutCloseTimer: ReturnType<typeof setTimeout> | null = null;
-  let pendingFlyoutTimer: ReturnType<typeof setTimeout> | null = null;
-  let pendingFlyoutTrigger: HTMLElement | null = null;
   let modelControlResetTimer: ReturnType<typeof setTimeout> | null = null;
   let effortClickResetTimer: ReturnType<typeof setTimeout> | null = null;
   let effortPointerId: number | null = null;
   let effortPointerOrigin: { x: number; y: number } | null = null;
   let effortLastDragIndex = -1;
   let suppressEffortPointerClick = false;
-  const flyoutCloseDelayMs = 70;
-  const flyoutGraceDelayMs = 340;
+  const flyoutGapPx = 3;
+  const flyoutViewportInsetPx = 8;
   const modelControlResizeMs = 280;
   const effortDragThresholdPx = 5;
   const effortTrackHeightRem = 1.75;
@@ -93,8 +117,8 @@
   const unconfiguredFamilies = $derived((chat.settings?.providerFamilies ?? []).filter((family) => !providers.some((entry) => entry.configuration.familyId === family.familyId)));
   const selection = $derived(readComposerModelSelection(chat.composer.modelSelection));
   const models = $derived(provider?.modelCatalog?.models.filter((model) => provider.configuration.visibleModelIds.length === 0 || provider.configuration.visibleModelIds.includes(model.id) || model.id === selection.modelId) ?? []);
-  const recentIds = $derived(chat.settings?.configuration.rememberedSelections.filter((entry) => entry.providerInstanceId === provider?.configuration.instanceId && entry.modelId).map((entry) => entry.modelId as string) ?? []);
-  const ranked = $derived(rankedModels(models, provider?.configuration.favoriteModelIds ?? [], recentIds, modelQuery));
+  const favoriteModelEntries = $derived.by(() => buildFavoriteModelEntries(providers, modelQuery));
+  const modelCompanySections = $derived.by(() => buildModelCompanySections(providers, unconfiguredFamilies, modelQuery));
   const selectedModel = $derived(models.find((model) => model.id === selection.modelId) ?? null);
   const quickAnchorModel = $derived(models.find((model) => model.id === quickAnchorModelId) ?? selectedModel);
   const knownOptions = $derived((selectedModel?.options ?? []).filter(isKnownOption));
@@ -113,15 +137,10 @@
   });
   const otherDefinitions = $derived(knownOptions.filter((definition) => optionRole(definition) === "other"));
   const optionViewDefinition = $derived(knownOptions.find((definition) => definition.key === optionViewKey) ?? (speedDefinition?.key === optionViewKey ? speedDefinition : null));
-  const providerManagedOnly = $derived((provider?.modelCatalog?.models.length ?? 0) === 0);
-  const capabilities = $derived(chat.interaction?.capabilities ?? provider?.lastProbe?.capabilities ?? { entries: [] });
-  const supportsPlan = $derived(capabilities.entries.some((entry) => entry.capability === "native_plan" && entry.supported));
   const quickEffortChoices = $derived(buildQuickEffortChoices(quickAnchorModel, models));
   const selectedQuickEffortIndex = $derived(quickEffortChoices.findIndex((choice) => choice.modelId === selection.modelId && choice.effortValue === selectedEffortValue()));
 
   onDestroy(() => {
-    cancelFlyoutClose();
-    cancelPendingFlyoutActivation();
     cancelModelControlReset();
     cancelEffortClickReset();
   });
@@ -132,9 +151,43 @@
   });
 
   $effect(() => {
+    if (!flyout || !flyoutPanel) return;
+    const reposition = () => positionFlyout();
+    reposition();
+    window.addEventListener("resize", reposition);
+    if (typeof ResizeObserver === "undefined") {
+      return () => window.removeEventListener("resize", reposition);
+    }
+    const observer = new ResizeObserver(reposition);
+    observer.observe(flyoutPanel);
+    return () => {
+      observer.disconnect();
+      window.removeEventListener("resize", reposition);
+    };
+  });
+
+  $effect(() => {
+    const element = modelListElement;
+    if (!element) return;
+    const resizeObserver = new ResizeObserver(requestModelListScrollStateRefresh);
+    resizeObserver.observe(element);
+    if (modelListContentElement) resizeObserver.observe(modelListContentElement);
+    requestModelListScrollStateRefresh();
+    return () => {
+      resizeObserver.disconnect();
+      if (modelListScrollFrame !== null) {
+        cancelAnimationFrame(modelListScrollFrame);
+        modelListScrollFrame = null;
+      }
+    };
+  });
+
+  $effect(() => {
     if (!pickerOpen) return;
     const closeOnOutsidePointer = (event: PointerEvent) => {
-      if (event.target instanceof Node && !pickerRoot?.contains(event.target)) closePicker();
+      if (!(event.target instanceof Node)) return;
+      if (pickerRoot?.contains(event.target) || providerForkDialog?.contains(event.target)) return;
+      closePicker();
     };
     window.addEventListener("pointerdown", closeOnOutsidePointer, true);
     return () => window.removeEventListener("pointerdown", closeOnOutsidePointer, true);
@@ -187,6 +240,11 @@
     quickAnchorModelId = recommended.id;
   });
 
+  $effect(() => {
+    if (!provider || chat.composer.loading || chat.composer.interactionMode) return;
+    chat.setComposerModes(chat.composer.safetyMode, "build");
+  });
+
   function togglePicker(): void {
     if (pickerOpen) {
       closePicker();
@@ -200,19 +258,52 @@
       quickAnchorModelId = selectedModel?.id ?? null;
     }
     view = provider ? "overview" : "advanced";
-    flyout = provider ? null : "providers";
+    flyout = provider ? null : "models";
     openPicker();
   }
 
   function closePicker(): void {
     pickerOpen = false;
     modelQuery = "";
+    modelPickerError = null;
+    collapsedModelSections = new Set();
     cancelEffortClickReset();
     suppressEffortPointerClick = false;
     effortHandleHovered = false;
     resetEffortPointerState();
     closeFlyout();
     void tick().then(collapseModelControl);
+  }
+
+  function modelSectionCollapsed(sectionId: string): boolean {
+    return collapsedModelSections.has(sectionId);
+  }
+
+  function toggleModelSection(sectionId: string): void {
+    const next = new Set(collapsedModelSections);
+    if (next.has(sectionId)) next.delete(sectionId);
+    else next.add(sectionId);
+    collapsedModelSections = next;
+  }
+
+  function refreshModelListScrollState(): void {
+    modelListScrollFrame = null;
+    const element = modelListElement;
+    if (!element) {
+      modelListScrollable = false;
+      modelListCanScrollUp = false;
+      modelListCanScrollDown = false;
+      return;
+    }
+    const maxScrollTop = element.scrollHeight - element.clientHeight;
+    modelListScrollable = maxScrollTop > 1;
+    modelListCanScrollUp = element.scrollTop > 1;
+    modelListCanScrollDown = element.scrollTop < maxScrollTop - 1;
+  }
+
+  function requestModelListScrollStateRefresh(): void {
+    if (modelListScrollFrame !== null) cancelAnimationFrame(modelListScrollFrame);
+    modelListScrollFrame = requestAnimationFrame(refreshModelListScrollState);
   }
 
   function numericStyleValue(value: string): number {
@@ -282,22 +373,16 @@
     return entry.lastProbe.detail ?? t("chat.status.providerUnavailable");
   }
 
-  function selectProvider(entry: (typeof providers)[number]): void {
-    if (!providerAvailable(entry)) {
-      openProviderSettings();
-      return;
+  async function toggleModelFavorite(entry: ProviderInstanceRead, modelId: string): Promise<void> {
+    const favorites = entry.configuration.favoriteModelIds.includes(modelId)
+      ? entry.configuration.favoriteModelIds.filter((id) => id !== modelId)
+      : [...entry.configuration.favoriteModelIds, modelId];
+    modelPickerError = null;
+    try {
+      await chat.updateModels(entry.configuration.instanceId, entry.configuration.visibleModelIds, favorites);
+    } catch (error: unknown) {
+      modelPickerError = error instanceof Error ? error.message : String(error);
     }
-    if (chat.selectedThread && entry.configuration.instanceId !== chat.selectedThread.providerInstanceId) {
-      confirmationReturnFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
-      pendingProviderId = entry.configuration.instanceId;
-      void tick().then(() => firstFocusable(providerForkDialog)?.focus());
-      return;
-    }
-    chat.setComposerProvider(entry.configuration.instanceId);
-    chat.setComposerModel(null);
-    modelQuery = "";
-    view = "advanced";
-    flyout = "models";
   }
 
   function openProviderSettings(): void {
@@ -305,11 +390,28 @@
     settings.open("chat", { chatSubsection: "providers" });
   }
 
-  function chooseModel(modelId: string | null, providerManaged: boolean): void {
-    const model = models.find((candidate) => candidate.id === modelId);
+  function chooseModel(entry: (typeof providers)[number], modelId: string | null, providerManaged: boolean): void {
+    const target = { providerInstanceId: entry.configuration.instanceId, modelId, providerManaged };
+    if (chat.selectedThread && entry.configuration.instanceId !== chat.selectedThread.providerInstanceId) {
+      confirmationReturnFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+      pendingProviderModel = target;
+      void tick().then(() => firstFocusable(providerForkDialog)?.focus());
+      return;
+    }
+    applyProviderModelSelection(entry, modelId, providerManaged);
+  }
+
+  function applyProviderModelSelection(
+    entry: (typeof providers)[number],
+    modelId: string | null,
+    providerManaged: boolean,
+  ): void {
+    const model = visibleModels(entry).find((candidate) => candidate.id === modelId);
+    if (entry.configuration.instanceId !== provider?.configuration.instanceId) {
+      chat.setComposerProvider(entry.configuration.instanceId);
+    }
     chat.setComposerModel(composerModelSelection(modelId, providerManaged, model ? defaultOptions(model.options) : []));
     quickAnchorModelId = modelId;
-    closePicker();
   }
 
   function chooseQuickEffort(choice: QuickEffortChoice): void {
@@ -423,162 +525,63 @@
     chooseQuickEffort(choice);
   }
 
-  function chooseInteraction(value: InteractionMode): void {
-    chat.setComposerModes(chat.composer.safetyMode, value);
-    closePicker();
-  }
-
   function openOption(definition: KnownModelOption, trigger?: HTMLElement): void {
-    cancelFlyoutClose();
-    cancelPendingFlyoutActivation();
     if (trigger) activeFlyoutTrigger = trigger;
     optionViewKey = definition.key;
     flyout = "option";
+    scheduleFlyoutPosition();
   }
 
   function openFlyout(next: FlyoutView, trigger?: HTMLElement): void {
-    cancelFlyoutClose();
-    cancelPendingFlyoutActivation();
     if (trigger) activeFlyoutTrigger = trigger;
+    if (next === "models" && flyout !== "models") {
+      modelQuery = "";
+      modelPickerError = null;
+    }
     optionViewKey = null;
     flyout = next;
+    scheduleFlyoutPosition();
   }
 
   function closeFlyout(): void {
-    cancelFlyoutClose();
-    cancelPendingFlyoutActivation();
     optionViewKey = null;
     flyout = null;
+    flyoutPosition = null;
     activeFlyoutTrigger = null;
-    hoveredFlyoutTrigger = null;
-  }
-
-  function cancelFlyoutClose(): void {
-    if (flyoutCloseTimer === null) return;
-    clearTimeout(flyoutCloseTimer);
-    flyoutCloseTimer = null;
-  }
-
-  function scheduleFlyoutClose(delayMs: number): void {
-    cancelFlyoutClose();
-    flyoutCloseTimer = setTimeout(() => {
-      flyoutCloseTimer = null;
-      closeFlyout();
-    }, delayMs);
-  }
-
-  function cancelPendingFlyoutActivation(): void {
-    if (pendingFlyoutTimer !== null) clearTimeout(pendingFlyoutTimer);
-    pendingFlyoutTimer = null;
-    pendingFlyoutTrigger = null;
-  }
-
-  function flyoutBoundaryContains(target: EventTarget | null): boolean {
-    if (!(target instanceof Node)) return false;
-    return Boolean(activeFlyoutTrigger?.contains(target) || flyoutPanel?.contains(target));
-  }
-
-  function menuAimRect(rect: DOMRect): MenuAimRect {
-    return { left: rect.left, right: rect.right, top: rect.top, bottom: rect.bottom };
-  }
-
-  function menuAimSide(source: DOMRect, destination: DOMRect): MenuAimSide {
-    const horizontalGap = Math.max(destination.left - source.right, source.left - destination.right, 0);
-    const verticalGap = Math.max(destination.top - source.bottom, source.top - destination.bottom, 0);
-    if (horizontalGap >= verticalGap) {
-      return destination.left + destination.right < source.left + source.right ? "left" : "right";
-    }
-    return destination.top + destination.bottom < source.top + source.bottom ? "top" : "bottom";
-  }
-
-  function pointerAimingBetween(source: HTMLElement, destination: HTMLElement, event: PointerEvent): boolean {
-    const sourceRect = source.getBoundingClientRect();
-    const destinationRect = destination.getBoundingClientRect();
-    const origin: MenuAimPoint = {
-      x: sourceRect.left + sourceRect.width / 2,
-      y: sourceRect.top + sourceRect.height / 2,
-    };
-    return isPointerAimingAtSubmenu({
-      origin,
-      point: { x: event.clientX, y: event.clientY },
-      submenu: menuAimRect(destinationRect),
-      side: menuAimSide(sourceRect, destinationRect),
-      tolerance: 10,
-      topTolerance: 10,
-      bottomTolerance: 20,
-      minTowardDistance: 3,
-    });
-  }
-
-  function activateFlyoutFromPointer(trigger: HTMLElement, event: PointerEvent, activate: () => void): void {
-    hoveredFlyoutTrigger = trigger;
-    const crossingTowardCurrentFlyout = Boolean(
-      activeFlyoutTrigger
-      && activeFlyoutTrigger !== trigger
-      && flyoutPanel
-      && pointerAimingBetween(activeFlyoutTrigger, flyoutPanel, event),
-    );
-    if (!crossingTowardCurrentFlyout) {
-      activate();
-      return;
-    }
-
-    cancelFlyoutClose();
-    cancelPendingFlyoutActivation();
-    pendingFlyoutTrigger = trigger;
-    pendingFlyoutTimer = setTimeout(() => {
-      pendingFlyoutTimer = null;
-      pendingFlyoutTrigger = null;
-      if (hoveredFlyoutTrigger === trigger) activate();
-    }, flyoutGraceDelayMs);
   }
 
   function handleOptionPointerEnter(definition: KnownModelOption, event: PointerEvent): void {
     if (!(event.currentTarget instanceof HTMLElement)) return;
-    const trigger = event.currentTarget;
-    activateFlyoutFromPointer(trigger, event, () => openOption(definition, trigger));
+    openOption(definition, event.currentTarget);
   }
 
   function handleNamedFlyoutPointerEnter(next: FlyoutView, event: PointerEvent): void {
     if (!(event.currentTarget instanceof HTMLElement)) return;
-    const trigger = event.currentTarget;
-    activateFlyoutFromPointer(trigger, event, () => openFlyout(next, trigger));
+    openFlyout(next, event.currentTarget);
   }
 
-  function handleFlyoutTriggerLeave(event: PointerEvent): void {
-    const leavingTrigger = event.currentTarget instanceof HTMLElement ? event.currentTarget : null;
-    if (hoveredFlyoutTrigger === leavingTrigger) hoveredFlyoutTrigger = null;
-    if (pendingFlyoutTrigger === leavingTrigger) cancelPendingFlyoutActivation();
-    if (flyoutBoundaryContains(event.relatedTarget)) {
-      cancelFlyoutClose();
-      return;
-    }
-    const trigger = leavingTrigger ?? activeFlyoutTrigger;
-    const aimingAtFlyout = Boolean(trigger && flyoutPanel && pointerAimingBetween(trigger, flyoutPanel, event));
-    scheduleFlyoutClose(aimingAtFlyout ? flyoutGraceDelayMs : flyoutCloseDelayMs);
+  function scheduleFlyoutPosition(): void {
+    void tick().then(positionFlyout);
   }
 
-  function handleFlyoutPanelLeave(event: PointerEvent): void {
-    if (flyoutBoundaryContains(event.relatedTarget)) {
-      cancelFlyoutClose();
-      return;
-    }
-    const aimingAtTrigger = Boolean(flyoutPanel && activeFlyoutTrigger && pointerAimingBetween(flyoutPanel, activeFlyoutTrigger, event));
-    scheduleFlyoutClose(aimingAtTrigger ? flyoutGraceDelayMs : flyoutCloseDelayMs);
-  }
-
-  function handleFlyoutPanelEnter(): void {
-    hoveredFlyoutTrigger = null;
-    cancelPendingFlyoutActivation();
-    cancelFlyoutClose();
-  }
-
-  function handleFlyoutFocusOut(): void {
-    queueMicrotask(() => {
-      const activeElement = document.activeElement;
-      if (flyoutBoundaryContains(activeElement)) return;
-      closeFlyout();
-    });
+  function positionFlyout(): void {
+    if (!activeFlyoutTrigger || !flyoutPanel || !pickerPanel) return;
+    const anchor = activeFlyoutTrigger.getBoundingClientRect();
+    const parent = pickerPanel.getBoundingClientRect();
+    const panel = flyoutPanel.getBoundingClientRect();
+    const rightPosition = parent.right + flyoutGapPx;
+    const leftPosition = parent.left - panel.width - flyoutGapPx;
+    const rightFits = rightPosition + panel.width <= window.innerWidth - flyoutViewportInsetPx;
+    const leftFits = leftPosition >= flyoutViewportInsetPx;
+    const viewportLeft = rightFits || !leftFits
+      ? Math.min(rightPosition, window.innerWidth - panel.width - flyoutViewportInsetPx)
+      : leftPosition;
+    const maximumTop = Math.max(flyoutViewportInsetPx, window.innerHeight - panel.height - flyoutViewportInsetPx);
+    const viewportTop = Math.min(Math.max(flyoutViewportInsetPx, anchor.top - 4), maximumTop);
+    flyoutPosition = {
+      left: Math.max(flyoutViewportInsetPx, viewportLeft) - parent.left,
+      top: viewportTop - parent.top,
+    };
   }
 
   function updateOption(key: string, value: ModelOptionValue): void {
@@ -700,6 +703,76 @@
     return model.displayName.replace(/^GPT-/i, "").replaceAll("-", " ");
   }
 
+  function visibleModels(entry: (typeof providers)[number] | null): ProviderModel[] {
+    if (!entry) return [];
+    const selectedId = entry.configuration.instanceId === provider?.configuration.instanceId
+      ? selection.modelId
+      : null;
+    return entry.modelCatalog?.models.filter((model) => (
+      entry.configuration.visibleModelIds.length === 0
+      || entry.configuration.visibleModelIds.includes(model.id)
+      || model.id === selectedId
+    )) ?? [];
+  }
+
+  function buildFavoriteModelEntries(entries: ProviderInstanceRead[], query: string): FavoriteModelEntry[] {
+    const favorites: FavoriteModelEntry[] = [];
+    for (const entry of entries) {
+      const favoriteIds = entry.configuration.favoriteModelIds;
+      if (favoriteIds.length === 0) continue;
+      const recentIds = chat.settings?.configuration.rememberedSelections
+        .filter((selectionEntry) => selectionEntry.providerInstanceId === entry.configuration.instanceId && selectionEntry.modelId)
+        .map((selectionEntry) => selectionEntry.modelId as string) ?? [];
+      const favoriteModels = visibleModels(entry).filter((model) => favoriteIds.includes(model.id));
+      for (const model of rankedModels(favoriteModels, favoriteIds, recentIds, query)) {
+        favorites.push({ provider: entry, model });
+      }
+    }
+    return favorites;
+  }
+
+  function buildModelCompanySections(
+    entries: ProviderInstanceRead[],
+    setupFamilies: ProviderFamilyMetadataRead[],
+    query: string,
+  ): ModelCompanySection[] {
+    const sections = new Map<string, ModelCompanySection>();
+    const sectionFor = (company: ModelCompanyIdentity): ModelCompanySection => {
+      const existing = sections.get(company.id);
+      if (existing) return existing;
+      const created = { company, models: [], managedProviders: [], setupFamilies: [] };
+      sections.set(company.id, created);
+      return created;
+    };
+
+    for (const entry of entries) {
+      const visible = visibleModels(entry);
+      const recentIds = chat.settings?.configuration.rememberedSelections
+        .filter((selectionEntry) => selectionEntry.providerInstanceId === entry.configuration.instanceId && selectionEntry.modelId)
+        .map((selectionEntry) => selectionEntry.modelId as string) ?? [];
+      const ranked = rankedModels(visible, entry.configuration.favoriteModelIds, recentIds, query);
+      for (const model of ranked) {
+        sectionFor(modelCompany(entry.configuration.familyId, model)).models.push({ provider: entry, model });
+      }
+      const providerManaged = (entry.modelCatalog?.models.length ?? 0) === 0
+        || (entry.configuration.instanceId === provider?.configuration.instanceId && selection.providerManaged);
+      if (providerManaged && (!query || t("chat.composer.providerManagedModel").toLocaleLowerCase(localization.locale).includes(query.toLocaleLowerCase(localization.locale)))) {
+        sectionFor(integrationCompany(entry.configuration.familyId)).managedProviders.push(entry);
+      }
+    }
+
+    for (const family of setupFamilies) {
+      const company = integrationCompany(family.familyId);
+      if (!query || company.name.toLocaleLowerCase(localization.locale).includes(query.toLocaleLowerCase(localization.locale))) {
+        sectionFor(company).setupFamilies.push(family);
+      }
+    }
+
+    return [...sections.values()]
+      .filter((section) => section.models.length > 0 || section.managedProviders.length > 0 || section.setupFamilies.length > 0)
+      .sort((left, right) => left.company.order - right.company.order || left.company.name.localeCompare(right.company.name));
+  }
+
   function buildQuickEffortChoices(anchor: ProviderModel | null, availableModels: ProviderModel[]): QuickEffortChoice[] {
     if (!anchor) return [];
     const anchorEffort = anchor.options.find((definition) => isKnownOption(definition) && optionRole(definition) === "effort");
@@ -794,11 +867,12 @@
   }
 
   async function confirmProviderFork(): Promise<void> {
-    if (!pendingProviderId) return;
-    const instanceId = pendingProviderId;
-    pendingProviderId = null;
-    await chat.forkComposerWithProvider(instanceId);
-    closePicker();
+    if (!pendingProviderModel) return;
+    const target = pendingProviderModel;
+    pendingProviderModel = null;
+    await chat.forkComposerWithProvider(target.providerInstanceId);
+    const entry = providers.find((candidate) => candidate.configuration.instanceId === target.providerInstanceId);
+    if (entry) applyProviderModelSelection(entry, target.modelId, target.providerManaged);
   }
 </script>
 
@@ -838,45 +912,98 @@
           <div class="effort-guidance" aria-hidden="true"><span>{t("chat.composer.faster")}</span><span>{t("chat.composer.smarter")}</span></div>
         </div>
         </div>
-        <div bind:this={advancedPanel} class="picker-view advanced-view" class:active={view === "advanced"} inert={view !== "advanced"} aria-hidden={view !== "advanced"} onfocusout={handleFlyoutFocusOut}>
+        <div bind:this={advancedPanel} class="picker-view advanced-view" class:active={view === "advanced"} inert={view !== "advanced"} aria-hidden={view !== "advanced"}>
         <button bind:this={advancedHeading} type="button" class="advanced-heading" onclick={() => setPickerView("overview")}><span>{t("chat.composer.advanced")}</span><ChevronDown size={15} /></button>
         <div class="advanced-list">
-          <button type="button" onpointerenter={(event) => handleNamedFlyoutPointerEnter("models", event)} onpointerleave={handleFlyoutTriggerLeave} onfocus={(event) => openFlyout("models", event.currentTarget)} onclick={(event) => { openFlyout("models", event.currentTarget); void tick().then(() => modelSearch?.focus()); }}><span>{t("chat.hero.model")}</span><small>{selection.providerManaged ? t("chat.composer.providerManagedModel") : displayModelName(selectedModel)}</small><ChevronRight size={15} /></button>
-          {#if effortDefinition}<button type="button" onpointerenter={(event) => handleOptionPointerEnter(effortDefinition, event)} onpointerleave={handleFlyoutTriggerLeave} onfocus={(event) => openOption(effortDefinition, event.currentTarget)} onclick={(event) => openOption(effortDefinition, event.currentTarget)}><span>{t("chat.composer.effort")}</span><small>{selectedOptionLabel(effortDefinition)}</small><ChevronRight size={15} /></button>{/if}
-          {#if speedDefinition}<button type="button" onpointerenter={(event) => handleOptionPointerEnter(speedDefinition, event)} onpointerleave={handleFlyoutTriggerLeave} onfocus={(event) => openOption(speedDefinition, event.currentTarget)} onclick={(event) => openOption(speedDefinition, event.currentTarget)}><span>{t("chat.composer.speed")}</span><small>{isFastSelected() ? t("chat.composer.fast") : t("chat.composer.standard")}</small><ChevronRight size={15} /></button>{/if}
-          {#each otherDefinitions as definition}<button type="button" onpointerenter={(event) => handleOptionPointerEnter(definition, event)} onpointerleave={handleFlyoutTriggerLeave} onfocus={(event) => openOption(definition, event.currentTarget)} onclick={(event) => openOption(definition, event.currentTarget)}><span>{definition.label}</span><small>{selectedOptionLabel(definition)}</small><ChevronRight size={15} /></button>{/each}
-          {#if providers.length > 1 || unconfiguredFamilies.length > 0}<button type="button" onpointerenter={(event) => handleNamedFlyoutPointerEnter("providers", event)} onpointerleave={handleFlyoutTriggerLeave} onfocus={(event) => openFlyout("providers", event.currentTarget)} onclick={(event) => openFlyout("providers", event.currentTarget)}><span>{t("chat.hero.provider")}</span><small>{provider?.configuration.label ?? t("chat.hero.chooseProvider")}</small><ChevronRight size={15} /></button>{/if}
-          <button type="button" onpointerenter={(event) => handleNamedFlyoutPointerEnter("interaction", event)} onpointerleave={handleFlyoutTriggerLeave} onfocus={(event) => openFlyout("interaction", event.currentTarget)} onclick={(event) => openFlyout("interaction", event.currentTarget)}><span>{t("chat.hero.interaction")}</span><small>{chat.composer.interactionMode === "plan" ? t("chat.hero.plan") : t("chat.hero.build")}</small><ChevronRight size={15} /></button>
+          <button type="button" onpointerenter={(event) => handleNamedFlyoutPointerEnter("models", event)} onfocus={(event) => openFlyout("models", event.currentTarget)} onclick={(event) => { openFlyout("models", event.currentTarget); void tick().then(() => modelSearch?.focus()); }}><span>{t("chat.hero.model")}</span><small>{selection.providerManaged ? t("chat.composer.providerManagedModel") : displayModelName(selectedModel)}</small><ChevronRight size={15} /></button>
+          {#if effortDefinition}<button type="button" onpointerenter={(event) => handleOptionPointerEnter(effortDefinition, event)} onfocus={(event) => openOption(effortDefinition, event.currentTarget)} onclick={(event) => openOption(effortDefinition, event.currentTarget)}><span>{t("chat.composer.effort")}</span><small>{selectedOptionLabel(effortDefinition)}</small><ChevronRight size={15} /></button>{/if}
+          {#if speedDefinition}<button type="button" onpointerenter={(event) => handleOptionPointerEnter(speedDefinition, event)} onfocus={(event) => openOption(speedDefinition, event.currentTarget)} onclick={(event) => openOption(speedDefinition, event.currentTarget)}><span>{t("chat.composer.speed")}</span><small>{isFastSelected() ? t("chat.composer.fast") : t("chat.composer.standard")}</small><ChevronRight size={15} /></button>{/if}
+          {#each otherDefinitions as definition}<button type="button" onpointerenter={(event) => handleOptionPointerEnter(definition, event)} onfocus={(event) => openOption(definition, event.currentTarget)} onclick={(event) => openOption(definition, event.currentTarget)}><span>{definition.label}</span><small>{selectedOptionLabel(definition)}</small><ChevronRight size={15} /></button>{/each}
         </div>
         </div>
       </div>
 
         {#if view === "advanced" && flyout}
-          <div bind:this={flyoutPanel} class="model-flyout" role="group" aria-label={flyout === "models" ? t("chat.hero.model") : flyout === "providers" ? t("chat.hero.provider") : flyout === "interaction" ? t("chat.hero.interaction") : optionViewDefinition?.label} onpointerenter={handleFlyoutPanelEnter} onpointerleave={handleFlyoutPanelLeave} onfocusout={handleFlyoutFocusOut}>
-            {#if flyout === "providers"}
-              <p class="flyout-heading">{t("chat.hero.provider")}</p>
-              <div class="selection-list">
-                {#each providers as entry}<button type="button" class:unavailable={!providerAvailable(entry)} onclick={() => selectProvider(entry)} title={probeStatus(entry)}><ChatProviderIcon familyId={entry.configuration.familyId} label={entry.configuration.label} accentColor={entry.configuration.accentColor} /><span><strong>{entry.configuration.label}</strong><small>{probeStatus(entry)}</small></span>{#if entry.configuration.instanceId === provider?.configuration.instanceId}<Check size={14} />{:else if !providerAvailable(entry)}<CircleAlert size={14} />{/if}</button>{/each}
-                {#each unconfiguredFamilies as family}<button type="button" class="unavailable" onclick={openProviderSettings}><ChatProviderIcon familyId={family.familyId} label={family.displayName} /><span><strong>{family.displayName}</strong><small>{t("chat.composer.notConfigured")}</small></span><Plus size={14} /></button>{/each}
+          <div bind:this={flyoutPanel} class="model-flyout" class:positioned={flyoutPosition !== null} class:model-picker-flyout={flyout === "models"} style:left={flyoutPosition === null ? undefined : `${flyoutPosition.left}px`} style:top={flyoutPosition === null ? undefined : `${flyoutPosition.top}px`} role="group" aria-label={flyout === "models" ? t("chat.hero.model") : optionViewDefinition?.label}>
+            {#if flyout === "models"}
+              <div class="model-picker-shell">
+                <div class="model-picker-main">
+                  <div class="model-list-frame">
+                  <div
+                    bind:this={modelListElement}
+                    class="selection-list model-list hide-scrollbar"
+                    class:model-list-scroll-both={modelListScrollable && modelListCanScrollUp && modelListCanScrollDown}
+                    class:model-list-scroll-top={modelListScrollable && modelListCanScrollUp && !modelListCanScrollDown}
+                    class:model-list-scroll-bottom={modelListScrollable && !modelListCanScrollUp && modelListCanScrollDown}
+                    onscroll={refreshModelListScrollState}
+                  >
+                    <div bind:this={modelListContentElement} class="model-list-content">
+                    <div class="model-search-row">
+                      <label class="model-search"><Search size={16} /><input bind:this={modelSearch} bind:value={modelQuery} placeholder={t("chat.composer.modelSearch")} /></label>
+                    </div>
+                    <section class="model-company-section favorite-company-section" aria-labelledby="favorite-models-heading">
+                      <button id="favorite-models-heading" type="button" class="model-company-heading" aria-expanded={!modelSectionCollapsed("favorites")} aria-controls="favorite-models-content" onclick={() => toggleModelSection("favorites")}><Star size={14} fill="currentColor" /><span>{t("chat.composer.favorites")}</span><ChevronDown size={13} class={modelSectionCollapsed("favorites") ? "collapsed" : undefined} /></button>
+                      <div id="favorite-models-content" class="model-company-content" class:collapsed={modelSectionCollapsed("favorites")} inert={modelSectionCollapsed("favorites")} aria-hidden={modelSectionCollapsed("favorites")}>
+                        <div class="model-company-content-inner">
+                          {#each favoriteModelEntries as favorite (`favorite:${favorite.provider.configuration.instanceId}:${favorite.model.id}`)}
+                            {@const metadata = modelMetadata(favorite.model.contextLimit, favorite.model.availability)}
+                            {@const company = modelCompany(favorite.provider.configuration.familyId, favorite.model)}
+                            <div class="model-row">
+                              <button type="button" class="model-choice" disabled={!providerAvailable(favorite.provider) || favorite.model.availability === "unavailable" || favorite.model.availability === "deprecated"} title={favorite.model.availability === "available" ? undefined : metadata.join(" · ")} onclick={() => chooseModel(favorite.provider, favorite.model.id, false)}>
+                                <span><strong>{favorite.model.displayName}</strong><small class="model-provider-caption"><ChatProviderIcon familyId={company.iconFamilyId} label={company.name} size={12} />{company.name}{#if metadata.length > 0}<span aria-hidden="true">·</span>{metadata.join(" · ")}{/if}</small></span>
+                                {#if favorite.provider.configuration.instanceId === provider?.configuration.instanceId && selection.modelId === favorite.model.id}<Check size={15} />{/if}
+                              </button>
+                              <button type="button" class="model-favorite active" aria-label={`${t("chat.composer.favorite")}: ${favorite.model.displayName}`} aria-pressed="true" onclick={() => void toggleModelFavorite(favorite.provider, favorite.model.id)}><Star size={16} fill="currentColor" /></button>
+                            </div>
+                          {/each}
+                          {#if favoriteModelEntries.length === 0}<p>{modelQuery ? t("chat.composer.noFavoriteMatches") : t("chat.composer.noFavoriteModels")}</p>{/if}
+                        </div>
+                      </div>
+                    </section>
+
+                    {#each modelCompanySections as section (section.company.id)}
+                      {@const sectionCollapsed = modelSectionCollapsed(section.company.id)}
+                      <section class="model-company-section" data-model-company={section.company.id} aria-labelledby={`model-company-${section.company.id}`}>
+                        <button id={`model-company-${section.company.id}`} type="button" class="model-company-heading" aria-expanded={!sectionCollapsed} aria-controls={`model-company-${section.company.id}-content`} onclick={() => toggleModelSection(section.company.id)}><ChatProviderIcon familyId={section.company.iconFamilyId} label={section.company.name} size={14} /><span>{section.company.name}</span><ChevronDown size={13} class={sectionCollapsed ? "collapsed" : undefined} /></button>
+                        <div id={`model-company-${section.company.id}-content`} class="model-company-content" class:collapsed={sectionCollapsed} inert={sectionCollapsed} aria-hidden={sectionCollapsed}>
+                          <div class="model-company-content-inner">
+                            {#each section.managedProviders as managedProvider (managedProvider.configuration.instanceId)}
+                              <button type="button" disabled={!providerAvailable(managedProvider)} title={probeStatus(managedProvider)} onclick={() => chooseModel(managedProvider, null, true)}>
+                                <span><strong>{t("chat.composer.providerManagedModel")}</strong></span>
+                                {#if managedProvider.configuration.instanceId === provider?.configuration.instanceId && selection.providerManaged}<Check size={14} />{/if}
+                              </button>
+                            {/each}
+                            {#each section.models as entry (`${entry.provider.configuration.instanceId}:${entry.model.id}`)}
+                              {@const metadata = modelMetadata(entry.model.contextLimit, entry.model.availability)}
+                              <div class="model-row">
+                                <button type="button" class="model-choice" disabled={!providerAvailable(entry.provider) || entry.model.availability === "unavailable" || entry.model.availability === "deprecated"} title={entry.model.availability === "available" ? undefined : metadata.join(" · ")} onclick={() => chooseModel(entry.provider, entry.model.id, false)}>
+                                  <span><strong>{entry.model.displayName}</strong></span>
+                                  {#if entry.provider.configuration.instanceId === provider?.configuration.instanceId && selection.modelId === entry.model.id}<Check size={15} />{/if}
+                                </button>
+                                <button type="button" class="model-favorite" class:active={entry.provider.configuration.favoriteModelIds.includes(entry.model.id)} aria-label={`${t("chat.composer.favorite")}: ${entry.model.displayName}`} aria-pressed={entry.provider.configuration.favoriteModelIds.includes(entry.model.id)} onclick={() => void toggleModelFavorite(entry.provider, entry.model.id)}><Star size={16} fill={entry.provider.configuration.favoriteModelIds.includes(entry.model.id) ? "currentColor" : "none"} /></button>
+                              </div>
+                            {/each}
+                            {#each section.setupFamilies as family (family.familyId)}
+                              <button type="button" class="company-setup" onclick={openProviderSettings}><span><strong>{t("chat.composer.configureProvider")} {section.company.name}</strong></span><Plus size={14} /></button>
+                            {/each}
+                          </div>
+                        </div>
+                      </section>
+                    {/each}
+                    {#if modelCompanySections.length === 0}<p>{t("chat.composer.noModels")}</p>{/if}
+                    {#if modelPickerError}<p class="model-picker-error" role="alert">{modelPickerError}</p>{/if}
+                    </div>
+                  </div>
+                  <CalendarScrollbar scrollContainer={modelListElement} stickyTop={4} stickyBottom={4} wheelPassthrough />
+                  </div>
+                </div>
               </div>
-            {:else if flyout === "models"}
-              <p class="flyout-heading">{t("chat.hero.model")}</p>
-              <label class="model-search"><Search size={14} /><input bind:this={modelSearch} bind:value={modelQuery} placeholder={t("chat.composer.modelSearch")} /></label>
-              <div class="selection-list model-list">
-                {#if providerManagedOnly || selection.providerManaged}<button type="button" disabled={!provider || !providerAvailable(provider)} onclick={() => chooseModel(null, true)}><span><strong>{t("chat.composer.providerManagedModel")}</strong><small>{provider?.configuration.label}</small></span>{#if selection.providerManaged}<Check size={14} />{/if}</button>{/if}
-                {#each ranked as model}<button type="button" disabled={!provider || !providerAvailable(provider) || model.availability === "unavailable" || model.availability === "deprecated"} title={model.availability === "available" ? undefined : modelMetadata(model.contextLimit, model.availability).join(" · ")} onclick={() => chooseModel(model.id, false)}><span><strong>{model.displayName}</strong><small>{[model.id, ...modelMetadata(model.contextLimit, model.availability)].join(" · ")}</small></span>{#if provider?.configuration.favoriteModelIds.includes(model.id)}<Star size={12} />{/if}{#if selection.modelId === model.id}<Check size={14} />{/if}</button>{/each}
-                {#if ranked.length === 0 && !providerManagedOnly}<p>{t("chat.composer.noModels")}</p>{/if}
-              </div>
-            {:else if flyout === "interaction"}
-              <p class="flyout-heading">{t("chat.hero.interaction")}</p>
-              <div class="selection-list"><button type="button" onclick={() => chooseInteraction("build")}><span><strong>{t("chat.hero.build")}</strong><small>{t("chat.composer.buildDescription")}</small></span>{#if chat.composer.interactionMode === "build"}<Check size={14} />{/if}</button><button type="button" disabled={!supportsPlan} onclick={() => chooseInteraction("plan")}><span><strong>{t("chat.hero.plan")}</strong><small>{supportsPlan ? t("chat.composer.planDescription") : t("chat.composer.planUnavailable")}</small></span>{#if chat.composer.interactionMode === "plan"}<Check size={14} />{/if}</button></div>
             {:else if optionViewDefinition}
-              <p class="flyout-heading">{optionRole(optionViewDefinition) === "effort" ? t("chat.composer.effort") : optionRole(optionViewDefinition) === "speed" ? t("chat.composer.speed") : optionViewDefinition.label}</p>
               <div class="selection-list option-list">
                 {#if optionViewDefinition.kind === "choice"}
-                  {#each optionViewDefinition.options as choice}<button type="button" onclick={() => { updateOption(optionViewDefinition.key, { kind: "choice", value: choice.value }); closePicker(); }}><span><strong>{humanizeOptionLabel(choice.label)}</strong>{#if choice.description}<small>{choice.description}</small>{/if}</span>{#if choiceValue(optionViewDefinition.key) === choice.value}<Check size={14} />{/if}</button>{/each}
+                  {#each optionViewDefinition.options as choice}<button type="button" onclick={() => updateOption(optionViewDefinition.key, { kind: "choice", value: choice.value })}><span><strong>{humanizeOptionLabel(choice.label)}</strong>{#if choice.description && optionRole(optionViewDefinition) !== "effort"}<small>{choice.description}</small>{/if}</span>{#if choiceValue(optionViewDefinition.key) === choice.value}<Check size={14} />{/if}</button>{/each}
                 {:else if optionViewDefinition.kind === "boolean"}
-                  <button type="button" onclick={() => { updateOption(optionViewDefinition.key, { kind: "boolean", value: !booleanValue(optionViewDefinition.key) }); closePicker(); }}><span><strong>{optionViewDefinition.label}</strong>{#if optionViewDefinition.description}<small>{optionViewDefinition.description}</small>{/if}</span>{#if booleanValue(optionViewDefinition.key)}<Check size={14} />{/if}</button>
+                  <button type="button" onclick={() => updateOption(optionViewDefinition.key, { kind: "boolean", value: !booleanValue(optionViewDefinition.key) })}><span><strong>{optionViewDefinition.label}</strong>{#if optionViewDefinition.description && optionRole(optionViewDefinition) !== "effort"}<small>{optionViewDefinition.description}</small>{/if}</span>{#if booleanValue(optionViewDefinition.key)}<Check size={14} />{/if}</button>
                 {:else if optionViewDefinition.kind === "multiple_choice"}
                   {#each optionViewDefinition.options as choice}<label><input type="checkbox" checked={multipleIncludes(optionViewDefinition.key, choice.value)} onchange={(event) => toggleMultiple(optionViewDefinition.key, choice.value, event.currentTarget.checked)} /><span><strong>{choice.label}</strong>{#if choice.description}<small>{choice.description}</small>{/if}</span></label>{/each}
                 {:else if optionViewDefinition.kind === "integer_range"}
@@ -892,8 +1019,8 @@
   {/if}
 </div>
 
-{#if pendingProviderId}
-  <div class="fixed inset-0 z-60 grid place-items-center bg-black/40 p-4"><button type="button" class="absolute inset-0" aria-label={t("chat.cancel")} onclick={() => { pendingProviderId = null; }}></button><div bind:this={providerForkDialog} class="relative w-full max-w-md rounded-lg border border-border bg-background p-4 shadow-2xl" role="dialog" aria-modal="true" aria-labelledby="provider-fork-title" tabindex="-1"><h2 id="provider-fork-title" class="font-semibold">{t("chat.composer.changeProviderTitle")}</h2><p class="mt-2 text-sm text-muted-foreground">{t("chat.composer.changeProviderDescription")}</p><div class="mt-4 flex justify-end gap-2"><button type="button" class="chat-secondary-button" onclick={() => { pendingProviderId = null; }}>{t("chat.cancel")}</button><button type="button" class="chat-primary-button" onclick={() => void confirmProviderFork()}>{t("chat.composer.startProviderFork")}</button></div></div></div>
+{#if pendingProviderModel}
+  <div class="fixed inset-0 z-60 grid place-items-center bg-black/40 p-4"><button type="button" class="absolute inset-0" aria-label={t("chat.cancel")} onclick={() => { pendingProviderModel = null; }}></button><div bind:this={providerForkDialog} class="relative w-full max-w-md rounded-lg border border-border bg-background p-4 shadow-2xl" role="dialog" aria-modal="true" aria-labelledby="provider-fork-title" tabindex="-1"><h2 id="provider-fork-title" class="font-semibold">{t("chat.composer.changeProviderTitle")}</h2><p class="mt-2 text-sm text-muted-foreground">{t("chat.composer.changeProviderDescription")}</p><div class="mt-4 flex justify-end gap-2"><button type="button" class="chat-secondary-button" onclick={() => { pendingProviderModel = null; }}>{t("chat.cancel")}</button><button type="button" class="chat-primary-button" onclick={() => void confirmProviderFork()}>{t("chat.composer.startProviderFork")}</button></div></div></div>
 {/if}
 
 <style>
@@ -910,7 +1037,7 @@
   .model-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .effort-name { flex: 0 0 auto; color: var(--primary); transition: color 260ms ease; }
   .effort-name.ultra { color: #7c3aed; }
-  .model-popover { position: absolute; right: 0; bottom: calc(100% + 0.45rem); z-index: 45; width: min(18.5rem, calc(100vw - 1rem)); overflow: visible; border: 1px solid var(--border); border-radius: 0.8rem; background: var(--popover); padding: 0.65rem 0.6rem 0.5rem; color: var(--popover-foreground); box-shadow: 0 14px 38px rgb(0 0 0 / 0.16); }
+  .model-popover { position: absolute; right: 0; bottom: calc(100% + 0.45rem); z-index: 45; width: min(18.5rem, calc(100vw - 1rem)); overflow: visible; border: 1px solid var(--border); border-radius: 0.8rem; background: var(--popover); padding: 0.65rem 0.6rem 0.5rem; color: var(--popover-foreground); font-size: 0.875rem; box-shadow: 0 4px 12px rgb(0 0 0 / 0.08); }
   .picker-stage { position: relative; overflow: clip; transition: height 320ms cubic-bezier(0.22, 0.75, 0.18, 1); }
   .picker-view { width: 100%; opacity: 0; pointer-events: none; transition: opacity 190ms ease, transform 300ms cubic-bezier(0.22, 0.75, 0.18, 1); will-change: opacity, transform; }
   .picker-view:not(.active) { position: absolute; inset: 0 0 auto; }
@@ -965,23 +1092,56 @@
   .advanced-list { padding-top: 0.3rem; }
   .advanced-list button { display: grid; width: 100%; grid-template-columns: minmax(0, 1fr) minmax(0, auto) 1rem; align-items: center; gap: 0.5rem; border-radius: 0.55rem; padding: 0.5rem 0.6rem; text-align: left; }
   .advanced-list button:hover, .advanced-list button:focus-visible { background: color-mix(in srgb, var(--accent) 70%, transparent); outline: none; }
-  .advanced-list small { overflow: hidden; max-width: 9rem; text-overflow: ellipsis; white-space: nowrap; color: var(--muted-foreground); }
-  .model-flyout { position: absolute; right: calc(100% + 0.4rem); bottom: 0; width: min(22rem, calc(100vw - 1rem)); max-height: min(28rem, 72vh); overflow: hidden auto; border: 1px solid var(--border); border-radius: 0.9rem; background: var(--popover); padding: 0.45rem; box-shadow: 0 18px 48px rgb(0 0 0 / 0.18); }
-  .flyout-heading { padding: 0.35rem 0.5rem 0.45rem; color: var(--muted-foreground); font-size: 0.733333rem; }
+  .advanced-list small { overflow: hidden; max-width: 9rem; text-overflow: ellipsis; white-space: nowrap; color: var(--muted-foreground); font-size: 0.8125rem; }
+  .model-flyout { position: absolute; z-index: 46; width: min(16.5rem, calc(100vw - 1rem)); max-height: min(28rem, 72vh); overflow: hidden auto; border: 1px solid var(--border); border-radius: 0.8rem; background: var(--popover); padding: 0.35rem; font-size: 0.875rem; box-shadow: 0 4px 12px rgb(0 0 0 / 0.09); }
+  .model-flyout:not(.positioned) { visibility: hidden; }
+  .model-flyout.model-picker-flyout { width: min(16.5rem, calc(100vw - 1rem)); overflow: hidden; padding: 0; }
+  .model-picker-shell { width: 100%; height: min(24rem, 72vh); min-height: min(18rem, 72vh); }
+  .model-picker-main { display: flex; width: 100%; height: 100%; min-width: 0; min-height: 0; flex-direction: column; overflow: hidden; padding: 0.5rem 0.55rem; }
   .selection-list { padding-top: 0.3rem; }
-  .selection-list > button { display: grid; width: 100%; grid-template-columns: minmax(0, 1fr) auto auto; align-items: center; gap: 0.45rem; border-radius: 0.55rem; padding: 0.5rem 0.55rem; text-align: left; }
+  .selection-list > button, .model-company-content-inner > button { display: grid; width: 100%; grid-template-columns: minmax(0, 1fr) auto auto; align-items: center; gap: 0.45rem; border-radius: 0.55rem; padding: 0.5rem 0.55rem; text-align: left; }
   .selection-list > button:has(> :global(svg:first-child)) { grid-template-columns: 1.3rem minmax(0, 1fr) auto; }
-  .selection-list > button:hover, .selection-list > button:focus-visible { background: var(--accent); outline: none; }
-  .selection-list > button:disabled, .selection-list > button.unavailable { opacity: 0.55; }
-  .selection-list > button > span { min-width: 0; }
+  .selection-list > button:hover, .selection-list > button:focus-visible, .model-company-content-inner > button:hover, .model-company-content-inner > button:focus-visible { background: var(--accent); outline: none; }
+  .selection-list > button:disabled, .model-company-content-inner > button:disabled { opacity: 0.55; }
+  .selection-list > button > span, .model-company-content-inner > button > span { min-width: 0; }
   .selection-list strong, .selection-list small { display: block; }
-  .selection-list strong { font-size: 0.766667rem; font-weight: 500; }
-  .selection-list small { overflow: hidden; margin-top: 0.08rem; text-overflow: ellipsis; white-space: nowrap; color: var(--muted-foreground); font-size: 0.666667rem; }
-  .selection-list > p { padding: 0.8rem; color: var(--muted-foreground); text-align: center; font-size: 0.7rem; }
-  .model-search { display: flex; align-items: center; gap: 0.4rem; margin: 0.45rem 0.15rem 0.15rem; border-radius: 0.55rem; background: var(--muted); padding: 0.4rem 0.5rem; color: var(--muted-foreground); }
+  .selection-list strong { font-size: 0.875rem; font-weight: 500; }
+  .selection-list small { overflow: hidden; margin-top: 0.1rem; text-overflow: ellipsis; white-space: nowrap; color: var(--muted-foreground); font-size: 0.75rem; }
+  .selection-list small.model-provider-caption { display: flex; align-items: center; gap: 0.3rem; }
+  .model-provider-caption > span[aria-hidden="true"] { opacity: 0.55; }
+  .model-list-content > p, .model-company-content-inner > p { padding: 0.38rem 0.5rem; color: var(--muted-foreground); font-size: 0.75rem; }
+  .model-search-row { display: flex; flex: 0 0 auto; align-items: center; gap: 0.35rem; border-bottom: 1px solid var(--border); margin: 0 0.15rem 0.2rem; transition: border-color 150ms ease; }
+  .model-search-row:focus-within { border-color: var(--primary); }
+  .model-search { display: flex; min-width: 0; flex: 1; align-items: center; gap: 0.45rem; padding: 0.5rem 0.15rem; color: var(--muted-foreground); }
   .model-search:focus-within { color: var(--foreground); }
-  .model-search input { min-width: 0; flex: 1; user-select: text; background: transparent; color: var(--foreground); font-size: 0.733333rem; outline: none; }
-  .model-list { max-height: min(19rem, 52vh); overflow-y: auto; }
+  .model-search input { min-width: 0; flex: 1; user-select: text; background: transparent; color: var(--foreground); font-size: 0.875rem; outline: none; }
+  .model-list-frame { --cal-scrollbar-thumb: color-mix(in srgb, var(--popover-foreground) 18%, var(--popover)); --cal-scrollbar-thumb-hover: color-mix(in srgb, var(--popover-foreground) 36%, var(--popover)); position: relative; min-height: 0; flex: 1; margin-right: -0.55rem; }
+  .model-list { --model-list-scroll-fade-size: 2rem; height: 100%; min-height: 0; overflow-y: auto; padding: 0 0.55rem 0 0; transition: -webkit-mask-image 120ms ease, mask-image 120ms ease; }
+  .model-list-scroll-top { -webkit-mask-image: linear-gradient(to bottom, transparent, black var(--model-list-scroll-fade-size), black); mask-image: linear-gradient(to bottom, transparent, black var(--model-list-scroll-fade-size), black); }
+  .model-list-scroll-bottom { -webkit-mask-image: linear-gradient(to bottom, black, black calc(100% - var(--model-list-scroll-fade-size)), transparent); mask-image: linear-gradient(to bottom, black, black calc(100% - var(--model-list-scroll-fade-size)), transparent); }
+  .model-list-scroll-both { -webkit-mask-image: linear-gradient(to bottom, transparent, black var(--model-list-scroll-fade-size), black calc(100% - var(--model-list-scroll-fade-size)), transparent); mask-image: linear-gradient(to bottom, transparent, black var(--model-list-scroll-fade-size), black calc(100% - var(--model-list-scroll-fade-size)), transparent); }
+  .model-company-section { padding: 0.38rem 0; }
+  .model-company-section + .model-company-section { border-top: 1px solid color-mix(in srgb, var(--border) 72%, transparent); }
+  .model-company-heading { display: grid; width: 100%; min-width: 0; min-height: 2rem; grid-template-columns: 0.875rem minmax(0, 1fr) 0.8125rem; align-items: center; gap: 0.35rem; border-radius: 0.55rem; padding: 0.38rem 0.5rem; color: var(--muted-foreground); font-size: 0.6875rem; font-weight: 550; text-align: left; }
+  .model-company-heading:hover { background: transparent; }
+  .model-company-heading:focus-visible { outline: 1px solid color-mix(in srgb, var(--ring) 55%, transparent); outline-offset: -2px; }
+  .model-company-heading :global(svg:last-child) { color: var(--muted-foreground); transition: transform 180ms cubic-bezier(0.2, 0.8, 0.2, 1); }
+  .model-company-heading :global(svg:last-child.collapsed) { transform: rotate(-90deg); }
+  .model-company-heading span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .favorite-company-section .model-company-heading { color: var(--foreground); }
+  .model-company-content { display: grid; grid-template-rows: 1fr; opacity: 1; transition: grid-template-rows 190ms cubic-bezier(0.2, 0.8, 0.2, 1), opacity 140ms ease; }
+  .model-company-content.collapsed { grid-template-rows: 0fr; opacity: 0; }
+  .model-company-content-inner { min-height: 0; overflow: hidden; }
+  .company-setup { color: var(--muted-foreground); }
+  .model-row { display: grid; grid-template-columns: minmax(0, 1fr) 2rem; align-items: center; border-radius: 0.55rem; }
+  .model-row:hover, .model-row:focus-within { background: var(--accent); }
+  .model-choice { display: grid; min-width: 0; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 0.4rem; padding: 0.38rem 0.5rem; text-align: left; }
+  .model-choice:focus-visible, .model-favorite:focus-visible { outline: 1px solid color-mix(in srgb, var(--ring) 55%, transparent); outline-offset: -2px; }
+  .model-choice:disabled { opacity: 0.55; }
+  .model-choice > span { min-width: 0; }
+  .model-favorite { display: grid; width: 2rem; height: 2rem; place-items: center; border-radius: 0.45rem; color: var(--muted-foreground); }
+  .model-favorite:hover, .model-favorite:focus-visible, .model-favorite.active { color: var(--foreground); }
+  .model-picker-error { color: var(--destructive) !important; }
   .option-list > label { display: flex; align-items: center; gap: 0.55rem; border-radius: 0.5rem; padding: 0.5rem; }
   .option-list > label:hover { background: var(--accent); }
   .option-list > label > span { min-width: 0; flex: 1; }
@@ -991,8 +1151,7 @@
   @keyframes ultra-color-flow { from { background-position: 0 0; } to { background-position: 100% 0; } }
   @keyframes galaxy-drift { from { background-position: 0 0, 0 0, 0 0, 0 0, 0 0, 0 0, 0 0, 0 0; } to { background-position: -83px 0, -107px 0, -131px 0, -157px 0, -191px 0, -223px 0, -269px 0, -311px 0; } }
   @keyframes galaxy-stream { from { background-position: 0 0, 0 0, 0 0, 0 0, 0 0, 0 0, 0 0, 0 0; } to { background-position: -83px 0, -107px 0, -131px 0, -157px 0, -191px 0, -223px 0, -269px 0, -311px 0; } }
-  @container chat-composer (max-width: 680px) { .model-flyout { right: 0; bottom: calc(100% + 0.4rem); } }
   @container chat-composer (max-width: 460px) { .model-trigger { max-width: 11rem; } .effort-name { display: none; } }
   @container chat-composer (max-width: 330px) { .model-trigger { max-width: 7.5rem; padding-inline: 0.45rem; } }
-  @media (prefers-reduced-motion: reduce) { .model-control, .picker-stage, .picker-view, .quick-actions, .effort-guidance { transition-duration: 0.01ms; } .effort-fill::before, .effort-particles { animation: none; background-position: 50% 0; } }
+  @media (prefers-reduced-motion: reduce) { .model-control, .picker-stage, .picker-view, .quick-actions, .effort-guidance, .model-company-content, .model-list { transition-duration: 0.01ms; } .effort-fill::before, .effort-particles { animation: none; background-position: 50% 0; } }
 </style>

@@ -1,5 +1,6 @@
 //! Cursor ACP session startup, configuration, and inbound request routing.
 
+use super::driver::AcpProviderFlavor;
 use super::interactions::*;
 use super::normalizer::{CursorEventNormalizer, CursorRouteState};
 use super::protocol::*;
@@ -8,11 +9,12 @@ use crate::chat::events::*;
 use crate::chat::models::*;
 use crate::chat::providers::{DriverOperationContext, ProviderEventSink};
 use serde_json::{json, Value};
+use std::collections::HashMap;
 use std::sync::{
     atomic::{AtomicBool, Ordering},
     Arc, Mutex,
 };
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, oneshot};
 use tokio::task::JoinHandle;
 
 #[derive(Debug)]
@@ -32,6 +34,17 @@ pub struct CursorRouterResources {
     pub sink: Arc<dyn ProviderEventSink>,
     pub expected_shutdown: Arc<AtomicBool>,
     pub terminal_error: Arc<Mutex<Option<ChatError>>>,
+    pub flavor: AcpProviderFlavor,
+    pub prompt_completions: PendingPromptCompletions,
+}
+
+pub type PendingPromptCompletions = Arc<Mutex<HashMap<String, oneshot::Sender<Value>>>>;
+
+#[derive(Clone, Copy)]
+pub struct AcpRequestedConfiguration<'a> {
+    pub modes: TurnModeSnapshot,
+    pub model_id: Option<&'a ModelId>,
+    pub model_options: &'a [ModelOptionSelection],
 }
 
 pub async fn initialize_session(
@@ -43,7 +56,33 @@ pub async fn initialize_session(
     model_options: &[ModelOptionSelection],
     context: &DriverOperationContext,
 ) -> ChatResult<AcpStartedSession> {
+    initialize_provider_session(
+        AcpProviderFlavor::Cursor,
+        false,
+        connection,
+        workspace,
+        resume_session_id,
+        AcpRequestedConfiguration {
+            modes,
+            model_id,
+            model_options,
+        },
+        context,
+    )
+    .await
+}
+
+pub async fn initialize_provider_session(
+    flavor: AcpProviderFlavor,
+    grok_uses_api_key: bool,
+    connection: &AcpRpcConnection,
+    workspace: &str,
+    resume_session_id: Option<&str>,
+    requested: AcpRequestedConfiguration<'_>,
+    context: &DriverOperationContext,
+) -> ChatResult<AcpStartedSession> {
     let client = connection.client();
+    let provider_name = flavor.display_name();
     let initialize = parse_initialize(
         client
             .request(
@@ -65,15 +104,25 @@ pub async fn initialize_session(
             .await
             .map_err(|error| error.to_chat_error("initialization"))?,
     )?;
+    let preferred_auth_method = match flavor {
+        AcpProviderFlavor::Cursor => CURSOR_AUTH_METHOD,
+        AcpProviderFlavor::Grok => {
+            if grok_uses_api_key {
+                "xai.api_key"
+            } else {
+                "cached_token"
+            }
+        }
+    };
     if initialize
         .auth_methods
         .iter()
-        .any(|method| method.id == CURSOR_AUTH_METHOD)
+        .any(|method| method.id == preferred_auth_method)
     {
         client
             .request(
                 "authenticate",
-                json!({ "methodId": CURSOR_AUTH_METHOD }),
+                json!({ "methodId": preferred_auth_method }),
                 context,
             )
             .await
@@ -81,15 +130,15 @@ pub async fn initialize_session(
     } else if !initialize.auth_methods.is_empty() {
         return Err(ChatError::new(
             ChatErrorCode::AuthenticationRequired,
-            "Cursor requires an authentication method Ganbaru does not support",
+            format!("{provider_name} requires an authentication method Ganbaru does not support"),
             true,
         ));
     }
     let (mut setup, session_id) = if let Some(session_id) = resume_session_id {
         if !initialize.agent_capabilities.load_session {
-            return Err(ChatError::unsupported(
-                "Cursor did not advertise ACP session loading",
-            ));
+            return Err(ChatError::unsupported(format!(
+                "{provider_name} did not advertise ACP session loading"
+            )));
         }
         let result = client
             .request(
@@ -116,22 +165,20 @@ pub async fn initialize_session(
             .ok_or_else(|| protocol_error("new session ID"))?;
         (setup, session_id)
     };
-    apply_configuration(
-        &client,
-        &session_id,
-        &mut setup,
-        modes,
-        model_id,
-        model_options,
-        context,
-    )
-    .await?;
-    let models = parse_available_models(
-        client
-            .request("cursor/list_available_models", json!({}), context)
-            .await
-            .map_err(|error| error.to_chat_error("model discovery"))?,
-    )?;
+    if flavor == AcpProviderFlavor::Grok {
+        ensure_grok_model_state(&mut setup);
+    }
+    apply_provider_configuration(flavor, &client, &session_id, &mut setup, requested, context)
+        .await?;
+    let models = match flavor {
+        AcpProviderFlavor::Cursor => parse_available_models(
+            client
+                .request("cursor/list_available_models", json!({}), context)
+                .await
+                .map_err(|error| error.to_chat_error("model discovery"))?,
+        )?,
+        AcpProviderFlavor::Grok => parse_acp_models(&setup)?,
+    };
     Ok(AcpStartedSession {
         initialize,
         setup,
@@ -149,22 +196,63 @@ pub async fn apply_configuration(
     model_options: &[ModelOptionSelection],
     context: &DriverOperationContext,
 ) -> ChatResult<()> {
-    let updates = resolve_configuration_updates(&setup.config_options, model_id, model_options)?;
+    apply_provider_configuration(
+        AcpProviderFlavor::Cursor,
+        client,
+        session_id,
+        setup,
+        AcpRequestedConfiguration {
+            modes,
+            model_id,
+            model_options,
+        },
+        context,
+    )
+    .await
+}
+
+pub async fn apply_provider_configuration(
+    flavor: AcpProviderFlavor,
+    client: &AcpRpcClient,
+    session_id: &str,
+    setup: &mut AcpSessionSetup,
+    requested: AcpRequestedConfiguration<'_>,
+    context: &DriverOperationContext,
+) -> ChatResult<()> {
+    let provider_name = flavor.display_name();
+    if flavor == AcpProviderFlavor::Grok {
+        if !requested.model_options.is_empty() {
+            return Err(ChatError::validation(
+                "modelOptions",
+                "Grok does not advertise model options",
+            ));
+        }
+        apply_grok_model(client, session_id, setup, requested.model_id, context).await?;
+    }
+    let updates = if flavor == AcpProviderFlavor::Cursor {
+        resolve_configuration_updates(
+            &setup.config_options,
+            requested.model_id,
+            requested.model_options,
+        )?
+    } else {
+        Vec::new()
+    };
     let requested_mode = setup
         .modes
         .as_ref()
-        .and_then(|available| find_mode(available, modes.interaction_mode))
+        .and_then(|available| find_mode(available, requested.modes.interaction_mode))
         .map(|mode| mode.id.clone());
     if requested_mode.is_none() {
-        if modes.interaction_mode == InteractionMode::Plan {
-            return Err(ChatError::unsupported(
-                "Cursor did not advertise a native Plan or Architect mode",
-            ));
+        if requested.modes.interaction_mode == InteractionMode::Plan {
+            return Err(ChatError::unsupported(format!(
+                "{provider_name} did not advertise a native Plan mode"
+            )));
         }
         if setup.modes.is_some() {
-            return Err(ChatError::unsupported(
-                "Cursor did not advertise a compatible Build mode",
-            ));
+            return Err(ChatError::unsupported(format!(
+                "{provider_name} did not advertise a compatible Build mode"
+            )));
         }
     }
     let mut applied = Vec::new();
@@ -195,7 +283,7 @@ pub async fn apply_configuration(
                 rollback_configuration(client, session_id, &applied, context).await;
                 return Err(ChatError::validation(
                     "modelOptions",
-                    format!("Cursor rejected a model setting: {error}"),
+                    format!("{provider_name} rejected a model setting: {error}"),
                 ));
             }
         }
@@ -220,7 +308,7 @@ pub async fn apply_configuration(
                     ),
                     Err(error) => Err(ChatError::validation(
                         "interactionMode",
-                        format!("Cursor rejected the requested mode: {error}"),
+                        format!("{provider_name} rejected the requested mode: {error}"),
                     )),
                 };
                 match options {
@@ -243,11 +331,58 @@ pub async fn apply_configuration(
                 rollback_configuration(client, session_id, &applied, context).await;
                 return Err(ChatError::validation(
                     "interactionMode",
-                    format!("Cursor rejected the requested mode: {error}"),
+                    format!("{provider_name} rejected the requested mode: {error}"),
                 ));
             }
             mode_state.current_mode_id = mode_id;
         }
+    }
+    Ok(())
+}
+
+async fn apply_grok_model(
+    client: &AcpRpcClient,
+    session_id: &str,
+    setup: &mut AcpSessionSetup,
+    model_id: Option<&ModelId>,
+    context: &DriverOperationContext,
+) -> ChatResult<()> {
+    let Some(model_state) = setup.models.as_mut() else {
+        if model_id.is_some() {
+            return Err(ChatError::unsupported(
+                "Grok did not advertise dynamic models",
+            ));
+        }
+        return Ok(());
+    };
+    let requested = model_id
+        .map(ModelId::as_str)
+        .unwrap_or(model_state.current_model_id.as_str());
+    if !model_state
+        .available_models
+        .iter()
+        .any(|model| model.model_id == requested)
+    {
+        return Err(ChatError::validation(
+            "modelId",
+            "Grok model is not in the advertised catalog",
+        ));
+    }
+    if model_state.current_model_id != requested {
+        client
+            .request(
+                "session/set_model",
+                json!({ "sessionId": session_id, "modelId": requested }),
+                context,
+            )
+            .await
+            .map_err(|error| {
+                ChatError::validation(
+                    "modelId",
+                    format!("Grok rejected the requested model: {error}"),
+                )
+            })?;
+        model_state.current_model_id = requested.to_string();
     }
     Ok(())
 }
@@ -278,6 +413,7 @@ async fn route_inbound(mut resources: CursorRouterResources) {
         }
     }
     if !resources.expected_shutdown.load(Ordering::Acquire) {
+        let provider_name = resources.flavor.display_name();
         let events = resources
             .route
             .lock()
@@ -285,7 +421,7 @@ async fn route_inbound(mut resources: CursorRouterResources) {
             .and_then(|mut state| {
                 resources
                     .normalizer
-                    .interrupted(&mut state, "Cursor ACP transport closed")
+                    .interrupted(&mut state, &format!("{provider_name} ACP transport closed"))
             })
             .unwrap_or_default();
         emit_all(&resources.sink, events).await;
@@ -293,7 +429,7 @@ async fn route_inbound(mut resources: CursorRouterResources) {
             &resources.terminal_error,
             ChatError::new(
                 ChatErrorCode::TransportUnavailable,
-                "Cursor ACP transport closed unexpectedly",
+                format!("{provider_name} ACP transport closed unexpectedly"),
                 true,
             ),
         );
@@ -305,6 +441,14 @@ async fn handle_notification(
     method: &str,
     params: Value,
 ) -> ChatResult<()> {
+    if resources.flavor == AcpProviderFlavor::Grok
+        && matches!(
+            method,
+            "x.ai/session/prompt_complete" | "_x.ai/session/prompt_complete"
+        )
+    {
+        return handle_grok_prompt_completion(resources, params);
+    }
     let events = {
         let mut state = resources.route.lock().map_err(|_| driver_state_error())?;
         match method {
@@ -318,7 +462,10 @@ async fn handle_notification(
                 None,
                 CanonicalEvent::Unknown(UnknownEvent {
                     source_type: format!("acp/notification/{method}"),
-                    summary: "Cursor emitted an unsupported ACP notification".to_string(),
+                    summary: format!(
+                        "{} emitted an unsupported ACP notification",
+                        resources.flavor.display_name()
+                    ),
                     safe_payload: Some(safe_shape(&params)),
                 }),
             )?],
@@ -326,6 +473,58 @@ async fn handle_notification(
     };
     for event in events {
         resources.sink.emit(event).await?;
+    }
+    Ok(())
+}
+
+fn handle_grok_prompt_completion(
+    resources: &CursorRouterResources,
+    params: Value,
+) -> ChatResult<()> {
+    let object = params
+        .as_object()
+        .ok_or_else(|| protocol_error("Grok prompt completion"))?;
+    let session_id = object
+        .get("sessionId")
+        .and_then(Value::as_str)
+        .filter(|value| valid_identifier(value, 512))
+        .ok_or_else(|| protocol_error("Grok prompt completion session ID"))?;
+    let expected_session = resources
+        .route
+        .lock()
+        .map_err(|_| driver_state_error())?
+        .provider_thread_id
+        .clone();
+    if session_id != expected_session {
+        return Err(protocol_error("Grok prompt completion session ID"));
+    }
+    let prompt_id = object
+        .get("promptId")
+        .and_then(Value::as_str)
+        .filter(|value| valid_identifier(value, 512));
+    let stop_reason = object
+        .get("stopReason")
+        .and_then(Value::as_str)
+        .filter(|value| valid_identifier(value, 128))
+        .unwrap_or("unknown");
+    let sender = {
+        let mut pending = resources
+            .prompt_completions
+            .lock()
+            .map_err(|_| driver_state_error())?;
+        if let Some(prompt_id) = prompt_id {
+            pending.remove(prompt_id)
+        } else if pending.len() == 1 {
+            let only_id = pending.keys().next().cloned();
+            only_id.and_then(|id| pending.remove(&id))
+        } else if pending.is_empty() {
+            None
+        } else {
+            return Err(protocol_error("ambiguous Grok prompt completion"));
+        }
+    };
+    if let Some(sender) = sender {
+        let _ = sender.send(json!({ "stopReason": stop_reason }));
     }
     Ok(())
 }
@@ -339,6 +538,11 @@ async fn handle_request(
     match method {
         "session/request_permission" => handle_permission(resources, rpc_id, params).await,
         "cursor/ask_question" => handle_question(resources, rpc_id, params).await,
+        "x.ai/ask_user_question" | "_x.ai/ask_user_question"
+            if resources.flavor == AcpProviderFlavor::Grok =>
+        {
+            handle_xai_question(resources, rpc_id, params).await
+        }
         "cursor/create_plan" => {
             let event = {
                 let state = resources.route.lock().map_err(|_| driver_state_error())?;
@@ -362,7 +566,10 @@ async fn handle_request(
                     None,
                     CanonicalEvent::Unknown(UnknownEvent {
                         source_type: format!("acp/request/{method}"),
-                        summary: "Cursor requested an unsupported ACP extension".to_string(),
+                        summary: format!(
+                            "{} requested an unsupported ACP extension",
+                            resources.flavor.display_name()
+                        ),
                         safe_payload: Some(safe_shape(&params)),
                     }),
                 )?
@@ -375,6 +582,52 @@ async fn handle_request(
                 .map_err(|error| error.to_chat_error("extension rejection"))
         }
     }
+}
+
+async fn handle_xai_question(
+    resources: &CursorRouterResources,
+    rpc_id: Value,
+    params: Value,
+) -> ChatResult<()> {
+    let params_object = params
+        .as_object()
+        .ok_or_else(|| protocol_error("Grok question parameters"))?;
+    let question_object = params_object
+        .get("params")
+        .and_then(Value::as_object)
+        .unwrap_or(params_object);
+    let question_session_id = question_object
+        .get("sessionId")
+        .and_then(Value::as_str)
+        .ok_or_else(|| protocol_error("Grok question session ID"))?;
+    let expected_session_id = resources
+        .route
+        .lock()
+        .map_err(|_| driver_state_error())?
+        .provider_thread_id
+        .clone();
+    if question_session_id != expected_session_id {
+        return Err(protocol_error("Grok question session ID"));
+    }
+    let (parsed, questions) = parse_xai_question(&params)?;
+    let event = {
+        let state = resources.route.lock().map_err(|_| driver_state_error())?;
+        resources.normalizer.external_event(
+            &state,
+            "x.ai/ask_user_question",
+            Some(parsed.provider_request_id.clone()),
+            CanonicalEvent::UserInputRequested(parsed.request),
+        )?
+    };
+    resources.sink.emit(event).await?;
+    insert_pending(
+        &resources.pending,
+        parsed.provider_request_id,
+        PendingCursorRequest {
+            rpc_id,
+            kind: PendingCursorRequestKind::XaiUserInput { questions },
+        },
+    )
 }
 
 async fn handle_permission(
@@ -486,7 +739,7 @@ pub fn take_pending(
         .ok_or_else(|| {
             ChatError::new(
                 ChatErrorCode::Conflict,
-                "Cursor request is no longer pending",
+                "ACP provider request is no longer pending",
                 false,
             )
         })
@@ -511,7 +764,7 @@ fn insert_pending(
     if pending.len() >= 64 || pending.contains_key(&request_id) {
         return Err(ChatError::new(
             ChatErrorCode::Conflict,
-            "Cursor emitted a duplicate or excessive pending request",
+            "ACP provider emitted a duplicate or excessive pending request",
             false,
         ));
     }
@@ -562,7 +815,7 @@ fn session_load_error(error: AcpRpcFailure, session_id: &str) -> ChatError {
         if confirmed_session_not_found(*code, message) {
             return ChatError::new(
                 ChatErrorCode::ResumeNotFound,
-                format!("Cursor session {session_id} was not found"),
+                format!("ACP provider session {session_id} was not found"),
                 true,
             );
         }
@@ -578,7 +831,7 @@ fn authentication_error(error: AcpRpcFailure, operation: &str) -> ChatError {
         {
             return ChatError::new(
                 ChatErrorCode::AuthenticationRequired,
-                "Cursor authentication is required",
+                "ACP provider authentication is required",
                 true,
             );
         }
@@ -604,7 +857,7 @@ fn set_terminal_error(target: &Arc<Mutex<Option<ChatError>>>, error: ChatError) 
 pub fn driver_state_error() -> ChatError {
     ChatError::new(
         ChatErrorCode::Internal,
-        "Cursor driver state is unavailable",
+        "ACP provider driver state is unavailable",
         false,
     )
 }

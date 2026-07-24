@@ -27,9 +27,18 @@ pub struct CursorQuestion {
 }
 
 #[derive(Clone, Debug)]
+pub struct XaiQuestion {
+    pub id: String,
+    pub question: String,
+    pub options: Vec<(String, String)>,
+    pub multiple: bool,
+}
+
+#[derive(Clone, Debug)]
 pub enum PendingCursorRequestKind {
     Approval { options: Vec<AcpPermissionOption> },
     UserInput { questions: Vec<CursorQuestion> },
+    XaiUserInput { questions: Vec<XaiQuestion> },
 }
 
 #[derive(Clone, Debug)]
@@ -80,7 +89,7 @@ pub fn parse_permission(params: &Value, workspace: &Path) -> ChatResult<ParsedPe
     let title = match tool.get("title") {
         Some(Value::String(value)) if valid_display_text(value, 512) => value.clone(),
         Some(_) => return Err(protocol_error("permission title")),
-        None => "Cursor tool permission".to_string(),
+        None => "Tool permission".to_string(),
     };
     let detail = tool
         .get("rawInput")
@@ -203,6 +212,116 @@ pub fn parse_question(params: &Value) -> ChatResult<ParsedQuestion> {
     })
 }
 
+pub fn parse_xai_question(params: &Value) -> ChatResult<(ParsedQuestion, Vec<XaiQuestion>)> {
+    let object = object(params)?;
+    let object = if object.get("method").and_then(Value::as_str).is_some() {
+        object
+            .get("params")
+            .and_then(Value::as_object)
+            .ok_or_else(|| protocol_error("Grok question parameters"))?
+    } else {
+        object
+    };
+    let tool_call_id = text(object, "toolCallId")
+        .filter(|value| valid_identifier(value, 512))
+        .ok_or_else(|| protocol_error("Grok question tool call ID"))?;
+    text(object, "sessionId")
+        .filter(|value| valid_identifier(value, 512))
+        .ok_or_else(|| protocol_error("Grok question session ID"))?;
+    text(object, "mode")
+        .filter(|value| matches!(*value, "default" | "plan"))
+        .ok_or_else(|| protocol_error("Grok question mode"))?;
+    let provider_request_id = ProviderRequestId::new(tool_call_id.to_string())
+        .map_err(|_| protocol_error("Grok question request ID"))?;
+    let raw_questions = object
+        .get("questions")
+        .and_then(Value::as_array)
+        .ok_or_else(|| protocol_error("Grok questions"))?;
+    if raw_questions.is_empty() || raw_questions.len() > 16 {
+        return Err(protocol_error("Grok questions"));
+    }
+    let mut canonical = Vec::new();
+    let mut pending = Vec::new();
+    let mut ids = BTreeSet::new();
+    for raw in raw_questions {
+        let raw = raw
+            .as_object()
+            .ok_or_else(|| protocol_error("Grok question"))?;
+        let question = text(raw, "question")
+            .filter(|value| valid_display_text(value, MAX_PROTOCOL_TEXT_BYTES))
+            .ok_or_else(|| protocol_error("Grok question text"))?;
+        let id = text(raw, "id")
+            .filter(|value| valid_identifier(value, 256))
+            .unwrap_or(question)
+            .to_string();
+        if !ids.insert(id.clone()) {
+            return Err(protocol_error("duplicate Grok question ID"));
+        }
+        let raw_options = raw
+            .get("options")
+            .and_then(Value::as_array)
+            .cloned()
+            .unwrap_or_default();
+        if raw_options.len() > 64 {
+            return Err(protocol_error("Grok question options"));
+        }
+        let mut options = Vec::new();
+        let mut canonical_options = Vec::new();
+        let mut option_ids = BTreeSet::new();
+        for option in raw_options {
+            let option = option
+                .as_object()
+                .ok_or_else(|| protocol_error("Grok question option"))?;
+            let label = text(option, "label")
+                .filter(|value| valid_display_text(value, 512))
+                .ok_or_else(|| protocol_error("Grok question option label"))?;
+            let option_id = text(option, "id")
+                .filter(|value| valid_identifier(value, 256))
+                .unwrap_or(label)
+                .to_string();
+            if !option_ids.insert(option_id.clone()) {
+                return Err(protocol_error("duplicate Grok question option ID"));
+            }
+            options.push((option_id.clone(), label.to_string()));
+            canonical_options.push(UserInputOption {
+                id: option_id,
+                label: bounded_text(label, 512),
+                description: text(option, "description").map(|value| bounded_text(value, 512)),
+            });
+        }
+        let multiple = raw
+            .get("multiSelect")
+            .and_then(Value::as_bool)
+            .unwrap_or(false);
+        canonical.push(UserInputQuestion {
+            id: id.clone(),
+            header: Some("Question".to_string()),
+            question: bounded_text(question, MAX_PROTOCOL_TEXT_BYTES),
+            options: canonical_options,
+            multiple,
+            free_form_allowed: true,
+            required: true,
+        });
+        pending.push(XaiQuestion {
+            id,
+            question: question.to_string(),
+            options,
+            multiple,
+        });
+    }
+    Ok((
+        ParsedQuestion {
+            provider_request_id: provider_request_id.clone(),
+            request: UserInputRequestedEvent {
+                request_id: provider_request_id,
+                questions: canonical,
+            },
+            questions: Vec::new(),
+        },
+        pending,
+    ))
+}
+
 pub fn auto_permission_option(
     parsed: &ParsedPermission,
     safety_mode: SafetyMode,
@@ -234,7 +353,7 @@ pub fn resolve_approval_result(
     let PendingCursorRequestKind::Approval { options } = &pending.kind else {
         return Err(ChatError::new(
             ChatErrorCode::Conflict,
-            "Cursor request is not an approval",
+            "ACP provider request is not an approval",
             false,
         ));
     };
@@ -268,7 +387,7 @@ pub fn resolve_approval_result(
     .ok_or_else(|| {
         ChatError::validation(
             "decision.providerOptionId",
-            "Cursor approval decision was not one of the provider-offered options",
+            "Approval decision was not one of the provider-offered options",
         )
     })?;
     Ok(json!({
@@ -280,12 +399,18 @@ pub fn resolve_question_result(
     pending: &PendingCursorRequest,
     answers: &[UserInputAnswer],
 ) -> ChatResult<Value> {
-    let PendingCursorRequestKind::UserInput { questions } = &pending.kind else {
-        return Err(ChatError::new(
-            ChatErrorCode::Conflict,
-            "Cursor request is not structured input",
-            false,
-        ));
+    let questions = match &pending.kind {
+        PendingCursorRequestKind::UserInput { questions } => questions,
+        PendingCursorRequestKind::XaiUserInput { questions } => {
+            return resolve_xai_question_result(questions, answers);
+        }
+        PendingCursorRequestKind::Approval { .. } => {
+            return Err(ChatError::new(
+                ChatErrorCode::Conflict,
+                "ACP request is not structured input",
+                false,
+            ));
+        }
     };
     let mut by_id = BTreeMap::new();
     for answer in answers {
@@ -342,6 +467,70 @@ pub fn resolve_question_result(
         result.insert(question.id.clone(), value);
     }
     Ok(json!({ "answers": result }))
+}
+
+fn resolve_xai_question_result(
+    questions: &[XaiQuestion],
+    answers: &[UserInputAnswer],
+) -> ChatResult<Value> {
+    let mut by_id = BTreeMap::new();
+    for answer in answers {
+        if by_id.insert(answer.question_id.as_str(), answer).is_some() {
+            return Err(ChatError::validation(
+                "answers",
+                "Grok question answers must have unique question IDs",
+            ));
+        }
+    }
+    let mut result = Map::new();
+    for question in questions {
+        let answer = by_id.get(question.id.as_str()).ok_or_else(|| {
+            ChatError::validation("answers", "Grok requires an answer for every question")
+        })?;
+        if !question.multiple && answer.selected_option_ids.len() > 1 {
+            return Err(ChatError::validation(
+                "answers",
+                "Grok question allows only one option",
+            ));
+        }
+        let labels = answer
+            .selected_option_ids
+            .iter()
+            .map(|id| {
+                question
+                    .options
+                    .iter()
+                    .find(|(option_id, _)| option_id == id)
+                    .map(|(_, label)| label.clone())
+                    .ok_or_else(|| {
+                        ChatError::validation(
+                            "answers",
+                            "Grok answer contains an option the provider did not offer",
+                        )
+                    })
+            })
+            .collect::<ChatResult<Vec<_>>>()?;
+        let mut values = labels;
+        if let Some(text) = answer
+            .free_form_text
+            .as_deref()
+            .map(str::trim)
+            .filter(|text| !text.is_empty())
+        {
+            values.push(bounded_text(text, MAX_PROTOCOL_TEXT_BYTES));
+        }
+        if values.is_empty() {
+            return Err(ChatError::validation(
+                "answers",
+                "Grok answer cannot be empty",
+            ));
+        }
+        result.insert(
+            question.question.clone(),
+            Value::Array(values.into_iter().map(Value::String).collect()),
+        );
+    }
+    Ok(json!({ "outcome": "accepted", "answers": result }))
 }
 
 fn parse_permission_options(value: Option<&Value>) -> ChatResult<Vec<AcpPermissionOption>> {

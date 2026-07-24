@@ -100,6 +100,76 @@ fn executable_probe_parses_versions_accounts_and_protected_arguments() {
 }
 
 #[test]
+fn grok_acp_arguments_models_and_questions_preserve_provider_values() {
+    assert_eq!(
+        grok_launch_arguments(&["--verbose".to_string()]).unwrap(),
+        ["--verbose", "agent", "stdio"]
+    );
+    assert!(grok_launch_arguments(&["agent".to_string()]).is_err());
+    assert!(grok_launch_arguments(&["--api-key=secret".to_string()]).is_err());
+
+    let mut fallback_setup =
+        parse_session_setup(json!({ "sessionId": "grok-fallback-session" }), true).unwrap();
+    ensure_grok_model_state(&mut fallback_setup);
+    let fallback_models = parse_acp_models(&fallback_setup).unwrap();
+    assert_eq!(fallback_models[0].id.as_str(), "grok-build");
+    assert_eq!(fallback_models[0].display_name, "Grok Build");
+
+    let setup = parse_session_setup(
+        json!({
+            "sessionId": "grok-session",
+            "models": {
+                "currentModelId": "grok-build",
+                "availableModels": [
+                    { "modelId": "grok-build", "name": "Grok Build" },
+                    { "modelId": "grok-4.5", "name": "Grok 4.5" }
+                ]
+            }
+        }),
+        true,
+    )
+    .unwrap();
+    let models = parse_acp_models(&setup).unwrap();
+    assert_eq!(models[0].id.as_str(), "grok-build");
+    assert_eq!(models[0].display_name, "Grok Build");
+    assert_eq!(models[1].id.as_str(), "grok-4.5");
+
+    let (parsed, questions) = parse_xai_question(&json!({
+        "method": "_x.ai/ask_user_question",
+        "params": {
+            "sessionId": "grok-session",
+            "toolCallId": "grok-question",
+            "mode": "default",
+            "questions": [{
+                "id": "strategy",
+                "question": "Which strategy?",
+                "options": [
+                    { "id": "focused", "label": "Focused" },
+                    { "id": "broad", "label": "Broad" }
+                ],
+                "multiSelect": false
+            }]
+        }
+    }))
+    .unwrap();
+    assert_eq!(parsed.request.questions[0].options[0].label, "Focused");
+    let result = resolve_question_result(
+        &PendingCursorRequest {
+            rpc_id: json!(9),
+            kind: PendingCursorRequestKind::XaiUserInput { questions },
+        },
+        &[UserInputAnswer {
+            question_id: "strategy".to_string(),
+            selected_option_ids: vec!["focused".to_string()],
+            free_form_text: None,
+        }],
+    )
+    .unwrap();
+    assert_eq!(result["outcome"], "accepted");
+    assert_eq!(result["answers"]["Which strategy?"][0], "Focused");
+}
+
+#[test]
 fn endpoint_and_continuation_validation_bind_server_home_and_account() {
     let home = TestDirectory::new("identity");
     assert!(CursorProviderSettings::parse(&configuration(

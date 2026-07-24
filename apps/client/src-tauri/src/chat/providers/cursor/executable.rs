@@ -35,8 +35,32 @@ pub struct CursorAbout {
     pub authenticated: Option<bool>,
 }
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct AcpProviderAbout {
+    pub version: String,
+    pub account_label: Option<String>,
+    pub authenticated: Option<bool>,
+}
+
+impl From<CursorAbout> for AcpProviderAbout {
+    fn from(value: CursorAbout) -> Self {
+        Self {
+            version: value.version.to_string(),
+            account_label: value.account_label,
+            authenticated: value.authenticated,
+        }
+    }
+}
+
 pub fn process_environment(
     configuration: &ProviderInstanceConfig,
+) -> ChatResult<BTreeMap<String, String>> {
+    process_environment_for(configuration, "Cursor")
+}
+
+pub fn process_environment_for(
+    configuration: &ProviderInstanceConfig,
+    provider_name: &str,
 ) -> ChatResult<BTreeMap<String, String>> {
     let mut environment = BTreeMap::new();
     for name in inherited_environment_names() {
@@ -54,12 +78,65 @@ pub fn process_environment(
         {
             return Err(ChatError::validation(
                 "environment",
-                "Cursor environment contains a prohibited entry",
+                format!("{provider_name} environment contains a prohibited entry"),
             ));
         }
         environment.insert(name.clone(), value.clone());
     }
     Ok(environment)
+}
+
+pub async fn probe_grok_about(
+    executable: &Path,
+    working_directory: &Path,
+    environment: BTreeMap<String, String>,
+) -> ChatResult<AcpProviderAbout> {
+    let output = tokio::process::Command::new(executable)
+        .arg("--version")
+        .current_dir(working_directory)
+        .env_clear()
+        .envs(environment)
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .kill_on_drop(true)
+        .output();
+    let output = tokio::time::timeout(ABOUT_TIMEOUT, output)
+        .await
+        .map_err(|_| ChatError::new(ChatErrorCode::Timeout, "Grok version probe timed out", true))?
+        .map_err(|_| grok_executable_missing())?;
+    if output.stdout.len() as u64 > VERSION_OUTPUT_LIMIT_BYTES
+        || output.stderr.len() as u64 > VERSION_OUTPUT_LIMIT_BYTES
+    {
+        return Err(protocol_error("Grok version output"));
+    }
+    if !output.status.success() {
+        return Err(ChatError::new(
+            ChatErrorCode::UnsupportedVersion,
+            "Grok CLI did not report a supported version",
+            true,
+        ));
+    }
+    let combined = format!(
+        "{} {}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let version = combined
+        .split_whitespace()
+        .find(|part| part.chars().any(|character| character.is_ascii_digit()))
+        .map(|part| {
+            part.trim_matches(|character: char| {
+                !character.is_ascii_alphanumeric() && character != '.' && character != '-'
+            })
+        })
+        .filter(|part| !part.is_empty() && part.len() <= 128)
+        .ok_or_else(|| protocol_error("Grok CLI version"))?;
+    Ok(AcpProviderAbout {
+        version: version.to_string(),
+        account_label: None,
+        authenticated: None,
+    })
 }
 
 pub fn resolve_executable(
@@ -70,7 +147,7 @@ pub fn resolve_executable(
     if configured.is_empty() || configured.contains('\0') {
         return Err(ChatError::validation(
             "executable",
-            "Cursor executable is required",
+            "ACP provider executable is required",
         ));
     }
     let candidate = if path_has_separator(configured) {
@@ -78,7 +155,7 @@ pub fn resolve_executable(
         if !path.is_absolute() || path.components().any(|part| part == Component::ParentDir) {
             return Err(ChatError::validation(
                 "executable",
-                "Cursor executable path must be absolute",
+                "ACP provider executable path must be absolute",
             ));
         }
         path
@@ -94,7 +171,7 @@ pub fn resolve_executable(
         Some("cmd" | "bat" | "ps1")
     ) {
         return Err(ChatError::unsupported(
-            "Cursor command shims are unsupported; configure the native cursor-agent executable",
+            "ACP command shims are unsupported; configure the native executable",
         ));
     }
     Ok(resolved)
@@ -264,6 +341,50 @@ pub fn spawn_connection_process(
     })
 }
 
+pub fn spawn_acp_connection_process(
+    configuration: &ProviderInstanceConfig,
+    settings: &CursorProviderSettings,
+    flavor: super::driver::AcpProviderFlavor,
+    working_directory: &Path,
+) -> ChatResult<crate::chat::process::ProviderProcessHandle> {
+    match flavor {
+        super::driver::AcpProviderFlavor::Cursor => {
+            spawn_connection_process(configuration, settings, working_directory)
+        }
+        super::driver::AcpProviderFlavor::Grok => {
+            let mut environment = process_environment_for(configuration, "Grok")?;
+            environment.insert("GROK_OAUTH2_REFERRER".to_string(), "ganbaru-ai".to_string());
+            let executable = resolve_executable(&configuration.executable, &environment)
+                .map_err(|_| grok_executable_missing())?;
+            let arguments = grok_launch_arguments(&configuration.launch_arguments)?;
+            spawn_provider_process(ProviderProcessConfig {
+                executable,
+                arguments,
+                working_directory: working_directory.to_path_buf(),
+                environment,
+                stderr_limit_bytes: CURSOR_STDERR_LIMIT_BYTES,
+            })
+        }
+    }
+}
+
+pub fn grok_launch_arguments(configured: &[String]) -> ChatResult<Vec<String>> {
+    if configured.iter().any(|argument| {
+        let normalized = argument.trim().to_ascii_lowercase();
+        argument.contains('\0')
+            || matches!(normalized.as_str(), "agent" | "stdio" | "--api-key")
+            || normalized.starts_with("--api-key=")
+    }) {
+        return Err(ChatError::validation(
+            "launchArguments",
+            "Grok launch arguments cannot override the ACP transport or credentials",
+        ));
+    }
+    let mut arguments = configured.to_vec();
+    arguments.extend(["agent".to_string(), "stdio".to_string()]);
+    Ok(arguments)
+}
+
 pub fn continuation_group(
     configuration: &ProviderInstanceConfig,
     settings: &CursorProviderSettings,
@@ -285,6 +406,26 @@ pub fn continuation_group(
     digest.update(b"\0");
     digest.update(account_identity.unwrap_or("default").as_bytes());
     ContinuationGroupId::new(format!("cursor-account-{:x}", digest.finalize()))
+        .map_err(|_| protocol_error("continuation identity"))
+}
+
+pub fn acp_continuation_group(
+    configuration: &ProviderInstanceConfig,
+    settings: &CursorProviderSettings,
+    flavor: super::driver::AcpProviderFlavor,
+    account_identity: Option<&str>,
+) -> ChatResult<ContinuationGroupId> {
+    if flavor == super::driver::AcpProviderFlavor::Cursor {
+        return continuation_group(configuration, settings, account_identity);
+    }
+    let mut digest = Sha256::new();
+    digest.update(b"ganbaru-chat-grok-account-v1\0");
+    if let Some(home) = configuration.provider_home.as_deref() {
+        digest.update(home.as_bytes());
+    }
+    digest.update(b"\0");
+    digest.update(account_identity.unwrap_or("default").as_bytes());
+    ContinuationGroupId::new(format!("grok-account-{:x}", digest.finalize()))
         .map_err(|_| protocol_error("continuation identity"))
 }
 
@@ -366,6 +507,14 @@ fn executable_missing() -> ChatError {
     ChatError::new(
         ChatErrorCode::ExecutableMissing,
         "Cursor Agent executable is unavailable",
+        true,
+    )
+}
+
+fn grok_executable_missing() -> ChatError {
+    ChatError::new(
+        ChatErrorCode::ExecutableMissing,
+        "Grok CLI executable is unavailable",
         true,
     )
 }

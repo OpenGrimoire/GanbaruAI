@@ -35,27 +35,27 @@ impl AcpRpcFailure {
         let (code, message, recoverable) = match self {
             Self::Cancelled => (
                 ChatErrorCode::Cancelled,
-                format!("Cursor {operation} was cancelled"),
+                format!("ACP provider {operation} was cancelled"),
                 true,
             ),
             Self::Timeout => (
                 ChatErrorCode::Timeout,
-                format!("Cursor {operation} timed out"),
+                format!("ACP provider {operation} timed out"),
                 true,
             ),
             Self::Closed | Self::Unavailable => (
                 ChatErrorCode::TransportUnavailable,
-                format!("Cursor ACP became unavailable during {operation}"),
+                format!("ACP transport became unavailable during {operation}"),
                 true,
             ),
             Self::Malformed(reason) => (
                 ChatErrorCode::Protocol,
-                format!("Cursor ACP returned an invalid {operation} response: {reason}"),
+                format!("ACP provider returned an invalid {operation} response: {reason}"),
                 false,
             ),
             Self::Remote { message, .. } => (
                 ChatErrorCode::Protocol,
-                format!("Cursor rejected {operation}: {message}"),
+                format!("ACP provider rejected {operation}: {message}"),
                 true,
             ),
         };
@@ -159,6 +159,77 @@ impl AcpRpcClient {
             if remaining.is_zero() {
                 self.remove_pending(&key);
                 return Err(AcpRpcFailure::Timeout);
+            }
+            match tokio::time::timeout(remaining.min(CANCELLATION_POLL), &mut receiver).await {
+                Ok(Ok(result)) => return result,
+                Ok(Err(_)) => return Err(AcpRpcFailure::Closed),
+                Err(_) => {}
+            }
+        }
+    }
+
+    pub async fn request_with_fallback(
+        &self,
+        method: &str,
+        params: Value,
+        mut fallback: oneshot::Receiver<Value>,
+        context: &DriverOperationContext,
+    ) -> Result<Value, AcpRpcFailure> {
+        validate_method(method)?;
+        if context.is_cancelled() {
+            return Err(AcpRpcFailure::Cancelled);
+        }
+        let id = self
+            .next_request_id
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let key = id.to_string();
+        let (sender, mut receiver) = oneshot::channel();
+        {
+            let mut pending = self
+                .pending
+                .lock()
+                .map_err(|_| AcpRpcFailure::Unavailable)?;
+            if pending.len() >= MAX_PENDING_REQUESTS {
+                return Err(AcpRpcFailure::Unavailable);
+            }
+            pending.insert(key.clone(), sender);
+        }
+        if let Err(error) = self
+            .send_value(json!({
+                "jsonrpc": "2.0",
+                "id": id,
+                "method": method,
+                "params": params,
+            }))
+            .await
+        {
+            self.remove_pending(&key);
+            return Err(error);
+        }
+        loop {
+            if context.is_cancelled() {
+                self.remove_pending(&key);
+                return Err(if Instant::now() >= context.deadline {
+                    AcpRpcFailure::Timeout
+                } else {
+                    AcpRpcFailure::Cancelled
+                });
+            }
+            let remaining = context.deadline.saturating_duration_since(Instant::now());
+            if remaining.is_zero() {
+                self.remove_pending(&key);
+                return Err(AcpRpcFailure::Timeout);
+            }
+            match fallback.try_recv() {
+                Ok(completion) => {
+                    self.remove_pending(&key);
+                    return Ok(completion);
+                }
+                Err(tokio::sync::oneshot::error::TryRecvError::Closed) => {
+                    self.remove_pending(&key);
+                    return Err(AcpRpcFailure::Closed);
+                }
+                Err(tokio::sync::oneshot::error::TryRecvError::Empty) => {}
             }
             match tokio::time::timeout(remaining.min(CANCELLATION_POLL), &mut receiver).await {
                 Ok(Ok(result)) => return result,
@@ -280,7 +351,7 @@ impl AcpRpcConnection {
         self.inbound.take().ok_or_else(|| {
             ChatError::new(
                 ChatErrorCode::Conflict,
-                "Cursor ACP inbound stream was already claimed",
+                "ACP inbound stream was already claimed",
                 false,
             )
         })

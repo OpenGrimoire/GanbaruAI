@@ -69,6 +69,8 @@ pub struct CursorEventNormalizer {
     provider_instance_id: ProviderInstanceId,
     thread_id: ChatThreadId,
     session_id: ProviderSessionId,
+    pub(super) provider_family_id: &'static str,
+    pub(super) provider_display_name: &'static str,
     next_event_id: AtomicU64,
     next_item_id: AtomicU64,
 }
@@ -79,10 +81,28 @@ impl CursorEventNormalizer {
         thread_id: ChatThreadId,
         session_id: ProviderSessionId,
     ) -> Self {
+        Self::new_for_provider(
+            provider_instance_id,
+            thread_id,
+            session_id,
+            "cursor",
+            "Cursor",
+        )
+    }
+
+    pub fn new_for_provider(
+        provider_instance_id: ProviderInstanceId,
+        thread_id: ChatThreadId,
+        session_id: ProviderSessionId,
+        provider_family_id: &'static str,
+        provider_display_name: &'static str,
+    ) -> Self {
         Self {
             provider_instance_id,
             thread_id,
             session_id,
+            provider_family_id,
+            provider_display_name,
             next_event_id: AtomicU64::new(1),
             next_item_id: AtomicU64::new(1),
         }
@@ -120,7 +140,10 @@ impl CursorEventNormalizer {
                 None,
                 CanonicalEvent::Unknown(UnknownEvent {
                     source_type: format!("acp/session_update/{unknown}"),
-                    summary: "Cursor emitted an unsupported ACP session update".to_string(),
+                    summary: format!(
+                        "{} emitted an unsupported ACP session update",
+                        self.provider_display_name
+                    ),
                     safe_payload: Some(safe_shape(&params)),
                 }),
             )?]),
@@ -201,15 +224,17 @@ impl CursorEventNormalizer {
         stop_reason: &str,
     ) -> ChatResult<Vec<CanonicalRuntimeEvent>> {
         let mut events = self.close_text_items(state)?;
-        let turn_id = state
-            .active_turn_id
-            .take()
-            .ok_or_else(|| ChatError::invalid_transition("Cursor has no active turn"))?;
+        let turn_id = state.active_turn_id.take().ok_or_else(|| {
+            ChatError::invalid_transition(format!(
+                "{} has no active turn",
+                self.provider_display_name
+            ))
+        })?;
         state.session_state = ProviderSessionState::Ready;
         let terminal = match stop_reason {
             "cancelled" => CanonicalEvent::TurnAborted(TurnAbortedEvent {
                 state: ChatTurnState::Interrupted,
-                reason: "Cursor turn was cancelled".to_string(),
+                reason: format!("{} turn was cancelled", self.provider_display_name),
                 recoverable: true,
             }),
             "end_turn" | "max_tokens" | "refusal" | "unknown" => {
@@ -285,7 +310,10 @@ impl CursorEventNormalizer {
                 None,
                 CanonicalEvent::Unknown(UnknownEvent {
                     source_type: format!("acp/content/{content_type}"),
-                    summary: "Cursor emitted an unsupported ACP content block".to_string(),
+                    summary: format!(
+                        "{} emitted an unsupported ACP content block",
+                        self.provider_display_name
+                    ),
                     safe_payload: Some(safe_shape(&Value::Object(content.clone()))),
                 }),
             )?]);
@@ -532,16 +560,15 @@ impl CursorEventNormalizer {
             schema_version: CANONICAL_EVENT_SCHEMA_VERSION,
             event_id: ChatEventId::new(format!("{}:event:{sequence}", self.session_id.as_str()))
                 .map_err(|_| protocol_error("event ID"))?,
-            provider_family_id: ProviderFamilyId::new("cursor")
+            provider_family_id: ProviderFamilyId::new(self.provider_family_id)
                 .map_err(|_| protocol_error("provider family"))?,
             provider_instance_id: self.provider_instance_id.clone(),
             thread_id: self.thread_id.clone(),
             created_at: now_utc()?,
             turn_id: turn_id.or_else(|| state.active_turn_id.clone()),
-            provider_turn_id: state
-                .active_turn_id
-                .as_ref()
-                .and_then(|turn| ProviderTurnId::new(format!("cursor-{}", turn.as_str())).ok()),
+            provider_turn_id: state.active_turn_id.as_ref().and_then(|turn| {
+                ProviderTurnId::new(format!("{}-{}", self.provider_family_id, turn.as_str())).ok()
+            }),
             provider_item_id,
             provider_request_id,
             provider_task_id: None,

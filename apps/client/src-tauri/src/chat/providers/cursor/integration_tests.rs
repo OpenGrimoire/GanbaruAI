@@ -106,6 +106,67 @@ fn json_rpc_correlates_out_of_order_and_drains_malformed_frames() {
 }
 
 #[test]
+fn json_rpc_prompt_fallback_releases_the_original_response_slot() {
+    tauri::async_runtime::block_on(async {
+        let (application, agent) = tokio::io::duplex(64 * 1024);
+        let (application_reader, application_writer) = tokio::io::split(application);
+        let (agent_reader, mut agent_writer) = tokio::io::split(agent);
+        let mut connection = AcpRpcConnection::from_test_io(application_reader, application_writer);
+        let client = connection.client();
+        let prompt_client = client.clone();
+        let (completion_sender, completion_receiver) = tokio::sync::oneshot::channel();
+        let prompt = tokio::spawn(async move {
+            prompt_client
+                .request_with_fallback(
+                    "session/prompt",
+                    json!({ "sessionId": "grok-session" }),
+                    completion_receiver,
+                    &context("grok-prompt"),
+                )
+                .await
+        });
+        let mut reader = BufReader::new(agent_reader);
+        let request = read_json_line(&mut reader).await;
+        let abandoned_id = request["id"].clone();
+        completion_sender
+            .send(json!({ "stopReason": "end_turn" }))
+            .unwrap();
+        assert_eq!(prompt.await.unwrap().unwrap()["stopReason"], "end_turn");
+
+        write_json_line(
+            &mut agent_writer,
+            json!({
+                "jsonrpc": "2.0",
+                "id": abandoned_id,
+                "result": { "stopReason": "late" }
+            }),
+        )
+        .await;
+        let next_client = client.clone();
+        let next = tokio::spawn(async move {
+            next_client
+                .request("next", json!({}), &context("next"))
+                .await
+        });
+        let next_request = read_json_line(&mut reader).await;
+        write_json_line(
+            &mut agent_writer,
+            json!({
+                "jsonrpc": "2.0",
+                "id": next_request["id"],
+                "result": { "ready": true }
+            }),
+        )
+        .await;
+        assert_eq!(next.await.unwrap().unwrap()["ready"], true);
+        connection
+            .stop(Duration::from_millis(20), Duration::from_millis(20))
+            .await
+            .unwrap();
+    });
+}
+
+#[test]
 fn driver_fixture_covers_prompt_plan_cancel_and_cleanup() {
     tauri::async_runtime::block_on(async {
         let workspace = TestDirectory::new("driver");
@@ -115,7 +176,7 @@ fn driver_fixture_covers_prompt_plan_cancel_and_cleanup() {
         driver.set_connection_factory(Arc::new(move |_workspace| {
             Ok((
                 fixture_connection(FixtureScenario::Healthy, Arc::clone(&factory_state)),
-                about(),
+                about().into(),
             ))
         }));
         let sink = Arc::new(RecordingSink::default());

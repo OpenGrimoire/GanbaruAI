@@ -117,7 +117,7 @@ impl CursorEventNormalizer {
                             ProviderItemId::new(item_id.to_string()).ok(),
                             None,
                             CanonicalEvent::DiffUpdated(DiffUpdatedEvent {
-                                source: "cursor-acp".to_string(),
+                                source: format!("{}-acp", self.provider_family_id),
                                 files: vec![ChangedFileSummary {
                                     relative_path,
                                     previous_relative_path: None,
@@ -139,7 +139,10 @@ impl CursorEventNormalizer {
                 None,
                 CanonicalEvent::Unknown(UnknownEvent {
                     source_type: format!("acp/tool_content/{unknown}"),
-                    summary: "Cursor emitted an unsupported ACP tool content block".to_string(),
+                    summary: format!(
+                        "{} emitted an unsupported ACP tool content block",
+                        self.provider_display_name
+                    ),
                     safe_payload: Some(safe_shape(content)),
                 }),
             )?)),

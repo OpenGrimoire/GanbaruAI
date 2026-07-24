@@ -103,7 +103,7 @@ impl CodexProviderDriver {
         ProviderFamilyMetadataRead {
             family_id: ProviderFamilyId::new("codex")
                 .expect("static Codex family ID must be valid"),
-            display_name: "Codex".to_string(),
+            display_name: "OpenAI".to_string(),
             configuration_schema_version: 1,
             supported_platforms: vec![
                 "linux".to_string(),

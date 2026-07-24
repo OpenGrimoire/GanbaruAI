@@ -28,22 +28,39 @@ pub struct CursorProviderSettings {
 
 impl CursorProviderSettings {
     pub fn parse(configuration: &ProviderInstanceConfig) -> ChatResult<Self> {
+        Self::parse_for(configuration, "Cursor")
+    }
+
+    pub fn parse_for(
+        configuration: &ProviderInstanceConfig,
+        provider_name: &str,
+    ) -> ChatResult<Self> {
         if configuration.provider_config.schema_version != 1 {
             return Err(ChatError::validation(
                 "providerConfig.schemaVersion",
-                "Cursor provider config schema is unsupported",
+                format!("{provider_name} provider config schema is unsupported"),
             ));
         }
         let mut settings: Self =
             serde_json::from_value(configuration.provider_config.value.clone()).map_err(|_| {
-                ChatError::validation("providerConfig", "Cursor provider config is invalid")
+                ChatError::validation(
+                    "providerConfig",
+                    format!("{provider_name} provider config is invalid"),
+                )
             })?;
         settings.api_endpoint = settings
             .api_endpoint
             .map(|value| value.trim().to_string())
             .filter(|value| !value.is_empty());
-        if let Some(endpoint) = settings.api_endpoint.as_deref() {
-            validate_endpoint(endpoint)?;
+        if provider_name == "Cursor" {
+            if let Some(endpoint) = settings.api_endpoint.as_deref() {
+                validate_endpoint(endpoint)?;
+            }
+        } else if settings.api_endpoint.is_some() {
+            return Err(ChatError::validation(
+                "providerConfig.apiEndpoint",
+                format!("{provider_name} does not support a custom API endpoint"),
+            ));
         }
         Ok(settings)
     }
@@ -98,8 +115,23 @@ pub struct AcpSessionSetup {
     pub session_id: Option<String>,
     pub config_options: Vec<AcpConfigOption>,
     pub modes: Option<AcpModeState>,
+    pub models: Option<AcpModelState>,
     #[serde(rename = "_meta")]
     pub metadata: Option<Value>,
+}
+
+#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq)]
+#[serde(default, rename_all = "camelCase")]
+pub struct AcpModelState {
+    pub current_model_id: String,
+    pub available_models: Vec<AcpModelInfo>,
+}
+
+#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq)]
+#[serde(default, rename_all = "camelCase")]
+pub struct AcpModelInfo {
+    pub model_id: String,
+    pub name: String,
 }
 
 #[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq)]
@@ -162,7 +194,7 @@ pub fn parse_initialize(value: Value) -> ChatResult<AcpInitializeResponse> {
     if response.protocol_version != ACP_PROTOCOL_VERSION {
         return Err(ChatError::new(
             ChatErrorCode::UnsupportedVersion,
-            "Cursor negotiated an unsupported ACP protocol version",
+            "The provider negotiated an unsupported ACP protocol version",
             false,
         ));
     }
@@ -196,7 +228,82 @@ pub fn parse_session_setup(value: Value, fresh: bool) -> ChatResult<AcpSessionSe
     if let Some(modes) = response.modes.as_ref() {
         validate_modes(modes)?;
     }
+    if let Some(models) = response
+        .models
+        .as_ref()
+        .filter(|models| !models.available_models.is_empty())
+    {
+        validate_acp_models(models)?;
+    }
     Ok(response)
+}
+
+pub fn ensure_grok_model_state(setup: &mut AcpSessionSetup) {
+    let models = setup.models.get_or_insert_with(AcpModelState::default);
+    if models.available_models.is_empty() {
+        models.available_models.push(AcpModelInfo {
+            model_id: "grok-build".to_string(),
+            name: "Grok Build".to_string(),
+        });
+        models.current_model_id = "grok-build".to_string();
+    }
+}
+
+fn validate_acp_models(models: &AcpModelState) -> ChatResult<()> {
+    if models.available_models.is_empty()
+        || models.available_models.len() > MAX_MODELS
+        || !valid_identifier(&models.current_model_id, 256)
+    {
+        return Err(protocol_error("ACP model state"));
+    }
+    let mut seen = BTreeSet::new();
+    for model in &models.available_models {
+        let id = model.model_id.trim();
+        let name = model.name.trim();
+        if !valid_identifier(id, 256)
+            || name.is_empty()
+            || name.len() > 256
+            || name.chars().any(char::is_control)
+            || !seen.insert(id)
+        {
+            return Err(protocol_error("ACP model"));
+        }
+    }
+    if !models
+        .available_models
+        .iter()
+        .any(|model| model.model_id == models.current_model_id)
+    {
+        return Err(protocol_error("current ACP model"));
+    }
+    Ok(())
+}
+
+pub fn parse_acp_models(setup: &AcpSessionSetup) -> ChatResult<Vec<ProviderModel>> {
+    let models = setup
+        .models
+        .as_ref()
+        .ok_or_else(|| protocol_error("ACP model catalog"))?;
+    validate_acp_models(models)?;
+    models
+        .available_models
+        .iter()
+        .map(|model| {
+            Ok(ProviderModel {
+                id: ModelId::new(model.model_id.clone()).map_err(|_| protocol_error("model ID"))?,
+                display_name: model.name.trim().to_string(),
+                description: None,
+                context_limit: None,
+                availability: ModelAvailability::Available,
+                capabilities: vec![
+                    ProviderCapability::FileReferences,
+                    ProviderCapability::DynamicModelChange,
+                ],
+                options: Vec::new(),
+                custom: false,
+            })
+        })
+        .collect()
 }
 
 pub fn resolve_mode_configuration_update(
@@ -311,29 +418,51 @@ pub fn resume_cursor(session_id: &str) -> VersionedJson {
 }
 
 pub fn cursor_capability_kinds() -> Vec<ProviderCapability> {
-    vec![
-        ProviderCapability::NativeResume,
-        ProviderCapability::NativePlan,
-        ProviderCapability::DynamicModelChange,
-        ProviderCapability::Images,
-        ProviderCapability::FileReferences,
-        ProviderCapability::Approvals,
-        ProviderCapability::StructuredQuestions,
-        ProviderCapability::ReasoningSummaries,
-        ProviderCapability::StructuredPlans,
-        ProviderCapability::ProviderDiffs,
+    acp_capability_kinds(super::driver::AcpProviderFlavor::Cursor)
+}
+
+pub fn acp_capability_kinds(_flavor: super::driver::AcpProviderFlavor) -> Vec<ProviderCapability> {
+    [
+        Some(ProviderCapability::NativeResume),
+        Some(ProviderCapability::NativePlan),
+        Some(ProviderCapability::DynamicModelChange),
+        Some(ProviderCapability::Images),
+        Some(ProviderCapability::FileReferences),
+        Some(ProviderCapability::Approvals),
+        Some(ProviderCapability::StructuredQuestions),
+        Some(ProviderCapability::ReasoningSummaries),
+        Some(ProviderCapability::StructuredPlans),
+        Some(ProviderCapability::ProviderDiffs),
     ]
+    .into_iter()
+    .flatten()
+    .collect()
 }
 
 pub fn negotiated_capabilities(
     initialize: &AcpInitializeResponse,
     setup: &AcpSessionSetup,
 ) -> ProviderCapabilities {
+    negotiated_capabilities_for(super::driver::AcpProviderFlavor::Cursor, initialize, setup)
+}
+
+pub fn negotiated_capabilities_for(
+    flavor: super::driver::AcpProviderFlavor,
+    initialize: &AcpInitializeResponse,
+    setup: &AcpSessionSetup,
+) -> ProviderCapabilities {
+    let provider_name = flavor.display_name();
+    let models_are_dynamic = match flavor {
+        super::driver::AcpProviderFlavor::Cursor => {
+            model_config_id(&setup.config_options).is_some()
+        }
+        super::driver::AcpProviderFlavor::Grok => setup.models.is_some(),
+    };
     let supports_plan = setup
         .modes
         .as_ref()
         .is_some_and(|modes| find_mode(modes, InteractionMode::Plan).is_some());
-    let values = cursor_capability_kinds()
+    let values = acp_capability_kinds(flavor)
         .into_iter()
         .map(|capability| {
             let supported = match capability {
@@ -342,35 +471,32 @@ pub fn negotiated_capabilities(
                 ProviderCapability::Images => {
                     initialize.agent_capabilities.prompt_capabilities.image
                 }
-                ProviderCapability::DynamicModelChange => {
-                    model_config_id(&setup.config_options).is_some()
-                }
+                ProviderCapability::DynamicModelChange => models_are_dynamic,
                 ProviderCapability::Approvals
                 | ProviderCapability::FileReferences
                 | ProviderCapability::StructuredQuestions
                 | ProviderCapability::StructuredPlans
-                | ProviderCapability::ProviderDiffs => true,
-                ProviderCapability::ReasoningSummaries => true,
+                | ProviderCapability::ProviderDiffs
+                | ProviderCapability::ReasoningSummaries => true,
                 _ => false,
             };
             ProviderCapabilitySupport {
                 capability,
                 supported,
-                explanation: (!supported).then(|| {
-                    match capability {
-                        ProviderCapability::NativeResume => {
-                            "Cursor did not advertise ACP session loading"
-                        }
-                        ProviderCapability::NativePlan => {
-                            "Cursor did not advertise a Plan or Architect mode"
-                        }
-                        ProviderCapability::Images => "Cursor did not advertise ACP image prompts",
-                        ProviderCapability::DynamicModelChange => {
-                            "Cursor did not advertise a model configuration option"
-                        }
-                        _ => "Cursor did not advertise this ACP capability",
+                explanation: (!supported).then(|| match capability {
+                    ProviderCapability::NativeResume => {
+                        format!("{provider_name} did not advertise ACP session loading")
                     }
-                    .to_string()
+                    ProviderCapability::NativePlan => {
+                        format!("{provider_name} did not advertise a Plan mode")
+                    }
+                    ProviderCapability::Images => {
+                        format!("{provider_name} did not advertise ACP image prompts")
+                    }
+                    ProviderCapability::DynamicModelChange => {
+                        format!("{provider_name} did not advertise dynamic models")
+                    }
+                    _ => format!("{provider_name} did not advertise this ACP capability"),
                 }),
             }
         })
@@ -445,7 +571,7 @@ pub fn object(value: &Value) -> ChatResult<&Map<String, Value>> {
 pub fn protocol_error(subject: &str) -> ChatError {
     ChatError::new(
         ChatErrorCode::Protocol,
-        format!("Cursor ACP returned an invalid {subject}"),
+        format!("ACP provider returned an invalid {subject}"),
         false,
     )
 }

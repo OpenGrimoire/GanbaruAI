@@ -12,6 +12,14 @@ const api = vi.hoisted(() => ({
   attachmentUrl: vi.fn(async () => "data:image/png;base64,iVBORw0KGgo="),
 }));
 
+class ResizeObserverMock implements ResizeObserver {
+  constructor(_callback: ResizeObserverCallback) {}
+
+  observe(): void {}
+  unobserve(): void {}
+  disconnect(): void {}
+}
+
 vi.mock("$lib/api/chat", async (importOriginal) => ({
   ...await importOriginal<typeof import("$lib/api/chat")>(),
   chatAttachmentDataUrl: api.attachmentUrl,
@@ -24,6 +32,7 @@ describe("ChatComposer", () => {
   const mounted: { target: HTMLDivElement; component: ReturnType<typeof mount> }[] = [];
 
   beforeEach(() => {
+    vi.stubGlobal("ResizeObserver", ResizeObserverMock);
     const chat = getChat();
     chat.composer = composer();
     chat.composerAttachments = [];
@@ -46,6 +55,7 @@ describe("ChatComposer", () => {
       entry.target.remove();
     }
     vi.restoreAllMocks();
+    vi.unstubAllGlobals();
   });
 
   function setup(hero = false): { target: HTMLDivElement; textarea: HTMLTextAreaElement } {
@@ -141,6 +151,7 @@ describe("ChatComposer", () => {
     });
     const { target } = setup(false);
     const trigger = target.querySelector<HTMLButtonElement>("[data-chat-model-trigger]");
+    expect(trigger?.querySelector(".provider-icon")).toBeNull();
     expect(trigger?.textContent).toContain("5.6 Sol");
     expect(trigger?.textContent).toContain("Medium");
     trigger?.click();
@@ -209,25 +220,151 @@ describe("ChatComposer", () => {
     const advancedRows = [...target.querySelectorAll<HTMLButtonElement>(".advanced-list button")];
     expect(advancedRows.some((button) => button.textContent?.includes("EffortLight"))).toBe(true);
     expect(advancedRows.some((button) => button.textContent?.includes("SpeedStandard"))).toBe(true);
-    expect(advancedRows.some((button) => button.textContent?.includes("ProviderCodex"))).toBe(true);
+    expect(advancedRows.some((button) => button.textContent?.includes("ProviderCodex"))).toBe(false);
     const speedRow = advancedRows.find((button) => button.textContent?.includes("SpeedStandard"));
-    speedRow?.click();
+    speedRow?.dispatchEvent(new MouseEvent("pointerenter"));
     await tick();
     expect(target.querySelector(".model-flyout")?.textContent).toContain("Standard");
     expect(target.querySelector(".model-flyout")?.textContent).toContain("Fast");
+    [...target.querySelectorAll<HTMLButtonElement>(".model-flyout .selection-list > button")]
+      .find((button) => button.textContent?.startsWith("Standard"))?.click();
+    await tick();
+    expect(target.querySelector(".model-flyout")).not.toBeNull();
     const effortRow = advancedRows.find((button) => button.textContent?.includes("EffortLight"));
-    effortRow?.click();
+    effortRow?.dispatchEvent(new MouseEvent("pointerenter"));
     await tick();
     expect(target.querySelector(".model-flyout")?.textContent).toContain("High");
+    expect(target.querySelector(".model-flyout")?.textContent).not.toContain("Uses less reasoning");
+    expect(target.querySelector(".flyout-heading")).toBeNull();
     effortRow?.dispatchEvent(new MouseEvent("pointerleave", { clientX: 999, clientY: 999 }));
     await new Promise((resolve) => setTimeout(resolve, 90));
     await tick();
-    expect(target.querySelector(".model-flyout")).toBeNull();
-    const providerRow = advancedRows.find((button) => button.textContent?.includes("ProviderCodex"));
-    providerRow?.click();
+    expect(target.querySelector(".model-flyout.positioned")).not.toBeNull();
+    const modelRow = advancedRows.find((button) => button.textContent?.startsWith("Model"));
+    modelRow?.dispatchEvent(new MouseEvent("pointerenter"));
     await tick();
-    expect(target.querySelector(".model-flyout")?.textContent).toContain("ClaudeNot configured");
+    expect(target.querySelector(".provider-rail")).toBeNull();
+    expect(target.querySelector('[data-model-company="openai"] .model-company-heading svg')).not.toBeNull();
+    expect(target.querySelector('[data-model-company="openai"] .model-company-heading')?.textContent).toContain("OpenAI");
+    expect(target.querySelector('[data-model-company="anthropic"] .model-company-heading')?.textContent).toContain("Anthropic");
+    const openAiHeading = target.querySelector<HTMLButtonElement>('[data-model-company="openai"] .model-company-heading');
+    openAiHeading?.click();
+    await tick();
+    expect(openAiHeading?.getAttribute("aria-expanded")).toBe("false");
+    expect(target.querySelector<HTMLElement>('[data-model-company="openai"] .model-company-content')?.inert).toBe(true);
+    openAiHeading?.click();
+    await tick();
+    expect(openAiHeading?.getAttribute("aria-expanded")).toBe("true");
+    expect(target.querySelector(".model-picker-provider")).toBeNull();
+    const modelList = target.querySelector<HTMLElement>(".model-list");
+    if (!modelList) throw new Error("Model list did not render");
+    expect(modelList.querySelector(".model-search-row")).not.toBeNull();
+    Object.defineProperties(modelList, {
+      clientHeight: { configurable: true, value: 200 },
+      scrollHeight: { configurable: true, value: 600 },
+      scrollTop: { configurable: true, writable: true, value: 0 },
+    });
+    modelList.dispatchEvent(new Event("scroll"));
+    await tick();
+    expect(modelList.classList.contains("model-list-scroll-bottom")).toBe(true);
+    modelList.scrollTop = 200;
+    modelList.dispatchEvent(new Event("scroll"));
+    await tick();
+    expect(modelList.classList.contains("model-list-scroll-both")).toBe(true);
+    modelList.scrollTop = 400;
+    modelList.dispatchEvent(new Event("scroll"));
+    await tick();
+    expect(modelList.classList.contains("model-list-scroll-top")).toBe(true);
+    expect(target.querySelector<HTMLInputElement>(".model-search input")?.placeholder).toBe("Search models...");
+    expect(target.querySelector(".model-flyout")?.textContent).not.toContain("gpt-5.6-sol");
+    expect(target.querySelector(".favorite-company-section .model-company-heading")?.textContent).toContain("Favorites");
+    expect(target.querySelector(".favorite-company-section .model-company-content-inner > p")?.textContent).toBe("No favorites yet.");
+    const setupAction = target.querySelector<HTMLElement>('[data-model-company="anthropic"] .company-setup');
+    expect(setupAction?.textContent).toBe("Configure Anthropic");
+    expect(setupAction?.querySelector("small")).toBeNull();
+    expect(target.querySelector(".model-flyout")?.textContent).not.toContain("ProviderCodex");
+    expect(advancedRows.some((button) => button.textContent?.startsWith("Interaction"))).toBe(false);
     expect(target.querySelector('[data-chat-field="interaction"]')).toBeNull();
+  });
+
+  it("switches provider and model together from the model picker", async () => {
+    const chat = getChat();
+    chat.settings = multiProviderSettings();
+    chat.composer = {
+      ...composer(),
+      providerInstanceId: "codex-local",
+      modelSelection: composerModelSelection("gpt-5.6-sol", false, []),
+      safetyMode: "supervised",
+      interactionMode: "build",
+    };
+    vi.spyOn(chat, "setComposerProvider").mockImplementation((providerInstanceId) => {
+      chat.composer = { ...chat.composer, providerInstanceId };
+    });
+    vi.spyOn(chat, "setComposerModel").mockImplementation((modelSelection) => {
+      chat.composer = { ...chat.composer, modelSelection };
+    });
+
+    const { target } = setup(false);
+    target.querySelector<HTMLButtonElement>("[data-chat-model-trigger]")?.click();
+    await tick();
+    target.querySelector<HTMLButtonElement>(".advanced-toggle")?.click();
+    await tick();
+    const modelRow = [...target.querySelectorAll<HTMLButtonElement>(".advanced-list button")]
+      .find((button) => button.textContent?.startsWith("Model"));
+    modelRow?.click();
+    await tick();
+    expect(target.querySelector('[data-model-company="openai"]')).not.toBeNull();
+    expect(target.querySelector('[data-model-company="anthropic"]')).not.toBeNull();
+    const claudeModel = [...target.querySelectorAll<HTMLButtonElement>('[data-model-company="anthropic"] .model-choice')]
+      .find((button) => button.textContent?.includes("Default (Opus 4.8)"));
+    claudeModel?.click();
+    await tick();
+
+    expect(chat.composer.providerInstanceId).toBe("claude");
+    expect(readComposerModelSelection(chat.composer.modelSelection).modelId).toBe("default");
+  });
+
+  it("shows and updates favorites across providers without exposing raw model IDs", async () => {
+    const chat = getChat();
+    const settings = multiProviderSettings();
+    const codex = settings.providerInstances.find((entry) => entry.configuration.instanceId === "codex-local");
+    const claude = settings.providerInstances.find((entry) => entry.configuration.instanceId === "claude");
+    if (!codex || !claude) throw new Error("Favorite fixtures require Codex and Claude");
+    codex.configuration.favoriteModelIds = ["gpt-5.6-sol"];
+    claude.configuration.favoriteModelIds = ["default"];
+    chat.settings = settings;
+    chat.composer = {
+      ...composer(),
+      providerInstanceId: "codex-local",
+      modelSelection: composerModelSelection("gpt-5.6-sol", false, []),
+      safetyMode: "supervised",
+      interactionMode: "build",
+    };
+    const updateModels = vi.spyOn(chat, "updateModels").mockResolvedValue();
+
+    const { target } = setup(false);
+    target.querySelector<HTMLButtonElement>("[data-chat-model-trigger]")?.click();
+    await tick();
+    target.querySelector<HTMLButtonElement>(".advanced-toggle")?.click();
+    await tick();
+    [...target.querySelectorAll<HTMLButtonElement>(".advanced-list button")]
+      .find((button) => button.textContent?.startsWith("Model"))?.click();
+    await tick();
+
+    const providerModelRow = [...target.querySelectorAll<HTMLElement>('[data-model-company="openai"] .model-row')]
+      .find((row) => row.textContent?.includes("5.6 Sol"));
+    expect(providerModelRow?.querySelector(".model-provider-caption")).toBeNull();
+    const favoriteText = target.querySelector(".favorite-company-section")?.textContent ?? "";
+    expect(favoriteText).toContain("5.6 Sol");
+    expect(favoriteText).toContain("Default (Opus 4.8)");
+    expect(favoriteText).toContain("OpenAI");
+    expect(favoriteText).toContain("Anthropic");
+    expect(favoriteText).not.toContain("gpt-5.6-sol");
+    expect(target.querySelectorAll(".model-provider-caption")).toHaveLength(2);
+
+    target.querySelector<HTMLButtonElement>('.favorite-company-section .model-favorite[aria-label="Favorite: 5.6 Sol"]')?.click();
+    await tick();
+    expect(updateModels).toHaveBeenCalledWith("codex-local", [], []);
   });
 
   it("selects a provider's recommended model and effort for a fresh composer", async () => {
@@ -339,8 +476,18 @@ function modelSettings(): ChatSettingsRead {
       },
     },
     providerFamilies: [{
+      familyId: "codex",
+      displayName: "OpenAI",
+      configurationSchemaVersion: 1,
+      supportedPlatforms: ["linux", "windows", "macos"],
+      minimumTestedCliVersion: null,
+      defaultExecutableCandidates: ["codex"],
+      implementationStatus: "available",
+      potentialCapabilities: [],
+      unavailableReason: null,
+    }, {
       familyId: "claude",
-      displayName: "Claude",
+      displayName: "Anthropic",
       configurationSchemaVersion: 1,
       supportedPlatforms: ["linux", "windows", "macos"],
       minimumTestedCliVersion: null,
@@ -354,7 +501,7 @@ function modelSettings(): ChatSettingsRead {
         schemaVersion: 1,
         instanceId: "codex-local",
         familyId: "codex",
-        label: "Codex",
+        label: "OpenAI",
         accentColor: null,
         enabled: true,
         executable: "codex",
@@ -396,7 +543,7 @@ function modelSettings(): ChatSettingsRead {
             description: null,
             defaultValue: "medium",
             options: [
-              { value: "low", label: "low", description: null },
+              { value: "low", label: "low", description: "Uses less reasoning" },
               { value: "medium", label: "Medium", description: null },
               { value: "high", label: "High", description: null },
               { value: "xhigh", label: "xhigh", description: null },
@@ -451,7 +598,7 @@ function claudeModelSettings(): ChatSettingsRead {
   if (!provider) throw new Error("Model settings require a provider fixture");
   provider.configuration.instanceId = "claude";
   provider.configuration.familyId = "claude";
-  provider.configuration.label = "Claude";
+  provider.configuration.label = "Anthropic";
   provider.configuration.executable = "claude";
   provider.lastProbe = provider.lastProbe ? { ...provider.lastProbe, instanceId: "claude" } : null;
   provider.modelCatalog = {
@@ -481,5 +628,13 @@ function claudeModelSettings(): ChatSettingsRead {
       }],
     }],
   };
+  return settings;
+}
+
+function multiProviderSettings(): ChatSettingsRead {
+  const settings = modelSettings();
+  const claude = claudeModelSettings().providerInstances[0];
+  if (!claude) throw new Error("Claude provider fixture is unavailable");
+  settings.providerInstances.push(claude);
   return settings;
 }

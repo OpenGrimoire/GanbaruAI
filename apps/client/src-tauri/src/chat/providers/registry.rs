@@ -65,6 +65,18 @@ const CURSOR_CAPABILITIES: &[ProviderCapability] = &[
     ProviderCapability::ProviderDiffs,
 ];
 
+const GROK_CAPABILITIES: &[ProviderCapability] = &[
+    ProviderCapability::NativeResume,
+    ProviderCapability::NativePlan,
+    ProviderCapability::DynamicModelChange,
+    ProviderCapability::Images,
+    ProviderCapability::FileReferences,
+    ProviderCapability::Approvals,
+    ProviderCapability::ReasoningSummaries,
+    ProviderCapability::StructuredPlans,
+    ProviderCapability::ProviderDiffs,
+];
+
 const OPENCODE_CAPABILITIES: &[ProviderCapability] = &[
     ProviderCapability::NativeResume,
     ProviderCapability::NativeRollback,
@@ -121,10 +133,10 @@ impl ProviderMetadataDefinition {
     }
 }
 
-pub const PROVIDER_METADATA: [ProviderMetadataDefinition; 4] = [
+pub const PROVIDER_METADATA: [ProviderMetadataDefinition; 5] = [
     ProviderMetadataDefinition {
         family_id: "codex",
-        display_name: "Codex",
+        display_name: "OpenAI",
         configuration_schema_version: 1,
         supported_platforms: DESKTOP_PLATFORMS,
         minimum_tested_cli_version: None,
@@ -133,7 +145,7 @@ pub const PROVIDER_METADATA: [ProviderMetadataDefinition; 4] = [
     },
     ProviderMetadataDefinition {
         family_id: "claude",
-        display_name: "Claude",
+        display_name: "Anthropic",
         configuration_schema_version: 1,
         supported_platforms: DESKTOP_PLATFORMS,
         minimum_tested_cli_version: None,
@@ -148,6 +160,15 @@ pub const PROVIDER_METADATA: [ProviderMetadataDefinition; 4] = [
         minimum_tested_cli_version: None,
         default_executable_candidates: &["cursor-agent", "cursor"],
         potential_capabilities: CURSOR_CAPABILITIES,
+    },
+    ProviderMetadataDefinition {
+        family_id: "grok",
+        display_name: "xAI",
+        configuration_schema_version: 1,
+        supported_platforms: DESKTOP_PLATFORMS,
+        minimum_tested_cli_version: None,
+        default_executable_candidates: &["grok"],
+        potential_capabilities: GROK_CAPABILITIES,
     },
     ProviderMetadataDefinition {
         family_id: "opencode",
@@ -172,6 +193,7 @@ impl ProviderDriverRegistry {
                 "codex" => CodexProviderDriver::metadata_read(),
                 "claude" => ClaudeProviderDriver::metadata_read(),
                 "cursor" => CursorProviderDriver::metadata_read(),
+                "grok" => CursorProviderDriver::grok_metadata_read(),
                 "opencode" => OpenCodeProviderDriver::metadata_read(),
                 _ => metadata.to_read(),
             })
@@ -187,6 +209,7 @@ impl ProviderDriverRegistry {
                 "codex" => CodexProviderDriver::metadata_read(),
                 "claude" => ClaudeProviderDriver::metadata_read(),
                 "cursor" => CursorProviderDriver::metadata_read(),
+                "grok" => CursorProviderDriver::grok_metadata_read(),
                 "opencode" => OpenCodeProviderDriver::metadata_read(),
                 _ => metadata.to_read(),
             })
@@ -209,6 +232,10 @@ impl ProviderDriverFactory for ProviderDriverRegistry {
         }
         if configuration.family_id.as_str() == "cursor" {
             return CursorProviderDriver::new(configuration)
+                .map(|driver| Box::new(driver) as Box<dyn ProviderDriver>);
+        }
+        if configuration.family_id.as_str() == "grok" {
+            return CursorProviderDriver::new_grok(configuration)
                 .map(|driver| Box::new(driver) as Box<dyn ProviderDriver>);
         }
         if configuration.family_id.as_str() == "opencode" {

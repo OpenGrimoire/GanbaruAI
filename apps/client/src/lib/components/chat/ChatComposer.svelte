@@ -22,6 +22,7 @@
     composerTokenTrigger,
     contextMeter,
     filterPromptCatalog,
+    interactionModeForPrompt,
     replaceComposerToken,
     shouldSendComposerKey,
     validateComposerSelections,
@@ -164,8 +165,11 @@
         menuEntries = page.entries;
         menuCursor = page.nextCursor;
       } else {
-        const catalog = await chatApi.listChatPromptCatalog(chat.composer.providerInstanceId);
+        const providerCatalog = await chatApi.listChatPromptCatalog(chat.composer.providerInstanceId);
         if (request !== menuRequest) return;
+        const catalog = providerCatalog.some((entry) => entry.value === "/plan")
+          ? providerCatalog
+          : [{ value: "/plan", label: t("chat.composer.planCommand"), description: t("chat.composer.planCommandDescription"), kind: "command" as const, stale: false }, ...providerCatalog];
         menuEntries = filterPromptCatalog(catalog, trigger.kind, trigger.query);
         menuCursor = null;
       }
@@ -259,13 +263,17 @@
     const model = chat.composer.modelSelection?.value;
     const modelId = typeof model === "object" && model !== null && !Array.isArray(model) && typeof model.modelId === "string" ? model.modelId : null;
     const providerManagedModel = typeof model === "object" && model !== null && !Array.isArray(model) && model.providerManaged === true;
+    const interactionMode = interactionModeForPrompt(chat.composer.text, chat.composer.interactionMode);
+    if (interactionMode !== chat.composer.interactionMode) {
+      chat.setComposerModes(chat.composer.safetyMode, interactionMode);
+    }
     const errors = validateComposerSelections({
       workspaceId,
       providerInstanceId: providerId,
       modelId,
       providerManagedModel,
       safetyMode: chat.composer.safetyMode,
-      interactionMode: chat.composer.interactionMode,
+      interactionMode,
       fullAccessTrusted: chat.composer.safetyMode !== "full_access" || trusted,
     }, capabilities);
     const modelOptionErrors = provider && modelId

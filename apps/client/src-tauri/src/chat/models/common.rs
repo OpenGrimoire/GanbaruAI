@@ -8,6 +8,7 @@ pub enum KnownProviderFamily {
     Codex,
     Claude,
     Cursor,
+    Grok,
     OpenCode,
 }
 
@@ -17,6 +18,7 @@ impl KnownProviderFamily {
             Self::Codex => "codex",
             Self::Claude => "claude",
             Self::Cursor => "cursor",
+            Self::Grok => "grok",
             Self::OpenCode => "opencode",
         }
     }

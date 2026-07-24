@@ -27,14 +27,24 @@ fn configuration(family_id: &str) -> ProviderInstanceConfig {
 }
 
 #[test]
-fn registry_lists_four_known_families_in_stable_order() {
+fn registry_lists_five_known_families_in_stable_order() {
     let metadata = ProviderDriverRegistry.list_metadata();
     let family_ids = metadata
         .iter()
         .map(|entry| entry.family_id.as_str())
         .collect::<Vec<_>>();
 
-    assert_eq!(family_ids, ["codex", "claude", "cursor", "opencode"]);
+    assert_eq!(
+        family_ids,
+        ["codex", "claude", "cursor", "grok", "opencode"]
+    );
+    assert_eq!(
+        metadata
+            .iter()
+            .map(|entry| entry.display_name.as_str())
+            .collect::<Vec<_>>(),
+        ["OpenAI", "Anthropic", "Cursor", "xAI", "OpenCode"]
+    );
     assert_eq!(
         metadata[0].implementation_status,
         ProviderImplementationStatus::Available
@@ -55,6 +65,11 @@ fn registry_lists_four_known_families_in_stable_order() {
         ProviderImplementationStatus::Available
     );
     assert!(metadata[3].unavailable_reason.is_none());
+    assert_eq!(
+        metadata[4].implementation_status,
+        ProviderImplementationStatus::Available
+    );
+    assert!(metadata[4].unavailable_reason.is_none());
 }
 
 #[test]
@@ -98,6 +113,25 @@ fn cursor_driver_is_available_with_an_acp_version_floor() {
         .entries
         .iter()
         .all(|entry| entry.supported));
+}
+
+#[test]
+fn grok_driver_is_available_with_native_acp_models() {
+    let mut configuration = configuration("grok");
+    configuration.provider_config = crate::chat::models::VersionedJson {
+        schema_version: 1,
+        value: json!({}),
+    };
+    let driver = ProviderDriverRegistry.create_driver(configuration).unwrap();
+
+    assert_eq!(driver.metadata().display_name, "xAI");
+    assert_eq!(driver.metadata().default_executable_candidates, ["grok"]);
+    assert!(driver
+        .capabilities()
+        .supports(crate::chat::models::ProviderCapability::DynamicModelChange));
+    assert!(driver
+        .capabilities()
+        .supports(crate::chat::models::ProviderCapability::StructuredQuestions));
 }
 
 #[test]

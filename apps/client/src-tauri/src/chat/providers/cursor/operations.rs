@@ -1,7 +1,7 @@
 //! Cursor provider driver operations.
 
 use super::driver::*;
-use super::executable::continuation_group;
+use super::executable::acp_continuation_group;
 use super::interactions::{
     resolve_approval_result, resolve_question_result, PendingCursorRequestKind,
 };
@@ -26,7 +26,10 @@ const PROMPT_TIMEOUT: Duration = Duration::from_secs(24 * 60 * 60);
 
 impl ProviderDriver for CursorProviderDriver {
     fn metadata(&self) -> ProviderFamilyMetadataRead {
-        Self::metadata_read()
+        match self.flavor {
+            AcpProviderFlavor::Cursor => Self::metadata_read(),
+            AcpProviderFlavor::Grok => Self::grok_metadata_read(),
+        }
     }
 
     fn instance_configuration(&self) -> &ProviderInstanceConfig {
@@ -34,7 +37,7 @@ impl ProviderDriver for CursorProviderDriver {
     }
 
     fn capabilities(&self) -> ProviderCapabilities {
-        potential_capabilities()
+        potential_capabilities_for(self.flavor)
     }
 
     fn cached_model_catalog(&self) -> Option<ProviderModelCatalog> {
@@ -49,7 +52,11 @@ impl ProviderDriver for CursorProviderDriver {
             let checked_at = now_utc()?;
             match self.probe_snapshot(context).await {
                 Ok((started, about)) => {
-                    let capabilities = negotiated_capabilities(&started.initialize, &started.setup);
+                    let capabilities = negotiated_capabilities_for(
+                        self.flavor,
+                        &started.initialize,
+                        &started.setup,
+                    );
                     self.cached_models = Some(ProviderModelCatalog {
                         instance_id: self.configuration.instance_id.clone(),
                         models: started.models,
@@ -60,7 +67,7 @@ impl ProviderDriver for CursorProviderDriver {
                     Ok(ProviderProbeResult {
                         instance_id: self.configuration.instance_id.clone(),
                         state: ProbeState::Healthy,
-                        version: Some(about.version.to_string()),
+                        version: Some(about.version),
                         account_label: about.account_label,
                         capabilities,
                         checked_at,
@@ -73,9 +80,9 @@ impl ProviderDriver for CursorProviderDriver {
                     state: probe_state(error.code),
                     version: None,
                     account_label: None,
-                    capabilities: potential_capabilities(),
+                    capabilities: potential_capabilities_for(self.flavor),
                     checked_at,
-                    detail: Some(probe_detail(error.code).to_string()),
+                    detail: Some(probe_detail(self.flavor, error.code)),
                 }),
             }
         })
@@ -108,13 +115,17 @@ impl ProviderDriver for CursorProviderDriver {
             if request.provider_instance_id != self.configuration.instance_id {
                 return Err(ChatError::new(
                     ChatErrorCode::Conflict,
-                    "Cursor provider instance does not match continuation request",
+                    format!(
+                        "{} provider instance does not match continuation request",
+                        self.flavor.display_name()
+                    ),
                     false,
                 ));
             }
-            continuation_group(
+            acp_continuation_group(
                 &self.configuration,
                 &self.settings,
+                self.flavor,
                 request.account_identity.as_deref(),
             )
         })
@@ -150,7 +161,9 @@ impl ProviderDriver for CursorProviderDriver {
         context: &'a DriverOperationContext,
     ) -> DriverFuture<'a, TurnDispatchReceipt> {
         Box::pin(async move {
-            let prompt = build_prompt(&request)?;
+            let flavor = self.flavor;
+            let provider_name = flavor.display_name();
+            let prompt = build_prompt(&request, flavor)?;
             let live = self.live_mut(&request.session_id)?;
             if live
                 .prompt_task
@@ -159,7 +172,7 @@ impl ProviderDriver for CursorProviderDriver {
             {
                 return Err(ChatError::new(
                     ChatErrorCode::Busy,
-                    "Cursor already has an active prompt",
+                    format!("{provider_name} already has an active prompt"),
                     true,
                 ));
             }
@@ -169,9 +182,9 @@ impl ProviderDriver for CursorProviderDriver {
                 .any(|attachment| attachment.kind == "image")
                 && !live.capabilities.supports(ProviderCapability::Images)
             {
-                return Err(ChatError::unsupported(
-                    "Cursor did not advertise ACP image prompts",
-                ));
+                return Err(ChatError::unsupported(format!(
+                    "{provider_name} did not advertise ACP image prompts"
+                )));
             }
             if let Some(task) = live.prompt_task.take() {
                 let _ = task.await;
@@ -183,26 +196,32 @@ impl ProviderDriver for CursorProviderDriver {
                 .map_err(|_| driver_state_error())?
                 .provider_thread_id
                 .clone();
-            apply_configuration(
+            apply_provider_configuration(
+                flavor,
                 &live.connection.client(),
                 &provider_thread_id,
                 &mut setup,
-                request.modes,
-                request.model_id.as_ref(),
-                &request.model_options,
+                AcpRequestedConfiguration {
+                    modes: request.modes,
+                    model_id: request.model_id.as_ref(),
+                    model_options: &request.model_options,
+                },
                 context,
             )
             .await?;
             *live.setup.lock().map_err(|_| driver_state_error())? = setup.clone();
-            let provider_turn_id =
-                ProviderTurnId::new(format!("cursor-{}", request.turn_id.as_str()))
-                    .map_err(|_| protocol_error("turn ID"))?;
+            let provider_turn_id = ProviderTurnId::new(format!(
+                "{}-{}",
+                flavor.turn_prefix(),
+                request.turn_id.as_str()
+            ))
+            .map_err(|_| protocol_error("turn ID"))?;
             let started_event = {
                 let mut state = live.route.lock().map_err(|_| driver_state_error())?;
                 if state.active_turn_id.is_some() {
                     return Err(ChatError::new(
                         ChatErrorCode::Busy,
-                        "Cursor already has an active turn",
+                        format!("{provider_name} already has an active turn"),
                         true,
                     ));
                 }
@@ -230,19 +249,57 @@ impl ProviderDriver for CursorProviderDriver {
             let normalizer = Arc::clone(&live.normalizer);
             let sink = Arc::clone(&live.sink);
             let terminal_error = Arc::clone(&live.terminal_error);
+            let prompt_completions = Arc::clone(&live.prompt_completions);
             let prompt_context = DriverOperationContext {
                 operation_id: context.operation_id.clone(),
                 deadline: Instant::now() + PROMPT_TIMEOUT,
                 cancellation: DriverCancellation::default(),
             };
+            let prompt_provider_turn_id = provider_turn_id.clone();
             live.prompt_task = Some(tokio::spawn(async move {
-                let response = client
-                    .request(
-                        "session/prompt",
-                        json!({ "sessionId": provider_thread_id, "prompt": prompt }),
-                        &prompt_context,
-                    )
-                    .await;
+                let prompt_id = prompt_provider_turn_id.as_str().to_string();
+                let response = if flavor == AcpProviderFlavor::Grok {
+                    let (sender, receiver) = tokio::sync::oneshot::channel();
+                    let inserted = prompt_completions
+                        .lock()
+                        .map(|mut pending| {
+                            if pending.len() >= 64 || pending.contains_key(&prompt_id) {
+                                false
+                            } else {
+                                pending.insert(prompt_id.clone(), sender);
+                                true
+                            }
+                        })
+                        .unwrap_or(false);
+                    if !inserted {
+                        Err(super::transport::AcpRpcFailure::Unavailable)
+                    } else {
+                        let result = client
+                            .request_with_fallback(
+                                "session/prompt",
+                                json!({
+                                    "sessionId": provider_thread_id,
+                                    "prompt": prompt,
+                                    "_meta": { "promptId": prompt_id },
+                                }),
+                                receiver,
+                                &prompt_context,
+                            )
+                            .await;
+                        if let Ok(mut pending) = prompt_completions.lock() {
+                            pending.remove(&prompt_id);
+                        }
+                        result
+                    }
+                } else {
+                    client
+                        .request(
+                            "session/prompt",
+                            json!({ "sessionId": provider_thread_id, "prompt": prompt }),
+                            &prompt_context,
+                        )
+                        .await
+                };
                 let events = match response {
                     Ok(response) => {
                         let stop_reason = response
@@ -290,7 +347,12 @@ impl ProviderDriver for CursorProviderDriver {
         _request: SteerTurnRequest,
         _context: &'a DriverOperationContext,
     ) -> DriverFuture<'a, DriverOperationReceipt> {
-        Box::pin(async { Err(ChatError::unsupported("Cursor steering is not declared")) })
+        let provider_name = self.flavor.display_name();
+        Box::pin(async move {
+            Err(ChatError::unsupported(format!(
+                "{provider_name} steering is not declared"
+            )))
+        })
     }
 
     fn interrupt_turn<'a>(
@@ -299,6 +361,7 @@ impl ProviderDriver for CursorProviderDriver {
         _context: &'a DriverOperationContext,
     ) -> DriverFuture<'a, DriverOperationReceipt> {
         Box::pin(async move {
+            let provider_name = self.flavor.display_name();
             let live = self.live_mut(&request.session_id)?;
             let provider_thread_id = {
                 let state = live.route.lock().map_err(|_| driver_state_error())?;
@@ -307,14 +370,14 @@ impl ProviderDriver for CursorProviderDriver {
                     Some(_) => {
                         return Err(ChatError::new(
                             ChatErrorCode::Conflict,
-                            "Cursor cancellation does not match the active turn",
+                            format!("{provider_name} cancellation does not match the active turn"),
                             false,
                         ))
                     }
                     None => {
                         return Ok(operation_receipt(
                             request.command.client_command_id.as_str(),
-                            "Cursor turn was already settled",
+                            &format!("{provider_name} turn was already settled"),
                         ))
                     }
                 }
@@ -327,7 +390,7 @@ impl ProviderDriver for CursorProviderDriver {
                 .map_err(|error| error.to_chat_error("turn cancellation"))?;
             Ok(operation_receipt(
                 request.command.client_command_id.as_str(),
-                "Cursor turn cancellation requested",
+                &format!("{provider_name} turn cancellation requested"),
             ))
         })
     }
@@ -338,13 +401,14 @@ impl ProviderDriver for CursorProviderDriver {
         _context: &'a DriverOperationContext,
     ) -> DriverFuture<'a, DriverOperationReceipt> {
         Box::pin(async move {
+            let provider_name = self.flavor.display_name();
             let live = self.live_mut(&request.session_id)?;
             let pending = take_pending(&live.pending, &request.provider_request_id)?;
             if !matches!(&pending.kind, PendingCursorRequestKind::Approval { .. }) {
                 restore_pending(&live.pending, request.provider_request_id.clone(), pending);
                 return Err(ChatError::new(
                     ChatErrorCode::Conflict,
-                    "Cursor request is not an approval",
+                    format!("{provider_name} request is not an approval"),
                     false,
                 ));
             }
@@ -393,7 +457,7 @@ impl ProviderDriver for CursorProviderDriver {
             live.sink.emit(event).await?;
             Ok(operation_receipt(
                 request.command.client_command_id.as_str(),
-                "Cursor approval response accepted",
+                &format!("{provider_name} approval response accepted"),
             ))
         })
     }
@@ -404,13 +468,18 @@ impl ProviderDriver for CursorProviderDriver {
         _context: &'a DriverOperationContext,
     ) -> DriverFuture<'a, DriverOperationReceipt> {
         Box::pin(async move {
+            let provider_name = self.flavor.display_name();
             let live = self.live_mut(&request.session_id)?;
             let pending = take_pending(&live.pending, &request.provider_request_id)?;
-            if !matches!(&pending.kind, PendingCursorRequestKind::UserInput { .. }) {
+            if !matches!(
+                &pending.kind,
+                PendingCursorRequestKind::UserInput { .. }
+                    | PendingCursorRequestKind::XaiUserInput { .. }
+            ) {
                 restore_pending(&live.pending, request.provider_request_id.clone(), pending);
                 return Err(ChatError::new(
                     ChatErrorCode::Conflict,
-                    "Cursor request is not structured input",
+                    format!("{provider_name} request is not structured input"),
                     false,
                 ));
             }
@@ -446,7 +515,7 @@ impl ProviderDriver for CursorProviderDriver {
             live.sink.emit(event).await?;
             Ok(operation_receipt(
                 request.command.client_command_id.as_str(),
-                "Cursor structured answer accepted",
+                &format!("{provider_name} structured answer accepted"),
             ))
         })
     }
@@ -456,7 +525,12 @@ impl ProviderDriver for CursorProviderDriver {
         _request: RollbackRequest,
         _context: &'a DriverOperationContext,
     ) -> DriverFuture<'a, DriverOperationReceipt> {
-        Box::pin(async { Err(ChatError::unsupported("Cursor rollback is not supported")) })
+        let provider_name = self.flavor.display_name();
+        Box::pin(async move {
+            Err(ChatError::unsupported(format!(
+                "{provider_name} rollback is not supported"
+            )))
+        })
     }
 
     fn read_history<'a>(
@@ -464,10 +538,11 @@ impl ProviderDriver for CursorProviderDriver {
         _request: ReadHistoryRequest,
         _context: &'a DriverOperationContext,
     ) -> DriverFuture<'a, ProviderHistoryPage> {
-        Box::pin(async {
-            Err(ChatError::unsupported(
-                "Cursor ACP replays history only during session loading",
-            ))
+        let provider_name = self.flavor.display_name();
+        Box::pin(async move {
+            Err(ChatError::unsupported(format!(
+                "{provider_name} ACP replays history only during session loading"
+            )))
         })
     }
 
@@ -477,17 +552,18 @@ impl ProviderDriver for CursorProviderDriver {
         context: &'a DriverOperationContext,
     ) -> DriverFuture<'a, DriverOperationReceipt> {
         Box::pin(async move {
+            let provider_name = self.flavor.display_name();
             let Some(mut live) = self.live.take() else {
                 return Ok(operation_receipt(
                     &context.operation_id,
-                    "Cursor session was already stopped",
+                    &format!("{provider_name} session was already stopped"),
                 ));
             };
             if live.session_id != request.session_id {
                 self.live = Some(live);
                 return Err(ChatError::new(
                     ChatErrorCode::Conflict,
-                    "Cursor session identity does not match the active session",
+                    format!("{provider_name} session identity does not match the active session"),
                     false,
                 ));
             }
@@ -535,24 +611,25 @@ impl ProviderDriver for CursorProviderDriver {
                         session_id: live.session_id.clone(),
                         expected: true,
                         exit_code: None,
-                        reason: Some("Cursor session stopped".to_string()),
+                        reason: Some(format!("{provider_name} session stopped")),
                     }),
                 )?)
                 .await?;
             live.sink.flush().await?;
             Ok(operation_receipt(
                 &context.operation_id,
-                "Cursor session stopped",
+                &format!("{provider_name} session stopped"),
             ))
         })
     }
 }
 
-fn build_prompt(request: &SendTurnRequest) -> ChatResult<Vec<Value>> {
+fn build_prompt(request: &SendTurnRequest, flavor: AcpProviderFlavor) -> ChatResult<Vec<Value>> {
+    let provider_name = flavor.display_name();
     if request.prompt.len() > MAX_PROMPT_BYTES || request.prompt.contains('\0') {
         return Err(ChatError::validation(
             "prompt",
-            "Cursor prompt exceeds the supported limit",
+            format!("{provider_name} prompt exceeds the supported limit"),
         ));
     }
     let mut text = request.prompt.clone();
@@ -571,7 +648,7 @@ fn build_prompt(request: &SendTurnRequest) -> ChatResult<Vec<Value>> {
         if instructions.len() > MAX_TEXT_ATTACHMENT_BYTES || instructions.contains('\0') {
             return Err(ChatError::validation(
                 "developerInstructions",
-                "Cursor developer instructions exceed the supported limit",
+                format!("{provider_name} developer instructions exceed the supported limit"),
             ));
         }
         text.push_str("\n\nAdditional Ganbaru instructions:\n");
@@ -583,47 +660,60 @@ fn build_prompt(request: &SendTurnRequest) -> ChatResult<Vec<Value>> {
     }
     for attachment in &request.attachments {
         match attachment.kind.as_str() {
-            "image" => content.push(image_content(attachment)?),
+            "image" => content.push(image_content(attachment, flavor)?),
             "text_snippet" => {
                 let text = attachment.text_content.as_deref().ok_or_else(|| {
-                    ChatError::validation("attachments", "Cursor text context is unavailable")
+                    ChatError::validation(
+                        "attachments",
+                        format!("{provider_name} text context is unavailable"),
+                    )
                 })?;
                 if text.len() > MAX_TEXT_ATTACHMENT_BYTES || text.contains('\0') {
                     return Err(ChatError::validation(
                         "attachments",
-                        "Cursor text context exceeds the supported limit",
+                        format!("{provider_name} text context exceeds the supported limit"),
                     ));
                 }
                 content.push(json!({ "type": "text", "text": text }));
             }
             _ => {
-                return Err(ChatError::unsupported(
-                    "Cursor prompt attachment kind is unsupported",
-                ))
+                return Err(ChatError::unsupported(format!(
+                    "{provider_name} prompt attachment kind is unsupported"
+                )))
             }
         }
     }
     if content.is_empty() {
         return Err(ChatError::validation(
             "prompt",
-            "Cursor turn requires text or an image",
+            format!("{provider_name} turn requires text or an image"),
         ));
     }
     Ok(content)
 }
 
-fn image_content(attachment: &PromptAttachmentReference) -> ChatResult<Value> {
+fn image_content(
+    attachment: &PromptAttachmentReference,
+    flavor: AcpProviderFlavor,
+) -> ChatResult<Value> {
+    let provider_name = flavor.display_name();
     let path = attachment.local_path.as_deref().ok_or_else(|| {
-        ChatError::validation("attachments", "Cursor image attachment is unavailable")
+        ChatError::validation(
+            "attachments",
+            format!("{provider_name} image attachment is unavailable"),
+        )
     })?;
     let path = Path::new(path);
     let metadata = fs::metadata(path).map_err(|_| {
-        ChatError::validation("attachments", "Cursor image attachment is unavailable")
+        ChatError::validation(
+            "attachments",
+            format!("{provider_name} image attachment is unavailable"),
+        )
     })?;
     if !path.is_absolute() || !metadata.is_file() || metadata.len() > MAX_IMAGE_BYTES {
         return Err(ChatError::validation(
             "attachments",
-            "Cursor image attachment is invalid or oversized",
+            format!("{provider_name} image attachment is invalid or oversized"),
         ));
     }
     let mime = attachment
@@ -635,9 +725,17 @@ fn image_content(attachment: &PromptAttachmentReference) -> ChatResult<Value> {
                 "image/png" | "image/jpeg" | "image/gif" | "image/webp"
             )
         })
-        .ok_or_else(|| ChatError::validation("attachments", "Cursor image type is unsupported"))?;
+        .ok_or_else(|| {
+            ChatError::validation(
+                "attachments",
+                format!("{provider_name} image type is unsupported"),
+            )
+        })?;
     let bytes = fs::read(path).map_err(|_| {
-        ChatError::validation("attachments", "Cursor image attachment could not be read")
+        ChatError::validation(
+            "attachments",
+            format!("{provider_name} image attachment could not be read"),
+        )
     })?;
     Ok(json!({
         "type": "image",
@@ -686,16 +784,21 @@ fn probe_state(code: ChatErrorCode) -> ProbeState {
     }
 }
 
-fn probe_detail(code: ChatErrorCode) -> &'static str {
+fn probe_detail(flavor: AcpProviderFlavor, code: ChatErrorCode) -> String {
+    let provider_name = flavor.display_name();
     match code {
-        ChatErrorCode::ExecutableMissing => "Cursor Agent executable is unavailable",
+        ChatErrorCode::ExecutableMissing => {
+            format!("{provider_name} executable is unavailable")
+        }
         ChatErrorCode::UnsupportedVersion => {
-            "Cursor Agent version or ACP capability is unsupported"
+            format!("{provider_name} version or ACP capability is unsupported")
         }
-        ChatErrorCode::AuthenticationRequired => "Cursor authentication is required",
+        ChatErrorCode::AuthenticationRequired => {
+            format!("{provider_name} authentication is required")
+        }
         ChatErrorCode::ConfigurationInvalid | ChatErrorCode::Validation => {
-            "Cursor provider configuration is invalid"
+            format!("{provider_name} provider configuration is invalid")
         }
-        _ => "Cursor ACP transport is unavailable",
+        _ => format!("{provider_name} ACP transport is unavailable"),
     }
 }
