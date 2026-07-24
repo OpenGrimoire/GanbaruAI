@@ -955,7 +955,7 @@
                             {@const company = modelCompany(favorite.provider.configuration.familyId, favorite.model)}
                             <div class="model-row">
                               <button type="button" class="model-choice" disabled={!providerAvailable(favorite.provider) || favorite.model.availability === "unavailable"} title={favorite.model.availability === "available" ? undefined : metadata.join(" · ")} onclick={() => chooseModel(favorite.provider, favorite.model.id, false)}>
-                                <span><strong>{favorite.model.displayName}</strong><small class="model-provider-caption"><ChatProviderIcon familyId={company.iconFamilyId} label={company.name} size={12} />{company.name}{#if metadata.length > 0}<span aria-hidden="true">·</span>{metadata.join(" · ")}{/if}</small></span>
+                                <span class="favorite-model-label"><ChatProviderIcon familyId={company.iconFamilyId} label={company.name} size={14} /><strong>{favorite.model.displayName}</strong></span>
                                 {#if favorite.provider.configuration.instanceId === provider?.configuration.instanceId && selection.modelId === favorite.model.id}<Check size={15} />{/if}
                               </button>
                               <button type="button" class="model-favorite active" aria-label={`${t("chat.composer.favorite")}: ${favorite.model.displayName}`} aria-pressed="true" onclick={() => void toggleModelFavorite(favorite.provider, favorite.model.id)}><Star size={16} fill="currentColor" /></button>
@@ -1113,8 +1113,6 @@
   .selection-list strong, .selection-list small { display: block; }
   .selection-list strong { font-size: 0.875rem; font-weight: 500; }
   .selection-list small { overflow: hidden; margin-top: 0.1rem; text-overflow: ellipsis; white-space: nowrap; color: var(--muted-foreground); font-size: 0.75rem; }
-  .selection-list small.model-provider-caption { display: flex; align-items: center; gap: 0.3rem; }
-  .model-provider-caption > span[aria-hidden="true"] { opacity: 0.55; }
   .model-list-content > p, .model-company-content-inner > p { padding: 0.38rem 0.5rem; color: var(--muted-foreground); font-size: 0.75rem; }
   .model-search-row { display: flex; flex: 0 0 auto; align-items: center; gap: 0.35rem; border-bottom: 1px solid var(--border); margin: 0 0.15rem 0.2rem; transition: border-color 150ms ease; }
   .model-search-row:focus-within { border-color: var(--primary); }
@@ -1145,6 +1143,8 @@
   .model-choice:focus-visible, .model-favorite:focus-visible { outline: 1px solid color-mix(in srgb, var(--ring) 55%, transparent); outline-offset: -2px; }
   .model-choice:disabled { opacity: 0.55; }
   .model-choice > span { min-width: 0; }
+  .model-choice > .favorite-model-label { display: flex; align-items: center; gap: 0.45rem; }
+  .favorite-model-label :global(svg) { color: var(--muted-foreground); }
   .model-favorite { display: grid; width: 2rem; height: 2rem; place-items: center; border-radius: 0.45rem; color: var(--muted-foreground); }
   .model-favorite:hover, .model-favorite:focus-visible, .model-favorite.active { color: var(--foreground); }
   .model-picker-error { color: var(--destructive) !important; }

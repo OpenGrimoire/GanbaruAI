@@ -358,10 +358,10 @@ describe("ChatComposer", () => {
     const favoriteText = target.querySelector(".favorite-company-section")?.textContent ?? "";
     expect(favoriteText).toContain("5.6 Sol");
     expect(favoriteText).toContain("Opus 4.8");
-    expect(favoriteText).toContain("OpenAI");
-    expect(favoriteText).toContain("Anthropic");
     expect(favoriteText).not.toContain("gpt-5.6-sol");
-    expect(target.querySelectorAll(".model-provider-caption")).toHaveLength(2);
+    expect(target.querySelectorAll(".model-provider-caption")).toHaveLength(0);
+    expect(target.querySelectorAll(".favorite-source-section")).toHaveLength(0);
+    expect(target.querySelectorAll(".favorite-model-label")).toHaveLength(2);
 
     target.querySelector<HTMLButtonElement>('.favorite-company-section .model-favorite[aria-label="Favorite: 5.6 Sol"]')?.click();
     await tick();
