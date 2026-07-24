@@ -51,6 +51,7 @@
     compact = false,
     minimal = false,
     disabled = false,
+    showTooltip = true,
   }: {
     value: string;
     options: readonly ChatControlOption[];
@@ -61,6 +62,7 @@
     compact?: boolean;
     minimal?: boolean;
     disabled?: boolean;
+    showTooltip?: boolean;
   } = $props();
 
   const DEFAULT_GEOMETRY: SelectPopoverGeometry = {
@@ -205,7 +207,8 @@
   data-chat-field={dataField}
   onclick={() => void toggle()}
   onkeydown={handleTriggerKeydown}
-  title={current?.description ?? ariaLabel}
+  title={showTooltip ? current?.description ?? ariaLabel : undefined}
+  data-app-tooltip-disabled={showTooltip ? undefined : "true"}
 >
   {@render controlIcon(current?.icon ?? "sliders")}
   <span class="control-label">{current?.label ?? ariaLabel}</span>

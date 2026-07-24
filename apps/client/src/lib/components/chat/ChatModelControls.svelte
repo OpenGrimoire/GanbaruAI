@@ -856,6 +856,16 @@
     return "other";
   }
 
+  function choiceDescription(definition: KnownModelOption, value: string, description: string | null): string | null {
+    const providerDescription = description?.trim();
+    if (providerDescription) return providerDescription;
+    if (optionRole(definition) !== "speed") return null;
+    const normalized = value.trim().toLowerCase();
+    if (["standard", "default", "normal"].includes(normalized)) return t("chat.composer.standardSpeedDescription");
+    if (["fast", "priority"].includes(normalized)) return t("chat.composer.fastSpeedDescription");
+    return null;
+  }
+
   function defaultOptions(definitions: ModelOptionDefinition[]): ModelOptionSelection[] {
     const options: ModelOptionSelection[] = [];
     for (const definition of definitions) {
@@ -1056,9 +1066,17 @@
             {:else if optionViewDefinition}
               <div class="selection-list option-list">
                 {#if optionViewDefinition.kind === "choice"}
-                  {#each optionViewDefinition.options as choice}<button type="button" onclick={() => updateOption(optionViewDefinition.key, { kind: "choice", value: choice.value })}><span><strong>{humanizeOptionLabel(choice.label)}</strong>{#if choice.description && optionRole(optionViewDefinition) !== "effort"}<small>{choice.description}</small>{/if}</span>{#if choiceValue(optionViewDefinition.key) === choice.value}<Check size={14} />{/if}</button>{/each}
+                  {#each optionViewDefinition.options as choice}
+                    {@const description = choiceDescription(optionViewDefinition, choice.value, choice.description)}
+                    <button type="button" onclick={() => updateOption(optionViewDefinition.key, { kind: "choice", value: choice.value })}><span><strong>{humanizeOptionLabel(choice.label)}</strong>{#if description && optionRole(optionViewDefinition) !== "effort"}<small>{description}</small>{/if}</span>{#if choiceValue(optionViewDefinition.key) === choice.value}<Check size={14} />{/if}</button>
+                  {/each}
                 {:else if optionViewDefinition.kind === "boolean"}
-                  <button type="button" onclick={() => updateOption(optionViewDefinition.key, { kind: "boolean", value: !booleanValue(optionViewDefinition.key) })}><span><strong>{optionViewDefinition.label}</strong>{#if optionViewDefinition.description && optionRole(optionViewDefinition) !== "effort"}<small>{optionViewDefinition.description}</small>{/if}</span>{#if booleanValue(optionViewDefinition.key)}<Check size={14} />{/if}</button>
+                  {#if optionRole(optionViewDefinition) === "speed"}
+                    <button type="button" onclick={() => setFastMode(false)}><span><strong>{t("chat.composer.standard")}</strong><small>{t("chat.composer.standardSpeedDescription")}</small></span>{#if !booleanValue(optionViewDefinition.key)}<Check size={14} />{/if}</button>
+                    <button type="button" onclick={() => setFastMode(true)}><span><strong>{t("chat.composer.fast")}</strong><small>{optionViewDefinition.description?.trim() || t("chat.composer.fastSpeedDescription")}</small></span>{#if booleanValue(optionViewDefinition.key)}<Check size={14} />{/if}</button>
+                  {:else}
+                    <button type="button" onclick={() => updateOption(optionViewDefinition.key, { kind: "boolean", value: !booleanValue(optionViewDefinition.key) })}><span><strong>{optionViewDefinition.label}</strong>{#if optionViewDefinition.description && optionRole(optionViewDefinition) !== "effort"}<small>{optionViewDefinition.description}</small>{/if}</span>{#if booleanValue(optionViewDefinition.key)}<Check size={14} />{/if}</button>
+                  {/if}
                 {:else if optionViewDefinition.kind === "multiple_choice"}
                   {#each optionViewDefinition.options as choice}<label><input type="checkbox" checked={multipleIncludes(optionViewDefinition.key, choice.value)} onchange={(event) => toggleMultiple(optionViewDefinition.key, choice.value, event.currentTarget.checked)} /><span><strong>{choice.label}</strong>{#if choice.description}<small>{choice.description}</small>{/if}</span></label>{/each}
                 {:else if optionViewDefinition.kind === "integer_range"}

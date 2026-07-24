@@ -41,6 +41,7 @@ describe("ChatComposer", () => {
     chat.settings = null;
     chat.activeThreads = [];
     chat.archivedThreads = [];
+    chat.workspaces = [];
     chat.selectedThreadId = null;
     chat.selectedWorkspaceId = "workspace-1";
     chat.timelinePages = [];
@@ -88,13 +89,75 @@ describe("ChatComposer", () => {
   it("keeps the simplified composer actions directly discoverable", () => {
     const { target } = setup(false);
     expect(target.querySelector("[data-chat-model-trigger]")).not.toBeNull();
-    expect(target.querySelector('[data-chat-field="safety"]')?.tagName).toBe("BUTTON");
+    const safetyTrigger = target.querySelector<HTMLElement>('[data-chat-field="safety"]');
+    expect(safetyTrigger?.tagName).toBe("BUTTON");
+    expect(safetyTrigger?.hasAttribute("title")).toBe(false);
+    expect(safetyTrigger?.dataset.appTooltipDisabled).toBe("true");
     expect(target.querySelector('[data-chat-field="interaction"]')).toBeNull();
     expect(target.querySelector(".context-ring svg")?.getAttribute("role")).toBe("img");
     expect(target.querySelector("select")).toBeNull();
     expect(target.querySelector(".attachment-menu summary")?.getAttribute("aria-label")).toBe("Attach images");
     expect(target.querySelector("button.primary-action")?.getAttribute("aria-label")).toBe("Send");
     expect(target.querySelector('[aria-label*="microphone" i]')).toBeNull();
+  });
+
+  it("centers broad permission confirmation at the app root", async () => {
+    const chat = getChat();
+    chat.settings = modelSettings();
+    chat.composer = {
+      ...composer(),
+      providerInstanceId: "codex-local",
+      safetyMode: "ask_for_approval",
+      interactionMode: "build",
+    };
+    chat.workspaces = [{
+      workspace: {
+        id: "workspace-1",
+        projectId: null,
+        displayName: "Example",
+        repositoryKind: "git",
+        repositoryIdentity: "example-repository",
+        createdAt: "2026-07-24T12:00:00.000Z",
+        updatedAt: "2026-07-24T12:00:00.000Z",
+        archivedAt: null,
+        revision: 1,
+      },
+      bindingStatus: "available",
+      canonicalPath: "/workspace/example",
+      lastVerifiedAt: "2026-07-24T12:00:00.000Z",
+      currentBranch: "feat/chat",
+    }];
+    vi.spyOn(chat, "setComposerModes").mockImplementation((safetyMode, interactionMode) => {
+      chat.composer = { ...chat.composer, safetyMode, interactionMode };
+    });
+
+    const { target } = setup(false);
+    target.querySelector<HTMLButtonElement>('[data-chat-field="safety"]')?.click();
+    await tick();
+    [...document.body.querySelectorAll<HTMLButtonElement>('[role="listbox"] button')]
+      .find((button) => button.textContent?.includes("Full access"))?.click();
+    await tick();
+
+    expect(target.querySelector('[role="dialog"]')).toBeNull();
+    let dialog = document.body.querySelector<HTMLElement>('.confirm-dialog[role="dialog"]');
+    expect(dialog?.closest(".fixed.inset-0")).not.toBeNull();
+    expect(dialog?.textContent).toContain("Allow Full access?");
+    expect(dialog?.textContent).toContain("Unrestricted access to the internet and any file");
+    expect(dialog?.textContent).not.toContain("Example");
+
+    [...dialog?.querySelectorAll<HTMLButtonElement>("button") ?? []]
+      .find((button) => button.textContent?.trim() === "Cancel")?.click();
+    await tick();
+    target.querySelector<HTMLButtonElement>('[data-chat-field="safety"]')?.click();
+    await tick();
+    [...document.body.querySelectorAll<HTMLButtonElement>('[role="listbox"] button')]
+      .find((button) => button.textContent?.includes("Custom"))?.click();
+    await tick();
+
+    dialog = document.body.querySelector<HTMLElement>('.confirm-dialog[role="dialog"]');
+    expect(dialog?.textContent).toContain("Use custom permissions?");
+    expect(dialog?.textContent).toContain("Uses permissions from config.toml, which may grant Full access");
+    expect(dialog?.textContent).not.toContain("Example");
   });
 
   it("opens a managed image preview and preserves a failed import error", async () => {
@@ -421,6 +484,25 @@ describe("ChatComposer", () => {
     choices.at(-1)?.click();
     await tick();
     expect(knob?.style.left).toContain("100% - 0.875rem");
+
+    target.querySelector<HTMLButtonElement>(".advanced-toggle")?.click();
+    await tick();
+    const speedRow = [...target.querySelectorAll<HTMLButtonElement>(".advanced-list button")]
+      .find((button) => button.textContent?.includes("SpeedStandard"));
+    speedRow?.click();
+    await tick();
+    const speedChoices = [...target.querySelectorAll<HTMLButtonElement>(".model-flyout .option-list > button")];
+    expect(speedChoices.map((button) => button.querySelector("strong")?.textContent)).toEqual(["Standard", "Fast"]);
+    expect(speedChoices[0]?.textContent).toContain("Default speed and usage");
+    expect(speedChoices[1]?.textContent).toContain("Lower latency with higher usage cost");
+    expect(speedChoices[0]?.querySelector("svg")).not.toBeNull();
+    speedChoices[1]?.click();
+    await tick();
+    expect(readComposerModelSelection(chat.composer.modelSelection).options).toContainEqual({
+      key: "fastMode",
+      value: { kind: "boolean", value: true },
+    });
+    expect(speedChoices[1]?.querySelector("svg")).not.toBeNull();
   });
 
   it("selects the strongest model from the first healthy provider and defaults permissions", async () => {
