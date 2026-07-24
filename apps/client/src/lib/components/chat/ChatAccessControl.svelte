@@ -1,7 +1,7 @@
 <script lang="ts">
   import { tick } from "svelte";
   import type { SafetyMode } from "$lib/chat/contracts";
-  import { providerSupportsPermissionMode } from "$lib/chat/permission-modes";
+  import { providerPermissionFileName, providerSupportsPermissionMode } from "$lib/chat/permission-modes";
   import * as chatApi from "$lib/api/chat";
   import { getLocalization } from "$lib/i18n/translator.svelte";
   import { getChat } from "$lib/stores/chat.svelte";
@@ -18,12 +18,13 @@
   let error = $state<string | null>(null);
   const provider = $derived(chat.settings?.providerInstances.find((entry) => entry.configuration.instanceId === chat.composer.providerInstanceId) ?? null);
   const providerFamilyId = $derived(provider?.configuration.familyId ?? null);
+  const permissionFileName = $derived(providerPermissionFileName(providerFamilyId));
   const selectedSafetyMode = $derived(chat.composer.safetyMode ?? "ask_for_approval");
   const safetyOptions = $derived<ChatControlOption[]>([
     { value: "ask_for_approval", label: t("chat.hero.askForApproval"), description: t("chat.composer.askForApprovalDescription"), icon: "shield-question-mark", disabled: !providerSupportsPermissionMode(providerFamilyId, "ask_for_approval") },
     { value: "approve_for_me", label: t("chat.hero.approveForMe"), description: t("chat.composer.approveForMeDescription"), icon: "shield-check", disabled: !providerSupportsPermissionMode(providerFamilyId, "approve_for_me") },
     { value: "full_access", label: t("chat.hero.fullAccess"), description: t("chat.composer.fullAccessShortDescription"), icon: "shield-alert", disabled: !providerSupportsPermissionMode(providerFamilyId, "full_access") },
-    { value: "custom", label: t("chat.hero.customPermissions"), description: t("chat.composer.customPermissionsDescription"), icon: "settings", disabled: !providerSupportsPermissionMode(providerFamilyId, "custom") },
+    { value: "custom", label: t("chat.hero.customPermissions", permissionFileName), description: t("chat.composer.customPermissionsDescription", permissionFileName), icon: "settings", disabled: !providerSupportsPermissionMode(providerFamilyId, "custom") },
   ]);
 
   $effect(() => {
@@ -119,7 +120,7 @@
     <button type="button" class="absolute inset-0" aria-label={t("chat.cancel")} onclick={closeDialog}></button>
     <div bind:this={fullAccessDialog} class="relative w-full max-w-md rounded-lg border border-border bg-background p-4 shadow-2xl" role="dialog" aria-modal="true" aria-labelledby="full-access-title" tabindex="-1" onkeydown={handleDialogKeydown}>
       <h2 id="full-access-title" class="font-semibold">{pendingTrustedMode === "custom" ? t("chat.composer.customPermissionsTitle") : t("chat.composer.fullAccessTitle")}</h2>
-      <p class="mt-2 text-sm text-muted-foreground">{pendingTrustedMode === "custom" ? t("chat.composer.customPermissionsTrustDescription", provider?.configuration.label ?? "", chat.selectedWorkspace?.workspace.displayName ?? "") : t("chat.composer.fullAccessDescription", provider?.configuration.label ?? "", chat.selectedWorkspace?.workspace.displayName ?? "")}</p>
+      <p class="mt-2 text-sm text-muted-foreground">{pendingTrustedMode === "custom" ? t("chat.composer.customPermissionsTrustDescription", provider?.configuration.label ?? "", permissionFileName, chat.selectedWorkspace?.workspace.displayName ?? "") : t("chat.composer.fullAccessDescription", provider?.configuration.label ?? "", chat.selectedWorkspace?.workspace.displayName ?? "")}</p>
       {#if error}<p role="alert" class="mt-2 text-sm text-destructive">{error}</p>{/if}
       <div class="mt-4 flex justify-end gap-2">
         <button type="button" class="chat-secondary-button" onclick={closeDialog}>{t("chat.cancel")}</button>

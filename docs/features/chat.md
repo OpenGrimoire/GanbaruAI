@@ -87,18 +87,24 @@ During active work, the provider capability decides whether a prompt steers the 
 
 ## Permission modes
 
-The composer and Chat settings describe four permission choices. Ask for approval is selected for a fresh draft. It lets the provider edit within the selected workspace and asks before external file access, network access, or another provider-defined escalation. Approve for me keeps the same workspace boundary but sends eligible escalations to the provider's native safety classifier. Full access uses the provider's native unrestricted mode. Custom uses the effective Codex settings or permission profile from `config.toml` without Ganbaru replacing them.
+The composer describes four permission choices. Ask for approval is selected for a fresh draft. It lets the provider edit within the selected workspace and asks before external file access, network access, or another provider-defined escalation. Approve for me keeps the same workspace boundary but sends eligible escalations to the provider's native safety classifier. Full access uses the provider's native unrestricted mode. Custom defers to the selected provider's own permission configuration without translating it into a Ganbaru policy.
 
 | Permission choice | Codex | Claude | Cursor and Grok | OpenCode |
 |---|---|---|---|---|
 | Ask for approval | Workspace sandbox with user review | `acceptEdits` | ACP approval flow | Ask rules with workspace edits allowed |
 | Approve for me | Auto-review | `auto` permission mode | Unavailable | Unavailable |
 | Full access | Unrestricted sandbox | `bypassPermissions` | ACP approvals accepted automatically | Allow rules |
-| Custom (`config.toml`) | Effective Codex configuration | Unavailable | Unavailable | Unavailable |
+| Custom | Effective `config.toml` configuration | Effective `settings.json` rules and default mode | Effective `cli-config.json` or `config.toml` permissions | Effective `opencode.json` or `opencode.jsonc` permissions |
 
 Approve for me is unavailable when a provider does not expose a native action classifier. Ganbaru does not simulate it by automatically accepting generic provider requests. Managed provider policy, explicit deny rules, and provider eligibility can still restrict a selected mode.
 
-Full access and Custom trust are device-local and require confirmation for the exact provider instance and logical workspace. Custom uses the same trust boundary because `config.toml` can grant unrestricted access. The active turn keeps its permission snapshot even if a later draft changes modes. Provider capability differences remain visible and disabled rather than simulated.
+Full access and Custom trust are device-local and require confirmation for the exact provider instance and logical workspace. Custom uses the same trust boundary because every supported provider configuration can grant unrestricted access. Codex resolves its effective sandbox and approval settings. Claude starts without a permission-mode override so its settings precedence and `permissions.defaultMode` apply. Cursor and Grok leave native configuration enforcement in control and do not auto-resolve approval requests. OpenCode creates or resumes the session without replacing its configured permission rules. The active turn keeps its permission snapshot even if a later draft changes modes. Provider capability differences remain visible and disabled rather than simulated.
+
+Chat settings provides a device-local editor for the documented user configuration and global instruction files of every configured coding-agent instance. It does not translate one provider's format into another or present a shared synthetic configuration. Codex exposes `config.toml` and `AGENTS.md` from its effective home. Claude exposes `settings.json` and `CLAUDE.md` from its config directory. Cursor exposes `cli-config.json`; its global user rules remain in Cursor settings because Cursor does not document a standalone global rules file. Grok exposes `config.toml` and `AGENTS.md` from `GROK_HOME` or its default home. OpenCode exposes its global `opencode.json` or `opencode.jsonc` and `AGENTS.md`, including an explicit `OPENCODE_CONFIG` override when configured.
+
+The provider mapping follows the official [Codex configuration reference](https://learn.chatgpt.com/docs/config-file/config-reference), [Claude Code permissions reference](https://code.claude.com/docs/en/permissions), [Cursor CLI permissions reference](https://docs.cursor.com/cli/reference/permissions), [Cursor rules reference](https://docs.cursor.com/context/rules), [Grok permissions reference](https://docs.x.ai/build/features/permissions), [Grok project rules reference](https://docs.x.ai/build/features/project-rules), [OpenCode permissions reference](https://opencode.ai/docs/permissions), and [OpenCode rules reference](https://opencode.ai/docs/rules/).
+
+The editor reads and writes only backend-resolved file identifiers for the selected provider instance. The webview cannot submit an arbitrary path. Reads and writes accept UTF-8 text up to 1 MiB, reject symbolic links, and use content revisions to prevent overwriting a file changed by another process. Saves create missing parent directories, use restrictive permissions for new files, and replace the target through a sibling temporary file. Changes affect new provider sessions; an already running provider is not silently restarted.
 
 ## Inspector, terminal, and checkpoints
 

@@ -16,6 +16,7 @@ pub mod ingestion;
 pub mod interaction_commands;
 pub mod models;
 pub mod process;
+pub mod provider_files;
 pub mod providers;
 pub mod repository;
 pub mod restore_commands;

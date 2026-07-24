@@ -177,14 +177,15 @@ impl OpenCodeHttpClient {
         Ok(response)
     }
 
-    pub async fn create_session(&self, permission: &[OpenCodePermissionRule]) -> ChatResult<Value> {
-        self.json(
-            Method::POST,
-            &["session"],
-            &[],
-            Some(&json!({ "permission": permission })),
-        )
-        .await
+    pub async fn create_session(
+        &self,
+        permission: Option<&[OpenCodePermissionRule]>,
+    ) -> ChatResult<Value> {
+        let body = permission
+            .map(|rules| json!({ "permission": rules }))
+            .unwrap_or_else(|| json!({}));
+        self.json(Method::POST, &["session"], &[], Some(&body))
+            .await
     }
 
     pub async fn session(&self, session_id: &str) -> ChatResult<OpenCodeSessionLookup> {

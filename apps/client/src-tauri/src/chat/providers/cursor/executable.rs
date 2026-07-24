@@ -83,6 +83,23 @@ pub fn process_environment_for(
         }
         environment.insert(name.clone(), value.clone());
     }
+    if configuration.family_id.as_str() == "grok" {
+        if let Some(home) = configuration
+            .provider_home
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+        {
+            let path = Path::new(home);
+            if !path.is_absolute() || path.components().any(|part| part == Component::ParentDir) {
+                return Err(ChatError::validation(
+                    "providerHome",
+                    "Grok home must be an absolute path",
+                ));
+            }
+            environment.insert("GROK_HOME".to_string(), home.to_string());
+        }
+    }
     Ok(environment)
 }
 

@@ -157,6 +157,18 @@ fn password_is_extracted_and_redacted_from_driver_configuration() {
 }
 
 #[test]
+fn process_environment_uses_the_configured_opencode_directory() {
+    let home = TestDirectory::new("config-directory");
+    let mut provider = configuration(json!({}));
+    provider.provider_home = Some(home.path().to_string_lossy().into_owned());
+    let environment = process_environment(&provider).unwrap();
+    assert_eq!(
+        environment.get("OPENCODE_CONFIG_DIR").map(String::as_str),
+        Some(home.path().to_string_lossy().as_ref())
+    );
+}
+
+#[test]
 fn typed_http_scopes_requests_and_redacts_authorization_failures() {
     tauri::async_runtime::block_on(async {
         let fixture = HttpFixture::start(
@@ -172,7 +184,7 @@ fn typed_http_scopes_requests_and_redacts_authorization_failures() {
         let client =
             OpenCodeHttpClient::new(&fixture.origin, workspace.path(), Some(&password)).unwrap();
         let error = client
-            .create_session(&permission_rules(SafetyMode::AskForApproval))
+            .create_session(Some(&permission_rules(SafetyMode::AskForApproval)))
             .await
             .unwrap_err();
         assert_eq!(error.code, ChatErrorCode::AuthenticationRequired);
@@ -348,6 +360,7 @@ fn ask_rules_allow_workspace_edits_and_keep_broader_actions_reviewed() {
         }]
     );
     assert_eq!(permission_reply(ApprovalDecisionKind::AllowOnce), "once");
+    assert_eq!(permission_override(SafetyMode::Custom), None);
     assert_eq!(
         permission_reply(ApprovalDecisionKind::AllowSession),
         "always"

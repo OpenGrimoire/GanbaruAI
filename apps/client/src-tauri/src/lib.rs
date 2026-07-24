@@ -748,6 +748,7 @@ pub fn run() {
         .manage(media_player::MediaPlayerState::default())
         .manage(soundscape::SoundscapeEngineState::default())
         .manage(chat::settings_commands::ChatSettingsState::default())
+        .manage(chat::provider_files::ProviderFileState::default())
         .manage(chat::runtime::ChatRuntimeRegistry::default())
         .manage(chat::terminal::ChatTerminalRegistry::default())
         .plugin(tauri_plugin_dialog::init())
@@ -809,6 +810,8 @@ pub fn run() {
             chat::settings_commands::chat_remove_credential,
             chat::settings_commands::chat_pick_provider_executable,
             chat::settings_commands::chat_pick_provider_home,
+            chat::provider_files::chat_read_provider_files,
+            chat::provider_files::chat_save_provider_file,
             chat::thread_commands::chat_list_project_shells,
             chat::thread_commands::chat_list_threads,
             chat::thread_commands::chat_search_thread_titles,

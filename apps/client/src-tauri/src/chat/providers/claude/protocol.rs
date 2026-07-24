@@ -185,11 +185,12 @@ pub fn launch_arguments(
         "--include-partial-messages".to_string(),
         "--replay-user-messages".to_string(),
     ]);
-    let permission_mode = permission_mode(options.modes);
-    arguments.push("--permission-mode".to_string());
-    arguments.push(permission_mode.to_string());
-    if permission_mode == "bypassPermissions" {
-        arguments.push("--allow-dangerously-skip-permissions".to_string());
+    if let Some(permission_mode) = permission_mode(options.modes) {
+        arguments.push("--permission-mode".to_string());
+        arguments.push(permission_mode.to_string());
+        if permission_mode == "bypassPermissions" {
+            arguments.push("--allow-dangerously-skip-permissions".to_string());
+        }
     }
     if options.fresh_session_uuid.is_some() && options.resume_session_uuid.is_some() {
         return Err(ChatError::validation(
@@ -235,15 +236,15 @@ pub fn launch_arguments(
     Ok(arguments)
 }
 
-pub fn permission_mode(modes: TurnModeSnapshot) -> &'static str {
+pub fn permission_mode(modes: TurnModeSnapshot) -> Option<&'static str> {
     if modes.interaction_mode == InteractionMode::Plan {
-        return "plan";
+        return Some("plan");
     }
     match modes.safety_mode {
-        SafetyMode::AskForApproval => "acceptEdits",
-        SafetyMode::ApproveForMe => "auto",
-        SafetyMode::FullAccess => "bypassPermissions",
-        SafetyMode::Custom => "default",
+        SafetyMode::AskForApproval => Some("acceptEdits"),
+        SafetyMode::ApproveForMe => Some("auto"),
+        SafetyMode::FullAccess => Some("bypassPermissions"),
+        SafetyMode::Custom => None,
     }
 }
 

@@ -1437,7 +1437,7 @@ fn validate_provider_selection(
     let permission_mode_supported = match request.modes.safety_mode {
         SafetyMode::AskForApproval | SafetyMode::FullAccess => true,
         SafetyMode::ApproveForMe => matches!(family, "codex" | "claude"),
-        SafetyMode::Custom => family == "codex",
+        SafetyMode::Custom => matches!(family, "codex" | "claude" | "cursor" | "grok" | "opencode"),
     };
     if !permission_mode_supported {
         return Err(ChatError::validation(

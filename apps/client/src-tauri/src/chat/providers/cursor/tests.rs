@@ -205,6 +205,18 @@ fn endpoint_and_continuation_validation_bind_server_home_and_account() {
 }
 
 #[test]
+fn grok_process_environment_uses_the_configured_provider_home() {
+    let home = TestDirectory::new("grok-home");
+    let mut provider = configuration(home.path(), None);
+    provider.family_id = ProviderFamilyId::new("grok").unwrap();
+    let environment = process_environment_for(&provider, "Grok").unwrap();
+    assert_eq!(
+        environment.get("GROK_HOME").map(String::as_str),
+        Some(home.path().to_string_lossy().as_ref())
+    );
+}
+
+#[test]
 fn negotiated_capabilities_and_model_traits_are_truthful() {
     let initialize = parse_initialize(initialize_response(false)).unwrap();
     let setup = parse_session_setup(

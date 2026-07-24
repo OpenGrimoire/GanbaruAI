@@ -1,6 +1,9 @@
 import {
   CREDENTIAL_STORE_AVAILABILITIES,
+  PROVIDER_FILE_FORMATS,
+  PROVIDER_FILE_KINDS,
   type ChatSettingsRead,
+  type ProviderFileRead,
   type ProviderInstanceRead,
   type ProviderRefreshResult,
   type ProviderSetupTestRead,
@@ -23,6 +26,7 @@ import {
   readNullable,
   readRecord,
   readUtcTimestamp,
+  readString,
 } from "./readers";
 
 export function parseProviderInstanceRead(value: unknown, label = "provider instance"): ProviderInstanceRead {
@@ -98,4 +102,22 @@ export function parseProviderRefreshResult(value: unknown): ProviderRefreshResul
     ),
     issues: readNonNegativeSafeInteger(record.issues, "provider refresh result.issues"),
   };
+}
+
+export function parseProviderFileRead(value: unknown, label = "provider file"): ProviderFileRead {
+  const record = readRecord(value, label);
+  return {
+    fileId: readString(record.fileId, `${label}.fileId`),
+    name: readString(record.name, `${label}.name`),
+    kind: readEnum(record.kind, PROVIDER_FILE_KINDS, `${label}.kind`),
+    format: readEnum(record.format, PROVIDER_FILE_FORMATS, `${label}.format`),
+    path: readString(record.path, `${label}.path`),
+    exists: readBoolean(record.exists, `${label}.exists`),
+    contents: readString(record.contents, `${label}.contents`),
+    revision: readString(record.revision, `${label}.revision`),
+  };
+}
+
+export function parseProviderFiles(value: unknown): ProviderFileRead[] {
+  return readArray(value, "provider files", parseProviderFileRead);
 }

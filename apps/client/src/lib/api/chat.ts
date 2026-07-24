@@ -40,6 +40,7 @@ import type {
   ProviderModelCatalog,
   ProviderProbeResult,
   ProviderRefreshResult,
+  ProviderFileRead,
   ProviderSetupTestRead,
   RemoveProviderResult,
   RememberedComposerSelection,
@@ -89,6 +90,8 @@ import {
   parseProviderModelCatalog,
   parseProviderProbeResult,
   parseProviderRefreshResult,
+  parseProviderFileRead,
+  parseProviderFiles,
   parseProviderSetupTestRead,
   parseRemoveProviderResult,
 } from "$lib/chat/validation";
@@ -339,6 +342,19 @@ export async function readChatSettings(): Promise<ChatSettingsRead> {
 
 export async function refreshAllChatProviders(): Promise<ProviderRefreshResult> {
   return parseProviderRefreshResult(await invoke<unknown>("chat_refresh_all_providers"));
+}
+
+export async function readChatProviderFiles(instanceId: ProviderInstanceId): Promise<ProviderFileRead[]> {
+  return parseProviderFiles(await invoke<unknown>("chat_read_provider_files", { instanceId }));
+}
+
+export async function saveChatProviderFile(request: {
+  instanceId: ProviderInstanceId;
+  fileId: string;
+  contents: string;
+  expectedRevision: string;
+}): Promise<ProviderFileRead> {
+  return parseProviderFileRead(await invoke<unknown>("chat_save_provider_file", { request }));
 }
 
 export async function readChatDiagnostics(): Promise<ChatDiagnosticsRead> {

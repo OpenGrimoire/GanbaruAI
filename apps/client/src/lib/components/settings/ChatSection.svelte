@@ -190,4 +190,5 @@
   :global(.setup-secondary-button), :global(.setup-primary-button) { display: inline-flex; min-height: 2.25rem; align-items: center; justify-content: center; border-radius: 0.375rem; padding: 0.375rem 0.75rem; font-size: 0.8rem; font-weight: 600; }
   :global(.setup-secondary-button) { border: 1px solid var(--border); background: var(--background); }
   :global(.setup-primary-button) { background: var(--primary); color: var(--primary-foreground); }
+  :global(.setup-primary-button:disabled), :global(.setup-secondary-button:disabled) { cursor: not-allowed; opacity: 0.5; }
 </style>

@@ -13,6 +13,7 @@ import {
   parseProviderInstanceConfig,
   parseProviderModelCatalog,
   parseProviderRefreshResult,
+  parseProviderFiles,
   normalizeProviderModelCatalogForFamily,
 } from "./validation";
 
@@ -75,6 +76,27 @@ describe("Chat provider contracts", () => {
     expect(parseProviderRefreshResult(fixture)).toEqual(fixture);
     expect(() => parseProviderRefreshResult({ ...fixture, issues: -1 })).toThrow(
       "issues must not be negative",
+    );
+  });
+
+  it("validates bounded provider file DTOs", () => {
+    const fixture = [{
+      fileId: "configuration",
+      name: "config.toml",
+      kind: "configuration",
+      format: "toml",
+      path: "/home/user/.codex/config.toml",
+      exists: true,
+      contents: "sandbox_mode = \"workspace-write\"\n",
+      revision: "revision-1",
+    }];
+
+    expect(parseProviderFiles(fixture)).toEqual(fixture);
+    expect(() => parseProviderFiles([{ ...fixture[0], format: "yaml" }])).toThrow(
+      "format has an unsupported value",
+    );
+    expect(() => parseProviderFiles([{ ...fixture[0], exists: "yes" }])).toThrow(
+      "exists must be a boolean",
     );
   });
 

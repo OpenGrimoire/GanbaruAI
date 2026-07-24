@@ -29,6 +29,7 @@
     validateImageFiles,
     validateModelOptions,
   } from "$lib/chat/composer-model";
+  import { providerPermissionFileName } from "$lib/chat/permission-modes";
   import { formatNumber } from "$lib/i18n/formatters";
   import { getLocalization } from "$lib/i18n/translator.svelte";
   import { getChat } from "$lib/stores/chat.svelte";
@@ -412,7 +413,7 @@
       case "ask_for_approval": return t("chat.hero.askForApproval");
       case "approve_for_me": return t("chat.hero.approveForMe");
       case "full_access": return t("chat.hero.fullAccess");
-      case "custom": return t("chat.hero.customPermissions");
+      case "custom": return t("chat.hero.customPermissions", providerPermissionFileName(provider?.configuration.familyId ?? null));
     }
   }
 </script>

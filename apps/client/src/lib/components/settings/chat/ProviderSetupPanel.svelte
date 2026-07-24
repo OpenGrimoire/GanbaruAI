@@ -390,7 +390,9 @@
         <div><h3 class="text-base font-semibold">{t("settings.chat.setup.identityStep")}</h3><p class="mt-1 text-sm text-muted-foreground">{t("settings.chat.setup.identityDescription")}</p></div>
         <label class="setup-field"><span>{t("settings.chat.setup.label")}</span><input value={draft.label} oninput={(event) => updateLabel(event.currentTarget.value)} />{#if fieldError("label")}<small>{fieldError("label")}</small>{/if}</label>
         <label class="setup-field"><span>{t("settings.chat.setup.instanceId")}</span><input bind:value={draft.instanceId} disabled={target.mode === "edit"} />{#if fieldError("instanceId")}<small>{fieldError("instanceId")}</small>{/if}</label>
-        <label class="setup-field"><span>{t("settings.chat.setup.providerHome")}</span><div class="flex gap-2"><input class="min-w-0 flex-1" bind:value={draft.providerHome} /><button type="button" class="setup-icon-button border border-border" aria-label={t("settings.chat.setup.chooseProviderHome")} onclick={() => void pickHome()}><FolderOpen size={15} /></button></div></label>
+        {#if draft.familyId !== "cursor"}
+          <label class="setup-field"><span>{t("settings.chat.setup.providerHome")}</span><div class="flex gap-2"><input class="min-w-0 flex-1" bind:value={draft.providerHome} /><button type="button" class="setup-icon-button border border-border" aria-label={t("settings.chat.setup.chooseProviderHome")} onclick={() => void pickHome()}><FolderOpen size={15} /></button></div></label>
+        {/if}
         <fieldset class="setup-field"><legend>{t("settings.chat.setup.accent")}</legend><div class="flex gap-2">{#each PROVIDER_ACCENT_COLORS as color}<button type="button" aria-label={color} aria-pressed={draft.accentColor === color} class="flex size-8 items-center justify-center rounded-full border-2 {draft.accentColor === color ? 'border-foreground' : 'border-transparent'}" style={`background:${color}`} onclick={() => { draft.accentColor = color; }}>{#if draft.accentColor === color}<Check size={14} class="text-white" />{/if}</button>{/each}</div></fieldset>
       </section>
     {:else}

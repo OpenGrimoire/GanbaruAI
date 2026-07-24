@@ -174,14 +174,12 @@ impl ProviderDriver for ClaudeProviderDriver {
                 ));
             }
             let client = live.connection.client();
-            client
-                .request(
-                    "set_permission_mode",
-                    json!({ "mode": permission_mode(request.modes) }),
-                    context,
-                )
-                .await
-                .map_err(|error| error.to_chat_error("permission mode change"))?;
+            if let Some(mode) = permission_mode(request.modes) {
+                client
+                    .request("set_permission_mode", json!({ "mode": mode }), context)
+                    .await
+                    .map_err(|error| error.to_chat_error("permission mode change"))?;
+            }
             if let Some(model) = request.model_id.as_ref() {
                 if Some(model) != live.effective_model.as_ref() {
                     client

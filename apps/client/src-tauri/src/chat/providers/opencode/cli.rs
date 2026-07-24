@@ -86,6 +86,21 @@ pub fn process_environment(
         }
         environment.insert(name.clone(), value.clone());
     }
+    if let Some(home) = configuration
+        .provider_home
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        let path = Path::new(home);
+        if !path.is_absolute() || path.components().any(|part| part == Component::ParentDir) {
+            return Err(ChatError::validation(
+                "providerHome",
+                "OpenCode config directory must be an absolute path",
+            ));
+        }
+        environment.insert("OPENCODE_CONFIG_DIR".to_string(), home.to_string());
+    }
     environment.insert("OPENCODE_CLIENT".to_string(), "ganbaru-ai".to_string());
     Ok(environment)
 }

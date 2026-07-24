@@ -248,11 +248,15 @@ fn fast_mode_selection_accepts_only_boolean_values() {
 fn launch_arguments_preserve_native_safety_and_resume_semantics() {
     assert_eq!(
         permission_mode(modes(SafetyMode::AskForApproval, InteractionMode::Build)),
-        "acceptEdits"
+        Some("acceptEdits")
     );
     assert_eq!(
         permission_mode(modes(SafetyMode::ApproveForMe, InteractionMode::Build)),
-        "auto"
+        Some("auto")
+    );
+    assert_eq!(
+        permission_mode(modes(SafetyMode::Custom, InteractionMode::Build)),
+        None
     );
 
     let fresh = launch_arguments(
@@ -282,6 +286,24 @@ fn launch_arguments_preserve_native_safety_and_resume_semantics() {
     assert!(fresh
         .windows(2)
         .any(|pair| pair == ["--settings", r#"{"fastMode":true}"#]));
+
+    let custom = launch_arguments(
+        Vec::new(),
+        &[],
+        ClaudeLaunchOptions {
+            fresh_session_uuid: Some("33333333-3333-4333-8333-333333333333"),
+            resume_session_uuid: None,
+            last_assistant_uuid: None,
+            model: None,
+            effort: None,
+            fast_mode: None,
+            modes: modes(SafetyMode::Custom, InteractionMode::Build),
+        },
+    )
+    .unwrap();
+    assert!(!custom
+        .iter()
+        .any(|argument| argument == "--permission-mode"));
 
     let resumed = launch_arguments(
         Vec::new(),

@@ -41,3 +41,20 @@ export interface ProviderRefreshResult {
   providersDiscovered: number;
   issues: number;
 }
+
+export const PROVIDER_FILE_KINDS = ["configuration", "instructions"] as const;
+export type ProviderFileKind = (typeof PROVIDER_FILE_KINDS)[number];
+
+export const PROVIDER_FILE_FORMATS = ["toml", "json", "jsonc", "markdown"] as const;
+export type ProviderFileFormat = (typeof PROVIDER_FILE_FORMATS)[number];
+
+export interface ProviderFileRead {
+  fileId: string;
+  name: string;
+  kind: ProviderFileKind;
+  format: ProviderFileFormat;
+  path: string;
+  exists: boolean;
+  contents: string;
+  revision: string;
+}

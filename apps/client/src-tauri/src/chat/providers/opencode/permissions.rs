@@ -18,6 +18,10 @@ pub enum OpenCodePermissionAction {
     Ask,
 }
 
+pub fn permission_override(mode: SafetyMode) -> Option<Vec<OpenCodePermissionRule>> {
+    (mode != SafetyMode::Custom).then(|| permission_rules(mode))
+}
+
 pub fn permission_rules(mode: SafetyMode) -> Vec<OpenCodePermissionRule> {
     let broad_action = match mode {
         SafetyMode::FullAccess => OpenCodePermissionAction::Allow,

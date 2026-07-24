@@ -48,6 +48,8 @@ const MAX_ARGUMENTS = 64;
 const DEDICATED_HOME_VARIABLES: Readonly<Record<string, string>> = {
   codex: "CODEX_HOME",
   claude: "CLAUDE_CONFIG_DIR",
+  grok: "GROK_HOME",
+  opencode: "OPENCODE_CONFIG_DIR",
 };
 
 export function createProviderSetupDraft(): ProviderSetupDraft {
@@ -111,8 +113,11 @@ export function validateProviderSetup(
     } else {
       names.add(row.name);
     }
-    if (dedicatedVariable === row.name && draft.providerHome.trim()) {
-      fields[`${field}.name`] = `${dedicatedVariable} conflicts with the dedicated home field.`;
+    if (
+      dedicatedVariable === row.name
+      && (draft.providerHome.trim() || draft.familyId === "codex" || draft.familyId === "claude")
+    ) {
+      fields[`${field}.name`] = `${dedicatedVariable} must be configured with the dedicated home field.`;
     }
     if (row.valueType === "text" && row.value.length === 0) {
       fields[`${field}.value`] = "Enter a value or remove this row.";

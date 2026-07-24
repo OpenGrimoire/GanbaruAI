@@ -27,8 +27,29 @@ describe("provider setup", () => {
     const result = validateProviderSetup(draft, new Set(["work"]));
     expect(result.valid).toBe(false);
     expect(result.fields.instanceId).toContain("already");
-    expect(result.fields["environment.one.name"]).toContain("conflicts");
+    expect(result.fields["environment.one.name"]).toContain("dedicated home field");
     expect(result.fields["environment.two.value"]).toContain("Store");
+  });
+
+  it("keeps provider home variables aligned with the dedicated home field", () => {
+    for (const [familyId, name] of [
+      ["codex", "CODEX_HOME"],
+      ["claude", "CLAUDE_CONFIG_DIR"],
+    ] as const) {
+      const draft = createProviderSetupDraft();
+      Object.assign(draft, {
+        familyId,
+        label: familyId,
+        instanceId: familyId,
+        executable: familyId,
+        environment: [
+          { key: "home", name, valueType: "inherit", value: "", credentialReference: "" },
+        ],
+      });
+      expect(validateProviderSetup(draft, new Set()).fields["environment.home.name"]).toContain(
+        "dedicated home field",
+      );
+    }
   });
 
   it("keeps secret values out of provider configuration", () => {

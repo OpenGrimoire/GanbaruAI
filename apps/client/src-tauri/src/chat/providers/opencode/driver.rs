@@ -6,7 +6,7 @@ use super::event_stream::OpenCodeEventStream;
 use super::http_client::*;
 use super::local_server::OwnedOpenCodeServer;
 use super::normalizer::{OpenCodeEventNormalizer, OpenCodeRouteState};
-use super::permissions::permission_rules;
+use super::permissions::permission_override;
 use super::protocol::{parse_resume_cursor, resume_cursor};
 use super::support::*;
 use crate::chat::events::*;
@@ -323,15 +323,21 @@ impl OpenCodeProviderDriver {
                 return Err(error);
             }
         };
-        let rules = permission_rules(input.modes().safety_mode);
-        let resolved =
-            match resolve_native_session(&client, resume_id.as_deref(), &workspace, &rules).await {
-                Ok(value) => value,
-                Err(error) => {
-                    stop_owned_server(&mut owned_server).await;
-                    return Err(error);
-                }
-            };
+        let rules = permission_override(input.modes().safety_mode);
+        let resolved = match resolve_native_session(
+            &client,
+            resume_id.as_deref(),
+            &workspace,
+            rules.as_deref(),
+        )
+        .await
+        {
+            Ok(value) => value,
+            Err(error) => {
+                stop_owned_server(&mut owned_server).await;
+                return Err(error);
+            }
+        };
         let provider_thread_id = session_id(&resolved)?;
         let local_session_id = new_local_session_id(&self.configuration.instance_id)?;
         let provider_thread = ProviderThreadId::new(provider_thread_id.clone())
@@ -454,7 +460,7 @@ async fn resolve_native_session(
     client: &OpenCodeHttpClient,
     resume_id: Option<&str>,
     workspace: &Path,
-    rules: &[super::permissions::OpenCodePermissionRule],
+    rules: Option<&[super::permissions::OpenCodePermissionRule]>,
 ) -> ChatResult<Value> {
     if let Some(resume_id) = resume_id {
         match client.session(resume_id).await? {
@@ -467,7 +473,10 @@ async fn resolve_native_session(
                     session
                 };
                 let session_id = session_id(&session)?;
-                return client.update_permission(&session_id, rules).await;
+                return match rules {
+                    Some(rules) => client.update_permission(&session_id, rules).await,
+                    None => Ok(session),
+                };
             }
             OpenCodeSessionLookup::NotFound => {}
         }
