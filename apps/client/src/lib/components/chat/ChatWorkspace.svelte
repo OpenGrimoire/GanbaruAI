@@ -15,6 +15,7 @@
     panelWidthFromKey,
     type ChatLayoutDecision,
   } from "$lib/chat/responsive-layout";
+  import type { ChatPanelPreferences } from "$lib/chat/contracts";
   import { parseChatChangeNotification } from "$lib/chat/validation";
   import { hasOnlyShortcutModifier } from "$lib/keyboard-shortcuts";
   import { getLocalization } from "$lib/i18n/translator.svelte";
@@ -88,6 +89,8 @@
   let panelPreferencesInitialized = false;
   let railUsesPromotedDefault = false;
   let inspectorUsesPromotedDefault = false;
+  let pendingPanelWidths = $state<ChatPanelPreferences | null>(null);
+  let panelWidthSave: Promise<void> | null = null;
 
   onMount(() => {
     void Promise.all([chat.ensureLoaded(), projects.ensureLoaded()]).catch((error) => {
@@ -218,10 +221,10 @@
     }
     if (configuredRailWidth !== LEGACY_RAIL_WIDTH) railUsesPromotedDefault = false;
     if (configuredInspectorWidth !== LEGACY_INSPECTOR_WIDTH) inspectorUsesPromotedDefault = false;
-    if (!resizingRail && chat.settings) {
+    if (!resizingRail && !pendingPanelWidths) {
       railWidth = railUsesPromotedDefault ? DEFAULT_RAIL_WIDTH : configuredRailWidth;
     }
-    if (!resizingInspector && chat.settings) {
+    if (!resizingInspector && !pendingPanelWidths) {
       inspectorWidth = Math.max(
         MIN_INSPECTOR_WIDTH,
         inspectorUsesPromotedDefault ? DEFAULT_INSPECTOR_WIDTH : configuredInspectorWidth,
@@ -583,21 +586,35 @@
     bottomPanelHeight = Math.max(MIN_BOTTOM_PANEL_HEIGHT, Math.min(maximum, next));
   }
 
-  async function persistPanelWidths(): Promise<void> {
+  function persistPanelWidths(): void {
     if (!chat.settings) return;
+    pendingPanelWidths = {
+      railWidthPx: Math.round(railWidth),
+      inspectorWidthPx: Math.round(inspectorWidth),
+    };
+    panelWidthSave ??= savePendingPanelWidths();
+  }
+
+  async function savePendingPanelWidths(): Promise<void> {
     layoutError = null;
-    const savedRailWidth = Math.round(railWidth);
-    const savedInspectorWidth = Math.round(inspectorWidth);
     try {
       const { updateChatPanels } = await import("$lib/api/chat");
-      await updateChatPanels({ railWidthPx: savedRailWidth, inspectorWidthPx: savedInspectorWidth });
-      await chat.refreshSettings();
-      railUsesPromotedDefault = false;
-      inspectorUsesPromotedDefault = false;
-      railWidth = savedRailWidth;
-      inspectorWidth = savedInspectorWidth;
+      while (pendingPanelWidths) {
+        const savedWidths = pendingPanelWidths;
+        await updateChatPanels(savedWidths);
+        await chat.refreshSettings();
+        if (pendingPanelWidths !== savedWidths) continue;
+        railUsesPromotedDefault = false;
+        inspectorUsesPromotedDefault = false;
+        railWidth = savedWidths.railWidthPx;
+        inspectorWidth = savedWidths.inspectorWidthPx;
+        pendingPanelWidths = null;
+      }
     } catch (error: unknown) {
+      pendingPanelWidths = null;
       layoutError = error instanceof Error ? error.message : String(error);
+    } finally {
+      panelWidthSave = null;
     }
   }
 
