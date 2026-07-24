@@ -275,7 +275,7 @@ fn start_request(workspace: &std::path::Path) -> StartSessionRequest {
             "repositoryIdentity": null
         },
         "providerInstanceId": "cursor-instance-1",
-        "modes": { "safetyMode": "supervised", "interactionMode": "build" },
+        "modes": { "safetyMode": "ask_for_approval", "interactionMode": "build" },
         "modelId": "cursor-small",
         "modelOptions": []
     }))
@@ -292,7 +292,7 @@ fn send_request(session_id: &ProviderSessionId) -> SendTurnRequest {
         "mentions": [{ "relativePath": "src/main.rs", "kind": "file" }],
         "modelId": "cursor-small",
         "modelOptions": [],
-        "modes": { "safetyMode": "supervised", "interactionMode": "plan" },
+        "modes": { "safetyMode": "ask_for_approval", "interactionMode": "plan" },
         "developerInstructions": "Follow repository rules"
     }))
     .unwrap()

@@ -114,7 +114,7 @@ pub(super) fn configuration(home: &Path) -> ProviderInstanceConfig {
 
 fn route_state() -> ClaudeRouteState {
     ClaudeRouteState::new(
-        modes(SafetyMode::Supervised, InteractionMode::Build),
+        modes(SafetyMode::AskForApproval, InteractionMode::Build),
         None,
         ClaudeResumeCursor {
             session_uuid: "11111111-1111-4111-8111-111111111111".to_string(),
@@ -246,6 +246,15 @@ fn fast_mode_selection_accepts_only_boolean_values() {
 
 #[test]
 fn launch_arguments_preserve_native_safety_and_resume_semantics() {
+    assert_eq!(
+        permission_mode(modes(SafetyMode::AskForApproval, InteractionMode::Build)),
+        "acceptEdits"
+    );
+    assert_eq!(
+        permission_mode(modes(SafetyMode::ApproveForMe, InteractionMode::Build)),
+        "auto"
+    );
+
     let fresh = launch_arguments(
         Vec::new(),
         &[],
@@ -284,7 +293,7 @@ fn launch_arguments_preserve_native_safety_and_resume_semantics() {
             model: None,
             effort: None,
             fast_mode: None,
-            modes: modes(SafetyMode::Supervised, InteractionMode::Plan),
+            modes: modes(SafetyMode::AskForApproval, InteractionMode::Plan),
         },
     )
     .unwrap();
@@ -313,7 +322,7 @@ fn protected_transport_arguments_cannot_be_overridden() {
             model: None,
             effort: None,
             fast_mode: None,
-            modes: modes(SafetyMode::Supervised, InteractionMode::Build),
+            modes: modes(SafetyMode::AskForApproval, InteractionMode::Build),
         },
     )
     .unwrap_err();

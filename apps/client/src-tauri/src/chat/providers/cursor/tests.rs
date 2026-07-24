@@ -314,7 +314,7 @@ fn configuration_validation_rejects_partial_unintended_values() {
 }
 
 #[test]
-fn offered_permissions_are_exact_and_auto_edits_stay_in_workspace() {
+fn ask_permissions_accept_only_verified_workspace_edits() {
     let workspace = TestDirectory::new("permissions");
     let source = workspace.path().join("source.rs");
     std::fs::write(&source, "fn main() {}\n").unwrap();
@@ -341,7 +341,7 @@ fn offered_permissions_are_exact_and_auto_edits_stay_in_workspace() {
     )
     .unwrap();
     assert_eq!(
-        auto_permission_option(&edit, SafetyMode::AutoAcceptEdits)
+        auto_permission_option(&edit, SafetyMode::AskForApproval)
             .unwrap()
             .option_id,
         "allow-this"
@@ -357,13 +357,13 @@ fn offered_permissions_are_exact_and_auto_edits_stay_in_workspace() {
         workspace.path(),
     )
     .unwrap();
-    assert!(auto_permission_option(&command, SafetyMode::AutoAcceptEdits).is_none());
+    assert!(auto_permission_option(&command, SafetyMode::AskForApproval).is_none());
     let external = parse_permission(
         &permission("edit", "/tmp/cursor-external-file"),
         workspace.path(),
     )
     .unwrap();
-    assert!(auto_permission_option(&external, SafetyMode::AutoAcceptEdits).is_none());
+    assert!(auto_permission_option(&external, SafetyMode::AskForApproval).is_none());
 
     let pending = PendingCursorRequest {
         rpc_id: json!(4),
@@ -400,7 +400,7 @@ fn auto_edit_rejects_a_symlink_escape() {
         ]
     });
     let parsed = parse_permission(&request, workspace.path()).unwrap();
-    assert!(auto_permission_option(&parsed, SafetyMode::AutoAcceptEdits).is_none());
+    assert!(auto_permission_option(&parsed, SafetyMode::AskForApproval).is_none());
 }
 
 #[test]
@@ -462,7 +462,7 @@ fn compatibility_fixture_normalizes_core_and_cursor_extensions() {
     .unwrap();
     let mut state = CursorRouteState::new(
         "cursor-session-fixture".to_string(),
-        modes(SafetyMode::Supervised, InteractionMode::Build),
+        modes(SafetyMode::AskForApproval, InteractionMode::Build),
         None,
         setup.config_options,
         workspace.path().to_path_buf(),
@@ -530,7 +530,7 @@ fn session_start_auth_resume_and_configuration_rollback_are_bounded() {
             &healthy,
             "/fixture/workspace",
             None,
-            modes(SafetyMode::Supervised, InteractionMode::Plan),
+            modes(SafetyMode::AskForApproval, InteractionMode::Plan),
             Some(&ModelId::new("cursor-large".to_string()).unwrap()),
             &[ModelOptionSelection {
                 key: "reasoning".to_string(),
@@ -561,7 +561,7 @@ fn session_start_auth_resume_and_configuration_rollback_are_bounded() {
             &auth,
             "/fixture/workspace",
             None,
-            modes(SafetyMode::Supervised, InteractionMode::Build),
+            modes(SafetyMode::AskForApproval, InteractionMode::Build),
             None,
             &[],
             &context("auth"),
@@ -580,7 +580,7 @@ fn session_start_auth_resume_and_configuration_rollback_are_bounded() {
             &resume,
             "/fixture/workspace",
             Some("missing-session"),
-            modes(SafetyMode::Supervised, InteractionMode::Build),
+            modes(SafetyMode::AskForApproval, InteractionMode::Build),
             None,
             &[],
             &context("resume"),
@@ -600,7 +600,7 @@ fn session_start_auth_resume_and_configuration_rollback_are_bounded() {
             &rollback,
             "/fixture/workspace",
             None,
-            modes(SafetyMode::Supervised, InteractionMode::Build),
+            modes(SafetyMode::AskForApproval, InteractionMode::Build),
             Some(&ModelId::new("cursor-large".to_string()).unwrap()),
             &[ModelOptionSelection {
                 key: "fastMode".to_string(),

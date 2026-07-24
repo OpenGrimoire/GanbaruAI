@@ -4,6 +4,7 @@
   import FolderGit2 from "@lucide/svelte/icons/folder-git-2";
   import Plus from "@lucide/svelte/icons/plus";
   import RefreshCw from "@lucide/svelte/icons/refresh-cw";
+  import ShieldCheck from "@lucide/svelte/icons/shield-check";
   import SlidersHorizontal from "@lucide/svelte/icons/sliders-horizontal";
   import type { Component } from "svelte";
   import type { ProviderRefreshResult } from "$lib/chat/contracts";
@@ -16,6 +17,7 @@
   import ProviderCard from "./chat/ProviderCard.svelte";
   import ChatModelsSettings from "./chat/ChatModelsSettings.svelte";
   import ChatWorkspacesSettings from "./chat/ChatWorkspacesSettings.svelte";
+  import ChatPermissionsSettings from "./chat/ChatPermissionsSettings.svelte";
   import ChatBehaviorSettings from "./chat/ChatBehaviorSettings.svelte";
 
   let {
@@ -43,6 +45,7 @@
     { id: "providers", label: () => t("settings.chat.providers.heading"), icon: Bot },
     { id: "models", label: () => t("settings.chat.models.heading"), icon: Boxes },
     { id: "workspaces", label: () => t("settings.chat.workspaces.heading"), icon: FolderGit2 },
+    { id: "permissions", label: () => t("settings.chat.permissions.heading"), icon: ShieldCheck },
     { id: "behavior", label: () => t("settings.chat.behavior.heading"), icon: SlidersHorizontal },
   ];
 
@@ -105,7 +108,7 @@
 
 <div class="flex flex-col gap-6 pb-4">
   <div
-    class="grid grid-cols-2 gap-1 rounded-md border border-border bg-card p-1 min-[560px]:grid-cols-4 dark:bg-transparent"
+    class="grid grid-cols-2 gap-1 rounded-md border border-border bg-card p-1 min-[480px]:grid-cols-3 min-[700px]:grid-cols-5 dark:bg-transparent"
     role="tablist"
     aria-label={t("settings.chat.tabLabel")}
   >
@@ -159,6 +162,8 @@
     <div data-chat-settings-subsection="models"><ChatModelsSettings /></div>
   {:else if activeTab === "workspaces"}
     <div data-chat-settings-subsection="workspaces"><ChatWorkspacesSettings /></div>
+  {:else if activeTab === "permissions"}
+    <div data-chat-settings-subsection="permissions"><ChatPermissionsSettings /></div>
   {:else}
     <div data-chat-settings-subsection="behavior"><ChatBehaviorSettings /></div>
   {/if}

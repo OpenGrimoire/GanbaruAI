@@ -79,7 +79,7 @@ pub(crate) async fn pool_with_thread() -> sqlx::SqlitePool {
              continuation_group_id, safety_mode, interaction_mode, state,
              last_activity_at, created_at, updated_at)
          VALUES ('thread-1', 'workspace-1', 'Chat', 'codex', 'codex-personal',
-                 'continuation-1', 'supervised', 'build', 'idle', ?, ?, ?)",
+                 'continuation-1', 'ask_for_approval', 'build', 'idle', ?, ?, ?)",
     )
     .bind(NOW)
     .bind(NOW)
@@ -195,7 +195,7 @@ fn projection_failure_rolls_back_event_and_thread_advance() {
                 provider_turn_id: None,
                 state: crate::chat::models::ChatTurnState::Active,
                 modes: crate::chat::models::TurnModeSnapshot {
-                    safety_mode: crate::chat::models::SafetyMode::Supervised,
+                    safety_mode: crate::chat::models::SafetyMode::AskForApproval,
                     interaction_mode: crate::chat::models::InteractionMode::Build,
                 },
                 model_id: None,
@@ -275,7 +275,7 @@ fn command_receipts_reject_cross_thread_and_changed_command_reuse() {
                  continuation_group_id, safety_mode, interaction_mode, state,
                  last_activity_at, created_at, updated_at)
              VALUES ('thread-2', 'workspace-1', 'Other', 'codex', 'codex-personal',
-                     'continuation-1', 'supervised', 'build', 'idle', ?, ?, ?)",
+                     'continuation-1', 'ask_for_approval', 'build', 'idle', ?, ?, ?)",
         )
         .bind(NOW)
         .bind(NOW)
@@ -450,7 +450,7 @@ fn durable_draft_preserves_unknown_json_and_attachment_references() {
                 schema_version: 91,
                 value: serde_json::json!({ "futureModel": "x" }),
             }),
-            safety_mode: Some(SafetyMode::Supervised),
+            safety_mode: Some(SafetyMode::AskForApproval),
             interaction_mode: Some(InteractionMode::Build),
             sent_snapshot: None,
             updated_at: UtcTimestamp::new(NOW).unwrap(),
@@ -476,7 +476,7 @@ fn canonical_events_rebuild_equivalent_projections() {
     tauri::async_runtime::block_on(async {
         let pool = pool_with_thread().await;
         let modes = TurnModeSnapshot {
-            safety_mode: SafetyMode::Supervised,
+            safety_mode: SafetyMode::AskForApproval,
             interaction_mode: InteractionMode::Build,
         };
         append_canonical_event(
@@ -605,7 +605,7 @@ fn reverted_turn_events_stay_invalid_after_projection_rebuild() {
                     provider_turn_id: None,
                     state: ChatTurnState::Active,
                     modes: TurnModeSnapshot {
-                        safety_mode: SafetyMode::Supervised,
+                        safety_mode: SafetyMode::AskForApproval,
                         interaction_mode: InteractionMode::Build,
                     },
                     model_id: None,
@@ -1105,7 +1105,7 @@ fn startup_recovery_interrupts_only_turns_without_proven_resumability() {
                     provider_turn_id: None,
                     state: ChatTurnState::Active,
                     modes: TurnModeSnapshot {
-                        safety_mode: SafetyMode::Supervised,
+                        safety_mode: SafetyMode::AskForApproval,
                         interaction_mode: InteractionMode::Build,
                     },
                     model_id: None,

@@ -1315,17 +1315,19 @@ fn provider_skill_home(configuration: &super::models::ProviderInstanceConfig) ->
 
 fn wire_safety_mode(value: super::models::SafetyMode) -> &'static str {
     match value {
-        super::models::SafetyMode::Supervised => "supervised",
-        super::models::SafetyMode::AutoAcceptEdits => "auto_accept_edits",
+        super::models::SafetyMode::AskForApproval => "ask_for_approval",
+        super::models::SafetyMode::ApproveForMe => "approve_for_me",
         super::models::SafetyMode::FullAccess => "full_access",
+        super::models::SafetyMode::Custom => "custom",
     }
 }
 
 fn parse_safety_mode(value: &str) -> ChatResult<super::models::SafetyMode> {
     match value {
-        "supervised" => Ok(super::models::SafetyMode::Supervised),
-        "auto_accept_edits" => Ok(super::models::SafetyMode::AutoAcceptEdits),
+        "ask_for_approval" => Ok(super::models::SafetyMode::AskForApproval),
+        "approve_for_me" => Ok(super::models::SafetyMode::ApproveForMe),
         "full_access" => Ok(super::models::SafetyMode::FullAccess),
+        "custom" => Ok(super::models::SafetyMode::Custom),
         _ => Err(corrupt_data()),
     }
 }

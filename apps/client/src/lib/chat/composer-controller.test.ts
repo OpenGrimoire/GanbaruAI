@@ -14,7 +14,7 @@ function draft(overrides: Partial<ChatDraftRead> = {}): ChatDraftRead {
     mentions: { schemaVersion: 1, value: [] },
     providerInstanceId: "codex-personal",
     modelSelection: null,
-    safetyMode: "supervised",
+    safetyMode: "ask_for_approval",
     interactionMode: "build",
     sentSnapshot: null,
     updatedAt: timestamp,

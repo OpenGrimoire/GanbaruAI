@@ -32,7 +32,7 @@ fn valid_config() -> serde_json::Value {
             "modelId": "gpt-5-codex",
             "providerManagedModel": false,
             "modelOptions": [],
-            "safetyMode": "supervised",
+            "safetyMode": "ask_for_approval",
             "interactionMode": "build"
         }],
         "workspaceProviderPreferences": {},

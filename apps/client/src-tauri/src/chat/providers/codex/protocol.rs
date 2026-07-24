@@ -31,7 +31,13 @@ pub struct ThreadOpenResponse {
     pub thread: CodexThread,
     pub model: String,
     pub approval_policy: Value,
+    pub approvals_reviewer: String,
     pub sandbox: Value,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+pub struct ConfigReadResponse {
+    pub config: Value,
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -114,27 +120,153 @@ pub struct CodexServiceTier {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct CodexSafetySettings {
     pub approval_policy: &'static str,
+    pub approvals_reviewer: &'static str,
     pub sandbox: &'static str,
     pub turn_sandbox_type: &'static str,
 }
 
-pub fn safety_settings(mode: SafetyMode) -> CodexSafetySettings {
+#[derive(Clone, Debug, PartialEq)]
+pub struct CodexCustomSafetySettings {
+    pub approval_policy: Value,
+    pub approvals_reviewer: String,
+    pub sandbox_policy: Option<Value>,
+    pub permissions: Option<String>,
+}
+
+/// Resolves the current Codex configuration into turn-level permission overrides.
+///
+/// # Errors
+///
+/// Returns an error when the app-server reports an invalid permission configuration.
+pub fn custom_safety_settings(
+    response: ConfigReadResponse,
+) -> ChatResult<CodexCustomSafetySettings> {
+    let config = response
+        .config
+        .as_object()
+        .ok_or_else(|| codex_protocol_error("Codex config response"))?;
+    let approval_policy = match config.get("approval_policy") {
+        None | Some(Value::Null) => Value::String("on-request".to_string()),
+        Some(value) if valid_approval_policy(value) => value.clone(),
+        Some(_) => return Err(codex_protocol_error("Codex approval policy")),
+    };
+    let approvals_reviewer = match config.get("approvals_reviewer") {
+        None | Some(Value::Null) => "user".to_string(),
+        Some(Value::String(value))
+            if matches!(value.as_str(), "user" | "auto_review" | "guardian_subagent") =>
+        {
+            value.clone()
+        }
+        Some(_) => return Err(codex_protocol_error("Codex approvals reviewer")),
+    };
+    if let Some(Value::String(permissions)) = config.get("default_permissions") {
+        if permissions.trim().is_empty()
+            || permissions.len() > 256
+            || permissions.chars().any(char::is_control)
+        {
+            return Err(codex_protocol_error("Codex permission profile"));
+        }
+        return Ok(CodexCustomSafetySettings {
+            approval_policy,
+            approvals_reviewer,
+            sandbox_policy: None,
+            permissions: Some(permissions.clone()),
+        });
+    }
+    if config
+        .get("default_permissions")
+        .is_some_and(|value| !value.is_null())
+    {
+        return Err(codex_protocol_error("Codex permission profile"));
+    }
+    let sandbox_mode = match config.get("sandbox_mode") {
+        None | Some(Value::Null) => "workspace-write",
+        Some(Value::String(value)) => value.as_str(),
+        Some(_) => return Err(codex_protocol_error("Codex sandbox mode")),
+    };
+    let sandbox_policy = match sandbox_mode {
+        "danger-full-access" => json!({ "type": "dangerFullAccess" }),
+        "read-only" => json!({ "type": "readOnly", "networkAccess": false }),
+        "workspace-write" => workspace_write_policy(config.get("sandbox_workspace_write"))?,
+        _ => return Err(codex_protocol_error("Codex sandbox mode")),
+    };
+    Ok(CodexCustomSafetySettings {
+        approval_policy,
+        approvals_reviewer,
+        sandbox_policy: Some(sandbox_policy),
+        permissions: None,
+    })
+}
+
+fn valid_approval_policy(value: &Value) -> bool {
+    value
+        .as_str()
+        .is_some_and(|value| matches!(value, "untrusted" | "on-request" | "never"))
+        || value
+            .get("granular")
+            .and_then(Value::as_object)
+            .is_some_and(|granular| {
+                !granular.is_empty() && granular.values().all(Value::is_boolean)
+            })
+}
+
+fn workspace_write_policy(value: Option<&Value>) -> ChatResult<Value> {
+    let settings = match value {
+        None | Some(Value::Null) => None,
+        Some(Value::Object(settings)) => Some(settings),
+        Some(_) => return Err(codex_protocol_error("Codex workspace sandbox")),
+    };
+    let writable_roots = match settings.and_then(|settings| settings.get("writable_roots")) {
+        None | Some(Value::Null) => Vec::new(),
+        Some(Value::Array(values)) => values
+            .iter()
+            .map(|value| {
+                let path = value
+                    .as_str()
+                    .filter(|path| Path::new(path).is_absolute())
+                    .ok_or_else(|| codex_protocol_error("Codex writable roots"))?;
+                Ok(Value::String(path.to_string()))
+            })
+            .collect::<ChatResult<Vec<_>>>()?,
+        Some(_) => return Err(codex_protocol_error("Codex writable roots")),
+    };
+    let boolean = |key: &str, default: bool| -> ChatResult<bool> {
+        match settings.and_then(|settings| settings.get(key)) {
+            None | Some(Value::Null) => Ok(default),
+            Some(Value::Bool(value)) => Ok(*value),
+            Some(_) => Err(codex_protocol_error("Codex workspace sandbox")),
+        }
+    };
+    Ok(json!({
+        "type": "workspaceWrite",
+        "writableRoots": writable_roots,
+        "networkAccess": boolean("network_access", false)?,
+        "excludeTmpdirEnvVar": boolean("exclude_tmpdir_env_var", false)?,
+        "excludeSlashTmp": boolean("exclude_slash_tmp", false)?,
+    }))
+}
+
+pub fn safety_settings(mode: SafetyMode) -> Option<CodexSafetySettings> {
     match mode {
-        SafetyMode::Supervised => CodexSafetySettings {
-            approval_policy: "untrusted",
-            sandbox: "read-only",
-            turn_sandbox_type: "readOnly",
-        },
-        SafetyMode::AutoAcceptEdits => CodexSafetySettings {
+        SafetyMode::AskForApproval => Some(CodexSafetySettings {
             approval_policy: "on-request",
+            approvals_reviewer: "user",
             sandbox: "workspace-write",
             turn_sandbox_type: "workspaceWrite",
-        },
-        SafetyMode::FullAccess => CodexSafetySettings {
+        }),
+        SafetyMode::ApproveForMe => Some(CodexSafetySettings {
+            approval_policy: "on-request",
+            approvals_reviewer: "auto_review",
+            sandbox: "workspace-write",
+            turn_sandbox_type: "workspaceWrite",
+        }),
+        SafetyMode::FullAccess => Some(CodexSafetySettings {
             approval_policy: "never",
+            approvals_reviewer: "user",
             sandbox: "danger-full-access",
             turn_sandbox_type: "dangerFullAccess",
-        },
+        }),
+        SafetyMode::Custom => None,
     }
 }
 
@@ -163,21 +295,24 @@ pub fn thread_open_params(
         MAX_DEVELOPER_INSTRUCTIONS_BYTES,
         "developerInstructions",
     )?;
-    let safety = safety_settings(modes.safety_mode);
-    let mut params = Map::from_iter([
-        (
-            "cwd".to_string(),
-            Value::String(workspace.to_string_lossy().into_owned()),
-        ),
-        (
+    let mut params = Map::from_iter([(
+        "cwd".to_string(),
+        Value::String(workspace.to_string_lossy().into_owned()),
+    )]);
+    if let Some(safety) = safety_settings(modes.safety_mode) {
+        params.insert(
             "approvalPolicy".to_string(),
             Value::String(safety.approval_policy.to_string()),
-        ),
-        (
+        );
+        params.insert(
+            "approvalsReviewer".to_string(),
+            Value::String(safety.approvals_reviewer.to_string()),
+        );
+        params.insert(
             "sandbox".to_string(),
             Value::String(safety.sandbox.to_string()),
-        ),
-    ]);
+        );
+    }
     if let Some(provider_thread_id) = provider_thread_id {
         params.insert(
             "threadId".to_string(),
@@ -205,6 +340,7 @@ pub fn turn_start_params(
     _workspace: &Path,
     fallback_model: &str,
     request: &SendTurnRequest,
+    custom_safety: Option<&CodexCustomSafetySettings>,
 ) -> ChatResult<Value> {
     if request.prompt.len() > MAX_PROMPT_BYTES || request.prompt.contains('\0') {
         return Err(ChatError::validation(
@@ -265,7 +401,6 @@ pub fn turn_start_params(
         ));
     }
     let (effort, service_tier) = parse_model_options(&request.model_options)?;
-    let safety = safety_settings(request.modes.safety_mode);
     let mut params = Map::from_iter([
         (
             "threadId".to_string(),
@@ -273,18 +408,51 @@ pub fn turn_start_params(
         ),
         ("input".to_string(), Value::Array(input)),
         (
-            "approvalPolicy".to_string(),
-            Value::String(safety.approval_policy.to_string()),
-        ),
-        (
-            "sandboxPolicy".to_string(),
-            json!({ "type": safety.turn_sandbox_type }),
-        ),
-        (
             "clientUserMessageId".to_string(),
             Value::String(request.turn_id.as_str().to_string()),
         ),
     ]);
+    if let Some(safety) = safety_settings(request.modes.safety_mode) {
+        params.insert(
+            "approvalPolicy".to_string(),
+            Value::String(safety.approval_policy.to_string()),
+        );
+        params.insert(
+            "approvalsReviewer".to_string(),
+            Value::String(safety.approvals_reviewer.to_string()),
+        );
+        params.insert(
+            "sandboxPolicy".to_string(),
+            match safety.turn_sandbox_type {
+                "workspaceWrite" => json!({
+                    "type": "workspaceWrite",
+                    "writableRoots": [],
+                    "networkAccess": false,
+                    "excludeTmpdirEnvVar": false,
+                    "excludeSlashTmp": false,
+                }),
+                "dangerFullAccess" => json!({ "type": "dangerFullAccess" }),
+                _ => return Err(codex_protocol_error("Codex sandbox mode")),
+            },
+        );
+    } else {
+        let custom = custom_safety
+            .ok_or_else(|| codex_protocol_error("Codex custom permission configuration"))?;
+        params.insert("approvalPolicy".to_string(), custom.approval_policy.clone());
+        params.insert(
+            "approvalsReviewer".to_string(),
+            Value::String(custom.approvals_reviewer.clone()),
+        );
+        if let Some(sandbox_policy) = custom.sandbox_policy.as_ref() {
+            params.insert("sandboxPolicy".to_string(), sandbox_policy.clone());
+        }
+        if let Some(permissions) = custom.permissions.as_ref() {
+            params.insert(
+                "permissions".to_string(),
+                Value::String(permissions.clone()),
+            );
+        }
+    }
     if let Some(model_id) = request.model_id.as_ref() {
         validate_model_id(model_id.as_str())?;
         params.insert(
@@ -513,4 +681,8 @@ fn identifier_error(_error: String) -> ChatError {
         "Codex returned an invalid identifier",
         false,
     )
+}
+
+fn codex_protocol_error(detail: &str) -> ChatError {
+    ChatError::new(crate::chat::models::ChatErrorCode::Protocol, detail, false)
 }

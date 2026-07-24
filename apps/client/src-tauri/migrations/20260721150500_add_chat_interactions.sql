@@ -5,7 +5,7 @@ CREATE TABLE chat_queued_followups (
     provider_instance_id TEXT NOT NULL CHECK (length(provider_instance_id) BETWEEN 1 AND 1024),
     model_selection_schema_version INTEGER NOT NULL CHECK (model_selection_schema_version >= 1),
     model_selection_data TEXT NOT NULL CHECK (json_valid(model_selection_data)),
-    safety_mode TEXT NOT NULL CHECK (safety_mode IN ('supervised', 'auto_accept_edits', 'full_access')),
+    safety_mode TEXT NOT NULL CHECK (safety_mode IN ('ask_for_approval', 'approve_for_me', 'full_access', 'custom')),
     interaction_mode TEXT NOT NULL CHECK (interaction_mode IN ('build', 'plan')),
     attachment_ids_schema_version INTEGER NOT NULL DEFAULT 1 CHECK (attachment_ids_schema_version >= 1),
     attachment_ids_data TEXT NOT NULL DEFAULT '[]' CHECK (

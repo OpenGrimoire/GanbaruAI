@@ -120,12 +120,14 @@ pub async fn chat_send_turn(
         &scope,
         WorkspaceAuthorizationOperation::ProviderStart,
     )?;
-    if request.modes.safety_mode == SafetyMode::FullAccess
-        && !full_access_is_trusted(&scope, &request.provider_instance_id, &request.workspace_id)
+    if matches!(
+        request.modes.safety_mode,
+        SafetyMode::FullAccess | SafetyMode::Custom
+    ) && !full_access_is_trusted(&scope, &request.provider_instance_id, &request.workspace_id)
     {
         return Err(ChatError::new(
             ChatErrorCode::Permission,
-            "Full access is not trusted for this provider and workspace",
+            "Broad permissions are not trusted for this provider and workspace",
             true,
         ));
     }
@@ -1431,6 +1433,18 @@ fn validate_provider_selection(
             true,
         ));
     }
+    let family = provider.configuration.family_id.as_str();
+    let permission_mode_supported = match request.modes.safety_mode {
+        SafetyMode::AskForApproval | SafetyMode::FullAccess => true,
+        SafetyMode::ApproveForMe => matches!(family, "codex" | "claude"),
+        SafetyMode::Custom => family == "codex",
+    };
+    if !permission_mode_supported {
+        return Err(ChatError::validation(
+            "modes.safetyMode",
+            "Selected provider cannot implement this permission mode",
+        ));
+    }
     if let Some(model_id) = request.model_id.as_ref() {
         let model = provider
             .model_catalog
@@ -1646,9 +1660,10 @@ fn prompt_preview(prompt: &str) -> String {
 
 fn wire_safety(value: SafetyMode) -> &'static str {
     match value {
-        SafetyMode::Supervised => "supervised",
-        SafetyMode::AutoAcceptEdits => "auto_accept_edits",
+        SafetyMode::AskForApproval => "ask_for_approval",
+        SafetyMode::ApproveForMe => "approve_for_me",
         SafetyMode::FullAccess => "full_access",
+        SafetyMode::Custom => "custom",
     }
 }
 
@@ -1775,7 +1790,7 @@ mod tests {
                 model_id: None,
                 model_options: Vec::new(),
                 modes: TurnModeSnapshot {
-                    safety_mode: SafetyMode::Supervised,
+                    safety_mode: SafetyMode::AskForApproval,
                     interaction_mode: InteractionMode::Build,
                 },
                 prompt: "  Preserve this exact prompt\n".to_string(),

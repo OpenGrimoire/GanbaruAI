@@ -5,8 +5,8 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import ChatControlMenu, { type ChatControlOption } from "./ChatControlMenu.svelte";
 
 const options: ChatControlOption[] = [
-  { value: "supervised", label: "Supervised", icon: "shield-check" },
-  { value: "full_access", label: "Full access", icon: "shield-off" },
+  { value: "ask_for_approval", label: "Ask for approval", icon: "shield-question-mark" },
+  { value: "full_access", label: "Full access", icon: "shield-alert" },
 ];
 
 describe("ChatControlMenu", () => {
@@ -27,7 +27,7 @@ describe("ChatControlMenu", () => {
     component = mount(ChatControlMenu, {
       target,
       props: {
-        value: "supervised",
+        value: "ask_for_approval",
         options,
         ariaLabel: "Safety",
         onChange,
@@ -43,6 +43,8 @@ describe("ChatControlMenu", () => {
     expect(listbox).not.toBeNull();
     const fullAccess = [...(listbox?.querySelectorAll<HTMLButtonElement>("button") ?? [])]
       .find((button) => button.textContent?.includes("Full access"));
+    expect([...(listbox?.querySelectorAll<HTMLElement>(".option-icon") ?? [])]
+      .every((icon) => icon.classList.contains("option-icon") && !icon.classList.contains("warning"))).toBe(true);
     fullAccess?.click();
     await tick();
 
@@ -56,7 +58,7 @@ describe("ChatControlMenu", () => {
     component = mount(ChatControlMenu, {
       target,
       props: {
-        value: "supervised",
+        value: "ask_for_approval",
         options,
         ariaLabel: "Safety",
         onChange: vi.fn(),

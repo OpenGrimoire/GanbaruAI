@@ -141,7 +141,7 @@ pub fn steering_prompt(prompt: &str) -> ChatResult<OpenCodePrompt> {
         &[],
         None,
         TurnModeSnapshot {
-            safety_mode: SafetyMode::Supervised,
+            safety_mode: SafetyMode::AskForApproval,
             interaction_mode: InteractionMode::Build,
         },
     )

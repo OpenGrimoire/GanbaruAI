@@ -548,5 +548,5 @@ fn content_event(event_id: &str, turn_id: &str, delta: &str) -> CanonicalRuntime
 }
 
 fn modes_json() -> serde_json::Value {
-    json!({ "safetyMode": "supervised", "interactionMode": "build" })
+    json!({ "safetyMode": "ask_for_approval", "interactionMode": "build" })
 }

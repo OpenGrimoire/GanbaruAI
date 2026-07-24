@@ -41,8 +41,8 @@ fn timestamps_require_rfc3339_utc_values() {
 #[test]
 fn safety_modes_keep_normative_wire_literals() {
     assert_eq!(
-        serde_json::to_value(SafetyMode::AutoAcceptEdits).unwrap(),
-        json!("auto_accept_edits")
+        serde_json::to_value(SafetyMode::ApproveForMe).unwrap(),
+        json!("approve_for_me")
     );
 }
 

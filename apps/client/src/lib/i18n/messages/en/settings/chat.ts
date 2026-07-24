@@ -92,6 +92,14 @@ export const chatSettings = {
     lastVerified: (date: string) => `Last verified ${date}`,
     createForMismatch: "Create a new logical workspace",
   },
+  permissions: {
+    heading: "Permissions",
+    description: "Review how each per-chat permission choice maps to coding-agent providers.",
+    selectedPerChat: "Choose permissions for each chat from the control below the composer.",
+    availability: (providers: string) => `Available with: ${providers}.`,
+    unsupported: "Choices remain disabled when the selected provider cannot enforce their meaning.",
+    trust: "Full access and Custom require explicit trust for the selected provider and workspace.",
+  },
   behavior: {
     heading: "Behavior",
     description: "Control message sending, sessions, reasoning, and terminal safeguards.",

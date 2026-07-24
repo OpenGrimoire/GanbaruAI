@@ -595,7 +595,7 @@ fn verified_workspace(workspace: &std::path::Path) -> VerifiedWorkspaceContext {
 
 fn modes() -> TurnModeSnapshot {
     TurnModeSnapshot {
-        safety_mode: SafetyMode::Supervised,
+        safety_mode: SafetyMode::AskForApproval,
         interaction_mode: InteractionMode::Build,
     }
 }

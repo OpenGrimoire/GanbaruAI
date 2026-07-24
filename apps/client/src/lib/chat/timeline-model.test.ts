@@ -65,7 +65,7 @@ describe("canonical timeline projection", () => {
   it("attaches duration, effective model, usage, and deduplicated changed files to the final answer", () => {
     const changed = { relativePath: "src/app.ts", previousRelativePath: null, additions: 4, deletions: 1, binary: false, status: "modified" };
     const events = [
-      stored(1, { type: "turn_started", payload: { providerTurnId: "provider-turn-1", state: "active", modes: { safetyMode: "supervised", interactionMode: "build" }, modelId: "gpt-5", modelOptions: [] } }),
+      stored(1, { type: "turn_started", payload: { providerTurnId: "provider-turn-1", state: "active", modes: { safetyMode: "ask_for_approval", interactionMode: "build" }, modelId: "gpt-5", modelOptions: [] } }),
       stored(2, { type: "content_delta", payload: { itemId: "answer", streamKind: "assistant_text", contentIndex: 0, delta: "Done" } }),
       stored(3, { type: "diff_updated", payload: { source: "provider", files: [changed], providerDiff: null } }),
       stored(4, { type: "model_rerouted", payload: { requestedModelId: "gpt-5", effectiveModelId: "gpt-5.1", reason: "Capacity" } }),
@@ -105,7 +105,7 @@ describe("canonical timeline projection", () => {
   });
 
   it("shows pending work only until meaningful provider output arrives", () => {
-    const started = stored(1, { type: "turn_started", payload: { providerTurnId: "provider-turn-1", state: "active", modes: { safetyMode: "supervised", interactionMode: "build" }, modelId: "gpt-5", modelOptions: [] } });
+    const started = stored(1, { type: "turn_started", payload: { providerTurnId: "provider-turn-1", state: "active", modes: { safetyMode: "ask_for_approval", interactionMode: "build" }, modelId: "gpt-5", modelOptions: [] } });
     const user = stored(2, { type: "item_completed", payload: { itemId: "user", kind: "user_message", status: "completed", title: null, detail: "Please continue", safeMetadata: null } });
     expect(projectCanonicalTimeline([started, user]).rows).toMatchObject([
       { id: "message:user", role: "user" },
@@ -120,7 +120,7 @@ describe("canonical timeline projection", () => {
 
   it("folds settled work while leaving the final assistant answer visible", () => {
     const events = [
-      stored(1, { type: "turn_started", payload: { providerTurnId: "provider-turn-1", state: "active", modes: { safetyMode: "supervised", interactionMode: "build" }, modelId: "gpt-5", modelOptions: [] } }),
+      stored(1, { type: "turn_started", payload: { providerTurnId: "provider-turn-1", state: "active", modes: { safetyMode: "ask_for_approval", interactionMode: "build" }, modelId: "gpt-5", modelOptions: [] } }),
       stored(2, { type: "item_completed", payload: { itemId: "command", kind: "command_execution", status: "completed", title: "Run tests", detail: "Passed", safeMetadata: null } }),
       stored(3, { type: "item_completed", payload: { itemId: "file", kind: "file_change", status: "completed", title: "Edit file", detail: "Changed", safeMetadata: null } }),
       stored(4, { type: "content_delta", payload: { itemId: "answer", streamKind: "assistant_text", contentIndex: 0, delta: "Finished" } }),
@@ -164,7 +164,7 @@ describe("canonical timeline projection", () => {
 
   it("keeps a matching late assistant event visible after turn settlement", () => {
     const projection = projectCanonicalTimeline([
-      stored(1, { type: "turn_started", payload: { providerTurnId: "provider-turn-1", state: "active", modes: { safetyMode: "supervised", interactionMode: "build" }, modelId: "gpt-5", modelOptions: [] } }),
+      stored(1, { type: "turn_started", payload: { providerTurnId: "provider-turn-1", state: "active", modes: { safetyMode: "ask_for_approval", interactionMode: "build" }, modelId: "gpt-5", modelOptions: [] } }),
       stored(2, { type: "turn_completed", payload: { state: "completed", stopReason: "end_turn", usage: null, changedFiles: [] } }, { createdAt: "2026-07-21T14:00:02.000Z" }),
       stored(3, { type: "content_delta", payload: { itemId: "late-answer", streamKind: "assistant_text", contentIndex: 0, delta: "Recovered final answer" } }, { createdAt: "2026-07-21T14:00:03.000Z" }),
     ]);
@@ -190,7 +190,7 @@ describe("canonical timeline projection", () => {
       stopReason: "end_turn",
       modelId: "gpt-5",
       modelOptions: [],
-      modes: { safetyMode: "supervised", interactionMode: "build" },
+      modes: { safetyMode: "ask_for_approval", interactionMode: "build" },
       usage: null,
       changedFiles: [],
     }];

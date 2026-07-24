@@ -15,7 +15,7 @@
   import Square from "@lucide/svelte/icons/square";
   import X from "@lucide/svelte/icons/x";
   import * as chatApi from "$lib/api/chat";
-  import type { ChatPromptCatalogEntry, ChatWorkspacePathRead, ProviderCapabilities } from "$lib/chat/contracts";
+  import type { ChatPromptCatalogEntry, ChatWorkspacePathRead, ProviderCapabilities, SafetyMode } from "$lib/chat/contracts";
   import {
     autosizeComposerHeight,
     composerActionState,
@@ -274,7 +274,7 @@
       providerManagedModel,
       safetyMode: chat.composer.safetyMode,
       interactionMode,
-      fullAccessTrusted: chat.composer.safetyMode !== "full_access" || trusted,
+      fullAccessTrusted: !matchesBroadPermissionMode(chat.composer.safetyMode) || trusted,
     }, capabilities);
     const modelOptionErrors = provider && modelId
       ? validateModelOptions(provider.modelCatalog?.models.find((entry) => entry.id === modelId)?.options ?? [], readComposerOptions())
@@ -402,12 +402,25 @@
   function contextPercentage(value: number): string {
     return formatNumber(localization.locale, value * 100, { maximumFractionDigits: 0 });
   }
+
+  function matchesBroadPermissionMode(mode: SafetyMode | null): boolean {
+    return mode === "full_access" || mode === "custom";
+  }
+
+  function permissionModeLabel(mode: SafetyMode): string {
+    switch (mode) {
+      case "ask_for_approval": return t("chat.hero.askForApproval");
+      case "approve_for_me": return t("chat.hero.approveForMe");
+      case "full_access": return t("chat.hero.fullAccess");
+      case "custom": return t("chat.hero.customPermissions");
+    }
+  }
 </script>
 
 <section class:hero class="chat-composer" data-chat-composer-container role="group" ondragover={(event) => event.preventDefault()} ondrop={handleDrop}>
   {#if chat.interaction?.queuedFollowup}<div class="queued-row"><div><strong>{t("chat.composer.queued")}</strong><p>{chat.interaction.queuedFollowup.text}</p></div><button type="button" onclick={() => void chat.editQueuedFollowup()}>{t("chat.composer.editQueued")}</button><button type="button" onclick={() => void chat.cancelQueuedFollowup()}>{t("chat.composer.cancelQueued")}</button></div>{/if}
   {#if chat.sendError}<div role="alert" class="recovery-row"><strong>{t("chat.composer.launchFailed")}</strong><span>{chat.sendError}</span><button type="button" onclick={() => void run(() => chat.retryFailedSend())}>{t("chat.timeline.retry")}</button><button type="button" onclick={() => void chat.editFailedSend()}>{t("chat.composer.editDraft")}</button><button type="button" onclick={() => void chat.changeProviderAfterFailure()}>{t("chat.composer.changeProvider")}</button></div>{/if}
-  {#if activeTurn}<p class="active-turn-modes">{t("chat.composer.activeTurnModes", activeTurn.modes.safetyMode === "supervised" ? t("chat.hero.supervised") : activeTurn.modes.safetyMode === "auto_accept_edits" ? t("chat.hero.autoAccept") : t("chat.hero.fullAccess"), activeTurn.modes.interactionMode === "plan" ? t("chat.hero.plan") : t("chat.hero.build"))}</p>{/if}
+  {#if activeTurn}<p class="active-turn-modes">{t("chat.composer.activeTurnModes", permissionModeLabel(activeTurn.modes.safetyMode), activeTurn.modes.interactionMode === "plan" ? t("chat.hero.plan") : t("chat.hero.build"))}</p>{/if}
   {#if chat.composerAttachments.length > 0}<div class="attachment-grid">{#each chat.composerAttachments as attachment}<article><button type="button" class="attachment-preview" aria-label={t("chat.composer.previewAttachment", attachment.originalDisplayName)} onclick={() => void openPreview(attachment.id)}>{#if thumbnailUrls[attachment.id]}<img src={thumbnailUrls[attachment.id]} alt={attachment.originalDisplayName} />{:else}<LoaderCircle size={16} class="animate-spin" />{/if}</button><span title={attachment.originalDisplayName}>{attachment.originalDisplayName}</span><button type="button" aria-label={t("chat.composer.removeAttachment", attachment.originalDisplayName)} onclick={() => chat.removeComposerAttachment(attachment.id)}><X size={12} /></button></article>{/each}</div>{/if}
   {#if chat.composer.mentions.length > 0}<div class="mention-chips">{#each chat.composer.mentions as mention}<span title={mention.relativePath}><AtSign size={11} />{mention.relativePath}{#if mention.ignored}<small>{t("chat.composer.ignored")}</small>{/if}<button type="button" aria-label={t("chat.composer.removeAttachment", mention.relativePath)} onclick={() => chat.setComposerMentions(chat.composer.mentions.filter((entry) => entry.relativePath !== mention.relativePath))}><X size={10} /></button></span>{/each}</div>{/if}
   <div class="editor-shell">

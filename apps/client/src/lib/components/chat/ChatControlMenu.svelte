@@ -6,9 +6,12 @@
   import ChevronDown from "@lucide/svelte/icons/chevron-down";
   import FilePenLine from "@lucide/svelte/icons/file-pen-line";
   import PencilRuler from "@lucide/svelte/icons/pencil-ruler";
+  import Settings from "@lucide/svelte/icons/settings";
   import Shield from "@lucide/svelte/icons/shield";
+  import ShieldAlert from "@lucide/svelte/icons/shield-alert";
   import ShieldCheck from "@lucide/svelte/icons/shield-check";
   import ShieldOff from "@lucide/svelte/icons/shield-off";
+  import ShieldQuestionMark from "@lucide/svelte/icons/shield-question-mark";
   import SlidersHorizontal from "@lucide/svelte/icons/sliders-horizontal";
   import {
     pickSelectPopoverGeometry,
@@ -23,8 +26,11 @@
     | "file-pen"
     | "pencil-ruler"
     | "shield"
+    | "shield-alert"
     | "shield-check"
     | "shield-off"
+    | "shield-question-mark"
+    | "settings"
     | "sliders";
 
   export interface ChatControlOption {
@@ -38,6 +44,7 @@
   let {
     value,
     options,
+    placeholder,
     ariaLabel,
     dataField,
     onChange,
@@ -47,6 +54,7 @@
   }: {
     value: string;
     options: readonly ChatControlOption[];
+    placeholder?: ChatControlOption;
     ariaLabel: string;
     dataField?: string;
     onChange: (value: string) => void;
@@ -70,7 +78,7 @@
   let trigger: HTMLButtonElement | undefined = $state();
   let popover: HTMLDivElement | undefined = $state();
   let geometry = $state<SelectPopoverGeometry>(DEFAULT_GEOMETRY);
-  const current = $derived(options.find((option) => option.value === value) ?? options[0]);
+  const current = $derived(options.find((option) => option.value === value) ?? placeholder ?? options[0]);
 
   function rect(value: DOMRect): SelectPopoverRect {
     return {
@@ -175,8 +183,11 @@
   {:else if icon === "brain"}<Brain {size} />
   {:else if icon === "file-pen"}<FilePenLine {size} />
   {:else if icon === "pencil-ruler"}<PencilRuler {size} />
+  {:else if icon === "settings"}<Settings {size} />
+  {:else if icon === "shield-alert"}<ShieldAlert {size} />
   {:else if icon === "shield-check"}<ShieldCheck {size} />
   {:else if icon === "shield-off"}<ShieldOff {size} />
+  {:else if icon === "shield-question-mark"}<ShieldQuestionMark {size} />
   {:else if icon === "sliders"}<SlidersHorizontal {size} />
   {:else}<Shield {size} />{/if}
 {/snippet}
@@ -230,7 +241,7 @@
 {/if}
 
 <style>
-  .control-trigger { display: inline-flex; min-width: 0; height: 1.9rem; max-width: 10rem; flex: 0 1 auto; align-items: center; gap: 0.4rem; border-radius: 0.55rem; padding: 0.25rem 0.45rem; color: var(--muted-foreground); font-size: 0.733333rem; white-space: nowrap; }
+  .control-trigger { display: inline-flex; min-width: 0; height: 1.9rem; max-width: 10rem; flex: 0 1 auto; align-items: center; gap: 0.4rem; border-radius: 0.55rem; padding: 0.25rem 0.45rem; color: var(--muted-foreground); font-size: 0.766667rem; white-space: nowrap; }
   .control-trigger:hover, .control-trigger[aria-expanded="true"] { background: var(--accent); color: var(--foreground); }
   .control-trigger.minimal { padding-inline: 0.35rem; }
   .control-trigger:focus-visible { outline: 2px solid var(--ring); outline-offset: 1px; }
@@ -245,8 +256,8 @@
   .option-icon { display: grid; place-items: center; color: var(--muted-foreground); }
   .option-copy { min-width: 0; }
   .option-copy strong, .option-copy small { display: block; overflow: hidden; text-overflow: ellipsis; }
-  .option-copy strong { font-size: 0.766667rem; font-weight: 500; }
-  .option-copy small { margin-top: 0.1rem; color: var(--muted-foreground); font-size: 0.666667rem; line-height: 1rem; white-space: normal; }
+  .option-copy strong { font-size: 0.8rem; font-weight: 500; }
+  .option-copy small { margin-top: 0.1rem; color: var(--muted-foreground); font-size: 0.733333rem; line-height: 1.05rem; white-space: normal; }
   .control-popover button > :global(svg:last-child) { visibility: hidden; }
   .control-popover button > :global(svg.visible:last-child) { visibility: visible; }
   @container chat-composer (max-width: 520px) { .control-trigger.compact { width: 1.9rem; padding-inline: 0; justify-content: center; } .control-trigger.compact .control-label, .control-trigger.compact :global(svg:last-child) { display: none; } }

@@ -47,7 +47,7 @@ CREATE TABLE chat_threads (
     model_selection_data TEXT NOT NULL DEFAULT '{}' CHECK (
         json_valid(model_selection_data) AND json_type(model_selection_data) = 'object'
     ),
-    safety_mode TEXT NOT NULL CHECK (safety_mode IN ('supervised', 'auto_accept_edits', 'full_access')),
+    safety_mode TEXT NOT NULL CHECK (safety_mode IN ('ask_for_approval', 'approve_for_me', 'full_access', 'custom')),
     interaction_mode TEXT NOT NULL CHECK (interaction_mode IN ('build', 'plan')),
     state TEXT NOT NULL CHECK (state IN ('draft', 'active', 'waiting', 'idle', 'error', 'archived', 'closed')),
     latest_turn_state TEXT CHECK (
@@ -169,7 +169,7 @@ CREATE TABLE chat_turns (
     model_selection_data TEXT NOT NULL DEFAULT '{}' CHECK (
         json_valid(model_selection_data) AND json_type(model_selection_data) = 'object'
     ),
-    safety_mode TEXT NOT NULL CHECK (safety_mode IN ('supervised', 'auto_accept_edits', 'full_access')),
+    safety_mode TEXT NOT NULL CHECK (safety_mode IN ('ask_for_approval', 'approve_for_me', 'full_access', 'custom')),
     interaction_mode TEXT NOT NULL CHECK (interaction_mode IN ('build', 'plan')),
     usage_schema_version INTEGER CHECK (usage_schema_version IS NULL OR usage_schema_version >= 1),
     usage_data TEXT CHECK (usage_data IS NULL OR json_valid(usage_data)),
@@ -321,7 +321,7 @@ CREATE TABLE chat_drafts (
     ),
     model_selection_data TEXT CHECK (model_selection_data IS NULL OR json_valid(model_selection_data)),
     safety_mode TEXT CHECK (
-        safety_mode IS NULL OR safety_mode IN ('supervised', 'auto_accept_edits', 'full_access')
+        safety_mode IS NULL OR safety_mode IN ('ask_for_approval', 'approve_for_me', 'full_access', 'custom')
     ),
     interaction_mode TEXT CHECK (interaction_mode IS NULL OR interaction_mode IN ('build', 'plan')),
     sent_snapshot_schema_version INTEGER CHECK (

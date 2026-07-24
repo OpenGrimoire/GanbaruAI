@@ -120,8 +120,8 @@ export function validateComposerSelections(
   if (selections.interactionMode === "plan" && !supports(capabilities, "native_plan")) {
     errors.push({ field: "interaction", message: "This provider does not support native Plan mode" });
   }
-  if (selections.safetyMode === "full_access" && !selections.fullAccessTrusted) {
-    errors.push({ field: "trust", message: "Confirm Full access for this provider and workspace" });
+  if ((selections.safetyMode === "full_access" || selections.safetyMode === "custom") && !selections.fullAccessTrusted) {
+    errors.push({ field: "trust", message: "Confirm broad permission trust for this provider and workspace" });
   }
   return errors;
 }

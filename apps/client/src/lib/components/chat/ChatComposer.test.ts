@@ -143,7 +143,7 @@ describe("ChatComposer", () => {
         { key: "reasoning_effort", value: { kind: "choice", value: "medium" } },
         { key: "service_tier", value: { kind: "choice", value: "standard" } },
       ]),
-      safetyMode: "supervised",
+      safetyMode: "ask_for_approval",
       interactionMode: "build",
     };
     vi.spyOn(chat, "setComposerModel").mockImplementation((modelSelection) => {
@@ -302,7 +302,7 @@ describe("ChatComposer", () => {
       ...composer(),
       providerInstanceId: "codex-local",
       modelSelection: composerModelSelection("gpt-5.6-sol", false, []),
-      safetyMode: "supervised",
+      safetyMode: "ask_for_approval",
       interactionMode: "build",
     };
     vi.spyOn(chat, "setComposerProvider").mockImplementation((providerInstanceId) => {
@@ -345,7 +345,7 @@ describe("ChatComposer", () => {
       ...composer(),
       providerInstanceId: "codex-local",
       modelSelection: composerModelSelection("gpt-5.6-sol", false, []),
-      safetyMode: "supervised",
+      safetyMode: "ask_for_approval",
       interactionMode: "build",
     };
     const updateModels = vi.spyOn(chat, "updateModels").mockResolvedValue();
@@ -381,7 +381,7 @@ describe("ChatComposer", () => {
     chat.composer = {
       ...composer(),
       providerInstanceId: "claude",
-      safetyMode: "supervised",
+      safetyMode: "ask_for_approval",
       interactionMode: "build",
     };
     vi.spyOn(chat, "setComposerModel").mockImplementation((modelSelection) => {
@@ -421,6 +421,71 @@ describe("ChatComposer", () => {
     choices.at(-1)?.click();
     await tick();
     expect(knob?.style.left).toContain("100% - 0.875rem");
+  });
+
+  it("selects the strongest model from the first healthy provider and defaults permissions", async () => {
+    const chat = getChat();
+    const settings = modelSettings();
+    const firstProvider = settings.providerInstances[0];
+    if (!firstProvider?.modelCatalog) throw new Error("Model settings require a discovered catalog");
+    firstProvider.modelCatalog.models.reverse();
+    chat.settings = settings;
+    vi.spyOn(chat, "setComposerProvider").mockImplementation((providerInstanceId) => {
+      chat.composer = { ...chat.composer, providerInstanceId };
+    });
+    vi.spyOn(chat, "setComposerModel").mockImplementation((modelSelection) => {
+      chat.composer = { ...chat.composer, modelSelection };
+    });
+    vi.spyOn(chat, "setComposerModes").mockImplementation((safetyMode, interactionMode) => {
+      chat.composer = { ...chat.composer, safetyMode, interactionMode };
+    });
+
+    const { target } = setup(false);
+    await tick();
+    await tick();
+    await tick();
+
+    expect(chat.composer.providerInstanceId).toBe("codex-local");
+    expect(readComposerModelSelection(chat.composer.modelSelection).modelId).toBe("gpt-5.6-sol");
+    expect(chat.composer.safetyMode).toBe("ask_for_approval");
+    expect(chat.composer.interactionMode).toBe("build");
+    expect(target.querySelector('[data-chat-field="safety"]')?.textContent).toContain("Ask for approval");
+    expect(target.querySelector("[data-chat-model-trigger]")?.textContent).toContain("5.6 Sol");
+  });
+
+  it("previews disabled model controls when no provider is configured", async () => {
+    const chat = getChat();
+    const settings = modelSettings();
+    settings.providerInstances = [];
+    chat.settings = settings;
+    vi.spyOn(chat, "setComposerModes").mockImplementation((safetyMode, interactionMode) => {
+      chat.composer = { ...chat.composer, safetyMode, interactionMode };
+    });
+
+    const { target } = setup(false);
+    await tick();
+    await tick();
+
+    expect(chat.composer.providerInstanceId).toBeNull();
+    expect(chat.composer.safetyMode).toBe("ask_for_approval");
+    const trigger = target.querySelector<HTMLButtonElement>("[data-chat-model-trigger]");
+    expect(trigger?.textContent).toContain("Choose provider");
+    trigger?.click();
+    await tick();
+
+    expect(target.querySelector(".advanced-view.active")).not.toBeNull();
+    const rows = [...target.querySelectorAll<HTMLButtonElement>(".advanced-list button")];
+    expect(rows.map((row) => row.textContent?.trim())).toEqual(["ModelChoose provider", "Effort", "Speed"]);
+    expect(rows[0]?.disabled).toBe(false);
+    expect(rows[1]?.disabled).toBe(true);
+    expect(rows[2]?.disabled).toBe(true);
+
+    target.querySelector<HTMLButtonElement>(".advanced-heading")?.click();
+    await tick();
+    const dummyLadder = target.querySelector<HTMLElement>(".effort-ladder.dummy");
+    expect(dummyLadder?.getAttribute("aria-disabled")).toBe("true");
+    expect(dummyLadder?.querySelectorAll("button:disabled")).toHaveLength(6);
+    expect(target.querySelector<HTMLButtonElement>(".fast-button.dummy")?.disabled).toBe(true);
   });
 });
 

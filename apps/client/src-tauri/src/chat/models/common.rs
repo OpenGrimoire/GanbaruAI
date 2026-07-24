@@ -27,9 +27,10 @@ impl KnownProviderFamily {
 #[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum SafetyMode {
-    Supervised,
-    AutoAcceptEdits,
+    AskForApproval,
+    ApproveForMe,
     FullAccess,
+    Custom,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]

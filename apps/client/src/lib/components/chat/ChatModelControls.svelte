@@ -111,6 +111,7 @@
   const effortDragThresholdPx = 5;
   const effortTrackHeightRem = 1.75;
   const effortEndpointInsetRem = effortTrackHeightRem / 2;
+  const dummyEffortStops = [0, 1, 2, 3, 4, 5] as const;
   const providers = $derived(chat.settings?.providerInstances ?? []);
   const healthyProviders = $derived(providers.filter((entry) => providerAvailable(entry)));
   const provider = $derived(providers.find((entry) => entry.configuration.instanceId === chat.composer.providerInstanceId) ?? null);
@@ -216,7 +217,11 @@
     const workspaceId = chat.composer.workspaceId;
     if (!workspaceId || chat.composer.providerInstanceId) return;
     const preferred = chat.settings?.configuration.workspaceProviderPreferences[workspaceId];
-    if (preferred && healthyProviders.some((entry) => entry.configuration.instanceId === preferred)) chat.setComposerProvider(preferred);
+    const preferredProvider = preferred
+      ? healthyProviders.find((entry) => entry.configuration.instanceId === preferred)
+      : null;
+    const initialProvider = preferredProvider ?? healthyProviders[0];
+    if (initialProvider) chat.setComposerProvider(initialProvider.configuration.instanceId);
   });
 
   $effect(() => {
@@ -224,20 +229,40 @@
     const providerId = chat.composer.providerInstanceId;
     if (!workspaceId || !providerId || chat.composer.loading) return;
     const key = `${workspaceId}:${providerId}`;
-    if (restoredKey === key || chat.composer.modelSelection || chat.composer.safetyMode || chat.composer.interactionMode) return;
+    if (restoredKey === key) return;
     const remembered = chat.settings?.configuration.rememberedSelections.find((entry) => entry.workspaceId === workspaceId && entry.providerInstanceId === providerId);
     restoredKey = key;
     if (!remembered) return;
-    chat.setComposerModel(composerModelSelection(remembered.modelId, remembered.providerManagedModel, remembered.modelOptions));
-    chat.setComposerModes(remembered.safetyMode, remembered.interactionMode);
+    if (!chat.composer.modelSelection) {
+      chat.setComposerModel(composerModelSelection(remembered.modelId, remembered.providerManagedModel, remembered.modelOptions));
+    }
+    if (!chat.composer.safetyMode || !chat.composer.interactionMode) {
+      chat.setComposerModes(
+        chat.composer.safetyMode ?? remembered.safetyMode,
+        chat.composer.interactionMode ?? remembered.interactionMode,
+      );
+    }
   });
 
   $effect(() => {
-    if (!provider || chat.composer.loading || selection.modelId || models.length === 0) return;
-    const recommended = models.find((model) => model.id === "default") ?? models[0];
-    if (!recommended) return;
-    chat.setComposerModel(composerModelSelection(recommended.id, false, defaultOptions(recommended.options)));
-    quickAnchorModelId = recommended.id;
+    if (chat.composer.loading || chat.composer.safetyMode) return;
+    const workspaceId = chat.composer.workspaceId;
+    const providerId = chat.composer.providerInstanceId;
+    if (workspaceId && providerId && restoredKey !== `${workspaceId}:${providerId}`) return;
+    chat.setComposerModes("ask_for_approval", chat.composer.interactionMode);
+  });
+
+  $effect(() => {
+    if (!provider || chat.composer.loading || selection.modelId || selection.providerManaged) return;
+    const recommended = recommendedModel(provider, models);
+    if (recommended) {
+      chat.setComposerModel(composerModelSelection(recommended.id, false, defaultOptions(recommended.options)));
+      quickAnchorModelId = recommended.id;
+      return;
+    }
+    if (provider.modelCatalog?.models.length === 0) {
+      chat.setComposerModel(composerModelSelection(null, true, []));
+    }
   });
 
   $effect(() => {
@@ -718,6 +743,19 @@
     )) ?? [];
   }
 
+  function recommendedModel(entry: ProviderInstanceRead, candidates: ProviderModel[]): ProviderModel | null {
+    const selectable = candidates.filter((model) => model.availability === "available" || model.availability === "stale");
+    const builtIn = selectable.filter((model) => !model.custom);
+    const pool = builtIn.length > 0 ? builtIn : selectable;
+    const providerDefault = pool.find((model) => model.id === "default");
+    if (providerDefault) return providerDefault;
+    const first = pool[0];
+    if (!first) return null;
+    const company = modelCompany(entry.configuration.familyId, first);
+    const sameCompany = pool.filter((model) => modelCompany(entry.configuration.familyId, model).id === company.id);
+    return [...sameCompany].sort((left, right) => compareCompanyModels(company.id, left, right))[0] ?? first;
+  }
+
   function buildFavoriteModelEntries(entries: ProviderInstanceRead[], query: string): FavoriteModelEntry[] {
     const favorites: FavoriteModelEntry[] = [];
     for (const entry of entries) {
@@ -908,11 +946,21 @@
               {#if selectedQuickEffortIndex >= 0}<span class="effort-knob" style={`left:${quickStopPosition(selectedQuickEffortIndex, quickEffortChoices.length)}`} aria-hidden="true"></span>{/if}
             </span>
           </div>
+        {:else if !provider}
+          <div class="effort-ladder dummy" style={`--effort-track-height:${effortTrackHeightRem}rem`} role="group" aria-label={t("chat.composer.quickModelEffort")} aria-disabled="true">
+            <span class="effort-options">
+              {#each dummyEffortStops as stop}
+                <button type="button" style={`left:${quickStopPosition(stop, dummyEffortStops.length)}`} aria-label={t("chat.composer.providerRequiredForModelOptions")} disabled tabindex="-1"><i></i></button>
+              {/each}
+              <span class="effort-knob" style="left:50%" aria-hidden="true"></span>
+            </span>
+          </div>
         {/if}
         <div class="effort-footer" class:holding={effortDragging}>
           <div class="quick-actions" inert={effortDragging} aria-hidden={effortDragging}>
             <button bind:this={advancedToggle} type="button" class="advanced-toggle" onclick={() => setPickerView("advanced")}><span>{t("chat.composer.advanced")}</span><span class="advanced-chevron" class:expanded={view === "advanced"}><ChevronRight size={15} /></span></button>
-            {#if speedDefinition}<button type="button" class="fast-button" class:active={isFastSelected()} class:ultra={isUltraSelected()} title={isFastSelected() ? t("chat.composer.fastEnabled") : t("chat.composer.enableFast")} aria-label={isFastSelected() ? t("chat.composer.fastEnabled") : t("chat.composer.enableFast")} aria-pressed={isFastSelected()} onclick={() => setFastMode(!isFastSelected())}><Zap size={16} /></button>{/if}
+            {#if speedDefinition}<button type="button" class="fast-button" class:active={isFastSelected()} class:ultra={isUltraSelected()} title={isFastSelected() ? t("chat.composer.fastEnabled") : t("chat.composer.enableFast")} aria-label={isFastSelected() ? t("chat.composer.fastEnabled") : t("chat.composer.enableFast")} aria-pressed={isFastSelected()} onclick={() => setFastMode(!isFastSelected())}><Zap size={16} /></button>
+            {:else if !provider}<button type="button" class="fast-button dummy" title={t("chat.composer.providerRequiredForModelOptions")} aria-label={t("chat.composer.providerRequiredForModelOptions")} disabled><Zap size={16} /></button>{/if}
           </div>
           <div class="effort-guidance" aria-hidden="true"><span>{t("chat.composer.faster")}</span><span>{t("chat.composer.smarter")}</span></div>
         </div>
@@ -921,8 +969,10 @@
         <button bind:this={advancedHeading} type="button" class="advanced-heading" onclick={() => setPickerView("overview")}><span>{t("chat.composer.advanced")}</span><span class="advanced-chevron" class:expanded={view === "advanced"}><ChevronRight size={15} /></span></button>
         <div class="advanced-list">
           <button type="button" onpointerenter={(event) => handleNamedFlyoutPointerEnter("models", event)} onfocus={(event) => openFlyout("models", event.currentTarget)} onclick={(event) => { openFlyout("models", event.currentTarget); void tick().then(() => modelSearch?.focus()); }}><span>{t("chat.hero.model")}</span><small>{selection.providerManaged ? t("chat.composer.providerManagedModel") : displayModelName(selectedModel)}</small><ChevronRight size={15} /></button>
-          {#if effortDefinition}<button type="button" onpointerenter={(event) => handleOptionPointerEnter(effortDefinition, event)} onfocus={(event) => openOption(effortDefinition, event.currentTarget)} onclick={(event) => openOption(effortDefinition, event.currentTarget)}><span>{t("chat.composer.effort")}</span><small>{selectedOptionLabel(effortDefinition)}</small><ChevronRight size={15} /></button>{/if}
-          {#if speedDefinition}<button type="button" onpointerenter={(event) => handleOptionPointerEnter(speedDefinition, event)} onfocus={(event) => openOption(speedDefinition, event.currentTarget)} onclick={(event) => openOption(speedDefinition, event.currentTarget)}><span>{t("chat.composer.speed")}</span><small>{isFastSelected() ? t("chat.composer.fast") : t("chat.composer.standard")}</small><ChevronRight size={15} /></button>{/if}
+          {#if effortDefinition}<button type="button" onpointerenter={(event) => handleOptionPointerEnter(effortDefinition, event)} onfocus={(event) => openOption(effortDefinition, event.currentTarget)} onclick={(event) => openOption(effortDefinition, event.currentTarget)}><span>{t("chat.composer.effort")}</span><small>{selectedOptionLabel(effortDefinition)}</small><ChevronRight size={15} /></button>
+          {:else if !provider}<button type="button" disabled title={t("chat.composer.providerRequiredForModelOptions")}><span>{t("chat.composer.effort")}</span><small></small><ChevronRight size={15} /></button>{/if}
+          {#if speedDefinition}<button type="button" onpointerenter={(event) => handleOptionPointerEnter(speedDefinition, event)} onfocus={(event) => openOption(speedDefinition, event.currentTarget)} onclick={(event) => openOption(speedDefinition, event.currentTarget)}><span>{t("chat.composer.speed")}</span><small>{isFastSelected() ? t("chat.composer.fast") : t("chat.composer.standard")}</small><ChevronRight size={15} /></button>
+          {:else if !provider}<button type="button" disabled title={t("chat.composer.providerRequiredForModelOptions")}><span>{t("chat.composer.speed")}</span><small></small><ChevronRight size={15} /></button>{/if}
           {#each otherDefinitions as definition}<button type="button" onpointerenter={(event) => handleOptionPointerEnter(definition, event)} onfocus={(event) => openOption(definition, event.currentTarget)} onclick={(event) => openOption(definition, event.currentTarget)}><span>{definition.label}</span><small>{selectedOptionLabel(definition)}</small><ChevronRight size={15} /></button>{/each}
         </div>
         </div>
@@ -1066,6 +1116,10 @@
   .effort-ladder.ultra { border-color: color-mix(in srgb, #8b5cf6 30%, transparent); background: #ddd6fe; }
   .effort-ladder.ultra .effort-fill::before, .effort-ladder.ultra:not(.fast) .effort-particles.calm, .effort-ladder.fast .effort-particles.rapid { opacity: 1; }
   .effort-ladder.fast .effort-options button:has(~ button[aria-pressed="true"]) i, .effort-ladder.ultra .effort-options button:has(~ button[aria-pressed="true"]) i { opacity: 0; transform: scale(0.65); transition-delay: 0ms; }
+  .effort-ladder.dummy { cursor: not-allowed; opacity: 0.48; }
+  .effort-ladder.dummy .effort-options button:disabled { cursor: not-allowed; }
+  .effort-ladder.dummy .effort-options button:hover i { transform: scale(1); }
+  .effort-ladder.dummy .effort-knob { opacity: 0.72; }
   :global(.dark) .effort-name.ultra { color: #b794ff; }
   :global(.dark) .effort-ladder { border-color: rgb(255 255 255 / 0.09); background: #45464a; }
   :global(.dark) .effort-fill { background: #1681dc; }
@@ -1093,11 +1147,14 @@
   .fast-button.active { background: rgb(12 120 208 / 0.1); color: #0879d8; }
   .fast-button.active.ultra { background: rgb(124 58 237 / 0.1); color: #7c3aed; }
   .fast-button:active { transform: scale(0.92); }
+  .fast-button.dummy:disabled { cursor: not-allowed; opacity: 0.48; }
   :global(.dark) .fast-button.active { background: rgb(22 129 220 / 0.16); color: #3b9aeb; }
   :global(.dark) .fast-button.active.ultra { background: rgb(167 139 250 / 0.15); color: #b794ff; }
   .advanced-list { padding-top: 0.3rem; }
   .advanced-list button { display: grid; width: 100%; grid-template-columns: minmax(0, 1fr) minmax(0, auto) 1rem; align-items: center; gap: 0.5rem; border-radius: 0.55rem; padding: 0.5rem 0.2rem; text-align: left; }
   .advanced-list button:hover, .advanced-list button:focus-visible { background: color-mix(in srgb, var(--accent) 70%, transparent); outline: none; }
+  .advanced-list button:disabled { cursor: not-allowed; opacity: 0.48; }
+  .advanced-list button:disabled:hover { background: transparent; }
   .advanced-list small { overflow: hidden; max-width: 9rem; text-overflow: ellipsis; white-space: nowrap; color: var(--muted-foreground); font-size: 0.8125rem; }
   .model-flyout { position: absolute; z-index: 46; width: min(16.5rem, calc(100vw - 1rem)); max-height: min(28rem, 72vh); overflow: hidden auto; border: 1px solid var(--border); border-radius: 0.8rem; background: var(--popover); padding: 0.35rem; font-size: 0.875rem; box-shadow: 0 4px 12px rgb(0 0 0 / 0.09); }
   .model-flyout:not(.positioned) { visibility: hidden; }

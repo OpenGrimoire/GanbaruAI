@@ -21,10 +21,12 @@ pub enum OpenCodePermissionAction {
 pub fn permission_rules(mode: SafetyMode) -> Vec<OpenCodePermissionRule> {
     let broad_action = match mode {
         SafetyMode::FullAccess => OpenCodePermissionAction::Allow,
-        SafetyMode::Supervised | SafetyMode::AutoAcceptEdits => OpenCodePermissionAction::Ask,
+        SafetyMode::AskForApproval | SafetyMode::ApproveForMe | SafetyMode::Custom => {
+            OpenCodePermissionAction::Ask
+        }
     };
     let mut rules = vec![rule("*", broad_action)];
-    if mode == SafetyMode::AutoAcceptEdits {
+    if mode == SafetyMode::AskForApproval {
         rules.push(rule("edit", OpenCodePermissionAction::Allow));
     }
     if mode != SafetyMode::FullAccess {

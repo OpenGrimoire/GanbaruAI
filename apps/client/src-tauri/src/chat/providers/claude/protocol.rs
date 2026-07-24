@@ -240,9 +240,10 @@ pub fn permission_mode(modes: TurnModeSnapshot) -> &'static str {
         return "plan";
     }
     match modes.safety_mode {
-        SafetyMode::Supervised => "default",
-        SafetyMode::AutoAcceptEdits => "acceptEdits",
+        SafetyMode::AskForApproval => "acceptEdits",
+        SafetyMode::ApproveForMe => "auto",
         SafetyMode::FullAccess => "bypassPermissions",
+        SafetyMode::Custom => "default",
     }
 }
 

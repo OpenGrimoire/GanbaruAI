@@ -68,7 +68,7 @@ function thread(id = "thread", overrides: Partial<ChatThreadShellRead> = {}): Ch
     providerThreadId: null,
     modelId: null,
     modelOptions: [],
-    modes: { safetyMode: "supervised", interactionMode: "build" },
+    modes: { safetyMode: "ask_for_approval", interactionMode: "build" },
     state: "idle",
     latestTurnState: null,
     latestPreview: null,

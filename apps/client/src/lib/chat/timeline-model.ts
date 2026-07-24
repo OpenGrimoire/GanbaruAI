@@ -164,7 +164,7 @@ interface MutableStreamRow {
 }
 
 const DEFAULT_MODES: TurnModeSnapshot = {
-  safetyMode: "supervised",
+  safetyMode: "ask_for_approval",
   interactionMode: "build",
 };
 

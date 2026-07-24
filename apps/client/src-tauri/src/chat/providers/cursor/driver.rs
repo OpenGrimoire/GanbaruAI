@@ -278,7 +278,7 @@ impl CursorProviderDriver {
             None,
             AcpRequestedConfiguration {
                 modes: TurnModeSnapshot {
-                    safety_mode: SafetyMode::Supervised,
+                    safety_mode: SafetyMode::AskForApproval,
                     interaction_mode: InteractionMode::Build,
                 },
                 model_id: None,

@@ -35,7 +35,7 @@ describe("Chat composer model", () => {
     expect(queuedFollowupDispatchReady("stopped", "active")).toBe(false);
   });
 
-  it("requires every explicit first-use choice and workspace-specific Full access trust", () => {
+  it("requires every explicit first-use choice and workspace-specific broad permission trust", () => {
     expect(validateComposerSelections({
       workspaceId: null,
       providerInstanceId: null,
@@ -55,7 +55,7 @@ describe("Chat composer model", () => {
       fullAccessTrusted: false,
     }, capabilities())).toEqual([
       { field: "interaction", message: "This provider does not support native Plan mode" },
-      { field: "trust", message: "Confirm Full access for this provider and workspace" },
+      { field: "trust", message: "Confirm broad permission trust for this provider and workspace" },
     ]);
   });
 

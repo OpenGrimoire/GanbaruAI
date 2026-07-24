@@ -338,7 +338,7 @@ async fn seed_thread(
              model_selection_data, safety_mode, interaction_mode, state,
              latest_turn_state, latest_preview, message_count, revision,
              last_activity_at, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'supervised', ?, 'idle',
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'ask_for_approval', ?, 'idle',
                  'completed', ?, ?, ?, ?, ?, ?)",
     )
     .bind(thread_id(thread_index))
@@ -391,7 +391,7 @@ async fn seed_turns(
                  model_selection_data, safety_mode, interaction_mode, usage_schema_version,
                  usage_data, changed_file_summary_schema_version, changed_file_summary_data,
                  created_at, updated_at)
-             VALUES (?, ?, ?, ?, 'completed', ?, ?, ?, 'supervised', ?, 1, ?, 1, ?, ?, ?)",
+             VALUES (?, ?, ?, ?, 'completed', ?, ?, ?, 'ask_for_approval', ?, 1, ?, 1, ?, ?, ?)",
         )
         .bind(turn_id(thread_index, turn_index))
         .bind(thread_id(thread_index))

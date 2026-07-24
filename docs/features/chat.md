@@ -31,9 +31,11 @@ After provider discovery:
 
 1. Link an existing Ganbaru Project or create a standalone Chat workspace.
 2. Bind that logical workspace to a local folder on this device.
-3. Review the visible provider and model selection, safety mode, and Build or Plan before the first send.
+3. Review the visible provider and model selection, permission mode, and Build or Plan before the first send.
 
 Failed probes preserve entered fields. Missing folders, changed repository identity, unavailable providers, unsupported capabilities, and another device without a binding have distinct recovery actions. Automatic discovery never supplies credentials, changes the CLI home, installs software, chooses Full access, or hides the active provider and model from the composer.
+
+A fresh draft selects the workspace preference when it points to a healthy provider. Otherwise it selects the first healthy discovered provider and that provider's strongest available built-in model, using a provider-resolved default when one exists. Ask for approval is the initial permission mode. When no provider is configured, the trigger remains Choose provider and opens directly in Advanced. Model setup stays prominent while disabled Effort and Speed rows, a disabled effort ladder, and a disabled speed control preview the configured experience without implying that model options are available.
 
 Chat settings separate Providers, Models, Workspaces, and Behavior into compact tabs. They use the same keyboard-accessible custom selectors, toggle controls, section spacing, and semantic surfaces as the rest of Settings. Routine behavior remains immediately visible, while diagnostics and device-wide maintenance stay in a collapsed advanced area. Provider rows favor status and direct icon actions over large administration cards.
 
@@ -83,11 +85,20 @@ Sending writes the user message, turn, attachment references, and idempotent com
 
 During active work, the provider capability decides whether a prompt steers the turn, becomes a durable queued follow-up, or remains an unsent draft. Stop is idempotent and has a bounded stopping state. Force stop is explicit. Approvals expose only choices offered by the provider and never choose a permissive default. Structured questions preserve partial local answers and validate required fields before submission.
 
-## Safety modes
+## Permission modes
 
-Supervised asks through the provider's native permission mechanism. Auto-accept edits accepts only the provider's verified edit scope and continues to ask for commands or wider access. Full access uses the provider's native unrestricted mode only after confirmation for the exact provider instance and logical workspace.
+The composer and Chat settings describe four permission choices. Ask for approval is selected for a fresh draft. It lets the provider edit within the selected workspace and asks before external file access, network access, or another provider-defined escalation. Approve for me keeps the same workspace boundary but sends eligible escalations to the provider's native safety classifier. Full access uses the provider's native unrestricted mode. Custom uses the effective Codex settings or permission profile from `config.toml` without Ganbaru replacing them.
 
-Full-access trust is device-local and cannot arrive through stale UI state. The active turn keeps its mode snapshot even if a later draft changes modes. Provider capability differences remain visible and disabled rather than simulated.
+| Permission choice | Codex | Claude | Cursor and Grok | OpenCode |
+|---|---|---|---|---|
+| Ask for approval | Workspace sandbox with user review | `acceptEdits` | ACP approval flow | Ask rules with workspace edits allowed |
+| Approve for me | Auto-review | `auto` permission mode | Unavailable | Unavailable |
+| Full access | Unrestricted sandbox | `bypassPermissions` | ACP approvals accepted automatically | Allow rules |
+| Custom (`config.toml`) | Effective Codex configuration | Unavailable | Unavailable | Unavailable |
+
+Approve for me is unavailable when a provider does not expose a native action classifier. Ganbaru does not simulate it by automatically accepting generic provider requests. Managed provider policy, explicit deny rules, and provider eligibility can still restrict a selected mode.
+
+Full access and Custom trust are device-local and require confirmation for the exact provider instance and logical workspace. Custom uses the same trust boundary because `config.toml` can grant unrestricted access. The active turn keeps its permission snapshot even if a later draft changes modes. Provider capability differences remain visible and disabled rather than simulated.
 
 ## Inspector, terminal, and checkpoints
 

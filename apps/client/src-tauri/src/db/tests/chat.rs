@@ -44,7 +44,7 @@ async fn insert_thread(
              provider_instance_id, continuation_group_id, safety_mode,
              interaction_mode, state, last_activity_at, created_at, updated_at)
          VALUES (?, ?, ?, 'Implement Chat', 'codex', 'codex-personal',
-                 'continuation-1', 'supervised', 'build', 'idle', ?, ?, ?)",
+                 'continuation-1', 'ask_for_approval', 'build', 'idle', ?, ?, ?)",
     )
     .bind(id)
     .bind(workspace_id)
@@ -135,6 +135,38 @@ fn schema_creates_chat_tables_indexes_and_no_device_paths() {
 }
 
 #[test]
+fn chat_permission_columns_accept_only_current_modes() {
+    tauri::async_runtime::block_on(async {
+        let pool = migrated_memory_pool().await;
+        for table in ["chat_threads", "chat_turns", "chat_drafts"] {
+            let sql: String = sqlx::query_scalar(
+                "SELECT sql FROM sqlite_schema WHERE type = 'table' AND name = ?",
+            )
+            .bind(table)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+            for mode in [
+                "ask_for_approval",
+                "approve_for_me",
+                "full_access",
+                "custom",
+            ] {
+                assert!(sql.contains(mode), "{table} should accept {mode}");
+            }
+            assert!(
+                !sql.contains("supervised"),
+                "{table} should reject legacy modes"
+            );
+            assert!(
+                !sql.contains("auto_accept_edits"),
+                "{table} should reject legacy modes"
+            );
+        }
+    });
+}
+
+#[test]
 fn workspace_tool_schema_tracks_restore_invalidation_and_exact_cleanup() {
     tauri::async_runtime::block_on(async {
         let pool = migrated_memory_pool().await;
@@ -200,7 +232,7 @@ fn workspace_project_identity_and_delete_policies_are_explicit() {
                  provider_instance_id, continuation_group_id, safety_mode,
                  interaction_mode, state, last_activity_at, created_at, updated_at)
              VALUES ('thread-bad', 'workspace-project', NULL, 'Bad', 'codex',
-                     'codex-personal', 'continuation-1', 'supervised', 'build',
+                     'codex-personal', 'continuation-1', 'ask_for_approval', 'build',
                      'idle', ?, ?, ?)",
         )
         .bind(NOW)

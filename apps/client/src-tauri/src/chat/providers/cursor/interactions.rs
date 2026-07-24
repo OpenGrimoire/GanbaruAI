@@ -327,12 +327,11 @@ pub fn auto_permission_option(
     safety_mode: SafetyMode,
 ) -> Option<&AcpPermissionOption> {
     match safety_mode {
-        SafetyMode::Supervised => None,
-        SafetyMode::AutoAcceptEdits if parsed.safely_in_workspace_edit => parsed
+        SafetyMode::AskForApproval if parsed.safely_in_workspace_edit => parsed
             .options
             .iter()
             .find(|option| option.kind == "allow_once"),
-        SafetyMode::AutoAcceptEdits => None,
+        SafetyMode::AskForApproval | SafetyMode::ApproveForMe | SafetyMode::Custom => None,
         SafetyMode::FullAccess => parsed
             .options
             .iter()

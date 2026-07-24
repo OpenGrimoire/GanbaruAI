@@ -289,6 +289,28 @@ async fn run_app_server_fixture<R, W>(
                 )
                 .await;
             }
+            "config/read" => {
+                write_fixture_message(
+                    &mut writer,
+                    json!({
+                        "id": id,
+                        "result": {
+                            "config": {
+                                "approval_policy": "on-request",
+                                "approvals_reviewer": "user",
+                                "sandbox_mode": "workspace-write",
+                                "sandbox_workspace_write": {
+                                    "writable_roots": [],
+                                    "network_access": false,
+                                    "exclude_tmpdir_env_var": false,
+                                    "exclude_slash_tmp": false
+                                }
+                            }
+                        }
+                    }),
+                )
+                .await;
+            }
             "thread/resume" if scenario == FixtureScenario::ResumeMissing && !resume_failed => {
                 resume_failed = true;
                 write_fixture_message(
@@ -308,12 +330,14 @@ async fn run_app_server_fixture<R, W>(
                         "result": {
                             "thread": { "id": thread_id },
                             "model": "gpt-5.4",
-                            "approvalPolicy": message["params"]["approvalPolicy"],
+                            "approvalPolicy": message["params"]["approvalPolicy"].as_str().unwrap_or("on-request"),
+                            "approvalsReviewer": message["params"]["approvalsReviewer"].as_str().unwrap_or("user"),
                             "sandbox": {
                                 "type": match message["params"]["sandbox"].as_str() {
                                     Some("read-only") => "readOnly",
                                     Some("workspace-write") => "workspaceWrite",
-                                    _ => "dangerFullAccess"
+                                    Some("danger-full-access") => "dangerFullAccess",
+                                    _ => "workspaceWrite"
                                 }
                             }
                         }
@@ -432,7 +456,7 @@ fn start_request(workspace: &Path) -> StartSessionRequest {
             "repositoryIdentity": null
         },
         "providerInstanceId": "codex-instance-1",
-        "modes": { "safetyMode": "supervised", "interactionMode": "build" },
+        "modes": { "safetyMode": "ask_for_approval", "interactionMode": "build" },
         "modelId": "gpt-5.4",
         "modelOptions": []
     }))
@@ -452,7 +476,7 @@ fn fixture_turn(session_id: &ProviderSessionId, interaction_mode: &str) -> SendT
             "key": "reasoning_effort",
             "value": { "kind": "choice", "value": "high" }
         }],
-        "modes": { "safetyMode": "supervised", "interactionMode": interaction_mode },
+        "modes": { "safetyMode": "ask_for_approval", "interactionMode": interaction_mode },
         "developerInstructions": "Fixture instructions"
     }))
     .unwrap()
@@ -487,29 +511,45 @@ async fn wait_for_fixture_message(
 #[test]
 fn safety_modes_map_to_exact_codex_policies() {
     assert_eq!(
-        safety_settings(SafetyMode::Supervised),
-        CodexSafetySettings {
-            approval_policy: "untrusted",
-            sandbox: "read-only",
-            turn_sandbox_type: "readOnly",
-        }
-    );
-    assert_eq!(
-        safety_settings(SafetyMode::AutoAcceptEdits),
-        CodexSafetySettings {
+        safety_settings(SafetyMode::AskForApproval),
+        Some(CodexSafetySettings {
             approval_policy: "on-request",
+            approvals_reviewer: "user",
             sandbox: "workspace-write",
             turn_sandbox_type: "workspaceWrite",
-        }
+        })
+    );
+    assert_eq!(
+        safety_settings(SafetyMode::ApproveForMe),
+        Some(CodexSafetySettings {
+            approval_policy: "on-request",
+            approvals_reviewer: "auto_review",
+            sandbox: "workspace-write",
+            turn_sandbox_type: "workspaceWrite",
+        })
     );
     assert_eq!(
         safety_settings(SafetyMode::FullAccess),
-        CodexSafetySettings {
+        Some(CodexSafetySettings {
             approval_policy: "never",
+            approvals_reviewer: "user",
             sandbox: "danger-full-access",
             turn_sandbox_type: "dangerFullAccess",
-        }
+        })
     );
+    assert_eq!(safety_settings(SafetyMode::Custom), None);
+
+    let custom = thread_open_params(
+        None,
+        Path::new("/workspace"),
+        modes(SafetyMode::Custom, InteractionMode::Build),
+        None,
+        None,
+    )
+    .unwrap();
+    assert!(custom.get("approvalPolicy").is_none());
+    assert!(custom.get("approvalsReviewer").is_none());
+    assert!(custom.get("sandbox").is_none());
 }
 
 #[test]
@@ -537,7 +577,7 @@ fn turn_builder_preserves_model_traits_modes_and_verified_images() {
             { "key": "reasoning_effort", "value": { "kind": "choice", "value": "high" } },
             { "key": "service_tier", "value": { "kind": "choice", "value": "fast" } }
         ],
-        "modes": { "safetyMode": "auto_accept_edits", "interactionMode": "plan" },
+        "modes": { "safetyMode": "approve_for_me", "interactionMode": "plan" },
         "developerInstructions": "Use the repository conventions."
     }))
     .unwrap();
@@ -546,11 +586,15 @@ fn turn_builder_preserves_model_traits_modes_and_verified_images() {
         workspace.path(),
         "fallback-model",
         &request,
+        None,
     )
     .unwrap();
 
     assert_eq!(params["approvalPolicy"], "on-request");
+    assert_eq!(params["approvalsReviewer"], "auto_review");
     assert_eq!(params["sandboxPolicy"]["type"], "workspaceWrite");
+    assert_eq!(params["sandboxPolicy"]["writableRoots"], json!([]));
+    assert_eq!(params["sandboxPolicy"]["networkAccess"], false);
     assert_eq!(params["model"], "gpt-5.4");
     assert_eq!(params["effort"], "high");
     assert_eq!(params["serviceTier"], "fast");
@@ -569,6 +613,7 @@ fn turn_builder_preserves_model_traits_modes_and_verified_images() {
         workspace.path(),
         "fallback-model",
         &standard_request,
+        None,
     )
     .unwrap();
     assert!(standard_params.get("serviceTier").is_none());
@@ -577,15 +622,79 @@ fn turn_builder_preserves_model_traits_modes_and_verified_images() {
         .unwrap()
         .starts_with(workspace.path().to_str().unwrap()));
 
+    let mut custom_request = request.clone();
+    custom_request.modes.safety_mode = SafetyMode::Custom;
+    let custom_safety = CodexCustomSafetySettings {
+        approval_policy: json!("on-request"),
+        approvals_reviewer: "user".to_string(),
+        sandbox_policy: None,
+        permissions: Some("project-edit".to_string()),
+    };
+    let custom_params = turn_start_params(
+        "provider-thread-1",
+        workspace.path(),
+        "fallback-model",
+        &custom_request,
+        Some(&custom_safety),
+    )
+    .unwrap();
+    assert_eq!(custom_params["permissions"], "project-edit");
+    assert!(custom_params.get("sandboxPolicy").is_none());
+
     let mut escaping = request;
     escaping.attachments[0].local_path = Some("../outside.png".to_string());
     assert!(turn_start_params(
         "provider-thread-1",
         workspace.path(),
         "fallback-model",
-        &escaping
+        &escaping,
+        None,
     )
     .is_err());
+}
+
+#[test]
+fn custom_permissions_resolve_profiles_and_legacy_sandbox_settings() {
+    let profile = custom_safety_settings(ConfigReadResponse {
+        config: json!({
+            "approval_policy": "on-request",
+            "approvals_reviewer": "auto_review",
+            "default_permissions": "project-edit"
+        }),
+    })
+    .unwrap();
+    assert_eq!(profile.permissions.as_deref(), Some("project-edit"));
+    assert_eq!(profile.sandbox_policy, None);
+
+    let writable_root = TestDirectory::new("custom-writable-root");
+    let writable_root_value = writable_root.path().to_string_lossy().into_owned();
+    let legacy = custom_safety_settings(ConfigReadResponse {
+        config: json!({
+            "approval_policy": "untrusted",
+            "approvals_reviewer": "user",
+            "sandbox_mode": "workspace-write",
+            "sandbox_workspace_write": {
+                "writable_roots": [writable_root_value],
+                "network_access": true,
+                "exclude_tmpdir_env_var": true,
+                "exclude_slash_tmp": false
+            }
+        }),
+    })
+    .unwrap();
+    assert_eq!(legacy.permissions, None);
+    assert_eq!(
+        legacy.sandbox_policy.as_ref().unwrap()["type"],
+        "workspaceWrite"
+    );
+    assert_eq!(
+        legacy.sandbox_policy.as_ref().unwrap()["networkAccess"],
+        true
+    );
+    assert_eq!(
+        legacy.sandbox_policy.as_ref().unwrap()["writableRoots"],
+        json!([writable_root.path().to_string_lossy()])
+    );
 }
 
 #[test]
@@ -880,7 +989,7 @@ fn redacted_fixture_normalizes_lifecycle_content_plan_and_unknown_events() {
         identifier("session-1", ProviderSessionId::new),
     );
     let mut state = CodexRouteState::new(
-        modes(SafetyMode::Supervised, InteractionMode::Build),
+        modes(SafetyMode::AskForApproval, InteractionMode::Build),
         Some(identifier("gpt-5.4", ModelId::new)),
     );
     state.active_chat_turn_id = Some(identifier("chat-turn-1", ChatTurnId::new));
@@ -974,7 +1083,7 @@ fn permission_approvals_return_only_requested_subset_and_scope() {
             identifier("session-1", ProviderSessionId::new),
         );
         let route = Arc::new(Mutex::new(CodexRouteState::new(
-            modes(SafetyMode::Supervised, InteractionMode::Build),
+            modes(SafetyMode::AskForApproval, InteractionMode::Build),
             None,
         )));
         let sink = Arc::new(RecordingSink::default());
@@ -1047,7 +1156,7 @@ fn secret_structured_answers_are_sent_to_codex_but_not_canonicalized() {
             identifier("session-1", ProviderSessionId::new),
         );
         let route = Arc::new(Mutex::new(CodexRouteState::new(
-            modes(SafetyMode::Supervised, InteractionMode::Build),
+            modes(SafetyMode::AskForApproval, InteractionMode::Build),
             None,
         )));
         let sink = Arc::new(RecordingSink::default());
@@ -1166,7 +1275,7 @@ fn driver_fixture_covers_fresh_plan_interrupt_and_shutdown() {
             .find(|message| message["method"] == "turn/start")
             .unwrap();
         assert_eq!(turn["params"]["collaborationMode"]["mode"], "plan");
-        assert_eq!(turn["params"]["approvalPolicy"], "untrusted");
+        assert_eq!(turn["params"]["approvalPolicy"], "on-request");
         assert!(received
             .iter()
             .any(|message| message["method"] == "turn/interrupt"));
@@ -1208,7 +1317,7 @@ fn driver_fixture_covers_native_resume_and_confirmed_missing_fallback() {
                     "schemaVersion": 1,
                     "value": { "threadId": "provider-thread-existing" }
                 },
-                "modes": { "safetyMode": "supervised", "interactionMode": "build" }
+                "modes": { "safetyMode": "ask_for_approval", "interactionMode": "build" }
             }))
             .unwrap();
             let snapshot = driver

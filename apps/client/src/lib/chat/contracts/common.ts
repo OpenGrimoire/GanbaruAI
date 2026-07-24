@@ -28,7 +28,7 @@ export type UtcTimestamp = string;
 export const KNOWN_PROVIDER_FAMILIES = ["codex", "claude", "cursor", "grok", "opencode"] as const;
 export type KnownProviderFamily = (typeof KNOWN_PROVIDER_FAMILIES)[number];
 
-export const SAFETY_MODES = ["supervised", "auto_accept_edits", "full_access"] as const;
+export const SAFETY_MODES = ["ask_for_approval", "approve_for_me", "full_access", "custom"] as const;
 export type SafetyMode = (typeof SAFETY_MODES)[number];
 
 export const INTERACTION_MODES = ["build", "plan"] as const;

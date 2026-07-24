@@ -128,7 +128,7 @@ impl ClaudeProviderDriver {
                     effort: None,
                     fast_mode: None,
                     modes: TurnModeSnapshot {
-                        safety_mode: SafetyMode::Supervised,
+                        safety_mode: SafetyMode::AskForApproval,
                         interaction_mode: InteractionMode::Build,
                     },
                 },

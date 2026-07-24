@@ -668,11 +668,27 @@ impl ProviderDriver for CodexProviderDriver {
                 .provider_thread_id
                 .clone()
                 .ok_or_else(|| protocol_identifier_error("provider thread"))?;
+            let custom_safety = if request.modes.safety_mode == SafetyMode::Custom {
+                let response = client
+                    .request(
+                        "config/read",
+                        json!({ "cwd": live.workspace.to_string_lossy() }),
+                        context,
+                    )
+                    .await
+                    .map_err(|error| error.to_chat_error("config read"))?;
+                let response: ConfigReadResponse = decode_response(response, "config response")
+                    .map_err(|error| error.to_chat_error("config read"))?;
+                Some(custom_safety_settings(response)?)
+            } else {
+                None
+            };
             let params = turn_start_params(
                 &provider_thread_id,
                 &live.workspace,
                 &live.effective_model,
                 &request,
+                custom_safety.as_ref(),
             )?;
             {
                 let mut state = live.route.lock().map_err(|_| driver_state_error())?;
@@ -1264,8 +1280,13 @@ fn verify_reported_home(layout: &CodexHomeLayout, reported: &Path) -> ChatResult
 }
 
 fn verify_effective_safety(mode: SafetyMode, response: &ThreadOpenResponse) -> ChatResult<()> {
-    let expected = safety_settings(mode);
+    let Some(expected) = safety_settings(mode) else {
+        return verify_custom_safety(response);
+    };
     if response.approval_policy.as_str() != Some(expected.approval_policy) {
+        return Err(permission_error());
+    }
+    if response.approvals_reviewer != expected.approvals_reviewer {
         return Err(permission_error());
     }
     let sandbox = response
@@ -1277,6 +1298,25 @@ fn verify_effective_safety(mode: SafetyMode, response: &ThreadOpenResponse) -> C
         return Err(permission_error());
     }
     Ok(())
+}
+
+fn verify_custom_safety(response: &ThreadOpenResponse) -> ChatResult<()> {
+    let approval_valid = response.approval_policy.as_str().is_some()
+        || response
+            .approval_policy
+            .get("granular")
+            .is_some_and(Value::is_object);
+    let sandbox_valid = response
+        .sandbox
+        .get("type")
+        .and_then(Value::as_str)
+        .or_else(|| response.sandbox.as_str())
+        .is_some();
+    if approval_valid && sandbox_valid && !response.approvals_reviewer.trim().is_empty() {
+        Ok(())
+    } else {
+        Err(permission_error())
+    }
 }
 
 pub(super) fn confirmed_resume_not_found(error: &CodexRpcFailure) -> bool {

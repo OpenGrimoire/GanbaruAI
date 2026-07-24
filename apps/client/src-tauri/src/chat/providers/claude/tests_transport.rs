@@ -306,7 +306,7 @@ fn driver_starts_dispatches_and_stops_a_native_session() {
                     },
                     provider_instance_id: ProviderInstanceId::new("claude-instance-1".to_string())
                         .unwrap(),
-                    modes: modes(SafetyMode::Supervised, InteractionMode::Build),
+                    modes: modes(SafetyMode::AskForApproval, InteractionMode::Build),
                     model_id: Some(ModelId::new("claude-sonnet-4-5".to_string()).unwrap()),
                     model_options: Vec::new(),
                 },
@@ -329,7 +329,7 @@ fn driver_starts_dispatches_and_stops_a_native_session() {
                     mentions: Vec::new(),
                     model_id: Some(ModelId::new("claude-sonnet-4-5".to_string()).unwrap()),
                     model_options: Vec::new(),
-                    modes: modes(SafetyMode::Supervised, InteractionMode::Build),
+                    modes: modes(SafetyMode::AskForApproval, InteractionMode::Build),
                     developer_instructions: None,
                 },
                 &context("turn"),

@@ -304,9 +304,10 @@ fn json_text(value: &serde_json::Value) -> ChatResult<String> {
 }
 fn wire_safety(value: SafetyMode) -> &'static str {
     match value {
-        SafetyMode::Supervised => "supervised",
-        SafetyMode::AutoAcceptEdits => "auto_accept_edits",
+        SafetyMode::AskForApproval => "ask_for_approval",
+        SafetyMode::ApproveForMe => "approve_for_me",
         SafetyMode::FullAccess => "full_access",
+        SafetyMode::Custom => "custom",
     }
 }
 fn wire_interaction(value: InteractionMode) -> &'static str {
@@ -317,9 +318,10 @@ fn wire_interaction(value: InteractionMode) -> &'static str {
 }
 fn parse_safety(value: &str) -> ChatResult<SafetyMode> {
     match value {
-        "supervised" => Ok(SafetyMode::Supervised),
-        "auto_accept_edits" => Ok(SafetyMode::AutoAcceptEdits),
+        "ask_for_approval" => Ok(SafetyMode::AskForApproval),
+        "approve_for_me" => Ok(SafetyMode::ApproveForMe),
         "full_access" => Ok(SafetyMode::FullAccess),
+        "custom" => Ok(SafetyMode::Custom),
         _ => Err(corrupt_data()),
     }
 }

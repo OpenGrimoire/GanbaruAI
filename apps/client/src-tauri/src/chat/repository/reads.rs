@@ -478,9 +478,10 @@ fn i64_value(value: u64) -> ChatResult<i64> {
 }
 fn parse_safety(value: &str) -> ChatResult<SafetyMode> {
     match value {
-        "supervised" => Ok(SafetyMode::Supervised),
-        "auto_accept_edits" => Ok(SafetyMode::AutoAcceptEdits),
+        "ask_for_approval" => Ok(SafetyMode::AskForApproval),
+        "approve_for_me" => Ok(SafetyMode::ApproveForMe),
         "full_access" => Ok(SafetyMode::FullAccess),
+        "custom" => Ok(SafetyMode::Custom),
         _ => Err(corrupt_data()),
     }
 }

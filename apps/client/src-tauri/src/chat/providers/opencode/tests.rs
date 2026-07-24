@@ -172,7 +172,7 @@ fn typed_http_scopes_requests_and_redacts_authorization_failures() {
         let client =
             OpenCodeHttpClient::new(&fixture.origin, workspace.path(), Some(&password)).unwrap();
         let error = client
-            .create_session(&permission_rules(SafetyMode::Supervised))
+            .create_session(&permission_rules(SafetyMode::AskForApproval))
             .await
             .unwrap_err();
         assert_eq!(error.code, ChatErrorCode::AuthenticationRequired);
@@ -325,22 +325,17 @@ fn semantic_version_floor_is_explicit() {
 }
 
 #[test]
-fn safety_rules_keep_questions_available_without_broadening_other_work() {
-    let supervised = permission_rules(SafetyMode::Supervised);
-    assert_eq!(supervised[0].action, OpenCodePermissionAction::Ask);
-    assert!(supervised.iter().any(|rule| {
+fn ask_rules_allow_workspace_edits_and_keep_broader_actions_reviewed() {
+    let ask_for_approval = permission_rules(SafetyMode::AskForApproval);
+    assert_eq!(ask_for_approval[0].action, OpenCodePermissionAction::Ask);
+    assert!(ask_for_approval.iter().any(|rule| {
         rule.permission == "question" && rule.action == OpenCodePermissionAction::Allow
     }));
-    assert!(!supervised.iter().any(|rule| {
-        rule.permission == "edit" && rule.action == OpenCodePermissionAction::Allow
-    }));
-
-    let edits = permission_rules(SafetyMode::AutoAcceptEdits);
-    assert!(edits.iter().any(|rule| {
+    assert!(ask_for_approval.iter().any(|rule| {
         rule.permission == "edit" && rule.action == OpenCodePermissionAction::Allow
     }));
     for permission in ["bash", "webfetch", "external_directory"] {
-        assert!(edits.iter().any(|rule| {
+        assert!(ask_for_approval.iter().any(|rule| {
             rule.permission == permission && rule.action == OpenCodePermissionAction::Ask
         }));
     }
@@ -382,7 +377,7 @@ fn declared_capabilities_include_native_plan_and_plan_selects_the_native_agent()
         model_id: None,
         model_options: Vec::new(),
         modes: TurnModeSnapshot {
-            safety_mode: SafetyMode::Supervised,
+            safety_mode: SafetyMode::AskForApproval,
             interaction_mode: InteractionMode::Plan,
         },
         developer_instructions: None,
@@ -544,7 +539,7 @@ fn event_fixture_normalizes_core_activity_and_deduplicates_replay() {
         ProviderSessionId::new("local-session-fixture").unwrap(),
     );
     let modes = TurnModeSnapshot {
-        safety_mode: SafetyMode::Supervised,
+        safety_mode: SafetyMode::AskForApproval,
         interaction_mode: InteractionMode::Build,
     };
     let mut state = OpenCodeRouteState::new("ses_fixture".to_string(), modes);
@@ -611,7 +606,7 @@ fn malformed_and_cross_session_events_are_bounded() {
     let mut state = OpenCodeRouteState::new(
         "ses_fixture".to_string(),
         TurnModeSnapshot {
-            safety_mode: SafetyMode::Supervised,
+            safety_mode: SafetyMode::AskForApproval,
             interaction_mode: InteractionMode::Build,
         },
     );

@@ -95,6 +95,14 @@ export const chatSettings = {
     lastVerified: (date: string) => `Verificado por última vez ${date}`,
     createForMismatch: "Crear un espacio de trabajo lógico nuevo",
   },
+  permissions: {
+    heading: "Permisos",
+    description: "Revisa cómo se aplica cada opción de permisos por chat a los proveedores de agentes.",
+    selectedPerChat: "Elige los permisos de cada chat desde el control debajo del compositor.",
+    availability: (providers: string) => `Disponible con: ${providers}.`,
+    unsupported: "Las opciones permanecen desactivadas cuando el proveedor seleccionado no puede aplicar su significado.",
+    trust: "Acceso completo y Personalizado requieren confianza explícita para el proveedor y espacio seleccionados.",
+  },
   behavior: {
     heading: "Comportamiento",
     description: "Controla el envío, las sesiones, el razonamiento y las protecciones de terminal.",
