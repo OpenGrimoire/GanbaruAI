@@ -14,6 +14,7 @@
     chatLayoutDecision,
     chatInspectorResizeMaximum,
     panelWidthFromKey,
+    preferredPanelWidth,
     type ChatLayoutDecision,
   } from "$lib/chat/responsive-layout";
   import type { ChatPanelPreferences } from "$lib/chat/contracts";
@@ -47,6 +48,16 @@
   const INITIAL_SHELL_WIDTH = 1_200;
   const INITIAL_SHELL_HEIGHT = 700;
   const INITIAL_FONT_SCALE = 1;
+  const initialRailWidth = preferredPanelWidth(
+    chat.settings?.configuration.panels.railWidthPx,
+    LEGACY_RAIL_WIDTH,
+    DEFAULT_RAIL_WIDTH,
+  );
+  const initialInspectorWidth = preferredPanelWidth(
+    chat.settings?.configuration.panels.inspectorWidthPx,
+    LEGACY_INSPECTOR_WIDTH,
+    DEFAULT_INSPECTOR_WIDTH,
+  );
   let rootElement: HTMLDivElement | undefined = $state();
   let railShell: HTMLDivElement | undefined = $state();
   let inspectorShell: HTMLElement | undefined = $state();
@@ -55,8 +66,8 @@
   let resizingRail = $state(false);
   let resizingInspector = $state(false);
   let resizingBottomPanel = $state(false);
-  let railWidth = $state(DEFAULT_RAIL_WIDTH);
-  let inspectorWidth = $state(DEFAULT_INSPECTOR_WIDTH);
+  let railWidth = $state(initialRailWidth);
+  let inspectorWidth = $state(initialInspectorWidth);
   let bottomPanelHeight = $state(DEFAULT_BOTTOM_PANEL_HEIGHT);
   let bottomPanelOpen = $state(false);
   let inspectorMaximized = $state(false);
@@ -77,10 +88,10 @@
     containerWidth: INITIAL_SHELL_WIDTH,
     containerHeight: INITIAL_SHELL_HEIGHT,
     fontScale: INITIAL_FONT_SCALE,
-    railOpen: true,
-    inspectorOpen: false,
-    railWidth: DEFAULT_RAIL_WIDTH,
-    inspectorWidth: DEFAULT_INSPECTOR_WIDTH,
+    railOpen: chat.railOpen,
+    inspectorOpen: chat.inspectorOpen,
+    railWidth: initialRailWidth,
+    inspectorWidth: initialInspectorWidth,
   }));
   let loadError = $state<string | null>(null);
   let layoutError = $state<string | null>(null);
@@ -95,6 +106,8 @@
   let railResizeEndFrame: number | null = null;
   let inspectorResizeEndFrame: number | null = null;
   let bottomResizeEndFrame: number | null = null;
+  let panelTransitionFrame: number | null = null;
+  let panelTransitionsEnabled = $state(false);
   let panelPreferencesInitialized = false;
   let railUsesPromotedDefault = false;
   let inspectorUsesPromotedDefault = false;
@@ -120,6 +133,7 @@
         DEFAULT_INSPECTOR_WIDTH,
       ),
     );
+    if (chat.settings) enablePanelTransitionsAfterLayout();
     const unlisten = listen<unknown>("chat://change", (event) => {
       try {
         const change = parseChatChangeNotification(event.payload);
@@ -169,6 +183,7 @@
       if (railResizeEndFrame !== null) window.cancelAnimationFrame(railResizeEndFrame);
       if (inspectorResizeEndFrame !== null) window.cancelAnimationFrame(inspectorResizeEndFrame);
       if (bottomResizeEndFrame !== null) window.cancelAnimationFrame(bottomResizeEndFrame);
+      if (panelTransitionFrame !== null) window.cancelAnimationFrame(panelTransitionFrame);
       window.removeEventListener("ganbaru-ai:chat-revert-message", revertMessage);
       void unlisten.then((dispose) => dispose());
     };
@@ -246,6 +261,7 @@
         inspectorUsesPromotedDefault ? DEFAULT_INSPECTOR_WIDTH : configuredInspectorWidth,
       );
     }
+    enablePanelTransitionsAfterLayout();
   });
 
   $effect(() => {
@@ -446,14 +462,6 @@
       && left.activeSurface === right.activeSurface;
   }
 
-  function preferredPanelWidth(
-    configured: number | undefined,
-    legacyDefault: number,
-    currentDefault: number,
-  ): number {
-    return configured === undefined || configured === legacyDefault ? currentDefault : configured;
-  }
-
   function refreshWorkspacePixelGeometry(): void {
     if (!rootElement) return;
     const bounds = rootElement.getBoundingClientRect();
@@ -463,6 +471,16 @@
     displayPixelRatio = Number.isFinite(window.devicePixelRatio) && window.devicePixelRatio > 0
       ? window.devicePixelRatio
       : 1;
+  }
+
+  function enablePanelTransitionsAfterLayout(): void {
+    if (panelTransitionsEnabled || panelTransitionFrame !== null) return;
+    panelTransitionFrame = window.requestAnimationFrame(() => {
+      panelTransitionFrame = window.requestAnimationFrame(() => {
+        panelTransitionsEnabled = true;
+        panelTransitionFrame = null;
+      });
+    });
   }
 
   function alignRailWidthToDisplay(value: number): number {
@@ -769,7 +787,7 @@
 
 <svelte:window onkeydown={handleKeydown} />
 
-<div bind:this={rootElement} class="chat-workspace @container/chat-shell relative flex h-full min-h-0 overflow-hidden" class:resizing-panels={resizingRail || resizingInspector || resizingBottomPanel} data-chat-workspace data-layout={layout.variant} data-rail-presentation={layout.railPresentation} data-inspector-presentation={layout.inspectorPresentation} data-active-surface={layout.activeSurface} style="background-color:var(--cal-bg);container-type:inline-size;container-name:chat-shell;">
+<div bind:this={rootElement} class="chat-workspace @container/chat-shell relative flex h-full min-h-0 overflow-hidden" class:resizing-panels={resizingRail || resizingInspector || resizingBottomPanel} class:panel-transitions-enabled={panelTransitionsEnabled} data-chat-workspace data-layout={layout.variant} data-rail-presentation={layout.railPresentation} data-inspector-presentation={layout.inspectorPresentation} data-active-surface={layout.activeSurface} style="background-color:var(--cal-bg);container-type:inline-size;container-name:chat-shell;">
   <div class="sr-only" aria-live="polite" aria-atomic="true">{politeAnnouncement}</div>
   <div class="sr-only" aria-live="assertive" aria-atomic="true">{assertiveAnnouncement}</div>
   {#if layoutError}<div role="alert" class="absolute inset-x-2 top-2 z-50 rounded border border-destructive/40 bg-background p-2 text-xs text-destructive">{layoutError}</div>{/if}
@@ -858,7 +876,8 @@
 </div>
 
 <style>
-  .chat-rail-shell { width: var(--chat-rail-width); min-width: var(--chat-rail-width); transition: width 140ms ease, min-width 140ms ease, transform 140ms ease; }
+  .chat-rail-shell { width: var(--chat-rail-width); min-width: var(--chat-rail-width); }
+  .chat-workspace.panel-transitions-enabled .chat-rail-shell { transition: width 140ms ease, min-width 140ms ease, transform 140ms ease; }
   .chat-rail-shell.closed { width: 0; min-width: 0; overflow: hidden; }
   .maximized-hidden { display: none; }
   .chat-panel-separator { position: relative; z-index: 1; background: transparent; }
@@ -870,7 +889,8 @@
   .chat-inspector-separator:is(:hover, .active) .chat-panel-separator-line, .chat-inspector-separator input:focus-visible + .chat-panel-separator-line { background: linear-gradient(to bottom, var(--border), var(--chat-divider-highlight) 50%, var(--border)); }
   .workspace-content { display: flex; min-width: 0; min-height: 0; flex: 1; flex-direction: column; }
   .workspace-top { position: relative; display: flex; min-width: 0; min-height: 0; flex: 1; }
-  .chat-inspector-shell { width: 0; min-width: 0; overflow: hidden; background: var(--cal-bg); transition: width 140ms ease, min-width 140ms ease; }
+  .chat-inspector-shell { width: 0; min-width: 0; overflow: hidden; background: var(--cal-bg); }
+  .chat-workspace.panel-transitions-enabled .chat-inspector-shell { transition: width 140ms ease, min-width 140ms ease; }
   .chat-inspector-shell.open { width: var(--chat-inspector-width); min-width: min(240px, 46cqw); }
   .chat-inspector-shell.maximized { width: 100%; min-width: 0; }
   .chat-bottom-separator { width: 100%; height: 8px; min-height: 8px; flex: 0 0 8px; margin-block: -4px; cursor: row-resize; }

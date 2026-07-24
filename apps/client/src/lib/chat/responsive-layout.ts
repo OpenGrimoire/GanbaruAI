@@ -39,6 +39,22 @@ export interface ChatInspectorResizeInput {
 }
 
 /**
+ * Resolves a panel width before its component renders.
+ *
+ * @param configured Persisted width, when settings are already available.
+ * @param legacyDefault Previous default value that should follow the current default.
+ * @param currentDefault Current default width.
+ * @returns The width to use for the component's first layout.
+ */
+export function preferredPanelWidth(
+  configured: number | undefined,
+  legacyDefault: number,
+  currentDefault: number,
+): number {
+  return configured === undefined || configured === legacyDefault ? currentDefault : configured;
+}
+
+/**
  * Bounds a column inspector while reserving the conversation reading width.
  *
  * @param input Current shell, rail, and inspector constraints.

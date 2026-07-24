@@ -220,8 +220,17 @@
 
   function loadChatWorkspace(): Promise<void> {
     if (ChatWorkspace) return Promise.resolve();
-    loadingChatWorkspace ??= import("$lib/components/chat/ChatWorkspace.svelte")
-      .then((module) => { ChatWorkspace = module.default; })
+    loadingChatWorkspace ??= Promise.all([
+      import("$lib/components/chat/ChatWorkspace.svelte"),
+      import("$lib/stores/chat.svelte"),
+    ])
+      .then(async ([workspaceModule, chatModule]) => {
+        try {
+          await chatModule.getChat().ensureLoaded();
+        } finally {
+          ChatWorkspace = workspaceModule.default;
+        }
+      })
       .finally(() => { loadingChatWorkspace = null; });
     return loadingChatWorkspace;
   }
