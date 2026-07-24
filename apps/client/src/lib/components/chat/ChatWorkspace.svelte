@@ -10,6 +10,7 @@
   import { filterThreadTitles, nextThreadIndex } from "$lib/chat/shell-model";
   import { inspectorFocusAction } from "$lib/chat/inspector-model";
   import {
+    alignPanelSizeToDevicePixel,
     chatLayoutDecision,
     chatInspectorResizeMaximum,
     panelWidthFromKey,
@@ -42,6 +43,7 @@
   const MIN_INSPECTOR_WIDTH = 240;
   const DEFAULT_BOTTOM_PANEL_HEIGHT = 190;
   const MIN_BOTTOM_PANEL_HEIGHT = 96;
+  const MAX_BOTTOM_PANEL_RATIO = 0.38;
   const INITIAL_SHELL_WIDTH = 1_200;
   const INITIAL_SHELL_HEIGHT = 700;
   const INITIAL_FONT_SCALE = 1;
@@ -66,6 +68,10 @@
   let commandReturnFocus: HTMLElement | null = null;
   let shellWidth = $state(INITIAL_SHELL_WIDTH);
   let shellHeight = $state(INITIAL_SHELL_HEIGHT);
+  let shellLeft = $state(0);
+  let shellRight = $state(INITIAL_SHELL_WIDTH);
+  let shellBottom = $state(INITIAL_SHELL_HEIGHT);
+  let displayPixelRatio = $state(1);
   let fontScale = $state(INITIAL_FONT_SCALE);
   let layout = $state<ChatLayoutDecision>(chatLayoutDecision({
     containerWidth: INITIAL_SHELL_WIDTH,
@@ -86,6 +92,9 @@
   let railResizeFrame: number | null = null;
   let inspectorResizeFrame: number | null = null;
   let bottomResizeFrame: number | null = null;
+  let railResizeEndFrame: number | null = null;
+  let inspectorResizeEndFrame: number | null = null;
+  let bottomResizeEndFrame: number | null = null;
   let panelPreferencesInitialized = false;
   let railUsesPromotedDefault = false;
   let inspectorUsesPromotedDefault = false;
@@ -96,13 +105,15 @@
     void Promise.all([chat.ensureLoaded(), projects.ensureLoaded()]).catch((error) => {
       loadError = error instanceof Error ? error.message : String(error);
     });
-    railWidth = preferredPanelWidth(
-      chat.settings?.configuration.panels.railWidthPx,
-      LEGACY_RAIL_WIDTH,
-      DEFAULT_RAIL_WIDTH,
+    refreshWorkspacePixelGeometry();
+    railWidth = alignRailWidthToDisplay(
+      preferredPanelWidth(
+        chat.settings?.configuration.panels.railWidthPx,
+        LEGACY_RAIL_WIDTH,
+        DEFAULT_RAIL_WIDTH,
+      ),
     );
-    inspectorWidth = Math.max(
-      MIN_INSPECTOR_WIDTH,
+    inspectorWidth = alignInspectorWidthToDisplay(
       preferredPanelWidth(
         chat.settings?.configuration.panels.inspectorWidthPx,
         LEGACY_INSPECTOR_WIDTH,
@@ -121,6 +132,7 @@
       if (!entry) return;
       shellWidth = entry.contentRect.width;
       shellHeight = entry.contentRect.height;
+      refreshWorkspacePixelGeometry();
       const rootSize = rootElement ? Number.parseFloat(getComputedStyle(rootElement).fontSize) : 15;
       fontScale = Number.isFinite(rootSize) ? Math.max(1, rootSize / 15) : 1;
     });
@@ -154,6 +166,9 @@
       if (railResizeFrame !== null) window.cancelAnimationFrame(railResizeFrame);
       if (inspectorResizeFrame !== null) window.cancelAnimationFrame(inspectorResizeFrame);
       if (bottomResizeFrame !== null) window.cancelAnimationFrame(bottomResizeFrame);
+      if (railResizeEndFrame !== null) window.cancelAnimationFrame(railResizeEndFrame);
+      if (inspectorResizeEndFrame !== null) window.cancelAnimationFrame(inspectorResizeEndFrame);
+      if (bottomResizeEndFrame !== null) window.cancelAnimationFrame(bottomResizeEndFrame);
       window.removeEventListener("ganbaru-ai:chat-revert-message", revertMessage);
       void unlisten.then((dispose) => dispose());
     };
@@ -222,11 +237,12 @@
     if (configuredRailWidth !== LEGACY_RAIL_WIDTH) railUsesPromotedDefault = false;
     if (configuredInspectorWidth !== LEGACY_INSPECTOR_WIDTH) inspectorUsesPromotedDefault = false;
     if (!resizingRail && !pendingPanelWidths) {
-      railWidth = railUsesPromotedDefault ? DEFAULT_RAIL_WIDTH : configuredRailWidth;
+      railWidth = alignRailWidthToDisplay(
+        railUsesPromotedDefault ? DEFAULT_RAIL_WIDTH : configuredRailWidth,
+      );
     }
     if (!resizingInspector && !pendingPanelWidths) {
-      inspectorWidth = Math.max(
-        MIN_INSPECTOR_WIDTH,
+      inspectorWidth = alignInspectorWidthToDisplay(
         inspectorUsesPromotedDefault ? DEFAULT_INSPECTOR_WIDTH : configuredInspectorWidth,
       );
     }
@@ -275,6 +291,16 @@
       previousVariant: layout.variant,
     });
     if (!sameLayout(layout, next)) layout = next;
+  });
+
+  $effect(() => {
+    const maximum = bottomPanelResizeMaximum();
+    if (!resizingBottomPanel) {
+      bottomPanelHeight = alignBottomPanelHeightToDisplay(
+        bottomPanelHeight,
+        maximum,
+      );
+    }
   });
 
   $effect(() => {
@@ -428,8 +454,61 @@
     return configured === undefined || configured === legacyDefault ? currentDefault : configured;
   }
 
+  function refreshWorkspacePixelGeometry(): void {
+    if (!rootElement) return;
+    const bounds = rootElement.getBoundingClientRect();
+    shellLeft = bounds.left;
+    shellRight = bounds.right;
+    shellBottom = bounds.bottom;
+    displayPixelRatio = Number.isFinite(window.devicePixelRatio) && window.devicePixelRatio > 0
+      ? window.devicePixelRatio
+      : 1;
+  }
+
+  function alignRailWidthToDisplay(value: number): number {
+    return alignPanelSizeToDevicePixel({
+      value,
+      minimum: 160,
+      maximum: 520,
+      anchor: shellLeft,
+      direction: "from-start",
+      devicePixelRatio: displayPixelRatio,
+    });
+  }
+
+  function alignInspectorWidthToDisplay(
+    value: number,
+    maximum = inspectorResizeMaximum(),
+  ): number {
+    return alignPanelSizeToDevicePixel({
+      value,
+      minimum: MIN_INSPECTOR_WIDTH,
+      maximum,
+      anchor: shellRight,
+      direction: "from-end",
+      devicePixelRatio: displayPixelRatio,
+    });
+  }
+
+  function alignBottomPanelHeightToDisplay(
+    value: number,
+    maximum = bottomPanelResizeMaximum(),
+  ): number {
+    return alignPanelSizeToDevicePixel({
+      value,
+      minimum: MIN_BOTTOM_PANEL_HEIGHT,
+      maximum,
+      anchor: shellBottom,
+      direction: "from-end",
+      devicePixelRatio: displayPixelRatio,
+    });
+  }
+
   function beginRailResize(event: PointerEvent): void {
     event.preventDefault();
+    refreshWorkspacePixelGeometry();
+    if (railResizeEndFrame !== null) window.cancelAnimationFrame(railResizeEndFrame);
+    railResizeEndFrame = null;
     resizingRail = true;
     const startX = event.clientX;
     const startWidth = railWidth;
@@ -438,7 +517,7 @@
     target.setPointerCapture(event.pointerId);
     let pendingWidth = startWidth;
     const move = (moveEvent: PointerEvent) => {
-      pendingWidth = Math.max(160, Math.min(520, startWidth + moveEvent.clientX - startX));
+      pendingWidth = alignRailWidthToDisplay(startWidth + moveEvent.clientX - startX);
       if (railResizeFrame !== null) return;
       railResizeFrame = window.requestAnimationFrame(() => {
         railWidth = pendingWidth;
@@ -452,8 +531,13 @@
       if (railResizeFrame !== null) window.cancelAnimationFrame(railResizeFrame);
       railResizeFrame = null;
       railWidth = pendingWidth;
-      resizingRail = false;
       void persistPanelWidths();
+      railResizeEndFrame = window.requestAnimationFrame(() => {
+        railResizeEndFrame = window.requestAnimationFrame(() => {
+          resizingRail = false;
+          railResizeEndFrame = null;
+        });
+      });
     };
     target.addEventListener("pointermove", move);
     target.addEventListener("pointerup", end);
@@ -462,6 +546,9 @@
 
   function beginInspectorResize(event: PointerEvent): void {
     event.preventDefault();
+    refreshWorkspacePixelGeometry();
+    if (inspectorResizeEndFrame !== null) window.cancelAnimationFrame(inspectorResizeEndFrame);
+    inspectorResizeEndFrame = null;
     resizingInspector = true;
     const startX = event.clientX;
     const startWidth = inspectorWidth;
@@ -470,9 +557,9 @@
     target.setPointerCapture(event.pointerId);
     let pendingWidth = startWidth;
     const move = (moveEvent: PointerEvent) => {
-      pendingWidth = Math.max(
-        MIN_INSPECTOR_WIDTH,
-        Math.min(inspectorResizeMaximum(), startWidth + startX - moveEvent.clientX),
+      pendingWidth = alignInspectorWidthToDisplay(
+        startWidth + startX - moveEvent.clientX,
+        inspectorResizeMaximum(),
       );
       if (inspectorResizeFrame !== null) return;
       inspectorResizeFrame = window.requestAnimationFrame(() => {
@@ -487,8 +574,13 @@
       if (inspectorResizeFrame !== null) window.cancelAnimationFrame(inspectorResizeFrame);
       inspectorResizeFrame = null;
       inspectorWidth = pendingWidth;
-      resizingInspector = false;
       void persistPanelWidths();
+      inspectorResizeEndFrame = window.requestAnimationFrame(() => {
+        inspectorResizeEndFrame = window.requestAnimationFrame(() => {
+          resizingInspector = false;
+          inspectorResizeEndFrame = null;
+        });
+      });
     };
     target.addEventListener("pointermove", move);
     target.addEventListener("pointerup", end);
@@ -497,6 +589,9 @@
 
   function beginBottomPanelResize(event: PointerEvent): void {
     event.preventDefault();
+    refreshWorkspacePixelGeometry();
+    if (bottomResizeEndFrame !== null) window.cancelAnimationFrame(bottomResizeEndFrame);
+    bottomResizeEndFrame = null;
     resizingBottomPanel = true;
     const startY = event.clientY;
     const startHeight = bottomPanelHeight;
@@ -505,10 +600,10 @@
     target.focus();
     target.setPointerCapture(event.pointerId);
     const move = (moveEvent: PointerEvent) => {
-      const maximum = Math.max(MIN_BOTTOM_PANEL_HEIGHT, shellHeight * 0.55);
-      pendingHeight = Math.max(
-        MIN_BOTTOM_PANEL_HEIGHT,
-        Math.min(maximum, startHeight + startY - moveEvent.clientY),
+      const maximum = bottomPanelResizeMaximum();
+      pendingHeight = alignBottomPanelHeightToDisplay(
+        startHeight + startY - moveEvent.clientY,
+        maximum,
       );
       if (bottomResizeFrame !== null) return;
       bottomResizeFrame = window.requestAnimationFrame(() => {
@@ -523,7 +618,12 @@
       if (bottomResizeFrame !== null) window.cancelAnimationFrame(bottomResizeFrame);
       bottomResizeFrame = null;
       bottomPanelHeight = pendingHeight;
-      resizingBottomPanel = false;
+      bottomResizeEndFrame = window.requestAnimationFrame(() => {
+        bottomResizeEndFrame = window.requestAnimationFrame(() => {
+          resizingBottomPanel = false;
+          bottomResizeEndFrame = null;
+        });
+      });
     };
     target.addEventListener("pointermove", move);
     target.addEventListener("pointerup", end);
@@ -555,8 +655,9 @@
         });
     if (next === null) return;
     event.preventDefault();
-    if (panel === "rail") railWidth = next;
-    else inspectorWidth = next;
+    refreshWorkspacePixelGeometry();
+    if (panel === "rail") railWidth = alignRailWidthToDisplay(next);
+    else inspectorWidth = alignInspectorWidthToDisplay(next);
     void persistPanelWidths();
   }
 
@@ -572,7 +673,7 @@
   }
 
   function resizeBottomPanelFromKey(event: KeyboardEvent): void {
-    const maximum = Math.max(MIN_BOTTOM_PANEL_HEIGHT, Math.round(shellHeight * 0.55));
+    const maximum = bottomPanelResizeMaximum();
     let next: number;
     switch (event.key) {
       case "ArrowUp": next = bottomPanelHeight + 16; break;
@@ -583,7 +684,15 @@
       default: return;
     }
     event.preventDefault();
-    bottomPanelHeight = Math.max(MIN_BOTTOM_PANEL_HEIGHT, Math.min(maximum, next));
+    refreshWorkspacePixelGeometry();
+    bottomPanelHeight = alignBottomPanelHeightToDisplay(next, maximum);
+  }
+
+  function bottomPanelResizeMaximum(): number {
+    return Math.max(
+      MIN_BOTTOM_PANEL_HEIGHT,
+      Math.floor(shellHeight * MAX_BOTTOM_PANEL_RATIO),
+    );
   }
 
   function persistPanelWidths(): void {
@@ -606,8 +715,8 @@
         if (pendingPanelWidths !== savedWidths) continue;
         railUsesPromotedDefault = false;
         inspectorUsesPromotedDefault = false;
-        railWidth = savedWidths.railWidthPx;
-        inspectorWidth = savedWidths.inspectorWidthPx;
+        railWidth = alignRailWidthToDisplay(savedWidths.railWidthPx);
+        inspectorWidth = alignInspectorWidthToDisplay(savedWidths.inspectorWidthPx);
         pendingPanelWidths = null;
       }
     } catch (error: unknown) {
@@ -675,17 +784,19 @@
   <div
     class="chat-panel-separator chat-rail-separator"
     class:hidden={!chat.railOpen || inspectorMaximized}
+    class:active={resizingRail}
   >
-    <span class="chat-panel-separator-line" aria-hidden="true"></span>
     <input
       type="range"
       min="160"
       max="520"
-      value={Math.round(railWidth)}
+      step="any"
+      value={railWidth}
       aria-label={t("chat.resizeRail")}
       onpointerdown={beginRailResize}
       onkeydown={(event) => resizePanelFromKey(event, "rail")}
     />
+    <span class="chat-panel-separator-line" aria-hidden="true"></span>
   </div>
 
   <div class="workspace-content" class:maximized={inspectorMaximized}>
@@ -717,14 +828,14 @@
         {/if}
       </main>
 
-      <div class="chat-panel-separator chat-inspector-separator" class:hidden={!chat.inspectorOpen || inspectorMaximized}><span class="chat-panel-separator-line" aria-hidden="true"></span><input type="range" min={MIN_INSPECTOR_WIDTH} max={inspectorResizeMaximum()} value={Math.round(inspectorWidth)} aria-label={t("chat.resizeInspector")} onpointerdown={beginInspectorResize} onkeydown={(event) => resizePanelFromKey(event, "inspector")} /></div>
+      <div class="chat-panel-separator chat-inspector-separator" class:hidden={!chat.inspectorOpen || inspectorMaximized} class:active={resizingInspector}><input type="range" min={MIN_INSPECTOR_WIDTH} max={inspectorResizeMaximum()} step="any" value={inspectorWidth} aria-label={t("chat.resizeInspector")} onpointerdown={beginInspectorResize} onkeydown={(event) => resizePanelFromKey(event, "inspector")} /><span class="chat-panel-separator-line" aria-hidden="true"></span></div>
       <aside bind:this={inspectorShell} class="chat-inspector-shell" class:open={chat.inspectorOpen} class:maximized={inspectorMaximized} data-presentation={layout.inspectorPresentation} role={layout.inspectorPresentation === "sheet" ? "dialog" : undefined} aria-modal={layout.inspectorPresentation === "sheet" ? "true" : undefined} aria-label={t("chat.openInspector")} onkeydown={(event) => { if (layout.inspectorPresentation === "sheet") handleSheetKeydown(event, () => { chat.inspectorOpen = false; }); }} style={`--chat-inspector-width:${inspectorWidth}px`}>
         <ChatWorkspacePanel placement="inspector" onClose={() => { chat.inspectorOpen = false; }} onMaximizedChange={(value) => { inspectorMaximized = value; }} />
       </aside>
     </div>
 
     {#if bottomPanelOpen && !inspectorMaximized && layout.variant !== "minimum_recovery"}
-      <div class="chat-panel-separator chat-bottom-separator"><span class="chat-panel-separator-line" aria-hidden="true"></span><input type="range" min={MIN_BOTTOM_PANEL_HEIGHT} max={Math.max(MIN_BOTTOM_PANEL_HEIGHT, Math.round(shellHeight * 0.55))} value={Math.round(bottomPanelHeight)} aria-label={t("chat.resizeBottomPanel")} onpointerdown={beginBottomPanelResize} onkeydown={resizeBottomPanelFromKey} /></div>
+      <div class="chat-panel-separator chat-bottom-separator" class:active={resizingBottomPanel}><input type="range" min={MIN_BOTTOM_PANEL_HEIGHT} max={bottomPanelResizeMaximum()} step="any" value={bottomPanelHeight} aria-label={t("chat.resizeBottomPanel")} onpointerdown={beginBottomPanelResize} onkeydown={resizeBottomPanelFromKey} /><span class="chat-panel-separator-line" aria-hidden="true"></span></div>
       <div class="chat-bottom-shell" style={`--chat-bottom-height:${bottomPanelHeight}px`}>
         <ChatWorkspacePanel placement="bottom" onClose={() => { bottomPanelOpen = false; }} />
       </div>
@@ -755,8 +866,8 @@
   .chat-panel-separator input { position: absolute; inset: 0; width: 100%; height: 100%; touch-action: none; appearance: none; margin: 0; cursor: inherit; opacity: 0; }
   .chat-rail-separator, .chat-inspector-separator { width: 8px; min-width: 8px; flex: 0 0 8px; margin-inline: -4px; cursor: col-resize; }
   .chat-rail-separator .chat-panel-separator-line, .chat-inspector-separator .chat-panel-separator-line { inset-block: 0; left: 50%; width: 1px; }
-  .chat-rail-separator:hover .chat-panel-separator-line, .chat-rail-separator:has(input:focus-visible) .chat-panel-separator-line,
-  .chat-inspector-separator:hover .chat-panel-separator-line, .chat-inspector-separator:has(input:focus-visible) .chat-panel-separator-line { background: linear-gradient(to bottom, var(--border), var(--chat-divider-highlight) 50%, var(--border)); }
+  .chat-rail-separator:is(:hover, .active) .chat-panel-separator-line, .chat-rail-separator input:focus-visible + .chat-panel-separator-line,
+  .chat-inspector-separator:is(:hover, .active) .chat-panel-separator-line, .chat-inspector-separator input:focus-visible + .chat-panel-separator-line { background: linear-gradient(to bottom, var(--border), var(--chat-divider-highlight) 50%, var(--border)); }
   .workspace-content { display: flex; min-width: 0; min-height: 0; flex: 1; flex-direction: column; }
   .workspace-top { position: relative; display: flex; min-width: 0; min-height: 0; flex: 1; }
   .chat-inspector-shell { width: 0; min-width: 0; overflow: hidden; background: var(--cal-bg); transition: width 140ms ease, min-width 140ms ease; }
@@ -764,8 +875,8 @@
   .chat-inspector-shell.maximized { width: 100%; min-width: 0; }
   .chat-bottom-separator { width: 100%; height: 8px; min-height: 8px; flex: 0 0 8px; margin-block: -4px; cursor: row-resize; }
   .chat-bottom-separator .chat-panel-separator-line { inset-inline: 0; top: 50%; height: 1px; }
-  .chat-bottom-separator:hover .chat-panel-separator-line, .chat-bottom-separator:has(input:focus-visible) .chat-panel-separator-line { background: linear-gradient(to right, var(--border), var(--chat-divider-highlight) 50%, var(--border)); }
-  .chat-bottom-shell { height: min(var(--chat-bottom-height), 38%); min-height: min(96px, 38%); flex: 0 0 min(var(--chat-bottom-height), 38%); overflow: hidden; }
+  .chat-bottom-separator:is(:hover, .active) .chat-panel-separator-line, .chat-bottom-separator input:focus-visible + .chat-panel-separator-line { background: linear-gradient(to right, var(--border), var(--chat-divider-highlight) 50%, var(--border)); }
+  .chat-bottom-shell { height: var(--chat-bottom-height); min-height: 96px; flex: 0 0 var(--chat-bottom-height); overflow: hidden; }
   .chat-workspace.resizing-panels, .chat-workspace.resizing-panels * { user-select: none; }
   .chat-workspace.resizing-panels .chat-rail-shell, .chat-workspace.resizing-panels .chat-inspector-shell { transition: none; }
   .chat-sheet-backdrop { position: absolute; inset: 0; z-index: 30; background: rgb(0 0 0 / 0.28); }

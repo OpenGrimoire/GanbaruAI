@@ -1,9 +1,11 @@
 import { describe, expect, it } from "vitest";
 import {
+  alignPanelSizeToDevicePixel,
   chatLayoutDecision,
   chatLayoutPrimaryActions,
   chatInspectorResizeMaximum,
   chatScrollBehavior,
+  clampPanelSizeToWholePixel,
   middleTruncate,
   panelWidthFromKey,
   type ChatLayoutVariant,
@@ -128,6 +130,35 @@ describe("Chat responsive layout", () => {
     expect(resize("Escape")).toBeNull();
   });
 
+  it("aligns pointer resize dimensions and fractional bounds to whole pixels", () => {
+    expect(clampPanelSizeToWholePixel(319.49, 160, 520)).toBe(319);
+    expect(clampPanelSizeToWholePixel(319.5, 160, 520)).toBe(320);
+    expect(clampPanelSizeToWholePixel(800, 240, 519.75)).toBe(519);
+    expect(clampPanelSizeToWholePixel(100, 240.2, 200)).toBe(241);
+  });
+
+  it("aligns moving panel edges to physical pixels at fractional display scales", () => {
+    const align = (
+      value: number,
+      direction: "from-start" | "from-end",
+      anchor: number,
+      devicePixelRatio = 1.25,
+    ) => alignPanelSizeToDevicePixel({
+      value,
+      minimum: 160,
+      maximum: 520,
+      anchor,
+      direction,
+      devicePixelRatio,
+    });
+    expect(align(320, "from-start", 5.625)).toBeCloseTo(319.975);
+    expect((5.625 + align(320, "from-start", 5.625)) * 1.25).toBeCloseTo(407);
+    expect((994.375 - align(320, "from-end", 994.375)) * 1.25).toBeCloseTo(843);
+    expect(align(900, "from-start", 0)).toBe(520);
+    expect(align(100, "from-end", 0)).toBe(160);
+    expect(align(320.4, "from-start", 0, 0)).toBe(320);
+  });
+
   it("lets the inspector use spare width without shrinking the conversation", () => {
     const maximum = (containerWidth: number, railVisible = true) => chatInspectorResizeMaximum({
       containerWidth,
@@ -136,10 +167,11 @@ describe("Chat responsive layout", () => {
       minimum: 240,
       maximum: 960,
     });
-    expect(maximum(1_400)).toBe(692);
-    expect(maximum(1_400, false)).toBe(956);
+    expect(maximum(1_400)).toBe(700);
+    expect(maximum(1_400, false)).toBe(960);
     expect(maximum(2_000)).toBe(960);
     expect(maximum(700)).toBe(240);
+    expect(maximum(1_399.75)).toBe(699);
   });
 
   it("removes smooth scrolling when reduced motion is requested", () => {

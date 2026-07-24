@@ -29,7 +29,6 @@ const BASE_MINIMUM_EXIT_WIDTH = 360;
 const BASE_MINIMUM_ENTER_HEIGHT = 210;
 const BASE_MINIMUM_EXIT_HEIGHT = 240;
 const BASE_HYSTERESIS = 24;
-const SEPARATOR_WIDTH = 4;
 
 export interface ChatInspectorResizeInput {
   containerWidth: number;
@@ -46,12 +45,15 @@ export interface ChatInspectorResizeInput {
  * @returns The largest inspector width that keeps the conversation usable.
  */
 export function chatInspectorResizeMaximum(input: ChatInspectorResizeInput): number {
-  const occupiedByRail = input.railVisible ? input.railWidth + SEPARATOR_WIDTH : 0;
+  const occupiedByRail = input.railVisible ? input.railWidth : 0;
   const available = input.containerWidth
     - occupiedByRail
-    - BASE_CONVERSATION_MIN
-    - SEPARATOR_WIDTH;
-  return Math.max(input.minimum, Math.min(input.maximum, available));
+    - BASE_CONVERSATION_MIN;
+  return clampPanelSizeToWholePixel(
+    available,
+    input.minimum,
+    Math.min(input.maximum, available),
+  );
 }
 
 /**
@@ -79,7 +81,7 @@ export function chatLayoutDecision(input: ChatLayoutInput): ChatLayoutDecision {
   }
 
   const conversationMin = BASE_CONVERSATION_MIN * scale;
-  const railRequired = input.railWidth + conversationMin + SEPARATOR_WIDTH;
+  const railRequired = input.railWidth + conversationMin;
   const railWasColumn = previous === "three_column"
     || previous === "no_inspector"
     || previous === "inspector_sheet";
@@ -102,7 +104,7 @@ export function chatLayoutDecision(input: ChatLayoutInput): ChatLayoutDecision {
     };
   }
 
-  const inspectorRequired = railRequired + input.inspectorWidth + SEPARATOR_WIDTH;
+  const inspectorRequired = railRequired + input.inspectorWidth;
   const inspectorFits = stableFit(
     input.containerWidth,
     inspectorRequired,
@@ -148,6 +150,66 @@ export interface PanelResizeInput {
 }
 
 /**
+ * Clamps a panel size to a whole CSS pixel inside whole-pixel bounds.
+ *
+ * @param value Requested panel size.
+ * @param minimum Smallest permitted size.
+ * @param maximum Largest permitted size.
+ * @returns A bounded whole-pixel panel size.
+ */
+export function clampPanelSizeToWholePixel(
+  value: number,
+  minimum: number,
+  maximum: number,
+): number {
+  const alignedMinimum = Math.ceil(minimum);
+  const alignedMaximum = Math.max(alignedMinimum, Math.floor(maximum));
+  return Math.max(alignedMinimum, Math.min(alignedMaximum, Math.round(value)));
+}
+
+export interface DevicePixelAlignedPanelSizeInput {
+  value: number;
+  minimum: number;
+  maximum: number;
+  anchor: number;
+  direction: "from-start" | "from-end";
+  devicePixelRatio: number;
+}
+
+/**
+ * Aligns a panel boundary to the physical display pixel grid.
+ *
+ * @param input Requested size, bounds, fixed edge, and display scale.
+ * @returns A bounded CSS size whose moving edge lands on a device pixel.
+ */
+export function alignPanelSizeToDevicePixel(
+  input: DevicePixelAlignedPanelSizeInput,
+): number {
+  const scale = Number.isFinite(input.devicePixelRatio) && input.devicePixelRatio > 0
+    ? input.devicePixelRatio
+    : 1;
+  const minimum = Math.min(input.minimum, input.maximum);
+  const maximum = Math.max(input.minimum, input.maximum);
+  const sign = input.direction === "from-start" ? 1 : -1;
+  const requested = Math.max(minimum, Math.min(maximum, input.value));
+  const requestedBoundary = input.anchor + requested * sign;
+  let boundary = Math.round(requestedBoundary * scale) / scale;
+  let size = (boundary - input.anchor) * sign;
+  if (size < minimum) {
+    boundary = input.direction === "from-start"
+      ? Math.ceil((input.anchor + minimum) * scale) / scale
+      : Math.floor((input.anchor - minimum) * scale) / scale;
+    size = (boundary - input.anchor) * sign;
+  } else if (size > maximum) {
+    boundary = input.direction === "from-start"
+      ? Math.floor((input.anchor + maximum) * scale) / scale
+      : Math.ceil((input.anchor - maximum) * scale) / scale;
+    size = (boundary - input.anchor) * sign;
+  }
+  return Math.max(minimum, Math.min(maximum, size));
+}
+
+/**
  * Resolves a keyboard separator action to a bounded panel width.
  *
  * @param input Current panel bounds, direction, and pressed key.
@@ -164,7 +226,7 @@ export function panelWidthFromKey(input: PanelResizeInput): number | null {
     case "Enter": next = input.defaultValue; break;
     default: return null;
   }
-  return Math.max(input.minimum, Math.min(input.maximum, next));
+  return clampPanelSizeToWholePixel(next, input.minimum, input.maximum);
 }
 
 /**
