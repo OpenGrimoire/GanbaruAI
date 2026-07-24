@@ -229,7 +229,7 @@
 {#if deleteThread}<ConfirmDialog title={t("chat.deleteTitle")} message={t("chat.deleteMessage", deleteThread.title)} confirmLabel={t("chat.deletePermanently")} cancelLabel={t("chat.cancel")} onConfirm={confirmDelete} onCancel={() => { deleteThread = null; }} />{/if}
 
 <style>
-  .chat-rail { position: relative; display: flex; height: 100%; min-height: 0; flex-direction: column; border-right: 1px solid var(--border); background: color-mix(in srgb, var(--cal-bg) 97%, var(--card)); }
+  .chat-rail { position: relative; display: flex; height: 100%; min-height: 0; flex-direction: column; background: color-mix(in srgb, var(--cal-bg) 97%, var(--card)); }
   .chat-rail-header { display: flex; min-height: 3.4rem; flex: 0 0 auto; align-items: center; gap: 0.15rem; padding-inline: 0.9rem 0.65rem; }
   .new-chat-action { display: flex; min-height: 2.4rem; flex: 0 0 auto; align-items: center; gap: 0.7rem; margin: 0.1rem 0.75rem 0.4rem; border-radius: 0.6rem; padding-inline: 0.7rem; color: color-mix(in srgb, var(--foreground) 92%, transparent); font-size: 0.9rem; text-align: left; }
   .new-chat-action:hover { background: var(--accent); color: var(--foreground); }

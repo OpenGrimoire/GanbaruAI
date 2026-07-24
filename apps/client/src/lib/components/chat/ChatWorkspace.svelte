@@ -655,17 +655,21 @@
   <div bind:this={railShell} class="chat-rail-shell" class:closed={!chat.railOpen} class:maximized-hidden={inspectorMaximized} role={layout.railPresentation === "sheet" && chat.railOpen ? "dialog" : undefined} aria-modal={layout.railPresentation === "sheet" && chat.railOpen ? "true" : undefined} aria-label={layout.railPresentation === "sheet" && chat.railOpen ? t("chat.title") : undefined} onkeydown={(event) => { if (layout.railPresentation === "sheet") handleSheetKeydown(event, () => { chat.railOpen = false; }); }} style={`--chat-rail-width:${railWidth}px`}>
     <ChatThreadRail onCollapse={() => { chat.railOpen = false; }} />
   </div>
-  <input
-    type="range"
-    class="chat-rail-separator"
+  <div
+    class="chat-panel-separator chat-rail-separator"
     class:hidden={!chat.railOpen || inspectorMaximized}
-    min="160"
-    max="520"
-    value={Math.round(railWidth)}
-    aria-label={t("chat.resizeRail")}
-    onpointerdown={beginRailResize}
-    onkeydown={(event) => resizePanelFromKey(event, "rail")}
-  />
+  >
+    <span class="chat-panel-separator-line" aria-hidden="true"></span>
+    <input
+      type="range"
+      min="160"
+      max="520"
+      value={Math.round(railWidth)}
+      aria-label={t("chat.resizeRail")}
+      onpointerdown={beginRailResize}
+      onkeydown={(event) => resizePanelFromKey(event, "rail")}
+    />
+  </div>
 
   <div class="workspace-content" class:maximized={inspectorMaximized}>
     <div class="workspace-top">
@@ -696,14 +700,14 @@
         {/if}
       </main>
 
-      <input type="range" class="chat-inspector-separator" class:hidden={!chat.inspectorOpen || inspectorMaximized} min={MIN_INSPECTOR_WIDTH} max={inspectorResizeMaximum()} value={Math.round(inspectorWidth)} aria-label={t("chat.resizeInspector")} onpointerdown={beginInspectorResize} onkeydown={(event) => resizePanelFromKey(event, "inspector")} />
+      <div class="chat-panel-separator chat-inspector-separator" class:hidden={!chat.inspectorOpen || inspectorMaximized}><span class="chat-panel-separator-line" aria-hidden="true"></span><input type="range" min={MIN_INSPECTOR_WIDTH} max={inspectorResizeMaximum()} value={Math.round(inspectorWidth)} aria-label={t("chat.resizeInspector")} onpointerdown={beginInspectorResize} onkeydown={(event) => resizePanelFromKey(event, "inspector")} /></div>
       <aside bind:this={inspectorShell} class="chat-inspector-shell" class:open={chat.inspectorOpen} class:maximized={inspectorMaximized} data-presentation={layout.inspectorPresentation} role={layout.inspectorPresentation === "sheet" ? "dialog" : undefined} aria-modal={layout.inspectorPresentation === "sheet" ? "true" : undefined} aria-label={t("chat.openInspector")} onkeydown={(event) => { if (layout.inspectorPresentation === "sheet") handleSheetKeydown(event, () => { chat.inspectorOpen = false; }); }} style={`--chat-inspector-width:${inspectorWidth}px`}>
         <ChatWorkspacePanel placement="inspector" onClose={() => { chat.inspectorOpen = false; }} onMaximizedChange={(value) => { inspectorMaximized = value; }} />
       </aside>
     </div>
 
     {#if bottomPanelOpen && !inspectorMaximized && layout.variant !== "minimum_recovery"}
-      <input type="range" class="chat-bottom-separator" min={MIN_BOTTOM_PANEL_HEIGHT} max={Math.max(MIN_BOTTOM_PANEL_HEIGHT, Math.round(shellHeight * 0.55))} value={Math.round(bottomPanelHeight)} aria-label={t("chat.resizeBottomPanel")} onpointerdown={beginBottomPanelResize} onkeydown={resizeBottomPanelFromKey} />
+      <div class="chat-panel-separator chat-bottom-separator"><span class="chat-panel-separator-line" aria-hidden="true"></span><input type="range" min={MIN_BOTTOM_PANEL_HEIGHT} max={Math.max(MIN_BOTTOM_PANEL_HEIGHT, Math.round(shellHeight * 0.55))} value={Math.round(bottomPanelHeight)} aria-label={t("chat.resizeBottomPanel")} onpointerdown={beginBottomPanelResize} onkeydown={resizeBottomPanelFromKey} /></div>
       <div class="chat-bottom-shell" style={`--chat-bottom-height:${bottomPanelHeight}px`}>
         <ChatWorkspacePanel placement="bottom" onClose={() => { bottomPanelOpen = false; }} />
       </div>
@@ -729,18 +733,22 @@
   .chat-rail-shell { width: var(--chat-rail-width); min-width: var(--chat-rail-width); transition: width 140ms ease, min-width 140ms ease, transform 140ms ease; }
   .chat-rail-shell.closed { width: 0; min-width: 0; overflow: hidden; }
   .maximized-hidden { display: none; }
-  .chat-rail-separator { width: 4px; min-width: 0; flex: 0 0 4px; appearance: none; border: 0; border-radius: 0; padding: 0; cursor: col-resize; background: transparent; }
-  .chat-rail-separator:hover, .chat-rail-separator:focus-visible { background: var(--ring); }
-  .chat-inspector-separator { width: 4px; min-width: 0; flex: 0 0 4px; appearance: none; border: 0; border-radius: 0; padding: 0; cursor: col-resize; background: transparent; }
-  .chat-inspector-separator:hover, .chat-inspector-separator:focus-visible { background: var(--ring); }
+  .chat-panel-separator { position: relative; z-index: 1; background: transparent; }
+  .chat-panel-separator-line { --chat-divider-highlight: color-mix(in srgb, var(--ring) 55%, var(--border)); position: absolute; pointer-events: none; background: var(--border); }
+  .chat-panel-separator input { position: absolute; inset: 0; width: 100%; height: 100%; touch-action: none; appearance: none; margin: 0; cursor: inherit; opacity: 0; }
+  .chat-rail-separator, .chat-inspector-separator { width: 8px; min-width: 8px; flex: 0 0 8px; margin-inline: -4px; cursor: col-resize; }
+  .chat-rail-separator .chat-panel-separator-line, .chat-inspector-separator .chat-panel-separator-line { inset-block: 0; left: 50%; width: 1px; }
+  .chat-rail-separator:hover .chat-panel-separator-line, .chat-rail-separator:has(input:focus-visible) .chat-panel-separator-line,
+  .chat-inspector-separator:hover .chat-panel-separator-line, .chat-inspector-separator:has(input:focus-visible) .chat-panel-separator-line { background: linear-gradient(to bottom, var(--border), var(--chat-divider-highlight) 50%, var(--border)); }
   .workspace-content { display: flex; min-width: 0; min-height: 0; flex: 1; flex-direction: column; }
   .workspace-top { position: relative; display: flex; min-width: 0; min-height: 0; flex: 1; }
-  .chat-inspector-shell { width: 0; min-width: 0; overflow: hidden; border-left: 0 solid var(--border); background: var(--cal-bg); transition: width 140ms ease, min-width 140ms ease; }
-  .chat-inspector-shell.open { width: var(--chat-inspector-width); min-width: min(240px, 46cqw); border-left-width: 1px; }
-  .chat-inspector-shell.maximized { width: 100%; min-width: 0; border-left-width: 0; }
-  .chat-bottom-separator { width: 100%; height: 4px; min-height: 4px; flex: 0 0 4px; appearance: none; border: 0; border-radius: 0; padding: 0; cursor: row-resize; background: transparent; }
-  .chat-bottom-separator:hover, .chat-bottom-separator:focus-visible { background: var(--ring); }
-  .chat-bottom-shell { height: min(var(--chat-bottom-height), 38%); min-height: min(96px, 38%); flex: 0 0 min(var(--chat-bottom-height), 38%); overflow: hidden; border-top: 1px solid var(--border); }
+  .chat-inspector-shell { width: 0; min-width: 0; overflow: hidden; background: var(--cal-bg); transition: width 140ms ease, min-width 140ms ease; }
+  .chat-inspector-shell.open { width: var(--chat-inspector-width); min-width: min(240px, 46cqw); }
+  .chat-inspector-shell.maximized { width: 100%; min-width: 0; }
+  .chat-bottom-separator { width: 100%; height: 8px; min-height: 8px; flex: 0 0 8px; margin-block: -4px; cursor: row-resize; }
+  .chat-bottom-separator .chat-panel-separator-line { inset-inline: 0; top: 50%; height: 1px; }
+  .chat-bottom-separator:hover .chat-panel-separator-line, .chat-bottom-separator:has(input:focus-visible) .chat-panel-separator-line { background: linear-gradient(to right, var(--border), var(--chat-divider-highlight) 50%, var(--border)); }
+  .chat-bottom-shell { height: min(var(--chat-bottom-height), 38%); min-height: min(96px, 38%); flex: 0 0 min(var(--chat-bottom-height), 38%); overflow: hidden; }
   .chat-workspace.resizing-panels, .chat-workspace.resizing-panels * { user-select: none; }
   .chat-workspace.resizing-panels .chat-rail-shell, .chat-workspace.resizing-panels .chat-inspector-shell { transition: none; }
   .chat-sheet-backdrop { position: absolute; inset: 0; z-index: 30; background: rgb(0 0 0 / 0.28); }
