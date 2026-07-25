@@ -6,9 +6,16 @@ import {
   inspectorFocusAction,
   inspectorPresentation,
   inspectorSessionKey,
+  moveWorkspacePanelTab,
   openInspectorTab,
+  reconcileWorkspacePanelTabOrder,
   splitPaneResizeBounds,
   splitDiffFits,
+  terminalWorkspacePanelTabKey,
+  workspacePanelKinds,
+  workspacePanelTabInsertionIndex,
+  workspacePanelTabShift,
+  workspacePanelTerminalId,
 } from "./inspector-model";
 
 describe("Chat inspector model", () => {
@@ -25,6 +32,7 @@ describe("Chat inspector model", () => {
     const state = new ChatInspectorSessionState();
     expect(state.read("thread-a").tab).toBe("files");
     expect(state.read("thread-a").openTabs).toEqual(["files"]);
+    expect(state.read("thread-a").tabOrder).toEqual(["files"]);
     expect(openInspectorTab(["files"], "changes")).toEqual(["files", "changes"]);
     expect(openInspectorTab(["files", "changes"], "files")).toEqual(["files", "changes"]);
   });
@@ -33,7 +41,49 @@ describe("Chat inspector model", () => {
     const state = new ChatInspectorSessionState("terminal");
     expect(state.read(null).tab).toBe("terminal");
     expect(state.read("thread-a").openTabs).toEqual(["terminal"]);
+    expect(state.read("thread-a").tabOrder).toEqual(["terminal"]);
     expect(state.read("thread-a").fileTreeVisible).toBe(false);
+  });
+
+  it("reconciles one physical order for terminal sessions and tool tabs", () => {
+    expect(reconcileWorkspacePanelTabOrder(
+      ["files", "terminal", "plan"],
+      ["files", "terminal", "plan"],
+      ["terminal-a", "terminal-b"],
+    )).toEqual([
+      "files",
+      terminalWorkspacePanelTabKey("terminal-a"),
+      terminalWorkspacePanelTabKey("terminal-b"),
+      "plan",
+    ]);
+
+    expect(reconcileWorkspacePanelTabOrder(
+      ["terminal:terminal-b", "files", "terminal:terminal-a", "changes"],
+      ["terminal", "files", "plan"],
+      ["terminal-a", "terminal-b"],
+    )).toEqual(["terminal:terminal-b", "files", "terminal:terminal-a", "plan"]);
+  });
+
+  it("moves tabs by insertion index and derives their panel families", () => {
+    const order = ["terminal:one", "files", "plan"] as const;
+    expect(moveWorkspacePanelTab(order, "plan", 0)).toEqual(["plan", "terminal:one", "files"]);
+    expect(moveWorkspacePanelTab(order, "terminal:one", 2)).toEqual(["files", "plan", "terminal:one"]);
+    expect(moveWorkspacePanelTab(order, "changes", 1)).toEqual(order);
+    expect(workspacePanelKinds(["terminal:one", "files", "terminal:two", "plan"]))
+      .toEqual(["terminal", "files", "plan"]);
+    expect(workspacePanelTerminalId("terminal:one")).toBe("one");
+    expect(workspacePanelTerminalId("terminal")).toBeNull();
+  });
+
+  it("uses symmetric drag geometry in both reorder directions", () => {
+    expect(workspacePanelTabInsertionIndex(40, [50, 150, 250])).toBe(0);
+    expect(workspacePanelTabInsertionIndex(175, [50, 150, 250])).toBe(2);
+    expect(workspacePanelTabInsertionIndex(300, [50, 150, 250])).toBe(3);
+
+    expect([0, 1, 2].map((index) => workspacePanelTabShift(index, 0, 2, 80)))
+      .toEqual([0, -80, -80]);
+    expect([0, 1, 2].map((index) => workspacePanelTabShift(index, 2, 0, 80)))
+      .toEqual([80, 80, 0]);
   });
 
   it("preserves internal pane sizes independently per placement session", () => {

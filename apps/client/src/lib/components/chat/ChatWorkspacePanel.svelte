@@ -27,7 +27,7 @@
 </script>
 
 <script lang="ts">
-  import { tick } from "svelte";
+  import { onDestroy, tick } from "svelte";
   import FileDiff from "@lucide/svelte/icons/file-diff";
   import Files from "@lucide/svelte/icons/files";
   import ListTodo from "@lucide/svelte/icons/list-todo";
@@ -41,8 +41,16 @@
   import {
     closeInspectorTab,
     inspectorSessionKey,
+    moveWorkspacePanelTab,
     openInspectorTab,
+    reconcileWorkspacePanelTabOrder,
+    terminalWorkspacePanelTabKey,
+    workspacePanelKinds,
+    workspacePanelTabInsertionIndex,
+    workspacePanelTabShift,
+    workspacePanelTerminalId,
     type ChatInspectorThreadState,
+    type ChatWorkspacePanelTabKey,
   } from "$lib/chat/inspector-model";
   import { terminalErrorMessage } from "$lib/chat/terminal-model";
   import {
@@ -95,8 +103,23 @@
   let panelPickerGeometry = $state<SelectPopoverGeometry>(DEFAULT_PICKER_GEOMETRY);
   let fadedTerminalIds: string[] = $state([]);
   let error: string | null = $state(null);
+  let panelTabbar: HTMLDivElement | undefined = $state();
+  let draggedTabKey: ChatWorkspacePanelTabKey | null = $state(null);
+  let draggedTabOffsetX = $state(0);
+  let dragTargetIndex = $state(0);
   let loadedKey: string | null = null;
   let terminalScopeKey = "";
+  let tabDragListenersAttached = false;
+  let tabDragGesture = $state<{
+    key: ChatWorkspacePanelTabKey;
+    pointerId: number;
+    startClientX: number;
+    order: ChatWorkspacePanelTabKey[];
+    sourceIndex: number;
+    sourceCenter: number;
+    sourceSpan: number;
+    active: boolean;
+  } | null>(null);
   const threadId = $derived(chat.selectedThreadId ?? chat.draftThreadId);
   const workspaceId = $derived(chat.selectedWorkspaceId);
   const sessionKey = $derived(inspectorSessionKey(threadId, workspaceId));
@@ -110,10 +133,35 @@
     { id: "plan", label: "plan", icon: ListTodo },
     { id: "files", label: "files", icon: Files },
   ];
-  const visiblePanelTabs = $derived(panelState.openTabs.flatMap((id) => {
-    const tab = panelTabs.find((candidate) => candidate.id === id);
-    return tab ? [tab] : [];
-  }));
+  type WorkspacePanelRenderTab =
+    | { key: ChatWorkspacePanelTabKey; type: "loading-terminal" }
+    | { key: ChatWorkspacePanelTabKey; type: "terminal"; terminal: ChatTerminalRead }
+    | { key: ChatWorkspacePanelTabKey; type: "panel"; panel: (typeof panelTabs)[number] };
+  const orderedTabKeys = $derived(reconcileWorkspacePanelTabOrder(
+    panelState.tabOrder,
+    panelState.openTabs,
+    terminals.map((terminal) => terminal.id),
+  ));
+  const orderedTabs = $derived.by<WorkspacePanelRenderTab[]>(() => {
+    const tabs: WorkspacePanelRenderTab[] = [];
+    for (const key of orderedTabKeys) {
+      if (key === "terminal") {
+        tabs.push({ key, type: "loading-terminal" });
+        continue;
+      }
+      const terminalId = workspacePanelTerminalId(key);
+      const terminal = terminalId
+        ? terminals.find((candidate) => candidate.id === terminalId)
+        : undefined;
+      if (terminal) {
+        tabs.push({ key, type: "terminal", terminal });
+        continue;
+      }
+      const panel = panelForKey(key);
+      if (panel) tabs.push({ key, type: "panel", panel });
+    }
+    return tabs;
+  });
 
   function initialPanelTab(): "files" | "terminal" {
     return placement === "bottom" ? "terminal" : "files";
@@ -159,21 +207,40 @@
   }
 
   function openPanel(tab: ChatInspectorTab): void {
+    const openTabs = openInspectorTab(panelState.openTabs, tab);
+    const currentOrder = reconcileWorkspacePanelTabOrder(
+      panelState.tabOrder,
+      openTabs,
+      terminals.map((terminal) => terminal.id),
+    );
     update({
       tab,
-      openTabs: openInspectorTab(panelState.openTabs, tab),
+      openTabs,
+      tabOrder: currentOrder,
       ...(tab === "files" ? { fileTreeVisible: true } : {}),
     });
     panelPickerOpen = false;
   }
 
   function closePanel(tab: ChatInspectorTab): void {
+    const currentOrder = orderedTabKeys;
+    const remainingOrder = currentOrder.filter((key) => panelKind(key) !== tab);
     const next = closeInspectorTab(panelState.openTabs, tab, panelState.tab);
     if (next.tabs.length === 0) {
       onClose();
       return;
     }
-    update({ openTabs: next.tabs, tab: next.selectedTab ?? next.tabs[0] ?? initialPanelTab() });
+    const selectedTab = panelState.tab === tab
+      ? panelKind(remainingOrder[Math.min(
+        Math.max(0, currentOrder.findIndex((key) => panelKind(key) === tab)),
+        remainingOrder.length - 1,
+      )] ?? remainingOrder[0] ?? initialPanelTab())
+      : next.selectedTab ?? panelState.tab;
+    update({
+      openTabs: workspacePanelKinds(remainingOrder),
+      tabOrder: remainingOrder,
+      tab: selectedTab,
+    });
   }
 
   function selectPanel(tab: ChatInspectorTab): void {
@@ -183,6 +250,14 @@
   function panelLabel(tab: (typeof panelTabs)[number]): string {
     if (tab.id !== "files" || !panelState.filePreviewPath) return t(`chat.inspector.${tab.label}`);
     return panelState.filePreviewPath.split("/").filter(Boolean).at(-1) ?? t("chat.inspector.files");
+  }
+
+  function panelKind(key: ChatWorkspacePanelTabKey): ChatInspectorTab {
+    return key === "changes" || key === "plan" || key === "files" ? key : "terminal";
+  }
+
+  function panelForKey(key: ChatWorkspacePanelTabKey): (typeof panelTabs)[number] | undefined {
+    return panelTabs.find((candidate) => candidate.id === key);
   }
 
   async function loadTerminals(
@@ -234,7 +309,14 @@
     if (!threadId || !workspaceId) return;
     panelPickerOpen = false;
     const snapshot = await createTerminal(threadId, workspaceId);
+    const previousOrder = orderedTabKeys;
     terminals = [...terminals, snapshot.terminal];
+    update({
+      tabOrder: [
+        ...previousOrder.filter((key) => key !== "terminal"),
+        terminalWorkspacePanelTabKey(snapshot.terminal.id),
+      ],
+    });
     selectTerminal(snapshot.terminal.id);
     openPanel("terminal");
   }
@@ -274,10 +356,27 @@
     }
     if (!result.closed) return;
     terminalPanels.release(terminal.id);
+    const closedKey = terminalWorkspacePanelTabKey(terminal.id);
+    const currentOrder = orderedTabKeys;
+    const closedIndex = currentOrder.indexOf(closedKey);
+    const remainingOrder = currentOrder.filter((key) => key !== closedKey);
     const next = terminals.filter((entry) => entry.id !== terminal.id);
+    if (next.length === 0) {
+      closePanel("terminal");
+      terminals = next;
+      return;
+    }
     terminals = next;
-    if (selectedTerminalId === terminal.id) selectTerminal(next[0]?.id ?? null);
-    if (next.length === 0) closePanel("terminal");
+    update({ tabOrder: remainingOrder });
+    if (selectedTerminalId === terminal.id) {
+      const nearestKey = remainingOrder[Math.min(
+        Math.max(0, closedIndex),
+        remainingOrder.length - 1,
+      )] ?? remainingOrder[0];
+      const nearestTerminalId = nearestKey ? workspacePanelTerminalId(nearestKey) : null;
+      selectTerminal(nearestTerminalId ?? next[0]?.id ?? null);
+      if (nearestKey) selectPanel(panelKind(nearestKey));
+    }
   }
 
   function trackTerminalOverflow(node: HTMLElement, terminalId: string): { destroy: () => void } {
@@ -324,6 +423,138 @@
         : (index + (event.key === "ArrowRight" ? 1 : -1) + buttons.length) % buttons.length;
     buttons[next]?.click();
     buttons[next]?.focus();
+  }
+
+  function beginTabDrag(event: PointerEvent, key: ChatWorkspacePanelTabKey): void {
+    if (event.button !== 0) return;
+    if (event.target instanceof Element && event.target.closest(".tab-close")) return;
+    if (!panelTabbar) return;
+    const order = [...orderedTabKeys];
+    const sourceIndex = order.indexOf(key);
+    if (sourceIndex < 0) return;
+    const slot = event.currentTarget as HTMLElement;
+    const computedGap = Number.parseFloat(getComputedStyle(panelTabbar).columnGap);
+    activateWorkspacePanelTab(key);
+    tabDragGesture = {
+      key,
+      pointerId: event.pointerId,
+      startClientX: event.clientX,
+      order,
+      sourceIndex,
+      sourceCenter: slot.offsetLeft + slot.offsetWidth / 2,
+      sourceSpan: slot.offsetWidth + (Number.isFinite(computedGap) ? computedGap : 0),
+      active: false,
+    };
+    dragTargetIndex = sourceIndex;
+    attachTabDragListeners();
+  }
+
+  function moveTabDrag(event: PointerEvent): void {
+    const gesture = tabDragGesture;
+    if (!gesture || gesture.pointerId !== event.pointerId || !panelTabbar) return;
+    const offsetX = event.clientX - gesture.startClientX;
+    if (!gesture.active) {
+      if (Math.abs(offsetX) < 5) return;
+      gesture.active = true;
+      draggedTabKey = gesture.key;
+    }
+    event.preventDefault();
+    draggedTabOffsetX = offsetX;
+    const remainingCenters = [...panelTabbar.querySelectorAll<HTMLElement>("[data-panel-tab-key]")]
+      .filter((element) => element.dataset.panelTabKey !== gesture.key)
+      .map((element) => element.offsetLeft + element.offsetWidth / 2);
+    dragTargetIndex = workspacePanelTabInsertionIndex(
+      gesture.sourceCenter + offsetX,
+      remainingCenters,
+    );
+  }
+
+  function tabDragShift(key: ChatWorkspacePanelTabKey): number {
+    const gesture = tabDragGesture;
+    if (!gesture?.active) return 0;
+    if (key === gesture.key) return draggedTabOffsetX;
+    return workspacePanelTabShift(
+      gesture.order.indexOf(key),
+      gesture.sourceIndex,
+      dragTargetIndex,
+      gesture.sourceSpan,
+    );
+  }
+
+  function finishTabDrag(event: PointerEvent, commit: boolean): void {
+    const gesture = tabDragGesture;
+    if (!gesture || gesture.pointerId !== event.pointerId) return;
+    const nextOrder = commit && gesture.active
+      ? moveWorkspacePanelTab(gesture.order, gesture.key, dragTargetIndex)
+      : null;
+    resetTabDrag();
+    if (nextOrder) update({ tabOrder: nextOrder, openTabs: workspacePanelKinds(nextOrder) });
+  }
+
+  function attachTabDragListeners(): void {
+    if (tabDragListenersAttached) return;
+    tabDragListenersAttached = true;
+    window.addEventListener("pointermove", handleWindowTabPointerMove, true);
+    window.addEventListener("pointerup", handleWindowTabPointerUp, true);
+    window.addEventListener("pointercancel", handleWindowTabPointerCancel, true);
+    window.addEventListener("blur", cancelTabDrag);
+  }
+
+  function detachTabDragListeners(): void {
+    if (!tabDragListenersAttached) return;
+    tabDragListenersAttached = false;
+    window.removeEventListener("pointermove", handleWindowTabPointerMove, true);
+    window.removeEventListener("pointerup", handleWindowTabPointerUp, true);
+    window.removeEventListener("pointercancel", handleWindowTabPointerCancel, true);
+    window.removeEventListener("blur", cancelTabDrag);
+  }
+
+  function handleWindowTabPointerMove(event: PointerEvent): void {
+    moveTabDrag(event);
+  }
+
+  function handleWindowTabPointerUp(event: PointerEvent): void {
+    finishTabDrag(event, true);
+  }
+
+  function handleWindowTabPointerCancel(event: PointerEvent): void {
+    finishTabDrag(event, false);
+  }
+
+  function cancelTabDrag(): void {
+    resetTabDrag();
+  }
+
+  function resetTabDrag(): void {
+    detachTabDragListeners();
+    tabDragGesture = null;
+    draggedTabKey = null;
+    draggedTabOffsetX = 0;
+    dragTargetIndex = 0;
+  }
+
+  onDestroy(resetTabDrag);
+
+  function activateWorkspacePanelTab(key: ChatWorkspacePanelTabKey): void {
+    const terminalId = workspacePanelTerminalId(key);
+    if (terminalId) selectTerminal(terminalId);
+    selectPanel(panelKind(key));
+  }
+
+  function preventMiddleButtonScroll(event: MouseEvent): void {
+    if (event.button === 1) event.preventDefault();
+  }
+
+  function closeTabFromAuxClick(
+    event: MouseEvent,
+    key: ChatWorkspacePanelTabKey,
+    terminal?: ChatTerminalRead,
+  ): void {
+    if (event.button !== 1) return;
+    event.preventDefault();
+    event.stopPropagation();
+    if (terminal) void run(() => closeTerminal(terminal));
+    else closePanel(panelKind(key));
   }
 
   function message(reason: unknown): string {
@@ -428,32 +659,30 @@
 </script>
 
 <section class="workspace-panel" data-placement={placement} aria-label={placement === "bottom" ? t("chat.bottomPanel") : t("chat.inspector.title")}>
-  <div class="panel-tabbar" role="tablist" aria-label={placement === "bottom" ? t("chat.bottomPanel") : t("chat.inspector.title")}>
-    {#if panelState.openTabs.includes("terminal")}
-      {#if terminals.length === 0}
-        <button type="button" role="tab" aria-selected={panelState.tab === "terminal"} tabindex={panelState.tab === "terminal" ? 0 : -1} class="terminal-tab loading" class:active={panelState.tab === "terminal"} onclick={() => selectPanel("terminal")} onkeydown={handleTabKeydown}>
-          <SquareTerminal size={13} /><span>{t("chat.inspector.terminal")}</span>
-        </button>
-      {:else}
-      {#each terminals as terminal (terminal.id)}
-        <div class="terminal-tab-shell" class:active={panelState.tab === "terminal" && selectedTerminalId === terminal.id}>
-          <button type="button" role="tab" aria-selected={panelState.tab === "terminal" && selectedTerminalId === terminal.id} tabindex={panelState.tab === "terminal" && selectedTerminalId === terminal.id ? 0 : -1} class="terminal-tab" onclick={() => { selectTerminal(terminal.id); selectPanel("terminal"); }} onkeydown={handleTabKeydown} title={terminal.name}>
-            <SquareTerminal size={13} />
-            <span class="terminal-label" class:faded={fadedTerminalIds.includes(terminal.id)} use:trackTerminalOverflow={terminal.id}>{terminal.name}</span>
+  <div bind:this={panelTabbar} class="panel-tabbar" class:reordering={draggedTabKey !== null} role="tablist" aria-label={placement === "bottom" ? t("chat.bottomPanel") : t("chat.inspector.title")}>
+    {#each orderedTabs as item (item.key)}
+      <div role="presentation" class="panel-tab-slot" class:dragging={draggedTabKey === item.key} data-panel-tab-key={item.key} style:--tab-shift-x={`${tabDragShift(item.key)}px`} onpointerdown={(event) => beginTabDrag(event, item.key)} onmousedown={preventMiddleButtonScroll} onauxclick={(event) => closeTabFromAuxClick(event, item.key, item.type === "terminal" ? item.terminal : undefined)}>
+        {#if item.type === "loading-terminal"}
+          <button type="button" role="tab" aria-selected={panelState.tab === "terminal"} tabindex={panelState.tab === "terminal" ? 0 : -1} class="terminal-tab loading" class:active={panelState.tab === "terminal"} onclick={() => selectPanel("terminal")} onkeydown={handleTabKeydown}>
+            <SquareTerminal size={13} /><span>{t("chat.inspector.terminal")}</span>
           </button>
-          <button type="button" class="tab-close terminal-close" aria-label={t("chat.inspector.closeTerminal")} onclick={() => void run(() => closeTerminal(terminal))}><X size={11} /></button>
-        </div>
-      {/each}
-      {/if}
-    {/if}
-
-    {#each visiblePanelTabs as tab (tab.id)}
-      {@const Icon = tab.icon}
-      <div class="panel-tab-shell" class:active={panelState.tab === tab.id}>
-        <button type="button" role="tab" aria-selected={panelState.tab === tab.id} tabindex={panelState.tab === tab.id ? 0 : -1} class="panel-tab" title={tab.id === "files" ? panelState.filePreviewPath ?? undefined : undefined} onclick={() => selectPanel(tab.id)} onkeydown={handleTabKeydown}>
-          {#if tab.id === "files" && panelState.filePreviewPath}<ChatFileIcon path={panelState.filePreviewPath} size={13} />{:else}<Icon size={13} />{/if}<span>{panelLabel(tab)}</span>
-        </button>
-        <button type="button" class="tab-close" aria-label={t("chat.inspector.closePanel", panelLabel(tab))} onclick={() => closePanel(tab.id)}><X size={11} /></button>
+        {:else if item.type === "terminal"}
+          <div class="terminal-tab-shell" class:active={panelState.tab === "terminal" && selectedTerminalId === item.terminal.id}>
+            <button type="button" role="tab" aria-selected={panelState.tab === "terminal" && selectedTerminalId === item.terminal.id} tabindex={panelState.tab === "terminal" && selectedTerminalId === item.terminal.id ? 0 : -1} class="terminal-tab" onclick={() => { selectTerminal(item.terminal.id); selectPanel("terminal"); }} onkeydown={handleTabKeydown} title={item.terminal.name}>
+              <SquareTerminal size={13} />
+              <span class="terminal-label" class:faded={fadedTerminalIds.includes(item.terminal.id)} use:trackTerminalOverflow={item.terminal.id}>{item.terminal.name}</span>
+            </button>
+            <button type="button" class="tab-close terminal-close" aria-label={t("chat.inspector.closeTerminal")} onclick={() => void run(() => closeTerminal(item.terminal))}><X size={11} /></button>
+          </div>
+        {:else}
+          {@const Icon = item.panel.icon}
+          <div class="panel-tab-shell" class:active={panelState.tab === item.panel.id}>
+            <button type="button" role="tab" aria-selected={panelState.tab === item.panel.id} tabindex={panelState.tab === item.panel.id ? 0 : -1} class="panel-tab" title={item.panel.id === "files" ? panelState.filePreviewPath ?? undefined : undefined} onclick={() => selectPanel(item.panel.id)} onkeydown={handleTabKeydown}>
+              {#if item.panel.id === "files" && panelState.filePreviewPath}<ChatFileIcon path={panelState.filePreviewPath} size={13} />{:else}<Icon size={13} />{/if}<span>{panelLabel(item.panel)}</span>
+            </button>
+            <button type="button" class="tab-close" aria-label={t("chat.inspector.closePanel", panelLabel(item.panel))} onclick={() => closePanel(item.panel.id)}><X size={11} /></button>
+          </div>
+        {/if}
       </div>
     {/each}
 
@@ -563,7 +792,11 @@
 <style>
   .workspace-panel { display: flex; height: 100%; min-height: 0; flex-direction: column; background: var(--cal-bg); }
   .panel-tabbar { position: relative; display: flex; min-height: 2.65rem; flex: 0 0 auto; align-items: center; gap: 0.2rem; padding-inline: 0.45rem; }
+  .panel-tabbar.reordering { user-select: none; }
   .panel-tabbar > :global(.chat-icon-button) { align-self: center; }
+  .panel-tab-slot { display: flex; min-width: 0; transform: translate3d(var(--tab-shift-x), 0, 0); align-items: stretch; transition: transform 140ms cubic-bezier(0.2, 0, 0, 1); }
+  .panel-tabbar.reordering .panel-tab-slot { will-change: transform; }
+  .panel-tab-slot.dragging { z-index: 1; transition: none; }
   .terminal-tab, .panel-tab { display: flex; min-width: 0; min-height: 2rem; align-items: center; gap: 0.4rem; padding: 0.3rem 0.65rem; color: inherit; font-size: 0.733333rem; }
   .terminal-tab.loading { border-radius: 0.55rem; color: var(--muted-foreground); }
   .terminal-tab-shell, .panel-tab-shell { display: flex; min-width: 0; align-items: stretch; border-radius: 0.55rem; color: var(--muted-foreground); }
@@ -588,4 +821,5 @@
   .panel-picker small { color: var(--muted-foreground); font-size: 0.666667rem; line-height: 1.3; }
   @container chat-shell (max-width: 520px) { .terminal-label, .panel-tab span { display: none; } .terminal-tab-shell { max-width: none; } .tab-close { width: 1.3rem; opacity: 1; } }
   @media (hover: none) { .tab-close { opacity: 1; } }
+  @media (prefers-reduced-motion: reduce) { .panel-tab-slot { transition: none; } }
 </style>

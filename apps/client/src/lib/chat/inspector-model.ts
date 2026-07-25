@@ -7,6 +7,7 @@ import type {
 export interface ChatInspectorThreadState {
   tab: ChatInspectorTab;
   openTabs: ChatInspectorTab[];
+  tabOrder: ChatWorkspacePanelTabKey[];
   selectedFile: string | null;
   fileBrowserPath: string;
   filePreviewPath: string | null;
@@ -30,6 +31,7 @@ export interface ChatChangedFileTreeNode {
 const DEFAULT_STATE: ChatInspectorThreadState = {
   tab: "files",
   openTabs: ["files"],
+  tabOrder: ["files"],
   selectedFile: null,
   fileBrowserPath: "",
   filePreviewPath: null,
@@ -52,13 +54,14 @@ export class ChatInspectorSessionState {
       ...DEFAULT_STATE,
       tab: this.initialTab,
       openTabs: [this.initialTab],
+      tabOrder: [this.initialTab],
       fileTreeVisible: this.initialTab === "files",
     };
   }
 
   read(threadId: ChatThreadId | null): ChatInspectorThreadState {
     const state = threadId ? this.threads.get(threadId) ?? this.initialState() : this.initialState();
-    return { ...state, openTabs: [...state.openTabs] };
+    return { ...state, openTabs: [...state.openTabs], tabOrder: [...state.tabOrder] };
   }
 
   update(threadId: ChatThreadId, update: Partial<ChatInspectorThreadState>): ChatInspectorThreadState {
@@ -67,9 +70,10 @@ export class ChatInspectorSessionState {
       ...current,
       ...update,
       openTabs: [...(update.openTabs ?? current.openTabs)],
+      tabOrder: [...(update.tabOrder ?? current.tabOrder)],
     };
     this.threads.set(threadId, next);
-    return { ...next, openTabs: [...next.openTabs] };
+    return { ...next, openTabs: [...next.openTabs], tabOrder: [...next.tabOrder] };
   }
 }
 
@@ -87,6 +91,140 @@ export function openInspectorTab(
   tab: ChatInspectorTab,
 ): ChatInspectorTab[] {
   return tabs.includes(tab) ? [...tabs] : [...tabs, tab];
+}
+
+export type ChatWorkspacePanelTabKey = ChatInspectorTab | `terminal:${string}`;
+
+/**
+ * Creates the stable tab key used for one terminal session.
+ *
+ * @param terminalId Terminal session identifier.
+ * @returns A key that cannot collide with a workspace tool tab.
+ */
+export function terminalWorkspacePanelTabKey(terminalId: string): `terminal:${string}` {
+  return `terminal:${terminalId}`;
+}
+
+/**
+ * Reads a terminal identifier from a workspace panel tab key.
+ *
+ * @param key Workspace panel tab key.
+ * @returns The terminal identifier, or null for a tool tab and the loading placeholder.
+ */
+export function workspacePanelTerminalId(key: ChatWorkspacePanelTabKey): string | null {
+  return key.startsWith("terminal:") ? key.slice("terminal:".length) : null;
+}
+
+/**
+ * Resolves a stored tab order against the panels and terminal sessions that still exist.
+ *
+ * The generic terminal key acts as a loading placeholder. Once terminal sessions are
+ * known, they replace that placeholder without moving the surrounding tool tabs.
+ *
+ * @param storedOrder Last user-defined physical tab order.
+ * @param openTabs Open tool families in their fallback order.
+ * @param terminalIds Terminal sessions owned by this panel.
+ * @returns A complete, duplicate-free physical tab order.
+ */
+export function reconcileWorkspacePanelTabOrder(
+  storedOrder: readonly ChatWorkspacePanelTabKey[],
+  openTabs: readonly ChatInspectorTab[],
+  terminalIds: readonly string[],
+): ChatWorkspacePanelTabKey[] {
+  const terminalKeys = terminalIds.map(terminalWorkspacePanelTabKey);
+  const fallback = openTabs.flatMap<ChatWorkspacePanelTabKey>((tab) => (
+    tab === "terminal" ? terminalKeys.length > 0 ? terminalKeys : ["terminal"] : [tab]
+  ));
+  const available = new Set(fallback);
+  const resolved: ChatWorkspacePanelTabKey[] = [];
+  const append = (key: ChatWorkspacePanelTabKey): void => {
+    if (available.has(key) && !resolved.includes(key)) resolved.push(key);
+  };
+
+  for (const key of storedOrder) {
+    if (key === "terminal" && terminalKeys.length > 0) terminalKeys.forEach(append);
+    else append(key);
+  }
+  fallback.forEach(append);
+  return resolved;
+}
+
+/**
+ * Moves one physical workspace tab to an insertion index.
+ *
+ * @param tabs Current physical tab order.
+ * @param tab Tab being moved.
+ * @param insertionIndex Index in the order after removing the moving tab.
+ * @returns The reordered tabs, or a copy of the original order for an unknown tab.
+ */
+export function moveWorkspacePanelTab(
+  tabs: readonly ChatWorkspacePanelTabKey[],
+  tab: ChatWorkspacePanelTabKey,
+  insertionIndex: number,
+): ChatWorkspacePanelTabKey[] {
+  if (!tabs.includes(tab)) return [...tabs];
+  const remaining = tabs.filter((entry) => entry !== tab);
+  const boundedIndex = Math.min(Math.max(0, insertionIndex), remaining.length);
+  remaining.splice(boundedIndex, 0, tab);
+  return remaining;
+}
+
+/**
+ * Finds the insertion point for a dragged tab among the remaining tab centers.
+ *
+ * @param draggedCenter Horizontal center of the dragged tab.
+ * @param remainingCenters Ordered horizontal centers after removing the dragged tab.
+ * @returns Insertion index in the remaining tab order.
+ */
+export function workspacePanelTabInsertionIndex(
+  draggedCenter: number,
+  remainingCenters: readonly number[],
+): number {
+  const index = remainingCenters.findIndex((center) => draggedCenter < center);
+  return index < 0 ? remainingCenters.length : index;
+}
+
+/**
+ * Calculates the temporary sibling displacement for an uncommitted tab drag.
+ *
+ * @param index Original tab index.
+ * @param sourceIndex Original index of the dragged tab.
+ * @param targetIndex Pending insertion index after removing the dragged tab.
+ * @param sourceSpan Dragged tab width plus the tab-strip gap.
+ * @returns Horizontal displacement in pixels.
+ */
+export function workspacePanelTabShift(
+  index: number,
+  sourceIndex: number,
+  targetIndex: number,
+  sourceSpan: number,
+): number {
+  if (targetIndex > sourceIndex && index > sourceIndex && index <= targetIndex) {
+    return -sourceSpan;
+  }
+  if (targetIndex < sourceIndex && index >= targetIndex && index < sourceIndex) {
+    return sourceSpan;
+  }
+  return 0;
+}
+
+/**
+ * Collapses physical terminal tabs back into the panel families used for selection.
+ *
+ * @param tabs Physical workspace tab order.
+ * @returns Unique panel families in first-appearance order.
+ */
+export function workspacePanelKinds(
+  tabs: readonly ChatWorkspacePanelTabKey[],
+): ChatInspectorTab[] {
+  const kinds: ChatInspectorTab[] = [];
+  for (const key of tabs) {
+    const kind: ChatInspectorTab = key === "changes" || key === "plan" || key === "files"
+      ? key
+      : "terminal";
+    if (!kinds.includes(kind)) kinds.push(kind);
+  }
+  return kinds;
 }
 
 /**
