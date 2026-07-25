@@ -39,17 +39,22 @@
   import * as chatApi from "$lib/api/chat";
   import type { ChatInspectorTab, ChatTerminalRead } from "$lib/chat/contracts";
   import {
+    CHAT_WORKSPACE_PANEL_TAB_NAME_MAX_LENGTH,
     closeInspectorTab,
     inspectorSessionKey,
     moveWorkspacePanelTab,
+    normalizeWorkspacePanelTabName,
     openInspectorTab,
     reconcileWorkspacePanelTabOrder,
+    terminalWorkspacePanelDefaultLabel,
     terminalWorkspacePanelTabKey,
     workspacePanelKinds,
+    workspacePanelRenameGeometry,
     workspacePanelTabInsertionIndex,
     workspacePanelTabShift,
     workspacePanelTerminalId,
     type ChatInspectorThreadState,
+    type ChatWorkspacePanelRenameGeometry,
     type ChatWorkspacePanelTabKey,
   } from "$lib/chat/inspector-model";
   import { terminalErrorMessage } from "$lib/chat/terminal-model";
@@ -107,6 +112,22 @@
   let draggedTabKey: ChatWorkspacePanelTabKey | null = $state(null);
   let draggedTabOffsetX = $state(0);
   let dragTargetIndex = $state(0);
+  let tabRenameState = $state<{
+    key: ChatWorkspacePanelTabKey;
+    anchorX: number;
+    anchorY: number;
+  } | null>(null);
+  let tabRenameDraft = $state("");
+  let tabRenameReady = $state(false);
+  let tabRenamePanel: HTMLDivElement | undefined = $state();
+  let tabRenameInput: HTMLInputElement | undefined = $state();
+  let tabRenameTrigger: HTMLElement | undefined;
+  let tabRenameGeometry = $state<ChatWorkspacePanelRenameGeometry>({
+    left: 0,
+    top: 0,
+    width: 240,
+    maxHeight: 0,
+  });
   let loadedKey: string | null = null;
   let terminalScopeKey = "";
   let tabDragListenersAttached = false;
@@ -174,6 +195,8 @@
   $effect(() => {
     const key = sessionKey;
     if (key === loadedKey) return;
+    resetTabDrag();
+    closeTabRenamePanel();
     loadedKey = key;
     panelState = placementSession().read(key);
     onMaximizedChange(panelState.maximized);
@@ -220,11 +243,17 @@
       ...(tab === "files" ? { fileTreeVisible: true } : {}),
     });
     panelPickerOpen = false;
+    void revealWorkspacePanelTab(tab);
   }
 
   function closePanel(tab: ChatInspectorTab): void {
     const currentOrder = orderedTabKeys;
     const remainingOrder = currentOrder.filter((key) => panelKind(key) !== tab);
+    const tabNames = Object.fromEntries(
+      Object.entries(panelState.tabNames).filter(([key]) => (
+        panelKind(key as ChatWorkspacePanelTabKey) !== tab
+      )),
+    ) as Partial<Record<ChatWorkspacePanelTabKey, string>>;
     const next = closeInspectorTab(panelState.openTabs, tab, panelState.tab);
     if (next.tabs.length === 0) {
       onClose();
@@ -239,6 +268,7 @@
     update({
       openTabs: workspacePanelKinds(remainingOrder),
       tabOrder: remainingOrder,
+      tabNames,
       tab: selectedTab,
     });
   }
@@ -250,6 +280,21 @@
   function panelLabel(tab: (typeof panelTabs)[number]): string {
     if (tab.id !== "files" || !panelState.filePreviewPath) return t(`chat.inspector.${tab.label}`);
     return panelState.filePreviewPath.split("/").filter(Boolean).at(-1) ?? t("chat.inspector.files");
+  }
+
+  function defaultWorkspacePanelTabLabel(key: ChatWorkspacePanelTabKey): string {
+    const terminalId = workspacePanelTerminalId(key);
+    if (terminalId) {
+      const terminal = terminals.find((candidate) => candidate.id === terminalId);
+      return terminal ? terminalWorkspacePanelDefaultLabel(terminal.name) : t("chat.inspector.terminal");
+    }
+    if (key === "terminal") return t("chat.inspector.terminal");
+    const panel = panelForKey(key);
+    return panel ? panelLabel(panel) : t("chat.inspector.terminal");
+  }
+
+  function workspacePanelTabLabel(key: ChatWorkspacePanelTabKey): string {
+    return panelState.tabNames[key] ?? defaultWorkspacePanelTabLabel(key);
   }
 
   function panelKind(key: ChatWorkspacePanelTabKey): ChatInspectorTab {
@@ -279,6 +324,14 @@
       });
       if (thread !== threadId || workspace !== workspaceId) return;
       terminals = loaded;
+      const placeholderName = panelState.tabNames.terminal;
+      const firstTerminal = loaded[0];
+      if (placeholderName && firstTerminal) {
+        const tabNames = { ...panelState.tabNames };
+        delete tabNames.terminal;
+        tabNames[terminalWorkspacePanelTabKey(firstTerminal.id)] = placeholderName;
+        update({ tabNames });
+      }
       const remembered = terminalPanels.selected(thread, placement);
       selectTerminal(loaded.some((terminal) => terminal.id === remembered)
         ? remembered ?? null
@@ -319,6 +372,7 @@
     });
     selectTerminal(snapshot.terminal.id);
     openPanel("terminal");
+    await revealWorkspacePanelTab(terminalWorkspacePanelTabKey(snapshot.terminal.id));
   }
 
   function retryTerminalLoad(): void {
@@ -360,6 +414,8 @@
     const currentOrder = orderedTabKeys;
     const closedIndex = currentOrder.indexOf(closedKey);
     const remainingOrder = currentOrder.filter((key) => key !== closedKey);
+    const tabNames = { ...panelState.tabNames };
+    delete tabNames[closedKey];
     const next = terminals.filter((entry) => entry.id !== terminal.id);
     if (next.length === 0) {
       closePanel("terminal");
@@ -367,7 +423,7 @@
       return;
     }
     terminals = next;
-    update({ tabOrder: remainingOrder });
+    update({ tabOrder: remainingOrder, tabNames });
     if (selectedTerminalId === terminal.id) {
       const nearestKey = remainingOrder[Math.min(
         Math.max(0, closedIndex),
@@ -379,8 +435,12 @@
     }
   }
 
-  function trackTerminalOverflow(node: HTMLElement, terminalId: string): { destroy: () => void } {
-    const update = () => {
+  function trackTerminalOverflow(
+    node: HTMLElement,
+    details: { terminalId: string; label: string },
+  ): { update: (next: { terminalId: string; label: string }) => void; destroy: () => void } {
+    let terminalId = details.terminalId;
+    const updateOverflow = () => {
       const overflows = node.scrollWidth > node.clientWidth;
       const included = fadedTerminalIds.includes(terminalId);
       if (overflows !== included) {
@@ -389,10 +449,17 @@
           : fadedTerminalIds.filter((id) => id !== terminalId);
       }
     };
-    const observer = new ResizeObserver(update);
+    const observer = new ResizeObserver(updateOverflow);
     observer.observe(node);
-    queueMicrotask(update);
+    queueMicrotask(updateOverflow);
     return {
+      update: (next) => {
+        if (next.terminalId !== terminalId) {
+          fadedTerminalIds = fadedTerminalIds.filter((id) => id !== terminalId);
+          terminalId = next.terminalId;
+        }
+        queueMicrotask(updateOverflow);
+      },
       destroy: () => {
         observer.disconnect();
         fadedTerminalIds = fadedTerminalIds.filter((id) => id !== terminalId);
@@ -409,7 +476,17 @@
     }
   }
 
-  function handleTabKeydown(event: KeyboardEvent): void {
+  function handleTabKeydown(
+    event: KeyboardEvent,
+    key: ChatWorkspacePanelTabKey,
+  ): void {
+    if (event.key === "ContextMenu" || (event.shiftKey && event.key === "F10")) {
+      event.preventDefault();
+      const trigger = event.currentTarget as HTMLElement;
+      const triggerRect = trigger.getBoundingClientRect();
+      void openTabRenamePanel(key, triggerRect.left, triggerRect.bottom, trigger);
+      return;
+    }
     if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
     const tabbar = (event.currentTarget as HTMLElement).closest<HTMLElement>("[role='tablist']");
     const buttons = [...(tabbar?.querySelectorAll<HTMLButtonElement>("[role='tab']") ?? [])];
@@ -423,6 +500,109 @@
         : (index + (event.key === "ArrowRight" ? 1 : -1) + buttons.length) % buttons.length;
     buttons[next]?.click();
     buttons[next]?.focus();
+  }
+
+  function handleTabStripWheel(event: WheelEvent): void {
+    if (!panelTabbar || panelTabbar.scrollWidth <= panelTabbar.clientWidth) return;
+    const delta = Math.abs(event.deltaX) > Math.abs(event.deltaY) ? event.deltaX : event.deltaY;
+    if (delta === 0) return;
+    const previousScrollLeft = panelTabbar.scrollLeft;
+    panelTabbar.scrollLeft += delta;
+    if (panelTabbar.scrollLeft !== previousScrollLeft) event.preventDefault();
+  }
+
+  async function revealWorkspacePanelTab(key: ChatWorkspacePanelTabKey): Promise<void> {
+    await tick();
+    const tab = [...(panelTabbar?.querySelectorAll<HTMLElement>("[data-panel-tab-key]") ?? [])]
+      .find((candidate) => candidate.dataset.panelTabKey === key);
+    tab?.scrollIntoView({ block: "nearest", inline: "nearest" });
+  }
+
+  function handleTabContextMenu(
+    event: MouseEvent,
+    key: ChatWorkspacePanelTabKey,
+  ): void {
+    event.preventDefault();
+    event.stopPropagation();
+    const slot = event.currentTarget as HTMLElement;
+    const trigger = slot.querySelector<HTMLElement>("[role='tab']") ?? slot;
+    void openTabRenamePanel(key, event.clientX, event.clientY, trigger);
+  }
+
+  async function openTabRenamePanel(
+    key: ChatWorkspacePanelTabKey,
+    anchorX: number,
+    anchorY: number,
+    trigger: HTMLElement,
+  ): Promise<void> {
+    resetTabDrag();
+    panelPickerOpen = false;
+    tabRenameTrigger = trigger;
+    tabRenameDraft = workspacePanelTabLabel(key);
+    tabRenameReady = false;
+    tabRenameState = { key, anchorX, anchorY };
+    await tick();
+    positionTabRenamePanel();
+    tabRenameInput?.focus();
+    tabRenameInput?.select();
+  }
+
+  function positionTabRenamePanel(): void {
+    if (!tabRenameState) return;
+    tabRenameGeometry = workspacePanelRenameGeometry(
+      tabRenameState.anchorX,
+      tabRenameState.anchorY,
+      window.innerWidth,
+      window.innerHeight,
+      tabRenamePanel?.scrollHeight ?? 132,
+    );
+    tabRenameReady = true;
+  }
+
+  function tabRenamePanelStyle(): string {
+    if (!tabRenameReady) return "visibility:hidden;top:0;left:0;";
+    return [
+      "visibility:visible",
+      `top:${tabRenameGeometry.top}px`,
+      `left:${tabRenameGeometry.left}px`,
+      `width:${tabRenameGeometry.width}px`,
+      `max-height:${tabRenameGeometry.maxHeight}px`,
+    ].join(";");
+  }
+
+  function closeTabRenamePanel(restoreFocus = false): void {
+    const trigger = tabRenameTrigger;
+    tabRenameState = null;
+    tabRenameReady = false;
+    tabRenameTrigger = undefined;
+    if (restoreFocus) queueMicrotask(() => trigger?.focus());
+  }
+
+  function saveTabName(): void {
+    const renameState = tabRenameState;
+    if (!renameState) return;
+    const name = normalizeWorkspacePanelTabName(tabRenameDraft);
+    if (!name) return;
+    const tabNames = { ...panelState.tabNames };
+    if (name === defaultWorkspacePanelTabLabel(renameState.key)) delete tabNames[renameState.key];
+    else tabNames[renameState.key] = name;
+    update({ tabNames });
+    closeTabRenamePanel(true);
+  }
+
+  function resetTabName(): void {
+    const renameState = tabRenameState;
+    if (!renameState) return;
+    const tabNames = { ...panelState.tabNames };
+    delete tabNames[renameState.key];
+    update({ tabNames });
+    closeTabRenamePanel(true);
+  }
+
+  function handleTabRenamePanelKeydown(event: KeyboardEvent): void {
+    if (event.key !== "Escape") return;
+    event.preventDefault();
+    closeTabRenamePanel(true);
   }
 
   function beginTabDrag(event: PointerEvent, key: ChatWorkspacePanelTabKey): void {
@@ -656,35 +836,52 @@
       window.removeEventListener("scroll", handleViewportChange, true);
     };
   });
+
+  $effect(() => {
+    if (!tabRenameState) return;
+    const handleOutsidePointer = (event: PointerEvent) => {
+      if (!(event.target instanceof Node) || tabRenamePanel?.contains(event.target)) return;
+      closeTabRenamePanel();
+    };
+    const handleViewportChange = () => positionTabRenamePanel();
+    window.addEventListener("pointerdown", handleOutsidePointer, true);
+    window.addEventListener("resize", handleViewportChange);
+    return () => {
+      window.removeEventListener("pointerdown", handleOutsidePointer, true);
+      window.removeEventListener("resize", handleViewportChange);
+    };
+  });
 </script>
 
 <section class="workspace-panel" data-placement={placement} aria-label={placement === "bottom" ? t("chat.bottomPanel") : t("chat.inspector.title")}>
-  <div bind:this={panelTabbar} class="panel-tabbar" class:reordering={draggedTabKey !== null} role="tablist" aria-label={placement === "bottom" ? t("chat.bottomPanel") : t("chat.inspector.title")}>
-    {#each orderedTabs as item (item.key)}
-      <div role="presentation" class="panel-tab-slot" class:dragging={draggedTabKey === item.key} data-panel-tab-key={item.key} style:--tab-shift-x={`${tabDragShift(item.key)}px`} onpointerdown={(event) => beginTabDrag(event, item.key)} onmousedown={preventMiddleButtonScroll} onauxclick={(event) => closeTabFromAuxClick(event, item.key, item.type === "terminal" ? item.terminal : undefined)}>
-        {#if item.type === "loading-terminal"}
-          <button type="button" role="tab" aria-selected={panelState.tab === "terminal"} tabindex={panelState.tab === "terminal" ? 0 : -1} class="terminal-tab loading" class:active={panelState.tab === "terminal"} onclick={() => selectPanel("terminal")} onkeydown={handleTabKeydown}>
-            <SquareTerminal size={13} /><span>{t("chat.inspector.terminal")}</span>
-          </button>
-        {:else if item.type === "terminal"}
-          <div class="terminal-tab-shell" class:active={panelState.tab === "terminal" && selectedTerminalId === item.terminal.id}>
-            <button type="button" role="tab" aria-selected={panelState.tab === "terminal" && selectedTerminalId === item.terminal.id} tabindex={panelState.tab === "terminal" && selectedTerminalId === item.terminal.id ? 0 : -1} class="terminal-tab" onclick={() => { selectTerminal(item.terminal.id); selectPanel("terminal"); }} onkeydown={handleTabKeydown} title={item.terminal.name}>
-              <SquareTerminal size={13} />
-              <span class="terminal-label" class:faded={fadedTerminalIds.includes(item.terminal.id)} use:trackTerminalOverflow={item.terminal.id}>{item.terminal.name}</span>
+  <div class="panel-tabbar" class:reordering={draggedTabKey !== null}>
+    <div bind:this={panelTabbar} class="panel-tab-strip" role="tablist" aria-label={placement === "bottom" ? t("chat.bottomPanel") : t("chat.inspector.title")} onwheel={handleTabStripWheel}>
+      {#each orderedTabs as item (item.key)}
+        <div role="presentation" class="panel-tab-slot" class:dragging={draggedTabKey === item.key} data-panel-tab-key={item.key} style:--tab-shift-x={`${tabDragShift(item.key)}px`} onpointerdown={(event) => beginTabDrag(event, item.key)} onmousedown={preventMiddleButtonScroll} onauxclick={(event) => closeTabFromAuxClick(event, item.key, item.type === "terminal" ? item.terminal : undefined)} oncontextmenu={(event) => handleTabContextMenu(event, item.key)}>
+          {#if item.type === "loading-terminal"}
+            <button type="button" role="tab" aria-selected={panelState.tab === "terminal"} tabindex={panelState.tab === "terminal" ? 0 : -1} class="terminal-tab loading" class:active={panelState.tab === "terminal"} title={workspacePanelTabLabel(item.key)} onclick={() => selectPanel("terminal")} onkeydown={(event) => handleTabKeydown(event, item.key)}>
+              <SquareTerminal size={13} /><span class="tab-label">{workspacePanelTabLabel(item.key)}</span>
             </button>
-            <button type="button" class="tab-close terminal-close" aria-label={t("chat.inspector.closeTerminal")} onclick={() => void run(() => closeTerminal(item.terminal))}><X size={11} /></button>
-          </div>
-        {:else}
-          {@const Icon = item.panel.icon}
-          <div class="panel-tab-shell" class:active={panelState.tab === item.panel.id}>
-            <button type="button" role="tab" aria-selected={panelState.tab === item.panel.id} tabindex={panelState.tab === item.panel.id ? 0 : -1} class="panel-tab" title={item.panel.id === "files" ? panelState.filePreviewPath ?? undefined : undefined} onclick={() => selectPanel(item.panel.id)} onkeydown={handleTabKeydown}>
-              {#if item.panel.id === "files" && panelState.filePreviewPath}<ChatFileIcon path={panelState.filePreviewPath} size={13} />{:else}<Icon size={13} />{/if}<span>{panelLabel(item.panel)}</span>
-            </button>
-            <button type="button" class="tab-close" aria-label={t("chat.inspector.closePanel", panelLabel(item.panel))} onclick={() => closePanel(item.panel.id)}><X size={11} /></button>
-          </div>
-        {/if}
-      </div>
-    {/each}
+          {:else if item.type === "terminal"}
+            <div class="terminal-tab-shell" class:active={panelState.tab === "terminal" && selectedTerminalId === item.terminal.id}>
+              <button type="button" role="tab" aria-selected={panelState.tab === "terminal" && selectedTerminalId === item.terminal.id} tabindex={panelState.tab === "terminal" && selectedTerminalId === item.terminal.id ? 0 : -1} class="terminal-tab" onclick={() => { selectTerminal(item.terminal.id); selectPanel("terminal"); }} onkeydown={(event) => handleTabKeydown(event, item.key)} title={workspacePanelTabLabel(item.key)}>
+                <SquareTerminal size={13} />
+                <span class="tab-label terminal-label" class:faded={fadedTerminalIds.includes(item.terminal.id)} use:trackTerminalOverflow={{ terminalId: item.terminal.id, label: workspacePanelTabLabel(item.key) }}>{workspacePanelTabLabel(item.key)}</span>
+              </button>
+              <button type="button" class="tab-close terminal-close" aria-label={t("chat.inspector.closeTerminal")} onclick={() => void run(() => closeTerminal(item.terminal))}><X size={11} /></button>
+            </div>
+          {:else}
+            {@const Icon = item.panel.icon}
+            <div class="panel-tab-shell" class:active={panelState.tab === item.panel.id}>
+              <button type="button" role="tab" aria-selected={panelState.tab === item.panel.id} tabindex={panelState.tab === item.panel.id ? 0 : -1} class="panel-tab" title={workspacePanelTabLabel(item.key)} onclick={() => selectPanel(item.panel.id)} onkeydown={(event) => handleTabKeydown(event, item.key)}>
+                {#if item.panel.id === "files" && panelState.filePreviewPath}<ChatFileIcon path={panelState.filePreviewPath} size={13} />{:else}<Icon size={13} />{/if}<span class="tab-label">{workspacePanelTabLabel(item.key)}</span>
+              </button>
+              <button type="button" class="tab-close" aria-label={t("chat.inspector.closePanel", workspacePanelTabLabel(item.key))} onclick={() => closePanel(item.panel.id)}><X size={11} /></button>
+            </div>
+          {/if}
+        </div>
+      {/each}
+    </div>
 
     <button
       bind:this={panelPickerTrigger}
@@ -722,6 +919,40 @@
             <span><strong>{t(`chat.inspector.${tab.label}`)}</strong><small>{t(`chat.inspector.${tab.label}Description`)}</small></span>
           </button>
         {/each}
+      </div>
+    {/if}
+
+    {#if tabRenameState}
+      <div
+        bind:this={tabRenamePanel}
+        use:portal
+        class="tab-rename-panel"
+        role="dialog"
+        tabindex="-1"
+        aria-labelledby={`${placement}-tab-rename-title`}
+        data-app-floating-surface
+        style={tabRenamePanelStyle()}
+        onkeydown={handleTabRenamePanelKeydown}
+      >
+        <form onsubmit={(event) => { event.preventDefault(); saveTabName(); }}>
+          <label id={`${placement}-tab-rename-title`} for={`${placement}-tab-rename-input`}>{t("chat.inspector.renameTab")}</label>
+          <input
+            bind:this={tabRenameInput}
+            id={`${placement}-tab-rename-input`}
+            data-app-shortcuts="ignore"
+            maxlength={CHAT_WORKSPACE_PANEL_TAB_NAME_MAX_LENGTH}
+            autocomplete="off"
+            spellcheck="false"
+            bind:value={tabRenameDraft}
+            aria-label={t("chat.inspector.tabName")}
+          />
+          <div class="tab-rename-actions">
+            <button type="button" onclick={resetTabName}>{t("common.reset")}</button>
+            <span></span>
+            <button type="button" onclick={() => closeTabRenamePanel(true)}>{t("common.cancel")}</button>
+            <button type="submit" class="primary" disabled={normalizeWorkspacePanelTabName(tabRenameDraft) === null}>{t("common.save")}</button>
+          </div>
+        </form>
       </div>
     {/if}
 
@@ -791,20 +1022,22 @@
 
 <style>
   .workspace-panel { display: flex; height: 100%; min-height: 0; flex-direction: column; background: var(--cal-bg); }
-  .panel-tabbar { position: relative; display: flex; min-height: 2.65rem; flex: 0 0 auto; align-items: center; gap: 0.2rem; padding-inline: 0.45rem; }
+  .panel-tabbar { --workspace-panel-tab-width: 9.5rem; position: relative; display: flex; min-height: 2.65rem; flex: 0 0 auto; align-items: center; gap: 0.2rem; padding-inline: 0.45rem; }
   .panel-tabbar.reordering { user-select: none; }
-  .panel-tabbar > :global(.chat-icon-button) { align-self: center; }
-  .panel-tab-slot { display: flex; min-width: 0; transform: translate3d(var(--tab-shift-x), 0, 0); align-items: stretch; transition: transform 140ms cubic-bezier(0.2, 0, 0, 1); }
+  .panel-tabbar > :global(.chat-icon-button) { flex: 0 0 auto; align-self: center; }
+  .panel-tab-strip { display: flex; min-width: 0; flex: 0 1 auto; align-items: stretch; gap: 0.2rem; overflow-x: auto; overflow-y: hidden; scrollbar-width: none; }
+  .panel-tab-strip::-webkit-scrollbar { display: none; }
+  .panel-tab-slot { display: flex; width: var(--workspace-panel-tab-width); min-width: 0; flex: 0 0 var(--workspace-panel-tab-width); transform: translate3d(var(--tab-shift-x), 0, 0); align-items: stretch; transition: transform 140ms cubic-bezier(0.2, 0, 0, 1); }
   .panel-tabbar.reordering .panel-tab-slot { will-change: transform; }
   .panel-tab-slot.dragging { z-index: 1; transition: none; }
-  .terminal-tab, .panel-tab { display: flex; min-width: 0; min-height: 2rem; align-items: center; gap: 0.4rem; padding: 0.3rem 0.65rem; color: inherit; font-size: 0.733333rem; }
-  .terminal-tab.loading { border-radius: 0.55rem; color: var(--muted-foreground); }
-  .terminal-tab-shell, .panel-tab-shell { display: flex; min-width: 0; align-items: stretch; border-radius: 0.55rem; color: var(--muted-foreground); }
-  .terminal-tab-shell { max-width: min(18rem, 48cqw); }
+  .terminal-tab, .panel-tab { display: flex; min-width: 0; min-height: 2rem; flex: 1 1 auto; align-items: center; gap: 0.4rem; overflow: hidden; padding: 0.3rem 0.65rem; color: inherit; font-size: 0.733333rem; }
+  .terminal-tab > :global(svg), .panel-tab > :global(svg) { flex: 0 0 auto; }
+  .terminal-tab.loading { width: 100%; border-radius: 0.55rem; color: var(--muted-foreground); }
+  .terminal-tab-shell, .panel-tab-shell { display: flex; width: 100%; min-width: 0; align-items: stretch; border-radius: 0.55rem; color: var(--muted-foreground); }
   .terminal-tab-shell:hover, .panel-tab-shell:hover, .terminal-tab.loading:hover { background: color-mix(in srgb, var(--accent) 70%, transparent); color: var(--foreground); }
   .terminal-tab-shell.active, .panel-tab-shell.active, .terminal-tab.loading.active { background: var(--accent); color: var(--foreground); }
-  .terminal-label { min-width: 0; max-width: 14rem; overflow: hidden; white-space: nowrap; }
-  .terminal-label.faded { -webkit-mask-image: linear-gradient(to right, black calc(100% - 1.4rem), transparent); mask-image: linear-gradient(to right, black calc(100% - 1.4rem), transparent); }
+  .tab-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .terminal-label.faded { text-overflow: clip; -webkit-mask-image: linear-gradient(to right, black calc(100% - 1.4rem), transparent); mask-image: linear-gradient(to right, black calc(100% - 1.4rem), transparent); }
   .panel-tab { padding-right: 0.2rem; }
   .tab-close { display: grid; width: 1.5rem; flex: 0 0 auto; place-items: center; border-radius: 0.3rem; opacity: 0; }
   .terminal-tab-shell:hover .tab-close, .panel-tab-shell:hover .tab-close, .tab-close:focus-visible { opacity: 1; }
@@ -819,7 +1052,18 @@
   .panel-picker span { display: grid; min-width: 0; gap: 0.1rem; }
   .panel-picker strong { font-size: 0.733333rem; font-weight: 500; }
   .panel-picker small { color: var(--muted-foreground); font-size: 0.666667rem; line-height: 1.3; }
-  @container chat-shell (max-width: 520px) { .terminal-label, .panel-tab span { display: none; } .terminal-tab-shell { max-width: none; } .tab-close { width: 1.3rem; opacity: 1; } }
+  .tab-rename-panel { position: fixed; z-index: 90; overflow-y: auto; border: 1px solid var(--border); border-radius: 0.6rem; background: var(--popover); padding: 0.6rem; color: var(--popover-foreground); box-shadow: none; }
+  .tab-rename-panel label { display: block; margin-bottom: 0.4rem; font-size: 0.733333rem; font-weight: 500; }
+  .tab-rename-panel input { width: 100%; border: 1px solid var(--border); border-radius: 0.4rem; background: var(--background); padding: 0.4rem 0.5rem; color: var(--foreground); font-size: 0.733333rem; outline: none; }
+  .tab-rename-panel input:focus { border-color: var(--ring); }
+  .tab-rename-actions { display: flex; align-items: center; gap: 0.25rem; margin-top: 0.55rem; }
+  .tab-rename-actions > span { flex: 1; }
+  .tab-rename-actions > button { border-radius: 0.4rem; padding: 0.35rem 0.5rem; font-size: 0.666667rem; }
+  .tab-rename-actions > button:hover { background: var(--accent); }
+  .tab-rename-actions > button.primary { background: var(--primary); color: var(--primary-foreground); }
+  .tab-rename-actions > button.primary:hover { background: color-mix(in srgb, var(--primary) 88%, transparent); }
+  .tab-rename-actions > button:disabled { opacity: 0.45; }
+  @container chat-shell (max-width: 520px) { .panel-tabbar { --workspace-panel-tab-width: 3.75rem; } .tab-label { display: none; } .tab-close { width: 1.3rem; opacity: 1; } }
   @media (hover: none) { .tab-close { opacity: 1; } }
   @media (prefers-reduced-motion: reduce) { .panel-tab-slot { transition: none; } }
 </style>

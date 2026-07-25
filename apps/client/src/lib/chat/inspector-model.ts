@@ -8,6 +8,7 @@ export interface ChatInspectorThreadState {
   tab: ChatInspectorTab;
   openTabs: ChatInspectorTab[];
   tabOrder: ChatWorkspacePanelTabKey[];
+  tabNames: Partial<Record<ChatWorkspacePanelTabKey, string>>;
   selectedFile: string | null;
   fileBrowserPath: string;
   filePreviewPath: string | null;
@@ -32,6 +33,7 @@ const DEFAULT_STATE: ChatInspectorThreadState = {
   tab: "files",
   openTabs: ["files"],
   tabOrder: ["files"],
+  tabNames: {},
   selectedFile: null,
   fileBrowserPath: "",
   filePreviewPath: null,
@@ -55,13 +57,19 @@ export class ChatInspectorSessionState {
       tab: this.initialTab,
       openTabs: [this.initialTab],
       tabOrder: [this.initialTab],
+      tabNames: {},
       fileTreeVisible: this.initialTab === "files",
     };
   }
 
   read(threadId: ChatThreadId | null): ChatInspectorThreadState {
     const state = threadId ? this.threads.get(threadId) ?? this.initialState() : this.initialState();
-    return { ...state, openTabs: [...state.openTabs], tabOrder: [...state.tabOrder] };
+    return {
+      ...state,
+      openTabs: [...state.openTabs],
+      tabOrder: [...state.tabOrder],
+      tabNames: { ...state.tabNames },
+    };
   }
 
   update(threadId: ChatThreadId, update: Partial<ChatInspectorThreadState>): ChatInspectorThreadState {
@@ -71,9 +79,15 @@ export class ChatInspectorSessionState {
       ...update,
       openTabs: [...(update.openTabs ?? current.openTabs)],
       tabOrder: [...(update.tabOrder ?? current.tabOrder)],
+      tabNames: { ...(update.tabNames ?? current.tabNames) },
     };
     this.threads.set(threadId, next);
-    return { ...next, openTabs: [...next.openTabs], tabOrder: [...next.tabOrder] };
+    return {
+      ...next,
+      openTabs: [...next.openTabs],
+      tabOrder: [...next.tabOrder],
+      tabNames: { ...next.tabNames },
+    };
   }
 }
 
@@ -94,6 +108,87 @@ export function openInspectorTab(
 }
 
 export type ChatWorkspacePanelTabKey = ChatInspectorTab | `terminal:${string}`;
+
+export const CHAT_WORKSPACE_PANEL_TAB_NAME_MAX_LENGTH = 120;
+
+export interface ChatWorkspacePanelRenameGeometry {
+  left: number;
+  top: number;
+  width: number;
+  maxHeight: number;
+}
+
+const CHAT_WORKSPACE_PANEL_RENAME_WIDTH_PX = 240;
+const CHAT_WORKSPACE_PANEL_RENAME_EDGE_GAP_PX = 8;
+
+/**
+ * Removes the local identity prefix from an automatically generated terminal name.
+ *
+ * @param name Canonical terminal name containing an optional `user@host: path` prefix.
+ * @returns The path portion used as the compact default tab label.
+ */
+export function terminalWorkspacePanelDefaultLabel(name: string): string {
+  const separatorIndex = name.indexOf(": ");
+  if (separatorIndex < 0) return name;
+  const path = name.slice(separatorIndex + 2).trim();
+  return path || name;
+}
+
+/**
+ * Normalizes a user-defined workspace panel tab name to its bounded stored form.
+ *
+ * @param value Untrusted text entered in the tab rename panel.
+ * @returns A trimmed, bounded name, or null when no visible name remains.
+ */
+export function normalizeWorkspacePanelTabName(value: string): string | null {
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  return Array.from(trimmed).slice(0, CHAT_WORKSPACE_PANEL_TAB_NAME_MAX_LENGTH).join("");
+}
+
+/**
+ * Clamps the tab rename panel to the visible viewport around a pointer or key anchor.
+ *
+ * @param clientX Horizontal anchor in viewport pixels.
+ * @param clientY Vertical anchor in viewport pixels.
+ * @param viewportWidth Visible viewport width.
+ * @param viewportHeight Visible viewport height.
+ * @param contentHeight Measured rename panel height.
+ * @returns Fixed-position geometry that remains reachable at compact sizes.
+ */
+export function workspacePanelRenameGeometry(
+  clientX: number,
+  clientY: number,
+  viewportWidth: number,
+  viewportHeight: number,
+  contentHeight: number,
+): ChatWorkspacePanelRenameGeometry {
+  const availableWidth = Math.max(
+    0,
+    viewportWidth - CHAT_WORKSPACE_PANEL_RENAME_EDGE_GAP_PX * 2,
+  );
+  const availableHeight = Math.max(
+    0,
+    viewportHeight - CHAT_WORKSPACE_PANEL_RENAME_EDGE_GAP_PX * 2,
+  );
+  const width = Math.min(CHAT_WORKSPACE_PANEL_RENAME_WIDTH_PX, availableWidth);
+  const panelHeight = Math.min(Math.max(0, contentHeight), availableHeight);
+  const left = Math.min(
+    Math.max(CHAT_WORKSPACE_PANEL_RENAME_EDGE_GAP_PX, clientX),
+    Math.max(
+      CHAT_WORKSPACE_PANEL_RENAME_EDGE_GAP_PX,
+      viewportWidth - width - CHAT_WORKSPACE_PANEL_RENAME_EDGE_GAP_PX,
+    ),
+  );
+  const top = Math.min(
+    Math.max(CHAT_WORKSPACE_PANEL_RENAME_EDGE_GAP_PX, clientY),
+    Math.max(
+      CHAT_WORKSPACE_PANEL_RENAME_EDGE_GAP_PX,
+      viewportHeight - panelHeight - CHAT_WORKSPACE_PANEL_RENAME_EDGE_GAP_PX,
+    ),
+  );
+  return { left, top, width, maxHeight: availableHeight };
+}
 
 /**
  * Creates the stable tab key used for one terminal session.

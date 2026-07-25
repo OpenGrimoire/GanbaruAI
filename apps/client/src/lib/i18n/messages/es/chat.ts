@@ -234,6 +234,8 @@ export const chat = {
   inspector: {
     title: "Inspector del espacio de trabajo",
     addPanel: "Agregar panel",
+    renameTab: "Cambiar nombre de pestaña",
+    tabName: "Nombre de la pestaña",
     closePanel: (panel: string) => `Cerrar panel de ${panel}`,
     changes: "Cambios",
     changesDescription: "Revisa los archivos modificados por el agente y Git.",

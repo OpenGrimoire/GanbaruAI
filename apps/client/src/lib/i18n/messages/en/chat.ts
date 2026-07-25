@@ -231,6 +231,8 @@ export const chat = {
   inspector: {
     title: "Workspace inspector",
     addPanel: "Add panel",
+    renameTab: "Rename tab",
+    tabName: "Tab name",
     closePanel: (panel: string) => `Close ${panel} panel`,
     changes: "Changes",
     changesDescription: "Review files changed by the agent and Git.",

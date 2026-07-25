@@ -1,18 +1,22 @@
 import { describe, expect, it } from "vitest";
 import {
   buildChangedFileTree,
+  CHAT_WORKSPACE_PANEL_TAB_NAME_MAX_LENGTH,
   ChatInspectorSessionState,
   closeInspectorTab,
   inspectorFocusAction,
   inspectorPresentation,
   inspectorSessionKey,
   moveWorkspacePanelTab,
+  normalizeWorkspacePanelTabName,
   openInspectorTab,
   reconcileWorkspacePanelTabOrder,
   splitPaneResizeBounds,
   splitDiffFits,
+  terminalWorkspacePanelDefaultLabel,
   terminalWorkspacePanelTabKey,
   workspacePanelKinds,
+  workspacePanelRenameGeometry,
   workspacePanelTabInsertionIndex,
   workspacePanelTabShift,
   workspacePanelTerminalId,
@@ -33,6 +37,7 @@ describe("Chat inspector model", () => {
     expect(state.read("thread-a").tab).toBe("files");
     expect(state.read("thread-a").openTabs).toEqual(["files"]);
     expect(state.read("thread-a").tabOrder).toEqual(["files"]);
+    expect(state.read("thread-a").tabNames).toEqual({});
     expect(openInspectorTab(["files"], "changes")).toEqual(["files", "changes"]);
     expect(openInspectorTab(["files", "changes"], "files")).toEqual(["files", "changes"]);
   });
@@ -43,6 +48,49 @@ describe("Chat inspector model", () => {
     expect(state.read("thread-a").openTabs).toEqual(["terminal"]);
     expect(state.read("thread-a").tabOrder).toEqual(["terminal"]);
     expect(state.read("thread-a").fileTreeVisible).toBe(false);
+  });
+
+  it("keeps renamed tabs isolated by thread and protects stored state from mutation", () => {
+    const state = new ChatInspectorSessionState();
+    state.update("thread-a", { tabNames: { files: "Sources" } });
+    const firstRead = state.read("thread-a");
+    firstRead.tabNames.files = "Mutated";
+
+    expect(state.read("thread-a").tabNames).toEqual({ files: "Sources" });
+    expect(state.read("thread-b").tabNames).toEqual({});
+  });
+
+  it("uses the terminal path as its default tab name and bounds custom names", () => {
+    expect(terminalWorkspacePanelDefaultLabel("victor@workstation: ~/Documents/ganbaru-ai"))
+      .toBe("~/Documents/ganbaru-ai");
+    expect(terminalWorkspacePanelDefaultLabel("victor@workstation: C:\\Code\\ganbaru-ai"))
+      .toBe("C:\\Code\\ganbaru-ai");
+    expect(terminalWorkspacePanelDefaultLabel("Terminal")).toBe("Terminal");
+    expect(normalizeWorkspacePanelTabName("  Build logs  ")).toBe("Build logs");
+    expect(normalizeWorkspacePanelTabName("   ")).toBeNull();
+    expect(normalizeWorkspacePanelTabName("x".repeat(CHAT_WORKSPACE_PANEL_TAB_NAME_MAX_LENGTH + 5)))
+      .toHaveLength(CHAT_WORKSPACE_PANEL_TAB_NAME_MAX_LENGTH);
+  });
+
+  it("keeps the tab rename panel inside the viewport", () => {
+    expect(workspacePanelRenameGeometry(120, 80, 800, 600, 132)).toEqual({
+      left: 120,
+      top: 80,
+      width: 240,
+      maxHeight: 584,
+    });
+    expect(workspacePanelRenameGeometry(790, 590, 800, 600, 132)).toEqual({
+      left: 552,
+      top: 460,
+      width: 240,
+      maxHeight: 584,
+    });
+    expect(workspacePanelRenameGeometry(200, 120, 220, 180, 190)).toEqual({
+      left: 8,
+      top: 8,
+      width: 204,
+      maxHeight: 164,
+    });
   });
 
   it("reconciles one physical order for terminal sessions and tool tabs", () => {
