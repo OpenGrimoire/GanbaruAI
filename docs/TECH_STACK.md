@@ -2,7 +2,7 @@
 
 ## Overview
 
-A cross-platform productivity app for desktop and mobile built around a calendar, Kanban board, Pomodoro system, Notion-like note-taking stored as a local SQLite page and block graph, daily diary, sleep alarm, work environment management, website/app blocking, music player, project management framework, and collaborative workspaces. Designed as a local-first, privacy-respecting alternative to Notion, ClickUp, and Asana. A gamification layer (skill tree, XP, contracts, NPC-guided workflows) is planned for later phases.
+A cross-platform productivity app for desktop and mobile built around a calendar, Kanban board, Pomodoro system, project-owned working folders, Notion-like note-taking stored as a local SQLite page and block graph, file-backed Markdown working documents, daily diary, sleep alarm, work environment management, website/app blocking, music player, project management framework, and collaborative workspaces. Designed as a local-first, privacy-respecting alternative to Notion, ClickUp, and Asana. A gamification layer (skill tree, XP, contracts, NPC-guided workflows) is planned for later phases.
 
 Desktop (Windows, Linux) is the primary target. Mobile (iOS, Android via Tauri v2) is a first-class secondary target sharing the same codebase but offering a focused subset of features.
 
@@ -211,6 +211,8 @@ Why not SQLite for those document files: they need plain-file ownership, meaning
 ### Notes: SQLite page and block graph
 
 Notes are the deliberate exception to markdown document storage. A Notion-like editor needs stable block ids, nesting, pagination, parent objects, type payloads, trash state, unsupported block preservation, and transactional edits. SQLite stores that graph directly, while markdown remains a derived import, export, preview, or bridge format.
+
+Project working-folder Markdown is not part of that exception because those files already have a canonical file identity. Rust scans each active project folder through the shared authorization boundary, and Notes displays matching `.md` files beside SQLite pages. Reads are UTF-8 and size bounded. Saves require the expected SHA-256 revision and replace the file atomically. No filesystem creation, rename, move, or delete command is exposed by this surface.
 
 ### Structured data: SQLite as source of truth
 
@@ -552,15 +554,16 @@ Key Codex capabilities for programmatic control:
 
 ### Session management
 
-Per-project conversation threads stored in SQLite. The calendar drives automatic session switching.
+Multiple conversation threads are stored per project in SQLite. Each is permanently bound to one project working folder. Calendar context can change the shared selected project, but it cannot retarget a thread.
 
 When a calendar event starts (e.g., "Project X: auth module"), Ganbaru AI:
-1. Saves the current AI session (session ID, conversation state)
-2. Checks if a previous session exists for the new event's project
-3. Resumes the previous session when the selected agent supports resumable threads, or starts a new one with project context
-4. Injects the current task context through the agent launch prompt, standard input, or SDK call
 
-The user sees one AI panel that automatically carries the right conversation for whatever they're working on. Switching between four different projects in a week means four persistent conversation threads, each resuming exactly where the user left off.
+1. Saves the current AI session state.
+2. Selects the event's project while preserving its remembered available working folder.
+3. Lets the user resume a thread fixed to that folder or start another project conversation.
+4. Injects the current task context through the agent launch prompt, standard input, or SDK call.
+
+The user sees one Chat surface that follows shared project selection and keeps every conversation attached to the folder where it began. A project can retain separate threads for its managed documents, application repository, infrastructure repository, or another assigned folder.
 
 Manual override is always available: the user can stay in the current conversation, switch manually, or start a fresh session.
 

@@ -1,8 +1,7 @@
 //! Authorized commands for runtime terminals and explicit terminal context.
 
-use super::device_state::read_active_device_scope;
 use super::models::{
-    ChatAttachmentId, ChatError, ChatErrorCode, ChatResult, ChatThreadId, ChatWorkspaceId,
+    ChatAttachmentId, ChatError, ChatErrorCode, ChatResult, ChatThreadId, ProjectWorkingFolderId,
     UtcTimestamp,
 };
 use super::repository::{attachments, workspaces};
@@ -10,7 +9,10 @@ use super::terminal::{
     ChatTerminalCloseResult, ChatTerminalCreateInput, ChatTerminalRead, ChatTerminalRegistry,
     ChatTerminalSnapshotRead,
 };
-use super::workspace::{authorize_workspace, AuthorizedWorkspace, WorkspaceAuthorizationOperation};
+use super::workspace::{
+    authorize_workspace, AuthorizedWorkingFolder, WorkingFolderAuthorizationOperation,
+};
+use crate::projects::working_folders::read_active_working_folder_scope;
 use crate::{db_path, vault};
 use chrono::{SecondsFormat, Utc};
 use serde::{Deserialize, Serialize};
@@ -25,7 +27,7 @@ const MAX_CONTEXT_PREVIEW_BYTES: usize = 4 * 1024;
 pub struct CreateChatTerminalRequest {
     pub terminal_id: String,
     pub thread_id: ChatThreadId,
-    pub workspace_id: ChatWorkspaceId,
+    pub working_folder_id: ProjectWorkingFolderId,
     pub columns: u16,
     pub rows: u16,
 }
@@ -35,7 +37,7 @@ pub struct CreateChatTerminalRequest {
 pub struct ChatTerminalInputRequest {
     pub terminal_id: String,
     pub thread_id: ChatThreadId,
-    pub workspace_id: ChatWorkspaceId,
+    pub working_folder_id: ProjectWorkingFolderId,
     pub text: String,
 }
 
@@ -44,7 +46,7 @@ pub struct ChatTerminalInputRequest {
 pub struct ChatTerminalResizeRequest {
     pub terminal_id: String,
     pub thread_id: ChatThreadId,
-    pub workspace_id: ChatWorkspaceId,
+    pub working_folder_id: ProjectWorkingFolderId,
     pub columns: u16,
     pub rows: u16,
 }
@@ -54,7 +56,7 @@ pub struct ChatTerminalResizeRequest {
 pub struct ImportChatTerminalContextRequest {
     pub terminal_id: String,
     pub thread_id: ChatThreadId,
-    pub workspace_id: ChatWorkspaceId,
+    pub working_folder_id: ProjectWorkingFolderId,
     pub attachment_id: ChatAttachmentId,
     pub source_kind: String,
     pub text: String,
@@ -81,12 +83,12 @@ pub async fn chat_list_terminals(
     app: tauri::AppHandle,
     db_url: String,
     thread_id: ChatThreadId,
-    workspace_id: ChatWorkspaceId,
+    working_folder_id: ProjectWorkingFolderId,
 ) -> ChatResult<Vec<ChatTerminalRead>> {
     let pool = chat_pool(app.clone(), db_url).await?;
-    authorize_thread_workspace(&app, &pool, &thread_id, &workspace_id).await?;
+    authorize_thread_workspace(&app, &pool, &thread_id, &working_folder_id).await?;
     app.state::<ChatTerminalRegistry>()
-        .list(&thread_id, &workspace_id)
+        .list(&thread_id, &working_folder_id)
 }
 
 #[tauri::command]
@@ -97,13 +99,14 @@ pub async fn chat_terminal_create(
 ) -> ChatResult<ChatTerminalSnapshotRead> {
     let pool = chat_pool(app.clone(), db_url).await?;
     let authorized =
-        authorize_thread_workspace(&app, &pool, &request.thread_id, &request.workspace_id).await?;
+        authorize_thread_workspace(&app, &pool, &request.thread_id, &request.working_folder_id)
+            .await?;
     app.state::<ChatTerminalRegistry>().create(
         app.clone(),
         ChatTerminalCreateInput {
             terminal_id: request.terminal_id,
             thread_id: request.thread_id,
-            workspace_id: request.workspace_id,
+            working_folder_id: request.working_folder_id,
             workspace_path: authorized.canonical_path,
             columns: request.columns,
             rows: request.rows,
@@ -117,12 +120,12 @@ pub async fn chat_terminal_snapshot(
     db_url: String,
     terminal_id: String,
     thread_id: ChatThreadId,
-    workspace_id: ChatWorkspaceId,
+    working_folder_id: ProjectWorkingFolderId,
 ) -> ChatResult<ChatTerminalSnapshotRead> {
     let pool = chat_pool(app.clone(), db_url).await?;
-    authorize_thread_workspace(&app, &pool, &thread_id, &workspace_id).await?;
+    authorize_thread_workspace(&app, &pool, &thread_id, &working_folder_id).await?;
     let registry = app.state::<ChatTerminalRegistry>();
-    registry.require_scope(&terminal_id, &thread_id, &workspace_id)?;
+    registry.require_scope(&terminal_id, &thread_id, &working_folder_id)?;
     registry.snapshot(&terminal_id)
 }
 
@@ -133,12 +136,12 @@ pub async fn chat_terminal_input(
     request: ChatTerminalInputRequest,
 ) -> ChatResult<()> {
     let pool = chat_pool(app.clone(), db_url).await?;
-    authorize_thread_workspace(&app, &pool, &request.thread_id, &request.workspace_id).await?;
+    authorize_thread_workspace(&app, &pool, &request.thread_id, &request.working_folder_id).await?;
     let registry = app.state::<ChatTerminalRegistry>();
     registry.require_scope(
         &request.terminal_id,
         &request.thread_id,
-        &request.workspace_id,
+        &request.working_folder_id,
     )?;
     registry.input(&request.terminal_id, &request.text)
 }
@@ -150,12 +153,12 @@ pub async fn chat_terminal_resize(
     request: ChatTerminalResizeRequest,
 ) -> ChatResult<()> {
     let pool = chat_pool(app.clone(), db_url).await?;
-    authorize_thread_workspace(&app, &pool, &request.thread_id, &request.workspace_id).await?;
+    authorize_thread_workspace(&app, &pool, &request.thread_id, &request.working_folder_id).await?;
     let registry = app.state::<ChatTerminalRegistry>();
     registry.require_scope(
         &request.terminal_id,
         &request.thread_id,
-        &request.workspace_id,
+        &request.working_folder_id,
     )?;
     registry.resize(&request.terminal_id, request.columns, request.rows)
 }
@@ -166,13 +169,13 @@ pub async fn chat_terminal_close(
     db_url: String,
     terminal_id: String,
     thread_id: ChatThreadId,
-    workspace_id: ChatWorkspaceId,
+    working_folder_id: ProjectWorkingFolderId,
     confirmed: bool,
 ) -> ChatResult<ChatTerminalCloseResult> {
     let pool = chat_pool(app.clone(), db_url).await?;
-    authorize_thread_workspace(&app, &pool, &thread_id, &workspace_id).await?;
+    authorize_thread_workspace(&app, &pool, &thread_id, &working_folder_id).await?;
     let registry = app.state::<ChatTerminalRegistry>();
-    registry.require_scope(&terminal_id, &thread_id, &workspace_id)?;
+    registry.require_scope(&terminal_id, &thread_id, &working_folder_id)?;
     registry.close(&terminal_id, confirmed)
 }
 
@@ -184,12 +187,12 @@ pub async fn chat_terminal_import_context(
 ) -> ChatResult<ChatTerminalContextRead> {
     validate_context(&request)?;
     let pool = chat_pool(app.clone(), db_url).await?;
-    authorize_thread_workspace(&app, &pool, &request.thread_id, &request.workspace_id).await?;
+    authorize_thread_workspace(&app, &pool, &request.thread_id, &request.working_folder_id).await?;
     let registry = app.state::<ChatTerminalRegistry>();
     registry.require_scope(
         &request.terminal_id,
         &request.thread_id,
-        &request.workspace_id,
+        &request.working_folder_id,
     )?;
     let terminal = registry.snapshot(&request.terminal_id)?.terminal;
     let now = now_timestamp()?;
@@ -203,7 +206,7 @@ pub async fn chat_terminal_import_context(
         &pool,
         &vault::active_vault_path(&app).map_err(vault_error)?,
         attachments::AttachmentBytesImport {
-            workspace_id: &request.workspace_id,
+            working_folder_id: &request.working_folder_id,
             attachment_id: request.attachment_id.clone(),
             display_name,
             bytes: request.text.as_bytes(),
@@ -246,9 +249,9 @@ async fn authorize_thread_workspace(
     app: &tauri::AppHandle,
     pool: &SqlitePool,
     thread_id: &ChatThreadId,
-    workspace_id: &ChatWorkspaceId,
-) -> ChatResult<AuthorizedWorkspace> {
-    let row = sqlx::query("SELECT workspace_id, state FROM chat_threads WHERE id = ?")
+    working_folder_id: &ProjectWorkingFolderId,
+) -> ChatResult<AuthorizedWorkingFolder> {
+    let row = sqlx::query("SELECT working_folder_id, state FROM chat_threads WHERE id = ?")
         .bind(thread_id.as_str())
         .fetch_optional(pool)
         .await
@@ -257,26 +260,26 @@ async fn authorize_thread_workspace(
         .as_ref()
         .map(|row| -> ChatResult<(String, String)> {
             Ok((
-                row.try_get::<String, _>("workspace_id")
+                row.try_get::<String, _>("working_folder_id")
                     .map_err(persistence_error)?,
                 row.try_get::<String, _>("state")
                     .map_err(persistence_error)?,
             ))
         })
         .transpose()?;
-    validate_terminal_thread_scope(stored_scope.as_ref(), workspace_id)?;
-    let workspace = workspaces::read_workspace(pool, workspace_id).await?;
-    let scope = read_active_device_scope(app).map_err(device_state_error)?;
+    validate_terminal_thread_scope(stored_scope.as_ref(), working_folder_id)?;
+    let workspace = workspaces::read_workspace(pool, working_folder_id).await?;
+    let scope = read_active_working_folder_scope(app).map_err(device_state_error)?;
     authorize_workspace(
         &workspace,
         &scope,
-        WorkspaceAuthorizationOperation::TerminalStart,
+        WorkingFolderAuthorizationOperation::TerminalStart,
     )
 }
 
 fn validate_terminal_thread_scope(
     stored_scope: Option<&(String, String)>,
-    workspace_id: &ChatWorkspaceId,
+    working_folder_id: &ProjectWorkingFolderId,
 ) -> ChatResult<()> {
     let Some((stored_workspace, state)) = stored_scope else {
         return Ok(());
@@ -288,7 +291,7 @@ fn validate_terminal_thread_scope(
             true,
         ));
     }
-    if stored_workspace != workspace_id.as_str() {
+    if stored_workspace != working_folder_id.as_str() {
         return Err(ChatError::new(
             ChatErrorCode::Permission,
             "Chat terminal workspace does not match the thread",
@@ -377,7 +380,7 @@ mod tests {
         ImportChatTerminalContextRequest {
             terminal_id: "terminal:test".to_string(),
             thread_id: ChatThreadId::new("thread:test").expect("thread ID should be valid"),
-            workspace_id: ChatWorkspaceId::new("workspace:test")
+            working_folder_id: ProjectWorkingFolderId::new("workspace:test")
                 .expect("workspace ID should be valid"),
             attachment_id: ChatAttachmentId::new("attachment:test")
                 .expect("attachment ID should be valid"),
@@ -412,7 +415,7 @@ mod tests {
     #[test]
     fn terminal_scope_allows_provisional_threads_but_rejects_closed_or_cross_workspace_threads() {
         let workspace =
-            ChatWorkspaceId::new("workspace:test").expect("workspace ID should be valid");
+            ProjectWorkingFolderId::new("workspace:test").expect("workspace ID should be valid");
         assert!(validate_terminal_thread_scope(None, &workspace).is_ok());
         assert!(validate_terminal_thread_scope(
             Some(&("workspace:test".to_string(), "active".to_string())),

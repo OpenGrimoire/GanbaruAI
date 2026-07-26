@@ -1,7 +1,7 @@
-import type { ChatWorkspaceFileEntry } from "./contracts";
+import type { ProjectWorkingFolderFileEntry } from "./contracts";
 
 export interface ChatFileTreeRow {
-  entry: ChatWorkspaceFileEntry;
+  entry: ProjectWorkingFolderFileEntry;
   depth: number;
   expanded: boolean;
 }
@@ -22,14 +22,14 @@ export interface ChatVirtualRange {
  * @returns Visible rows in stable tree order.
  */
 export function flattenChatFileTree(
-  rootEntries: readonly ChatWorkspaceFileEntry[],
-  childrenByDirectory: Readonly<Record<string, readonly ChatWorkspaceFileEntry[]>>,
+  rootEntries: readonly ProjectWorkingFolderFileEntry[],
+  childrenByDirectory: Readonly<Record<string, readonly ProjectWorkingFolderFileEntry[]>>,
   expandedPaths: readonly string[],
 ): ChatFileTreeRow[] {
   const expanded = new Set(expandedPaths);
   const rows: ChatFileTreeRow[] = [];
 
-  function append(entries: readonly ChatWorkspaceFileEntry[], depth: number): void {
+  function append(entries: readonly ProjectWorkingFolderFileEntry[], depth: number): void {
     for (const entry of entries) {
       const isExpanded = entry.kind === "directory" && expanded.has(entry.relativePath);
       rows.push({ entry, depth, expanded: isExpanded });

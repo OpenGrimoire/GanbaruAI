@@ -64,6 +64,22 @@ fn built_in_routine_defaults_are_protected_and_repaired() {
                 .await
                 .unwrap();
         assert_eq!(restored_projects, BUILT_IN_ROUTINE_PROJECTS.len() as i64);
+        let restored_working_folders: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*)
+             FROM project_working_folders AS folder
+             INNER JOIN projects AS project ON project.id = folder.project_id
+             WHERE project.group_id = 'group-routine'
+               AND folder.kind = 'managed'
+               AND folder.archived_at IS NULL
+               AND folder.managed_relative_path = ('projects/' || project.id)",
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(
+            restored_working_folders,
+            BUILT_IN_ROUTINE_PROJECTS.len() as i64
+        );
         let reordered_defaults: Vec<(String, String, i64)> = sqlx::query_as(
             "SELECT id, icon, sort_order
              FROM projects

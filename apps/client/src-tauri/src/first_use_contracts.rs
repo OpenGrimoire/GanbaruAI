@@ -350,7 +350,7 @@ fn projects_first_use_repairs_a_missing_built_in_with_default_graph() {
             (restored_sections, restored_statuses, restored_priorities),
             (1, 6, 4)
         );
-        assert_eq!(metrics.sql.writes, 7);
+        assert_eq!(metrics.sql.writes, 19);
         assert_no_optional_project_queries(&statements);
     });
 }
@@ -426,7 +426,7 @@ fn projects_first_use_normalizes_identity_without_overwriting_authored_values() 
                 Some("Lunch".to_string()),
             ),
         );
-        assert_eq!(metrics.sql.writes, 4);
+        assert_eq!(metrics.sql.writes, 16);
         assert_no_optional_project_queries(&statements);
     });
 }

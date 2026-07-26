@@ -1,6 +1,6 @@
 use super::{
-    ChatActivityId, ChatThreadId, ChatThreadState, ChatTurnId, ChatTurnState, ChatWorkspaceId,
-    ContinuationGroupId, ModelId, ModelOptionSelection, ProviderCapabilities, ProviderFamilyId,
+    ChatActivityId, ChatThreadId, ChatThreadState, ChatTurnId, ChatTurnState, ContinuationGroupId,
+    ModelId, ModelOptionSelection, ProjectWorkingFolderId, ProviderCapabilities, ProviderFamilyId,
     ProviderInstanceId, ProviderSessionId, ProviderSessionState, ProviderThreadId,
     TurnModeSnapshot, UtcTimestamp, VersionedJson,
 };
@@ -57,8 +57,8 @@ pub struct ProviderHistoryPage {
 #[serde(rename_all = "camelCase")]
 pub struct ChatThreadShellRead {
     pub id: ChatThreadId,
-    pub workspace_id: ChatWorkspaceId,
-    pub project_id: Option<String>,
+    pub working_folder_id: ProjectWorkingFolderId,
+    pub project_id: String,
     pub title: String,
     pub provider_family_id: ProviderFamilyId,
     pub provider_instance_id: ProviderInstanceId,

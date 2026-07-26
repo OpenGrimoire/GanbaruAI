@@ -450,7 +450,7 @@ fn start_request(workspace: &Path) -> StartSessionRequest {
     serde_json::from_value(json!({
         "threadId": "chat-thread-fixture",
         "workspace": {
-            "workspaceId": "workspace-fixture",
+            "workingFolderId": "workspace-fixture",
             "canonicalPath": workspace,
             "repositoryKind": "none",
             "repositoryIdentity": null
@@ -1305,7 +1305,7 @@ fn driver_fixture_covers_native_resume_and_confirmed_missing_fallback() {
             let request: ResumeSessionRequest = serde_json::from_value(json!({
                 "threadId": "chat-thread-fixture",
                 "workspace": {
-                    "workspaceId": "workspace-fixture",
+                    "workingFolderId": "workspace-fixture",
                     "canonicalPath": workspace.path(),
                     "repositoryKind": "none",
                     "repositoryIdentity": null

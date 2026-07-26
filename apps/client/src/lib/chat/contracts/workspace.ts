@@ -1,17 +1,22 @@
-import type { ChatWorkspaceId, RepositoryKind, UtcTimestamp } from "./common";
+import type { ProjectWorkingFolderId, RepositoryKind, UtcTimestamp } from "./common";
 
-export const WORKSPACE_BINDING_STATUSES = [
+export const WORKING_FOLDER_BINDING_STATUSES = [
   "unbound",
   "available",
   "missing",
   "repository_mismatch",
 ] as const;
-export type WorkspaceBindingStatus = (typeof WORKSPACE_BINDING_STATUSES)[number];
+export type WorkingFolderBindingStatus = (typeof WORKING_FOLDER_BINDING_STATUSES)[number];
+export const WORKING_FOLDER_KINDS = ["managed", "external"] as const;
+export type WorkingFolderKind = (typeof WORKING_FOLDER_KINDS)[number];
 
-export interface LogicalChatWorkspace {
-  id: ChatWorkspaceId;
-  projectId: string | null;
+export interface ProjectWorkingFolder {
+  id: ProjectWorkingFolderId;
+  projectId: string;
   displayName: string;
+  kind: WorkingFolderKind;
+  managedRelativePath: string | null;
+  sortOrder: number;
   repositoryKind: RepositoryKind;
   repositoryIdentity: string | null;
   createdAt: UtcTimestamp;
@@ -20,15 +25,15 @@ export interface LogicalChatWorkspace {
   revision: number;
 }
 
-export interface CreateChatWorkspaceRequest {
-  id: ChatWorkspaceId;
-  projectId: string | null;
+export interface CreateProjectWorkingFolderRequest {
+  id: ProjectWorkingFolderId;
+  projectId: string;
   displayName: string;
 }
 
-export interface ChatWorkspaceRead {
-  workspace: LogicalChatWorkspace;
-  bindingStatus: WorkspaceBindingStatus;
+export interface ProjectWorkingFolderRead {
+  workingFolder: ProjectWorkingFolder;
+  bindingStatus: WorkingFolderBindingStatus;
   canonicalPath: string | null;
   lastVerifiedAt: UtcTimestamp | null;
   currentBranch: string | null;

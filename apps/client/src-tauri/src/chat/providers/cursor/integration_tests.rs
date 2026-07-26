@@ -269,7 +269,7 @@ fn start_request(workspace: &std::path::Path) -> StartSessionRequest {
     serde_json::from_value(json!({
         "threadId": "cursor-thread-fixture",
         "workspace": {
-            "workspaceId": "cursor-workspace-fixture",
+            "workingFolderId": "cursor-workspace-fixture",
             "canonicalPath": workspace,
             "repositoryKind": "none",
             "repositoryIdentity": null

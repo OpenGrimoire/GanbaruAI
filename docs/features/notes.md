@@ -1,10 +1,14 @@
 # Notes
 
-The notes system is a local page and block editor for capturing thoughts, project context, daily logs, and long-form writing. SQLite is the canonical store. Markdown and HTML are derivative only: import, export, preview, archive, or agent bridge output.
+The Notes system combines a local SQLite page and block editor with file-backed Markdown working documents from the selected project's working folders. SQLite remains canonical for Notes pages and blocks. Markdown import and export for that model remain derivative. Working-folder `.md` files are a separate file-authoritative model and are never imported automatically.
 
 The model follows public Notion API concepts where they are useful locally: pages, parents, blocks, rich text arrays, child pagination, timestamps, trash state, and archive state. It does not depend on Notion services, private internals, or hosted infrastructure.
 
 ## Source of truth
+
+The project Notes tree mixes SQLite folders, SQLite pages, working-folder roots, filesystem directories, and Markdown files with stable source-aware node identities. A working-folder root appears only when it contains a supported `.md` descendant. Scanning recursively prunes empty branches and excludes symbolic links, `.git`, dependencies, build output, caches, non-UTF-8 paths, unsafe entries, and files beyond the supported size. Depth, entry count, and path length are bounded, and a truncated result is identified explicitly. Title filtering includes file and directory names and reveals matching ancestors.
+
+Opening a filesystem Markdown file replaces the editor pane with a dedicated raw editor and sanitized rendered preview. It provides explicit Save, dirty state, guarded navigation, Refresh, Open externally, and Copy relative path. Reads return a content revision digest. Saves require the expected digest and use atomic replacement. If another tool or AI changes the file while local edits are dirty, Notes refuses to overwrite it and offers Reload, Copy local text, or Open externally. This slice does not create, rename, move, or delete filesystem Markdown files.
 
 Notes are stored in `ganbaru-ai.sqlite`:
 

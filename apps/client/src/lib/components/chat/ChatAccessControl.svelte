@@ -32,14 +32,14 @@
   ]);
 
   $effect(() => {
-    const workspaceId = chat.composer.workspaceId;
+    const workingFolderId = chat.composer.workingFolderId;
     const providerId = chat.composer.providerInstanceId;
-    const key = workspaceId && providerId ? `${workspaceId}:${providerId}` : "";
+    const key = workingFolderId && providerId ? `${workingFolderId}:${providerId}` : "";
     if (key === trustKey) return;
     trustKey = key;
     fullAccessTrusted = false;
-    if (workspaceId && providerId) {
-      void chatApi.hasChatFullAccessTrust(providerId, workspaceId).then((trusted) => {
+    if (workingFolderId && providerId) {
+      void chatApi.hasChatFullAccessTrust(providerId, workingFolderId).then((trusted) => {
         if (trustKey === key) fullAccessTrusted = trusted;
       }).catch(() => undefined);
     }
@@ -63,10 +63,10 @@
   }
 
   async function confirmFullAccess(): Promise<void> {
-    if (!chat.composer.workspaceId || !chat.composer.providerInstanceId) return;
+    if (!chat.composer.workingFolderId || !chat.composer.providerInstanceId) return;
     error = null;
     try {
-      await chatApi.setChatFullAccessTrust(chat.composer.providerInstanceId, chat.composer.workspaceId, true);
+      await chatApi.setChatFullAccessTrust(chat.composer.providerInstanceId, chat.composer.workingFolderId, true);
       fullAccessTrusted = true;
       chat.setComposerModes(pendingTrustedMode ?? "full_access", chat.composer.interactionMode);
       closeDialog();

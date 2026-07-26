@@ -11,7 +11,7 @@
   import Search from "@lucide/svelte/icons/search";
   import SettingsIcon from "@lucide/svelte/icons/settings";
   import X from "@lucide/svelte/icons/x";
-  import type { ChatThreadShellRead, ChatWorkspaceId } from "$lib/chat/contracts";
+  import type { ChatThreadShellRead, ProjectWorkingFolderId } from "$lib/chat/contracts";
   import { buildChatRailModel, filterThreadTitles, partitionThreadSearchResults, threadStatus } from "$lib/chat/shell-model";
   import * as chatApi from "$lib/api/chat";
   import { getLocalization } from "$lib/i18n/translator.svelte";
@@ -32,7 +32,6 @@
   let searchOpen = $state(false);
   let remoteResults = $state<ChatThreadShellRead[]>([]);
   let showArchive = $state(false);
-  let showWorkspaceChooser = $state(false);
   let deleteThread = $state<ChatThreadShellRead | null>(null);
   let renameThreadId = $state<string | null>(null);
   let renameValue = $state("");
@@ -43,7 +42,14 @@
   const partitionedSearchResults = $derived(partitionThreadSearchResults(searchResults));
   const activeSearchResults = $derived(partitionedSearchResults.active);
   const archivedSearchResults = $derived(partitionedSearchResults.archived);
-  const rail = $derived(buildChatRailModel(projects.groups, projects.projects, chat.workspaces, chat.activeThreads, chat.selectedThreadId));
+  const rail = $derived(buildChatRailModel(
+    projects.groups,
+    projects.projects,
+    chat.workingFolders,
+    chat.activeThreads,
+    projects.selectedProjectId,
+    chat.selectedThreadId,
+  ));
 
   onMount(() => {
     const focusSearch = () => { void openSearch(); };
@@ -70,10 +76,23 @@
     searchInput?.focus();
   }
 
-  function newChat(workspaceId?: ChatWorkspaceId): void {
-    const target = workspaceId ?? chat.selectedWorkspaceId;
-    if (!target) { showWorkspaceChooser = true; return; }
+  function newChat(workingFolderId?: ProjectWorkingFolderId): void {
+    const target = workingFolderId
+      ?? chat.selectedWorkingFolderId
+      ?? chat.workingFolders.find((entry) => (
+        entry.workingFolder.projectId === projects.selectedProjectId
+          && entry.workingFolder.kind === "managed"
+      ))?.workingFolder.id;
+    if (!target) return;
     chat.newDraft(target);
+  }
+
+  function threadContext(thread: ChatThreadShellRead): string {
+    const project = projects.projectById(thread.projectId);
+    const folder = chat.workingFolders.find(
+      (entry) => entry.workingFolder.id === thread.workingFolderId,
+    )?.workingFolder;
+    return [project?.name, folder?.displayName].filter(Boolean).join(" / ");
   }
 
   function beginRename(thread: ChatThreadShellRead): void {
@@ -181,7 +200,7 @@
   <header class="chat-rail-header">
     <strong class="min-w-0 flex-1 truncate px-1 text-base font-medium">{t("chat.title")}</strong>
     <button type="button" class="chat-icon-button" aria-label={t("chat.search")} onclick={() => void openSearch()}><Search size={15} /></button>
-    <details class="relative"><summary class="chat-icon-button list-none" aria-label={t("chat.moreActions")}><Ellipsis size={15} /></summary><div class="chat-menu right-0"><button type="button" onclick={() => { showArchive = true; }}>{t("chat.archivedChats")}</button><button type="button" onclick={() => settings.open("chat", { chatSubsection: "workspaces" })}>{t("chat.manageWorkspaces")}</button><button type="button" onclick={() => settings.open("chat")}>{t("chat.settings")}</button></div></details>
+    <details class="relative"><summary class="chat-icon-button list-none" aria-label={t("chat.moreActions")}><Ellipsis size={15} /></summary><div class="chat-menu right-0"><button type="button" onclick={() => { showArchive = true; }}>{t("chat.archivedChats")}</button><button type="button" onclick={() => settings.open("chat")}>{t("chat.settings")}</button></div></details>
     <button type="button" class="chat-icon-button" aria-label={t("chat.collapseRail")} onclick={onCollapse}><ChevronsLeft size={15} /></button>
   </header>
   <button type="button" class="new-chat-action" onclick={() => newChat()}><MessageSquarePlus size={16} /><span>{t("chat.newChat")}</span></button>
@@ -191,8 +210,8 @@
   {#if search.trim()}
     <div class="min-h-0 flex-1 overflow-y-auto px-3 py-2">
       {#if searchResults.length === 0}<p class="p-3 text-xs text-muted-foreground">{t("chat.noSearchResults")}</p>{/if}
-      {#if activeSearchResults.length > 0}<h2 class="px-2 pb-1 pt-2 text-[0.733333rem] font-medium text-muted-foreground">{t("chat.activeChats")}</h2>{#each activeSearchResults as thread}<button type="button" data-chat-search-result class="w-full rounded-md p-2 text-left hover:bg-accent" onkeydown={searchResultKeydown} onclick={() => selectSearchResult(thread)}><span class="block truncate text-xs font-medium">{thread.title}</span><span class="block truncate text-[0.666667rem] text-muted-foreground">{chat.workspaces.find((entry) => entry.workspace.id === thread.workspaceId)?.workspace.displayName}</span></button>{/each}{/if}
-      {#if archivedSearchResults.length > 0}<h2 class="px-2 pb-1 pt-3 text-[0.733333rem] font-medium text-muted-foreground">{t("chat.archivedChats")}</h2>{#each archivedSearchResults as thread}<button type="button" data-chat-search-result class="w-full rounded-md p-2 text-left hover:bg-accent" onkeydown={searchResultKeydown} onclick={() => selectSearchResult(thread)}><span class="block truncate text-xs font-medium">{thread.title}</span><span class="block truncate text-[0.666667rem] text-muted-foreground">{chat.workspaces.find((entry) => entry.workspace.id === thread.workspaceId)?.workspace.displayName}</span></button>{/each}{/if}
+      {#if activeSearchResults.length > 0}<h2 class="px-2 pb-1 pt-2 text-[0.733333rem] font-medium text-muted-foreground">{t("chat.activeChats")}</h2>{#each activeSearchResults as thread}<button type="button" data-chat-search-result class="w-full rounded-md p-2 text-left hover:bg-accent" onkeydown={searchResultKeydown} onclick={() => selectSearchResult(thread)}><span class="block truncate text-xs font-medium">{thread.title}</span><span class="block truncate text-[0.666667rem] text-muted-foreground">{threadContext(thread)}</span></button>{/each}{/if}
+      {#if archivedSearchResults.length > 0}<h2 class="px-2 pb-1 pt-3 text-[0.733333rem] font-medium text-muted-foreground">{t("chat.archivedChats")}</h2>{#each archivedSearchResults as thread}<button type="button" data-chat-search-result class="w-full rounded-md p-2 text-left hover:bg-accent" onkeydown={searchResultKeydown} onclick={() => selectSearchResult(thread)}><span class="block truncate text-xs font-medium">{thread.title}</span><span class="block truncate text-[0.666667rem] text-muted-foreground">{threadContext(thread)}</span></button>{/each}{/if}
     </div>
   {:else}
     <div class="min-h-0 flex-1 overflow-y-auto px-3 py-2">
@@ -200,15 +219,15 @@
         <section class="mb-2">
           <button type="button" class="chat-group-header" disabled={group.id === "ungrouped"} onclick={() => toggleGroup(group.id, group.collapsed)}>{#if group.collapsed}<ChevronRight size={12} />{:else}<ChevronDown size={12} />{/if}<span class="truncate">{group.label}</span>{#if group.hidden}<span>{t("chat.hiddenGroup")}</span>{/if}{#if group.archived}<span>{t("chat.status.archived")}</span>{/if}</button>
           {#each group.projects as projectModel}
-            {@const selectedInProject = projectModel.workspaces.some((workspace) => workspace.threads.some((thread) => thread.id === chat.selectedThreadId))}
+            {@const selectedInProject = projectModel.workingFolders.some((workspace) => workspace.threads.some((thread) => thread.id === chat.selectedThreadId))}
             {#if !group.collapsed || selectedInProject}
-              <div class="chat-project"><div class="chat-project-header"><ProjectIcon name={projectModel.project.icon} size={14} /><span class="truncate">{projectModel.project.name}</span><button type="button" class="ml-auto chat-icon-button size-6" aria-label={t("chat.newChat")} onclick={() => newChat(projectModel.workspaces[0]?.workspace.workspace.id)}><MessageSquarePlus size={12} /></button></div>
-                {#each projectModel.workspaces as workspaceModel}
-                  {#if workspaceModel.showSubdivision}<div class="workspace-subdivision">{workspaceModel.workspace.workspace.displayName}</div>{/if}
+              <div class="chat-project"><div class="chat-project-header"><ProjectIcon name={projectModel.project.icon} size={14} /><span class="truncate">{projectModel.project.name}</span><button type="button" class="ml-auto chat-icon-button size-6" aria-label={t("chat.newChat")} onclick={() => newChat(projectModel.workingFolders[0]?.workingFolder.workingFolder.id)}><MessageSquarePlus size={12} /></button></div>
+                {#each projectModel.workingFolders as workspaceModel}
+                  {#if workspaceModel.showSubdivision}<div class="workspace-subdivision">{workspaceModel.workingFolder.workingFolder.displayName}</div>{/if}
                   {#each workspaceModel.threads as thread}
                     <div class="chat-thread-row group" class:active={chat.selectedThreadId === thread.id}>
                       {#if renameThreadId === thread.id}<input class="mx-2 h-7 min-w-0 flex-1 rounded border border-ring bg-background px-1 text-xs" bind:value={renameValue} onkeydown={(event) => { if (event.key === "Enter") void commitRename(thread); if (event.key === "Escape") renameThreadId = null; }} onblur={() => void commitRename(thread)} />{:else}<button type="button" class="chat-thread-row-main" data-chat-thread-id={thread.id} title={statusLabel(thread)} onkeydown={(event) => rowKeydown(event, thread)} onclick={() => chat.selectThread(thread.id)}>{#if threadStatus(thread) === "working"}<LoaderCircle size={12} class="animate-spin" />{:else if threadStatus(thread) === "error"}<CircleAlert size={12} />{:else if threadStatus(thread) === "unread" || threadStatus(thread).startsWith("waiting")}<CircleDot size={12} />{/if}<span class="thread-title">{thread.title}</span></button>{/if}
-                      <details class="relative"><summary class="chat-icon-button size-6 list-none opacity-100 @min-[500px]:opacity-0 @min-[500px]:group-hover:opacity-100" aria-label={t("chat.moreActions")}><Ellipsis size={12} /></summary><div class="chat-menu right-0 top-6"><button type="button" onclick={() => beginRename(thread)}>{t("chat.rename")}</button><button type="button" onclick={() => runRailOperation(() => chat.setThreadRead(thread, Boolean(thread.unreadAt)))}>{thread.unreadAt ? t("chat.markRead") : t("chat.markUnread")}</button><button type="button" onclick={() => void detach(thread)}>{t("chat.detach")}</button><button type="button" onclick={() => copyThreadId(thread.id)}>{t("chat.copyThreadId")}</button><button type="button" onclick={() => runRailOperation(() => chat.openWorkspaceFolder(thread.workspaceId))}>{t("chat.openFolder")}</button><button type="button" onclick={() => runRailOperation(() => chat.archiveThread(thread))}>{t("chat.archive")}</button><button type="button" class="text-destructive" onclick={() => { deleteThread = thread; }}>{t("chat.deletePermanently")}</button></div></details>
+                      <details class="relative"><summary class="chat-icon-button size-6 list-none opacity-100 @min-[500px]:opacity-0 @min-[500px]:group-hover:opacity-100" aria-label={t("chat.moreActions")}><Ellipsis size={12} /></summary><div class="chat-menu right-0 top-6"><button type="button" onclick={() => beginRename(thread)}>{t("chat.rename")}</button><button type="button" onclick={() => runRailOperation(() => chat.setThreadRead(thread, Boolean(thread.unreadAt)))}>{thread.unreadAt ? t("chat.markRead") : t("chat.markUnread")}</button><button type="button" onclick={() => void detach(thread)}>{t("chat.detach")}</button><button type="button" onclick={() => copyThreadId(thread.id)}>{t("chat.copyThreadId")}</button><button type="button" onclick={() => runRailOperation(() => chat.openWorkingFolder(thread.workingFolderId))}>{t("chat.openFolder")}</button><button type="button" onclick={() => runRailOperation(() => chat.archiveThread(thread))}>{t("chat.archive")}</button><button type="button" class="text-destructive" onclick={() => { deleteThread = thread; }}>{t("chat.deletePermanently")}</button></div></details>
                     </div>
                   {/each}
                 {/each}
@@ -217,12 +236,10 @@
           {/each}
         </section>
       {/each}
-      {#if rail.standalone.length > 0}<section><div class="standalone-heading">{t("chat.standalone")}</div>{#each rail.standalone as workspaceModel}<div class="standalone-workspace"><span class="min-w-0 flex-1 truncate">{workspaceModel.workspace.workspace.displayName}</span><button type="button" class="chat-icon-button size-6" aria-label={t("chat.newChat")} onclick={() => newChat(workspaceModel.workspace.workspace.id)}><MessageSquarePlus size={12} /></button></div>{#each workspaceModel.threads as thread}<div class="chat-thread-row group" class:active={chat.selectedThreadId === thread.id}>{#if renameThreadId === thread.id}<input class="mx-2 h-7 min-w-0 flex-1 rounded border border-ring bg-background px-1 text-xs" bind:value={renameValue} onkeydown={(event) => { if (event.key === "Enter") void commitRename(thread); if (event.key === "Escape") renameThreadId = null; }} onblur={() => void commitRename(thread)} />{:else}<button type="button" class="chat-thread-row-main" data-chat-thread-id={thread.id} title={statusLabel(thread)} onkeydown={(event) => rowKeydown(event, thread)} onclick={() => chat.selectThread(thread.id)}>{#if threadStatus(thread) === "working"}<LoaderCircle size={12} class="animate-spin" />{:else if threadStatus(thread) === "error"}<CircleAlert size={12} />{:else if threadStatus(thread) === "unread" || threadStatus(thread).startsWith("waiting")}<CircleDot size={12} />{/if}<span class="thread-title">{thread.title}</span></button>{/if}<details class="relative"><summary class="chat-icon-button size-6 list-none opacity-100 @min-[500px]:opacity-0 @min-[500px]:group-hover:opacity-100" aria-label={t("chat.moreActions")}><Ellipsis size={12} /></summary><div class="chat-menu right-0 top-6"><button type="button" onclick={() => beginRename(thread)}>{t("chat.rename")}</button><button type="button" onclick={() => runRailOperation(() => chat.setThreadRead(thread, Boolean(thread.unreadAt)))}>{thread.unreadAt ? t("chat.markRead") : t("chat.markUnread")}</button><button type="button" onclick={() => void detach(thread)}>{t("chat.detach")}</button><button type="button" onclick={() => copyThreadId(thread.id)}>{t("chat.copyThreadId")}</button><button type="button" onclick={() => runRailOperation(() => chat.openWorkspaceFolder(thread.workspaceId))}>{t("chat.openFolder")}</button><button type="button" onclick={() => runRailOperation(() => chat.archiveThread(thread))}>{t("chat.archive")}</button><button type="button" class="text-destructive" onclick={() => { deleteThread = thread; }}>{t("chat.deletePermanently")}</button></div></details></div>{/each}{/each}</section>{/if}
     </div>
   {/if}
 
   {#if showArchive}<ChatArchiveBrowser onClose={() => { showArchive = false; }} onDelete={(thread) => { deleteThread = thread; }} />{/if}
-  {#if showWorkspaceChooser}<div class="absolute inset-x-2 top-12 z-30 rounded-lg border border-border bg-popover p-2 shadow-xl"><div class="mb-2 flex items-center"><strong class="flex-1 px-1 text-xs">{t("chat.firstUse.selectWorkspaceTitle")}</strong><button type="button" class="chat-icon-button" onclick={() => { showWorkspaceChooser = false; }}><X size={13} /></button></div>{#each chat.workspaces.filter((entry) => entry.workspace.archivedAt === null) as workspace}<button type="button" class="w-full rounded p-2 text-left text-xs hover:bg-accent" onclick={() => { newChat(workspace.workspace.id); showWorkspaceChooser = false; }}>{workspace.workspace.displayName}</button>{/each}</div>{/if}
   <footer class="chat-rail-footer"><button type="button" onclick={() => settings.open("chat")}><SettingsIcon size={14} /><span>{t("chat.settings")}</span></button></footer>
 </aside>
 
@@ -245,8 +262,7 @@
   .chat-project-header { display: flex; min-height: 2.25rem; align-items: center; gap: 0.6rem; border-radius: 0.55rem; padding: 0.25rem 0.45rem; color: color-mix(in srgb, var(--foreground) 94%, transparent); font-size: 0.9rem; font-weight: 500; }
   .chat-project-header:hover { background: color-mix(in srgb, var(--accent) 60%, transparent); }
   .chat-project .chat-thread-row { width: calc(100% - 1.65rem); margin-left: 1.65rem; }
-  .workspace-subdivision, .standalone-workspace { display: flex; align-items: center; padding: 0.25rem 0.75rem; color: var(--muted-foreground); font-size: 0.766667rem; }
-  .standalone-heading { padding: 0.55rem 0.3rem 0.3rem; color: var(--muted-foreground); font-size: 0.7rem; font-weight: 600; letter-spacing: 0.035em; text-transform: uppercase; }
+  .workspace-subdivision { display: flex; align-items: center; padding: 0.25rem 0.75rem; color: var(--muted-foreground); font-size: 0.766667rem; }
   .chat-rail-footer { flex: 0 0 auto; border-top: 1px solid color-mix(in srgb, var(--border) 65%, transparent); padding: 0.5rem 0.65rem; }
   .chat-rail-footer button { display: flex; min-height: 2.2rem; width: 100%; align-items: center; gap: 0.6rem; border-radius: 0.5rem; padding-inline: 0.55rem; color: var(--muted-foreground); font-size: 0.8rem; text-align: left; }
   .chat-rail-footer button:hover { background: var(--accent); color: var(--foreground); }

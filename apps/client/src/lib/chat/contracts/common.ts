@@ -1,7 +1,7 @@
 export type JsonPrimitive = boolean | number | string | null;
 export type JsonValue = JsonPrimitive | JsonValue[] | { [key: string]: JsonValue };
 
-export type ChatWorkspaceId = string;
+export type ProjectWorkingFolderId = string;
 export type ChatThreadId = string;
 export type ChatTurnId = string;
 export type ChatMessageId = string;

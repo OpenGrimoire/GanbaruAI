@@ -2468,6 +2468,67 @@ CHECK (default_event_time_mode IN ('timed', 'all_day')), notes_default_open_mode
     )
 );
 
+CREATE TABLE project_working_folders (
+    id TEXT PRIMARY KEY NOT NULL CHECK (length(id) BETWEEN 1 AND 1024),
+    project_id TEXT NOT NULL REFERENCES projects(id) ON UPDATE CASCADE ON DELETE CASCADE,
+    display_name TEXT NOT NULL CHECK (length(trim(display_name)) BETWEEN 1 AND 240),
+    kind TEXT NOT NULL CHECK (kind IN ('managed', 'external')),
+    managed_relative_path TEXT CHECK (
+        managed_relative_path IS NULL OR (
+            length(managed_relative_path) BETWEEN 1 AND 2048
+            AND managed_relative_path NOT LIKE '/%'
+            AND managed_relative_path NOT LIKE '%/../%'
+            AND managed_relative_path NOT LIKE '../%'
+            AND managed_relative_path NOT LIKE '%/..'
+            AND managed_relative_path NOT LIKE '%\\%'
+        )
+    ),
+    repository_kind TEXT NOT NULL DEFAULT 'none' CHECK (repository_kind IN ('git', 'none')),
+    repository_identity TEXT CHECK (
+        repository_identity IS NULL OR length(repository_identity) BETWEEN 1 AND 1024
+    ),
+    sort_order INTEGER NOT NULL DEFAULT 0 CHECK (sort_order >= 0),
+    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')) CHECK (trim(created_at) <> ''),
+    updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')) CHECK (trim(updated_at) <> ''),
+    archived_at TEXT CHECK (archived_at IS NULL OR length(archived_at) >= 20),
+    revision INTEGER NOT NULL DEFAULT 1 CHECK (revision >= 1),
+    UNIQUE (id, project_id),
+    CHECK (
+        (kind = 'managed' AND managed_relative_path IS NOT NULL AND archived_at IS NULL)
+        OR (kind = 'external' AND managed_relative_path IS NULL)
+    ),
+    CHECK (
+        (repository_kind = 'git' AND repository_identity IS NOT NULL)
+        OR (repository_kind = 'none' AND repository_identity IS NULL)
+    )
+) STRICT;
+
+CREATE UNIQUE INDEX idx_project_working_folders_managed
+ON project_working_folders(project_id)
+WHERE kind = 'managed';
+
+CREATE INDEX idx_project_working_folders_project_active
+ON project_working_folders(project_id, archived_at, sort_order, display_name COLLATE NOCASE, id);
+
+CREATE TRIGGER project_working_folders_protect_managed_delete
+BEFORE DELETE ON project_working_folders
+WHEN OLD.kind = 'managed' AND EXISTS (SELECT 1 FROM projects WHERE id = OLD.project_id)
+BEGIN
+    SELECT RAISE(ABORT, 'Managed project working folders cannot be deleted');
+END;
+
+CREATE TRIGGER project_working_folders_protect_managed_update
+BEFORE UPDATE OF project_id, kind, managed_relative_path, archived_at ON project_working_folders
+WHEN OLD.kind = 'managed' AND (
+    NEW.project_id != OLD.project_id
+    OR NEW.kind != 'managed'
+    OR NEW.managed_relative_path != OLD.managed_relative_path
+    OR NEW.archived_at IS NOT NULL
+)
+BEGIN
+    SELECT RAISE(ABORT, 'Managed project working folders cannot change ownership or be archived');
+END;
+
 CREATE TABLE theme_event_palette (
     theme_id TEXT NOT NULL REFERENCES themes(id) ON DELETE CASCADE,
     slot INTEGER NOT NULL CHECK (slot >= 0 AND slot < 32),
@@ -3213,6 +3274,17 @@ VALUES
     ('project-routine-meditate', 'group-routine', 'Meditate', 'lucide:smile', 23, 90, 'none', NULL),
     ('project-routine-health', 'group-routine', 'Health', 'lucide:pill', 3, 100, 'none', NULL),
     ('project-routine-sleep', 'group-routine', 'Sleep', 'lucide:bed', 30, 110, 'none', NULL);
+
+INSERT INTO project_working_folders (
+    id, project_id, display_name, kind, managed_relative_path, sort_order
+)
+SELECT 'working-folder-' || substr(id, length('project-') + 1),
+       id,
+       name,
+       'managed',
+       'projects/' || id,
+       0
+FROM projects;
 
 INSERT INTO project_sections (id, project_id, name, sort_order)
 SELECT 'section-' || substr(id, length('project-') + 1) || '-general', id, 'General', 0

@@ -758,6 +758,7 @@
                 </button>
               {/each}
             </div>
+            <p class="text-[0.66rem] leading-4 text-popover-foreground/55">{t("projects.navigator.managedFolderCreationHint")}</p>
           </form>
         {:else}
           <button
@@ -884,6 +885,7 @@
               </button>
             {/each}
           </div>
+          <p class="text-[0.66rem] leading-4 text-popover-foreground/55">{t("projects.navigator.managedFolderCreationHint")}</p>
         </form>
       {:else}
         <button

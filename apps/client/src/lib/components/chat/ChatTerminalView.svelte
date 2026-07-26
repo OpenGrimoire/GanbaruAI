@@ -47,7 +47,7 @@
     void Promise.all([
       import("@xterm/xterm"),
       import("@xterm/addon-fit"),
-      chatApi.readChatTerminalSnapshot(terminalRead.id, terminalRead.threadId, terminalRead.workspaceId),
+      chatApi.readChatTerminalSnapshot(terminalRead.id, terminalRead.threadId, terminalRead.workingFolderId),
     ]).then(async ([xtermModule, fitModule, snapshot]) => {
       if (disposed || !host) return;
       const hostStyles = getComputedStyle(host);
@@ -84,7 +84,7 @@
         void chatApi.writeChatTerminal(
           terminalRead.id,
           terminalRead.threadId,
-          terminalRead.workspaceId,
+          terminalRead.workingFolderId,
           data,
         ).catch((reason: unknown) => { error = terminalMessage(reason); });
       });
@@ -99,7 +99,7 @@
         void chatApi.resizeChatTerminal(
           terminalRead.id,
           terminalRead.threadId,
-          terminalRead.workspaceId,
+          terminalRead.workingFolderId,
           terminal.cols,
           terminal.rows,
         ).catch(() => undefined);
@@ -178,7 +178,7 @@
     const snapshot = await chatApi.readChatTerminalSnapshot(
       terminalRead.id,
       terminalRead.threadId,
-      terminalRead.workspaceId,
+      terminalRead.workingFolderId,
     );
     xterm?.reset();
     outputState = { generation: snapshot.terminal.generation, lastSequence: 0 };

@@ -8,6 +8,7 @@
   import ListFilter from "@lucide/svelte/icons/list-filter";
   import Route from "@lucide/svelte/icons/route";
   import ListCollapse from "@lucide/svelte/icons/list-collapse";
+  import MessageSquare from "@lucide/svelte/icons/message-square";
   import Settings2 from "@lucide/svelte/icons/settings-2";
   import SquareKanban from "@lucide/svelte/icons/square-kanban";
   import { getLocalization } from "$lib/i18n/translator.svelte";
@@ -27,6 +28,8 @@
   } from "$lib/projects/project-toolbar";
   import { PROJECT_VIEW_IDS, type Project, type ProjectGroup, type ProjectViewId } from "$lib/projects/types";
   import { getProjects } from "$lib/stores/projects.svelte";
+  import { getChat } from "$lib/stores/chat.svelte";
+  import { getNavigation } from "$lib/stores/navigation.svelte";
   import { getViewport } from "$lib/stores/viewport.svelte";
   import { cn } from "$lib/utils";
   import ProjectIcon from "./ProjectIcon.svelte";
@@ -59,6 +62,8 @@
   } = $props();
 
   const projects = getProjects();
+  const chat = getChat();
+  const navigation = getNavigation();
   const viewport = getViewport();
   const { t } = getLocalization();
   const projectIdentityIconSize = COMPACT_IDENTITY_ICON_SIZE;
@@ -79,6 +84,23 @@
   let projectNavigatorPanelStyle = $state("");
   let projectNavigatorPanelMaxHeight = $state(0);
   let viewTabDensityFrame: number | null = null;
+  const projectWorkingFolders = $derived(chat.workingFolders.filter((entry) => (
+    entry.workingFolder.projectId === selectedProject.id
+      && entry.workingFolder.archivedAt === null
+  )));
+
+  $effect(() => {
+    void chat.ensureLoaded().catch((error) => {
+      console.error("load project working folders failed", error);
+    });
+  });
+
+  async function openProjectChat(workingFolderId?: string): Promise<void> {
+    await chat.ensureLoaded();
+    if (workingFolderId) chat.selectWorkingFolder(workingFolderId);
+    else await chat.syncProjectSelection(selectedProject.id);
+    navigation.navigate("chat");
+  }
 
   interface ProjectNavigatorBounds {
     left: number;
@@ -385,6 +407,32 @@
     {/each}
   </nav>
   <div bind:this={toolbarActionsElement} class="flex shrink-0 items-center gap-1">
+    <button
+      type="button"
+      class={toolbarIconButtonClass(false)}
+      aria-label={t("projects.header.openChat")}
+      title={t("projects.header.openChat")}
+      onclick={() => { void openProjectChat(); }}
+    >
+      <MessageSquare size={14} strokeWidth={1.75} />
+    </button>
+    {#if projectWorkingFolders.length > 1}
+      <select
+        class="h-7 max-w-28 rounded-md border border-border bg-background px-1 text-[0.68rem] text-muted-foreground"
+        aria-label={t("projects.header.chatFolder")}
+        value=""
+        onchange={(event) => {
+          const workingFolderId = event.currentTarget.value;
+          event.currentTarget.value = "";
+          if (workingFolderId) void openProjectChat(workingFolderId);
+        }}
+      >
+        <option value="">{t("projects.header.chatFolder")}</option>
+        {#each projectWorkingFolders as folder (folder.workingFolder.id)}
+          <option value={folder.workingFolder.id}>{folder.workingFolder.displayName}</option>
+        {/each}
+      </select>
+    {/if}
     <button
       type="button"
       data-project-toolbar-trigger="filters"

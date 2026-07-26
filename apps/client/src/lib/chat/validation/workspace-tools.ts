@@ -9,9 +9,9 @@ import {
   type ChatTerminalOutputChunk,
   type ChatTerminalRead,
   type ChatTerminalSnapshotRead,
-  type ChatWorkspaceDirectoryRead,
-  type ChatWorkspaceFileEntry,
-  type ChatWorkspaceFilePreview,
+  type ProjectWorkingFolderDirectoryRead,
+  type ProjectWorkingFolderFileEntry,
+  type ProjectWorkingFolderFilePreview,
 } from "../contracts";
 import {
   readBoolean,
@@ -34,7 +34,7 @@ function array<T>(value: unknown, label: string, parse: (entry: unknown, label: 
   return value.map((entry, index) => parse(entry, `${label}[${index}]`));
 }
 
-function parseWorkspaceFileEntry(value: unknown, label: string): ChatWorkspaceFileEntry {
+function parseWorkspaceFileEntry(value: unknown, label: string): ProjectWorkingFolderFileEntry {
   const record = readRecord(value, label);
   return {
     relativePath: readString(record.relativePath, `${label}.relativePath`),
@@ -45,7 +45,7 @@ function parseWorkspaceFileEntry(value: unknown, label: string): ChatWorkspaceFi
   };
 }
 
-export function parseChatWorkspaceDirectory(value: unknown): ChatWorkspaceDirectoryRead {
+export function parseProjectWorkingFolderDirectory(value: unknown): ProjectWorkingFolderDirectoryRead {
   const record = readRecord(value, "workspaceDirectory");
   return {
     relativePath: readString(record.relativePath, "workspaceDirectory.relativePath"),
@@ -54,7 +54,7 @@ export function parseChatWorkspaceDirectory(value: unknown): ChatWorkspaceDirect
   };
 }
 
-export function parseChatWorkspaceFilePreview(value: unknown): ChatWorkspaceFilePreview {
+export function parseProjectWorkingFolderFilePreview(value: unknown): ProjectWorkingFolderFilePreview {
   const record = readRecord(value, "workspaceFilePreview");
   return {
     relativePath: readString(record.relativePath, "workspaceFilePreview.relativePath"),
@@ -113,7 +113,7 @@ export function parseChatTerminal(value: unknown, label = "terminal"): ChatTermi
   return {
     id: readIdentifier(record.id, `${label}.id`),
     threadId: readIdentifier(record.threadId, `${label}.threadId`),
-    workspaceId: readIdentifier(record.workspaceId, `${label}.workspaceId`),
+    workingFolderId: readIdentifier(record.workingFolderId, `${label}.workingFolderId`),
     name: readString(record.name, `${label}.name`),
     shell: readString(record.shell, `${label}.shell`),
     columns: readNonNegativeSafeInteger(record.columns, `${label}.columns`),

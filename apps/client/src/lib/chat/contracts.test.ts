@@ -8,7 +8,7 @@ import {
   parseChatError,
   parseChatDiagnosticsRead,
   parseChatThreadShell,
-  parseChatWorkspaceRead,
+  parseProjectWorkingFolderRead,
   parseProviderFamilyMetadata,
   parseProviderInstanceConfig,
   parseProviderModelCatalog,
@@ -296,7 +296,7 @@ describe("Chat vault configuration", () => {
       }],
       automaticProviderSetupDisabled: [],
       rememberedSelections: [{
-        workspaceId: "workspace-1",
+        workingFolderId: "workspace-1",
         providerInstanceId: "codex-personal",
         modelId: "gpt-5-codex",
         providerManagedModel: false,
@@ -304,7 +304,7 @@ describe("Chat vault configuration", () => {
         safetyMode: "ask_for_approval",
         interactionMode: "build",
       }],
-      workspaceProviderPreferences: {},
+      workingFolderProviderPreferences: {},
       panels: { railWidthPx: 280, inspectorWidthPx: 420 },
       behavior: {
         sendKey: "enter",
@@ -344,7 +344,7 @@ describe("Chat vault configuration", () => {
     expect(() => parseChatVaultConfig({
       ...defaultChatVaultConfig(),
       rememberedSelections: [{
-        workspaceId: "workspace-1",
+        workingFolderId: "workspace-1",
         providerInstanceId: "codex-personal",
         modelId: null,
         providerManagedModel: false,
@@ -356,13 +356,16 @@ describe("Chat vault configuration", () => {
   });
 });
 
-describe("Chat workspace contracts", () => {
-  it("parses logical workspace identity separately from the device binding", () => {
+describe("project working-folder contracts", () => {
+  it("parses portable folder identity separately from its device binding", () => {
     const fixture = {
-      workspace: {
+      workingFolder: {
         id: "workspace-1",
         projectId: "project-1",
         displayName: "Frontend",
+        kind: "external",
+        managedRelativePath: null,
+        sortOrder: 10,
         repositoryKind: "git",
         repositoryIdentity: "git-sha256:abc123",
         createdAt: timestamp,
@@ -376,15 +379,18 @@ describe("Chat workspace contracts", () => {
       currentBranch: "feat/chat",
     };
 
-    expect(parseChatWorkspaceRead(fixture)).toEqual(fixture);
+    expect(parseProjectWorkingFolderRead(fixture)).toEqual(fixture);
   });
 
   it("rejects unknown binding states and malformed timestamps", () => {
     const fixture = {
-      workspace: {
+      workingFolder: {
         id: "workspace-1",
-        projectId: null,
-        displayName: "Standalone",
+        projectId: "project-1",
+        displayName: "Frontend",
+        kind: "external",
+        managedRelativePath: null,
+        sortOrder: 10,
         repositoryKind: "none",
         repositoryIdentity: null,
         createdAt: timestamp,
@@ -397,11 +403,11 @@ describe("Chat workspace contracts", () => {
       lastVerifiedAt: null,
       currentBranch: null,
     };
-    expect(() => parseChatWorkspaceRead(fixture)).toThrow("bindingStatus has an unsupported value");
-    expect(() => parseChatWorkspaceRead({
+    expect(() => parseProjectWorkingFolderRead(fixture)).toThrow("bindingStatus has an unsupported value");
+    expect(() => parseProjectWorkingFolderRead({
       ...fixture,
       bindingStatus: "unbound",
-      workspace: { ...fixture.workspace, updatedAt: "tomorrow" },
+      workingFolder: { ...fixture.workingFolder, updatedAt: "tomorrow" },
     })).toThrow("updatedAt must be an RFC 3339 UTC timestamp");
   });
 });
@@ -486,7 +492,7 @@ describe("Chat read and error contracts", () => {
   it("parses lightweight thread shells without message history", () => {
     const fixture = {
       id: "thread-1",
-      workspaceId: "workspace-1",
+      workingFolderId: "workspace-1",
       projectId: "project-1",
       title: "Implement Chat contracts",
       providerFamilyId: "codex",

@@ -127,3 +127,13 @@ Situations most likely to produce bugs, data corruption, or confusing UX. Every 
 **Scenario, project history restore.** Folder rows must be restored before page rows that reference them, and the current project's folder rows must be replaced with the historical set. Omitting empty folders or folder placement from the project scope changes navigation even when note bodies restore correctly.
 
 **Governed by:** `features/notes.md`, `data/schema.md`, invariant 8, folder migration triggers, atomic folder and page commands, and project history restore ordering.
+
+## 11. Working-folder identity and filesystem drift
+
+**Why it is dangerous:** an external folder can move, disappear, become a symbolic link, or be replaced by another Git repository after it was assigned. A managed folder can also be removed outside the app. Reusing a stale absolute path would let Chat or Notes act on a different filesystem target than the project association intended.
+
+**Scenario:** a project folder originally bound to repository A is replaced at the same path by repository B. Chat history must remain readable, but provider start, terminal start, mentions, diffs, checkpoints, restores, attachments, and Markdown writes must fail until the user deliberately rebinds or selects another folder. The application cannot accept the matching path string as proof of repository identity.
+
+**Mitigation:** project working-folder ids are durable SQLite identity, while external absolute paths and verification times are device-local. Rust canonicalizes the path and rechecks the credential-stripped Git identity before each sensitive operation. External folders cannot overlap the active Ganbaru AI folder. Managed folders resolve only from the active vault and stable project id, and a missing directory is recreated only by the explicit managed-folder recovery path.
+
+**Governed by:** `features/projects.md`, `features/chat.md`, `features/notes.md`, `data/security.md`, invariants 9 and 10.

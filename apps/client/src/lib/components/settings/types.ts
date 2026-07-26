@@ -22,7 +22,7 @@ export const SETTINGS_SECTION_IDS = [
 export type SectionId = (typeof SETTINGS_SECTION_IDS)[number];
 
 export type DoomscrollingSettingsTab = "limits" | "browser" | "mobile" | "desktop";
-export type ChatSettingsSubsection = "providers" | "models" | "workspaces" | "permissions" | "behavior";
+export type ChatSettingsSubsection = "providers" | "models" | "permissions" | "behavior";
 
 export type DoomscrollingLimitEditorTarget =
   | { mode: "create" }

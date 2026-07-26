@@ -6,7 +6,7 @@ import type {
   ChatRequestId,
   ChatThreadId,
   ChatTurnId,
-  ChatWorkspaceId,
+  ProjectWorkingFolderId,
   ContinuationGroupId,
   ModelId,
   ProviderInstanceId,
@@ -25,7 +25,7 @@ export interface ChatCommandContext {
 }
 
 export interface VerifiedWorkspaceContext {
-  workspaceId: ChatWorkspaceId;
+  workingFolderId: ProjectWorkingFolderId;
   canonicalPath: string;
   repositoryKind: RepositoryKind;
   repositoryIdentity: string | null;

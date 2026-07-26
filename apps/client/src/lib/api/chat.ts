@@ -12,9 +12,9 @@ import type {
   ChatUserInputDraftRead,
   ChatPromptCatalogEntry,
   ChatQueuedFollowupRead,
-  ChatWorkspacePathPage,
-  ChatWorkspaceDirectoryRead,
-  ChatWorkspaceFilePreview,
+  ProjectWorkingFolderPathPage,
+  ProjectWorkingFolderDirectoryRead,
+  ProjectWorkingFolderFilePreview,
   ChatTerminalCloseResult,
   ChatTerminalContextRead,
   ChatTerminalRead,
@@ -29,9 +29,7 @@ import type {
   ChatThreadId,
   ChatThreadShellRead,
   ChatTimelinePageRead,
-  ChatWorkspaceId,
-  ChatWorkspaceRead,
-  CreateChatWorkspaceRequest,
+  ProjectWorkingFolderId,
   CredentialReferenceId,
   ModelId,
   ProviderInstanceConfig,
@@ -65,9 +63,9 @@ import {
   parseChatUserInputDraft,
   parseChatPromptCatalog,
   parseChatQueuedFollowup,
-  parseChatWorkspacePathPage,
-  parseChatWorkspaceDirectory,
-  parseChatWorkspaceFilePreview,
+  parseProjectWorkingFolderPathPage,
+  parseProjectWorkingFolderDirectory,
+  parseProjectWorkingFolderFilePreview,
   parseChatTerminalCloseResult,
   parseChatTerminalContext,
   parseChatTerminal,
@@ -84,8 +82,6 @@ import {
   parseChatThreadShells,
   parseChatTimelinePage,
   parseChatVaultConfig,
-  parseChatWorkspaceRead,
-  parseChatWorkspaceReads,
   parseProviderInstanceRead,
   parseProviderModelCatalog,
   parseProviderProbeResult,
@@ -96,115 +92,52 @@ import {
   parseRemoveProviderResult,
 } from "$lib/chat/validation";
 
-export async function listChatWorkspaces(): Promise<ChatWorkspaceRead[]> {
-  return parseChatWorkspaceReads(await invoke<unknown>("chat_list_workspaces", { dbUrl: await ensureDbUrl() }));
-}
-
-export async function createChatWorkspace(
-  request: CreateChatWorkspaceRequest,
-): Promise<ChatWorkspaceRead> {
-  return parseChatWorkspaceRead(await invoke<unknown>("chat_create_workspace", { dbUrl: await ensureDbUrl(), request }));
-}
-
-export async function renameChatWorkspace(
-  workspaceId: ChatWorkspaceId,
-  displayName: string,
-  expectedRevision: number,
-): Promise<ChatWorkspaceRead> {
-  return parseChatWorkspaceRead(await invoke<unknown>("chat_rename_workspace", {
-    dbUrl: await ensureDbUrl(),
-    workspaceId,
-    displayName,
-    expectedRevision,
-  }));
-}
-
-export async function bindChatWorkspace(
-  workspaceId: ChatWorkspaceId,
-  title: string,
-): Promise<ChatWorkspaceRead | null> {
-  const value = await invoke<unknown>("chat_bind_workspace", { dbUrl: await ensureDbUrl(), workspaceId, title });
-  return value === null ? null : parseChatWorkspaceRead(value);
-}
-
-export async function rebindChatWorkspace(
-  workspaceId: ChatWorkspaceId,
-  title: string,
-): Promise<ChatWorkspaceRead | null> {
-  const value = await invoke<unknown>("chat_rebind_workspace", { dbUrl: await ensureDbUrl(), workspaceId, title });
-  return value === null ? null : parseChatWorkspaceRead(value);
-}
-
-export async function removeChatWorkspaceBinding(
-  workspaceId: ChatWorkspaceId,
-): Promise<ChatWorkspaceRead> {
-  return parseChatWorkspaceRead(await invoke<unknown>("chat_remove_workspace_binding", { dbUrl: await ensureDbUrl(), workspaceId }));
-}
-
-export async function archiveChatWorkspace(
-  workspaceId: ChatWorkspaceId,
-  expectedRevision: number,
-): Promise<ChatWorkspaceRead> {
-  return parseChatWorkspaceRead(await invoke<unknown>("chat_archive_workspace", { dbUrl: await ensureDbUrl(), workspaceId, expectedRevision }));
-}
-
-export async function restoreChatWorkspace(
-  workspaceId: ChatWorkspaceId,
-  expectedRevision: number,
-): Promise<ChatWorkspaceRead> {
-  return parseChatWorkspaceRead(await invoke<unknown>("chat_restore_workspace", { dbUrl: await ensureDbUrl(), workspaceId, expectedRevision }));
-}
-
-export async function openChatWorkspaceFolder(workspaceId: ChatWorkspaceId): Promise<void> {
-  await invoke("chat_open_workspace_folder", { dbUrl: await ensureDbUrl(), workspaceId });
-}
-
-export async function listChatWorkspaceDirectory(
-  workspaceId: ChatWorkspaceId,
+export async function listProjectWorkingFolderDirectory(
+  workingFolderId: ProjectWorkingFolderId,
   relativePath: string,
   includeIgnored = false,
-): Promise<ChatWorkspaceDirectoryRead> {
-  return parseChatWorkspaceDirectory(await invoke<unknown>("chat_list_workspace_directory", {
+): Promise<ProjectWorkingFolderDirectoryRead> {
+  return parseProjectWorkingFolderDirectory(await invoke<unknown>("project_list_working_folder_directory", {
     dbUrl: await ensureDbUrl(),
-    workspaceId,
+    workingFolderId,
     relativePath,
     includeIgnored,
   }));
 }
 
-export async function previewChatWorkspaceFile(
-  workspaceId: ChatWorkspaceId,
+export async function previewProjectWorkingFolderFile(
+  workingFolderId: ProjectWorkingFolderId,
   relativePath: string,
-): Promise<ChatWorkspaceFilePreview> {
-  return parseChatWorkspaceFilePreview(await invoke<unknown>("chat_preview_workspace_file", {
+): Promise<ProjectWorkingFolderFilePreview> {
+  return parseProjectWorkingFolderFilePreview(await invoke<unknown>("project_preview_working_folder_file", {
     dbUrl: await ensureDbUrl(),
-    workspaceId,
+    workingFolderId,
     relativePath,
   }));
 }
 
-export async function openChatWorkspaceFile(
-  workspaceId: ChatWorkspaceId,
+export async function openProjectWorkingFolderFile(
+  workingFolderId: ProjectWorkingFolderId,
   relativePath: string,
 ): Promise<void> {
-  await invoke("chat_open_workspace_file", { dbUrl: await ensureDbUrl(), workspaceId, relativePath });
+  await invoke("project_open_working_folder_file", { dbUrl: await ensureDbUrl(), workingFolderId, relativePath });
 }
 
 export async function listChatTerminals(
   threadId: ChatThreadId,
-  workspaceId: ChatWorkspaceId,
+  workingFolderId: ProjectWorkingFolderId,
 ): Promise<ChatTerminalRead[]> {
   return parseChatTerminals(await invoke<unknown>("chat_list_terminals", {
     dbUrl: await ensureDbUrl(),
     threadId,
-    workspaceId,
+    workingFolderId,
   }));
 }
 
 export async function createChatTerminal(request: {
   terminalId: string;
   threadId: ChatThreadId;
-  workspaceId: ChatWorkspaceId;
+  workingFolderId: ProjectWorkingFolderId;
   columns: number;
   rows: number;
 }): Promise<ChatTerminalSnapshotRead> {
@@ -217,52 +150,52 @@ export async function createChatTerminal(request: {
 export async function readChatTerminalSnapshot(
   terminalId: string,
   threadId: ChatThreadId,
-  workspaceId: ChatWorkspaceId,
+  workingFolderId: ProjectWorkingFolderId,
 ): Promise<ChatTerminalSnapshotRead> {
   return parseChatTerminalSnapshot(await invoke<unknown>("chat_terminal_snapshot", {
     dbUrl: await ensureDbUrl(),
     terminalId,
     threadId,
-    workspaceId,
+    workingFolderId,
   }));
 }
 
 export async function writeChatTerminal(
   terminalId: string,
   threadId: ChatThreadId,
-  workspaceId: ChatWorkspaceId,
+  workingFolderId: ProjectWorkingFolderId,
   text: string,
 ): Promise<void> {
   await invoke("chat_terminal_input", {
     dbUrl: await ensureDbUrl(),
-    request: { terminalId, threadId, workspaceId, text },
+    request: { terminalId, threadId, workingFolderId, text },
   });
 }
 
 export async function resizeChatTerminal(
   terminalId: string,
   threadId: ChatThreadId,
-  workspaceId: ChatWorkspaceId,
+  workingFolderId: ProjectWorkingFolderId,
   columns: number,
   rows: number,
 ): Promise<void> {
   await invoke("chat_terminal_resize", {
     dbUrl: await ensureDbUrl(),
-    request: { terminalId, threadId, workspaceId, columns, rows },
+    request: { terminalId, threadId, workingFolderId, columns, rows },
   });
 }
 
 export async function closeChatTerminal(
   terminalId: string,
   threadId: ChatThreadId,
-  workspaceId: ChatWorkspaceId,
+  workingFolderId: ProjectWorkingFolderId,
   confirmed: boolean,
 ): Promise<ChatTerminalCloseResult> {
   return parseChatTerminalCloseResult(await invoke<unknown>("chat_terminal_close", {
     dbUrl: await ensureDbUrl(),
     terminalId,
     threadId,
-    workspaceId,
+    workingFolderId,
     confirmed,
   }));
 }
@@ -270,7 +203,7 @@ export async function closeChatTerminal(
 export async function importChatTerminalContext(request: {
   terminalId: string;
   threadId: ChatThreadId;
-  workspaceId: ChatWorkspaceId;
+  workingFolderId: ProjectWorkingFolderId;
   attachmentId: string;
   sourceKind: "selection" | "last_command_output";
   text: string;
@@ -439,11 +372,11 @@ export async function updateChatPanels(panels: ChatPanelPreferences): Promise<Ch
   return parseChatVaultConfig(await invoke<unknown>("chat_update_panels", { panels }));
 }
 
-export async function setChatWorkspaceProviderPreference(
-  workspaceId: ChatWorkspaceId,
+export async function setChatWorkingFolderProviderPreference(
+  workingFolderId: ProjectWorkingFolderId,
   instanceId: ProviderInstanceId | null,
 ): Promise<ChatSettingsRead["configuration"]> {
-  return parseChatVaultConfig(await invoke<unknown>("chat_set_workspace_provider_preference", { workspaceId, instanceId }));
+  return parseChatVaultConfig(await invoke<unknown>("chat_set_working_folder_provider_preference", { workingFolderId, instanceId }));
 }
 
 export async function rememberChatComposerSelection(selection: RememberedComposerSelection): Promise<ChatSettingsRead["configuration"]> {
@@ -471,12 +404,12 @@ export async function listChatProjectShells(): Promise<ChatProjectShellRead[]> {
 }
 
 export async function listChatThreads(
-  workspaceId: ChatWorkspaceId | null,
+  workingFolderId: ProjectWorkingFolderId | null,
   archived: boolean,
 ): Promise<ChatThreadShellRead[]> {
   return parseChatThreadShells(await invoke<unknown>("chat_list_threads", {
     dbUrl: await ensureDbUrl(),
-    workspaceId,
+    workingFolderId,
     archived,
   }));
 }
@@ -524,37 +457,37 @@ export async function deleteChatDraft(draftId: string): Promise<boolean> {
 }
 
 export async function importChatImage(
-  workspaceId: ChatWorkspaceId,
+  workingFolderId: ProjectWorkingFolderId,
   attachmentId: string,
   displayName: string,
   bytes: number[],
 ): Promise<ChatAttachmentRead> {
   return parseChatAttachmentRead(await invoke<unknown>("chat_import_image", {
     dbUrl: await ensureDbUrl(),
-    request: { workspaceId, attachmentId, displayName, bytes },
+    request: { workingFolderId, attachmentId, displayName, bytes },
   }));
 }
 
 export async function importChatTextSnippet(
-  workspaceId: ChatWorkspaceId,
+  workingFolderId: ProjectWorkingFolderId,
   attachmentId: string,
   displayName: string,
   text: string,
 ): Promise<ChatAttachmentRead> {
   return parseChatAttachmentRead(await invoke<unknown>("chat_import_text_snippet", {
     dbUrl: await ensureDbUrl(),
-    request: { workspaceId, attachmentId, displayName, text },
+    request: { workingFolderId, attachmentId, displayName, text },
   }));
 }
 
 export async function pickChatImages(
-  workspaceId: ChatWorkspaceId,
+  workingFolderId: ProjectWorkingFolderId,
   attachmentIds: string[],
   title: string,
 ): Promise<ChatAttachmentRead[]> {
   const value = await invoke<unknown>("chat_pick_images", {
     dbUrl: await ensureDbUrl(),
-    request: { workspaceId, attachmentIds, title },
+    request: { workingFolderId, attachmentIds, title },
   });
   if (!Array.isArray(value)) throw new Error("Chat image picker response must be an array");
   return value.map((entry, index) => parseChatAttachmentRead(entry, `Chat image picker response[${index}]`));
@@ -565,34 +498,34 @@ export async function chatAttachmentDataUrl(attachmentId: string): Promise<strin
 }
 
 export async function readChatAttachments(
-  workspaceId: ChatWorkspaceId,
+  workingFolderId: ProjectWorkingFolderId,
   attachmentIds: string[],
 ): Promise<ChatAttachmentRead[]> {
   const value = await invoke<unknown>("chat_read_attachments", {
-    dbUrl: await ensureDbUrl(), workspaceId, attachmentIds,
+    dbUrl: await ensureDbUrl(), workingFolderId, attachmentIds,
   });
   if (!Array.isArray(value)) throw new Error("Chat attachments response must be an array");
   return value.map((entry, index) => parseChatAttachmentRead(entry, `Chat attachments response[${index}]`));
 }
 
-export async function searchChatWorkspacePaths(
-  workspaceId: ChatWorkspaceId,
+export async function searchChatWorkingFolderPaths(
+  workingFolderId: ProjectWorkingFolderId,
   query: string,
   includeIgnored: boolean,
   cursor: string | null = null,
   limit = 50,
-): Promise<ChatWorkspacePathPage> {
-  return parseChatWorkspacePathPage(await invoke<unknown>("chat_search_workspace_paths", {
-    dbUrl: await ensureDbUrl(), workspaceId, query, includeIgnored, cursor, limit,
+): Promise<ProjectWorkingFolderPathPage> {
+  return parseProjectWorkingFolderPathPage(await invoke<unknown>("chat_search_working_folder_paths", {
+    dbUrl: await ensureDbUrl(), workingFolderId, query, includeIgnored, cursor, limit,
   }));
 }
 
-export async function validateChatWorkspaceMentions(
-  workspaceId: ChatWorkspaceId,
+export async function validateChatWorkingFolderMentions(
+  workingFolderId: ProjectWorkingFolderId,
   relativePaths: string[],
 ): Promise<void> {
-  await invoke("chat_validate_workspace_mentions", {
-    dbUrl: await ensureDbUrl(), workspaceId, relativePaths,
+  await invoke("chat_validate_working_folder_mentions", {
+    dbUrl: await ensureDbUrl(), workingFolderId, relativePaths,
   });
 }
 
@@ -608,17 +541,17 @@ export async function readChatInteractionState(threadId: ChatThreadId): Promise<
 
 export async function setChatFullAccessTrust(
   providerInstanceId: ProviderInstanceId,
-  workspaceId: ChatWorkspaceId,
+  workingFolderId: ProjectWorkingFolderId,
   trusted: boolean,
 ): Promise<boolean> {
-  return invoke<boolean>("chat_set_full_access_trust", { providerInstanceId, workspaceId, trusted });
+  return invoke<boolean>("chat_set_full_access_trust", { providerInstanceId, workingFolderId, trusted });
 }
 
 export async function hasChatFullAccessTrust(
   providerInstanceId: ProviderInstanceId,
-  workspaceId: ChatWorkspaceId,
+  workingFolderId: ProjectWorkingFolderId,
 ): Promise<boolean> {
-  return invoke<boolean>("chat_has_full_access_trust", { providerInstanceId, workspaceId });
+  return invoke<boolean>("chat_has_full_access_trust", { providerInstanceId, workingFolderId });
 }
 
 export async function saveChatQueuedFollowup(request: SaveQueuedFollowupRequest): Promise<ChatQueuedFollowupRead> {

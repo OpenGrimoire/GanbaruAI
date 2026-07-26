@@ -222,6 +222,11 @@
     };
   });
 
+  $effect(() => {
+    const projectId = projects.selectedProjectId;
+    if (!chat.loading) void chat.syncProjectSelection(projectId);
+  });
+
   function nextAnimationFrame(): Promise<number> {
     return new Promise((resolve) => requestAnimationFrame(resolve));
   }
@@ -405,7 +410,7 @@
     if (isEditingTarget(event.target)) return;
     if (hasOnlyShortcutModifier(event) && event.key.toLowerCase() === "n") {
       event.preventDefault();
-      if (chat.selectedWorkspaceId) chat.newDraft(chat.selectedWorkspaceId);
+      if (chat.selectedWorkingFolderId) chat.newDraft(chat.selectedWorkingFolderId);
       else chat.railOpen = true;
       return;
     }
@@ -1062,7 +1067,7 @@
       <button type="button" class="absolute inset-0" aria-label={t("chat.commandMenu.close")} onclick={() => { commandMenuOpen = false; }}></button>
       <div bind:this={commandDialog} class="relative w-full max-w-md rounded-lg border border-border bg-popover p-2 shadow-2xl" role="dialog" aria-modal="true" aria-label={t("chat.commandMenu.title")} tabindex="-1" onkeydown={(event) => trapFocus(event)}>
         <div class="flex items-center gap-2 border-b border-border px-2 py-2 text-xs text-muted-foreground"><Command size={14} />{t("chat.commandMenu.title")}</div>
-        <button type="button" class="chat-command" onclick={() => { commandMenuOpen = false; if (chat.selectedWorkspaceId) chat.newDraft(chat.selectedWorkspaceId); }}><MessageSquarePlus size={14} />{t("chat.newChat")}</button>
+        <button type="button" class="chat-command" onclick={() => { commandMenuOpen = false; if (chat.selectedWorkingFolderId) chat.newDraft(chat.selectedWorkingFolderId); }}><MessageSquarePlus size={14} />{t("chat.newChat")}</button>
         <button type="button" class="chat-command" onclick={() => { commandMenuOpen = false; chat.railOpen = true; window.dispatchEvent(new Event("ganbaru-ai:chat-focus-search")); }}><Search size={14} />{t("chat.search")}</button>
         <button type="button" class="chat-command" onclick={() => { commandMenuOpen = false; toggleBottomPanel(); }}><PanelBottom size={14} />{bottomPanelOpen ? t("chat.closeBottomPanel") : t("chat.openBottomPanel")}</button>
         <button type="button" class="chat-command" onclick={() => { commandMenuOpen = false; chat.inspectorOpen = !chat.inspectorOpen; }}><PanelRight size={14} />{t("chat.openInspector")}</button>

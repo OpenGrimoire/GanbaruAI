@@ -4,7 +4,7 @@ use super::events::ChangedFileSummary;
 use super::models::{
     ChatCheckpointId, ChatError, ChatErrorCode, ChatResult, ChatThreadId, ChatTurnId, UtcTimestamp,
 };
-use super::workspace::AuthorizedWorkspace;
+use super::workspace::AuthorizedWorkingFolder;
 use serde::Serialize;
 use sha2::{Digest, Sha256};
 use sqlx::{Row, SqlitePool};
@@ -103,7 +103,7 @@ pub struct CurrentGitSnapshot {
 
 pub async fn capture_and_store(
     pool: &SqlitePool,
-    authorized: &AuthorizedWorkspace,
+    authorized: &AuthorizedWorkingFolder,
     thread_id: &ChatThreadId,
     turn_id: Option<&ChatTurnId>,
     turn_count: u64,
@@ -241,7 +241,7 @@ pub async fn read_stored_checkpoint(
 }
 
 pub fn verify_checkpoint(
-    authorized: &AuthorizedWorkspace,
+    authorized: &AuthorizedWorkingFolder,
     checkpoint: &StoredCheckpoint,
 ) -> ChatResult<()> {
     if authorized.repository_identity.as_deref() != Some(&checkpoint.repository_identity)
@@ -1047,8 +1047,8 @@ fn serialization_error<T>(_error: T) -> ChatError {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::chat::models::{ChatWorkspaceId, RepositoryKind};
-    use crate::chat::workspace::AuthorizedWorkspace;
+    use crate::chat::models::{ProjectWorkingFolderId, RepositoryKind};
+    use crate::chat::workspace::AuthorizedWorkingFolder;
     use std::collections::BTreeSet;
     use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -1084,9 +1084,9 @@ mod tests {
             command(&self.0, &["commit", "-q", "-m", "fixture"]);
         }
 
-        fn authorized(&self, identity: &str) -> AuthorizedWorkspace {
-            AuthorizedWorkspace {
-                workspace_id: ChatWorkspaceId::new("workspace:test")
+        fn authorized(&self, identity: &str) -> AuthorizedWorkingFolder {
+            AuthorizedWorkingFolder {
+                working_folder_id: ProjectWorkingFolderId::new("workspace:test")
                     .expect("workspace ID should be valid"),
                 canonical_path: self.0.clone(),
                 repository_kind: RepositoryKind::Git,

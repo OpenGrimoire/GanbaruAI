@@ -2,7 +2,7 @@ use crate::chat::events::{ChangedFileSummary, ThreadUsageUpdatedEvent};
 use crate::chat::models::{
     ChatActivityId, ChatError, ChatErrorCode, ChatResult, ChatThreadId, ChatThreadShellRead,
     ChatThreadState, ChatTimelineItemRead, ChatTimelinePageRead, ChatTimelineTurnRead, ChatTurnId,
-    ChatTurnState, ChatWorkspaceId, InteractionMode, ModelId, ModelOptionSelection,
+    ChatTurnState, InteractionMode, ModelId, ModelOptionSelection, ProjectWorkingFolderId,
     ProviderFamilyId, ProviderInstanceId, ProviderThreadId, SafetyMode, TurnModeSnapshot,
     UtcTimestamp, VersionedJson,
 };
@@ -16,8 +16,8 @@ const MAX_SEARCH_LENGTH: usize = 240;
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ChatProjectShellRead {
-    pub project_id: Option<String>,
-    pub workspace_id: ChatWorkspaceId,
+    pub project_id: String,
+    pub working_folder_id: ProjectWorkingFolderId,
     pub workspace_name: String,
     pub workspace_archived_at: Option<UtcTimestamp>,
     pub active_thread_count: u64,
@@ -67,10 +67,10 @@ pub async fn read_project_shells(pool: &SqlitePool) -> ChatResult<Vec<ChatProjec
         "SELECT w.project_id, w.id, w.display_name, w.archived_at,
                 SUM(CASE WHEN t.id IS NOT NULL AND t.archived_at IS NULL AND t.state != 'closed' THEN 1 ELSE 0 END) AS active_count,
                 SUM(CASE WHEN t.archived_at IS NOT NULL THEN 1 ELSE 0 END) AS archived_count
-         FROM chat_workspaces w
-         LEFT JOIN chat_threads t ON t.workspace_id = w.id
+         FROM project_working_folders w
+         LEFT JOIN chat_threads t ON t.working_folder_id = w.id
          GROUP BY w.id
-         ORDER BY w.project_id IS NULL, w.project_id, w.display_name COLLATE NOCASE, w.id",
+         ORDER BY w.project_id, w.sort_order, w.display_name COLLATE NOCASE, w.id",
     )
     .fetch_all(pool)
     .await
@@ -79,7 +79,7 @@ pub async fn read_project_shells(pool: &SqlitePool) -> ChatResult<Vec<ChatProjec
         .map(|row| {
             Ok(ChatProjectShellRead {
                 project_id: row.try_get("project_id").map_err(persistence_error)?,
-                workspace_id: id(row.try_get("id").map_err(persistence_error)?)?,
+                working_folder_id: id(row.try_get("id").map_err(persistence_error)?)?,
                 workspace_name: row.try_get("display_name").map_err(persistence_error)?,
                 workspace_archived_at: timestamp(
                     row.try_get("archived_at").map_err(persistence_error)?,
@@ -97,22 +97,22 @@ pub async fn read_project_shells(pool: &SqlitePool) -> ChatResult<Vec<ChatProjec
 
 pub async fn read_thread_shells(
     pool: &SqlitePool,
-    workspace_id: Option<&ChatWorkspaceId>,
+    working_folder_id: Option<&ProjectWorkingFolderId>,
     archived: bool,
 ) -> ChatResult<Vec<ChatThreadShellRead>> {
     let rows = sqlx::query(
-        "SELECT id, workspace_id, project_id, title, provider_family_id,
+        "SELECT id, working_folder_id, project_id, title, provider_family_id,
                 provider_instance_id, provider_thread_id, model_selection_data,
                 safety_mode, interaction_mode, state, latest_turn_state,
                 latest_preview, message_count, revision, last_event_sequence,
                 last_activity_at, unread_at, archived_at
          FROM chat_threads
-         WHERE (? IS NULL OR workspace_id = ?)
+         WHERE (? IS NULL OR working_folder_id = ?)
            AND ((? = 1 AND archived_at IS NOT NULL) OR (? = 0 AND archived_at IS NULL AND state != 'closed'))
          ORDER BY CASE WHEN archived_at IS NULL THEN last_activity_at ELSE archived_at END DESC, id",
     )
-    .bind(workspace_id.map(ChatWorkspaceId::as_str))
-    .bind(workspace_id.map(ChatWorkspaceId::as_str))
+    .bind(working_folder_id.map(ProjectWorkingFolderId::as_str))
+    .bind(working_folder_id.map(ProjectWorkingFolderId::as_str))
     .bind(archived)
     .bind(archived)
     .fetch_all(pool)
@@ -126,7 +126,7 @@ pub async fn read_thread_shell(
     thread_id: &ChatThreadId,
 ) -> ChatResult<ChatThreadShellRead> {
     sqlx::query(
-        "SELECT id, workspace_id, project_id, title, provider_family_id,
+        "SELECT id, working_folder_id, project_id, title, provider_family_id,
                 provider_instance_id, provider_thread_id, model_selection_data,
                 safety_mode, interaction_mode, state, latest_turn_state,
                 latest_preview, message_count, revision, last_event_sequence,
@@ -157,7 +157,7 @@ pub async fn search_thread_titles(
     }
     let pattern = format!("%{}%", escape_like(&normalized));
     let rows = sqlx::query(
-        "SELECT id, workspace_id, project_id, title, provider_family_id,
+        "SELECT id, working_folder_id, project_id, title, provider_family_id,
                 provider_instance_id, provider_thread_id, model_selection_data,
                 safety_mode, interaction_mode, state, latest_turn_state,
                 latest_preview, message_count, revision, last_event_sequence,
@@ -395,8 +395,8 @@ fn row_to_thread_shell(row: sqlx::sqlite::SqliteRow) -> ChatResult<ChatThreadShe
     Ok(ChatThreadShellRead {
         id: ChatThreadId::new(row.try_get::<String, _>("id").map_err(persistence_error)?)
             .map_err(|_| corrupt_data())?,
-        workspace_id: id(row
-            .try_get::<String, _>("workspace_id")
+        working_folder_id: id(row
+            .try_get::<String, _>("working_folder_id")
             .map_err(persistence_error)?)?,
         project_id: row.try_get("project_id").map_err(persistence_error)?,
         title: row.try_get("title").map_err(persistence_error)?,
@@ -460,8 +460,8 @@ fn escape_like(value: &str) -> String {
         .replace('%', "\\%")
         .replace('_', "\\_")
 }
-fn id(value: String) -> ChatResult<ChatWorkspaceId> {
-    ChatWorkspaceId::new(value).map_err(|_| corrupt_data())
+fn id(value: String) -> ChatResult<ProjectWorkingFolderId> {
+    ProjectWorkingFolderId::new(value).map_err(|_| corrupt_data())
 }
 fn timestamp(value: Option<String>) -> ChatResult<Option<UtcTimestamp>> {
     value

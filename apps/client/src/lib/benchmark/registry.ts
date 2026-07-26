@@ -97,13 +97,13 @@ export const BENCHMARK_SCENARIOS: BenchmarkScenarioMetadata[] = [
   },
   {
     id: "chat-workspace",
-    label: "Chat workspace",
+    label: "Project Chat",
     description:
       "Measures dense Chat activation, switching, paging, search, streaming, idle CPU, memory, and owned process stop.",
     workload: {
       kind: "stress-memory",
       question: "Does dense local Chat remain responsive, bounded, and idle when no provider is running?",
-      label: "dense local Chat workspace interactions",
+      label: "dense project working-folder Chat interactions",
       durationMs: 0,
       memoryMode: "post-workload",
     },

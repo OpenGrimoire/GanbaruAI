@@ -37,7 +37,7 @@
     {#if threads.length === 0}<p class="py-8 text-center text-sm text-muted-foreground">{t("chat.archiveBrowser.empty")}</p>{/if}
     <div class="flex flex-col gap-1">
       {#each threads as thread}
-        <div class="flex items-center gap-2 rounded-md border border-border/70 p-2"><div class="min-w-0 flex-1"><span class="block truncate text-sm font-medium">{thread.title}</span><span class="block truncate text-xs text-muted-foreground">{chat.workspaces.find((entry) => entry.workspace.id === thread.workspaceId)?.workspace.displayName}</span></div><button type="button" class="chat-small-button" onclick={() => restore(thread)}>{t("chat.restore")}</button><button type="button" class="chat-small-button text-destructive" onclick={() => onDelete(thread)}>{t("chat.deletePermanently")}</button></div>
+        <div class="flex items-center gap-2 rounded-md border border-border/70 p-2"><div class="min-w-0 flex-1"><span class="block truncate text-sm font-medium">{thread.title}</span><span class="block truncate text-xs text-muted-foreground">{chat.workingFolders.find((entry) => entry.workingFolder.id === thread.workingFolderId)?.workingFolder.displayName}</span></div><button type="button" class="chat-small-button" onclick={() => restore(thread)}>{t("chat.restore")}</button><button type="button" class="chat-small-button text-destructive" onclick={() => onDelete(thread)}>{t("chat.deletePermanently")}</button></div>
       {/each}
     </div>
   </div>

@@ -1,8 +1,8 @@
 //! Device-local Chat bindings and provider runtime metadata.
 
 use super::models::{
-    ChatThreadId, ChatWorkspaceId, ProviderInstanceId, ProviderModelCatalog, ProviderProbeResult,
-    RepositoryKind, UtcTimestamp,
+    ChatThreadId, ProjectWorkingFolderId, ProviderInstanceId, ProviderModelCatalog,
+    ProviderProbeResult, UtcTimestamp,
 };
 use crate::vault::{active_vault_id, read_app_state, update_app_state, vault_device_id};
 use serde::{Deserialize, Serialize};
@@ -10,15 +10,6 @@ use std::collections::BTreeMap;
 use tauri::Runtime;
 
 pub const CHAT_DEVICE_STATE_SCHEMA_VERSION: u32 = 1;
-
-#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ChatWorkspaceBindingState {
-    pub canonical_path: String,
-    pub repository_kind: RepositoryKind,
-    pub repository_identity: Option<String>,
-    pub last_verified_at: UtcTimestamp,
-}
 
 #[derive(Clone, Debug, Default, Deserialize, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -60,11 +51,10 @@ impl Default for ChatDiagnosticPreferences {
 #[serde(rename_all = "camelCase")]
 pub struct ChatDeviceScope {
     #[serde(default)]
-    pub workspace_bindings: BTreeMap<ChatWorkspaceId, ChatWorkspaceBindingState>,
-    #[serde(default)]
     pub provider_instances: BTreeMap<ProviderInstanceId, ChatProviderDeviceState>,
     #[serde(default)]
-    pub full_access_trust: BTreeMap<ProviderInstanceId, BTreeMap<ChatWorkspaceId, UtcTimestamp>>,
+    pub full_access_trust:
+        BTreeMap<ProviderInstanceId, BTreeMap<ProjectWorkingFolderId, UtcTimestamp>>,
     #[serde(default)]
     pub preferences: ChatMachinePreferences,
     #[serde(default)]
@@ -107,18 +97,18 @@ impl ChatDeviceState {
 pub fn full_access_is_trusted(
     scope: &ChatDeviceScope,
     provider_instance_id: &ProviderInstanceId,
-    workspace_id: &ChatWorkspaceId,
+    working_folder_id: &ProjectWorkingFolderId,
 ) -> bool {
     scope
         .full_access_trust
         .get(provider_instance_id)
-        .is_some_and(|workspaces| workspaces.contains_key(workspace_id))
+        .is_some_and(|workspaces| workspaces.contains_key(working_folder_id))
 }
 
 pub fn set_full_access_trust(
     scope: &mut ChatDeviceScope,
     provider_instance_id: ProviderInstanceId,
-    workspace_id: ChatWorkspaceId,
+    working_folder_id: ProjectWorkingFolderId,
     trusted_at: Option<UtcTimestamp>,
 ) {
     if let Some(timestamp) = trusted_at {
@@ -126,13 +116,13 @@ pub fn set_full_access_trust(
             .full_access_trust
             .entry(provider_instance_id)
             .or_default()
-            .insert(workspace_id, timestamp);
+            .insert(working_folder_id, timestamp);
         return;
     }
     let Some(workspaces) = scope.full_access_trust.get_mut(&provider_instance_id) else {
         return;
     };
-    workspaces.remove(&workspace_id);
+    workspaces.remove(&working_folder_id);
     if workspaces.is_empty() {
         scope.full_access_trust.remove(&provider_instance_id);
     }

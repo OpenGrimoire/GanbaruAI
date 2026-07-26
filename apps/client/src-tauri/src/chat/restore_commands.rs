@@ -4,11 +4,10 @@ use super::checkpoints::{
     current_git_snapshot, diff_files, read_stored_checkpoint, restore_git_snapshot,
     verify_checkpoint, ChatChangedFileRead, CurrentGitSnapshot, StoredCheckpoint,
 };
-use super::device_state::read_active_device_scope;
 use super::events::{CanonicalEvent, ThreadRevertedEvent};
 use super::models::{
     ChatCheckpointId, ChatCommandContext, ChatError, ChatErrorCode, ChatResult, ChatThreadId,
-    ChatTurnId, ChatWorkspaceId, InterruptTurnRequest, ProviderCapability, RollbackRequest,
+    ChatTurnId, InterruptTurnRequest, ProjectWorkingFolderId, ProviderCapability, RollbackRequest,
     UtcTimestamp, VersionedJson,
 };
 use super::providers::{DriverCancellation, DriverOperationContext};
@@ -18,8 +17,11 @@ use super::repository::receipts::{
 };
 use super::repository::workspaces;
 use super::runtime::ChatRuntimeRegistry;
-use super::workspace::{authorize_workspace, AuthorizedWorkspace, WorkspaceAuthorizationOperation};
+use super::workspace::{
+    authorize_workspace, AuthorizedWorkingFolder, WorkingFolderAuthorizationOperation,
+};
 use crate::db_path;
+use crate::projects::working_folders::read_active_working_folder_scope;
 use chrono::{SecondsFormat, Utc};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -85,7 +87,7 @@ pub async fn chat_preview_checkpoint_restore(
     request: PreviewChatRestoreRequest,
 ) -> ChatResult<ChatRestorePreviewRead> {
     let pool = chat_pool(app.clone(), db_url).await?;
-    let (workspace_id, authorized, revision) =
+    let (working_folder_id, authorized, revision) =
         authorize_thread(&app, &pool, &request.thread_id).await?;
     let target = read_stored_checkpoint(&pool, &request.checkpoint_id).await?;
     if target.thread_id != request.thread_id
@@ -158,7 +160,7 @@ pub async fn chat_preview_checkpoint_restore(
                 .to_string(),
         );
     }
-    if workspace_id != authorized.workspace_id {
+    if working_folder_id != authorized.working_folder_id {
         return Err(restore_worker_error());
     }
     Ok(ChatRestorePreviewRead {
@@ -602,9 +604,9 @@ async fn enqueue_invalidated_checkpoints(
         sqlx::query(
             "INSERT OR IGNORE INTO chat_cleanup_queue
                 (id, source_thread_id, cleanup_kind, exact_target, repository_identity,
-                 state, not_before, created_at, updated_at, workspace_id, expected_object_id)
+                 state, not_before, created_at, updated_at, working_folder_id, expected_object_id)
              VALUES (?, ?, 'checkpoint_ref', ?, ?, 'pending', ?, ?, ?, (
-                SELECT workspace_id FROM chat_threads WHERE id = ?
+                SELECT working_folder_id FROM chat_threads WHERE id = ?
              ), ?)",
         )
         .bind(format!("cleanup:checkpoint:{checkpoint_id}"))
@@ -798,17 +800,17 @@ async fn authorize_thread(
     app: &tauri::AppHandle,
     pool: &SqlitePool,
     thread_id: &ChatThreadId,
-) -> ChatResult<(ChatWorkspaceId, AuthorizedWorkspace, u64)> {
+) -> ChatResult<(ProjectWorkingFolderId, AuthorizedWorkingFolder, u64)> {
     let row = sqlx::query(
-        "SELECT workspace_id, revision FROM chat_threads WHERE id = ? AND state != 'closed'",
+        "SELECT working_folder_id, revision FROM chat_threads WHERE id = ? AND state != 'closed'",
     )
     .bind(thread_id.as_str())
     .fetch_optional(pool)
     .await
     .map_err(persistence_error)?
     .ok_or_else(|| ChatError::new(ChatErrorCode::NotFound, "Chat thread was not found", true))?;
-    let workspace_id = ChatWorkspaceId::new(
-        row.try_get::<String, _>("workspace_id")
+    let working_folder_id = ProjectWorkingFolderId::new(
+        row.try_get::<String, _>("working_folder_id")
             .map_err(persistence_error)?,
     )
     .map_err(|_| corrupt_data())?;
@@ -817,11 +819,14 @@ async fn authorize_thread(
             .map_err(persistence_error)?,
     )
     .map_err(|_| corrupt_data())?;
-    let workspace = workspaces::read_workspace(pool, &workspace_id).await?;
-    let scope = read_active_device_scope(app).map_err(device_state_error)?;
-    let authorized =
-        authorize_workspace(&workspace, &scope, WorkspaceAuthorizationOperation::Restore)?;
-    Ok((workspace_id, authorized, revision))
+    let workspace = workspaces::read_workspace(pool, &working_folder_id).await?;
+    let scope = read_active_working_folder_scope(app).map_err(device_state_error)?;
+    let authorized = authorize_workspace(
+        &workspace,
+        &scope,
+        WorkingFolderAuthorizationOperation::Restore,
+    )?;
+    Ok((working_folder_id, authorized, revision))
 }
 
 async fn target_turn_id(

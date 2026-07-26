@@ -430,7 +430,7 @@ pub fn start_request() -> StartSessionRequest {
     serde_json::from_value(json!({
         "threadId": "thread-1",
         "workspace": {
-            "workspaceId": "fake-workspace",
+            "workingFolderId": "fake-workspace",
             "canonicalPath": "/fake/workspace",
             "repositoryKind": "git",
             "repositoryIdentity": "fake-repository"

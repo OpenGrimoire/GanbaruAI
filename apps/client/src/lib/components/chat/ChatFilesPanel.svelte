@@ -11,9 +11,9 @@
   import TextSelect from "@lucide/svelte/icons/text-select";
   import * as chatApi from "$lib/api/chat";
   import type {
-    ChatWorkspaceFileEntry,
-    ChatWorkspaceFilePreview,
-    ChatWorkspacePathRead,
+    ProjectWorkingFolderFileEntry,
+    ProjectWorkingFolderFilePreview,
+    ProjectWorkingFolderPathRead,
   } from "$lib/chat/contracts";
   import { flattenChatFileTree, type ChatFileTreeRow } from "$lib/chat/file-tree-model";
   import { splitPaneResizeBounds } from "$lib/chat/inspector-model";
@@ -54,18 +54,18 @@
   const localization = getLocalization();
   const { t } = localization;
   const chat = getChat();
-  let rootEntries = $state<ChatWorkspaceFileEntry[]>([]);
-  let childrenByDirectory = $state<Record<string, ChatWorkspaceFileEntry[]>>({});
+  let rootEntries = $state<ProjectWorkingFolderFileEntry[]>([]);
+  let childrenByDirectory = $state<Record<string, ProjectWorkingFolderFileEntry[]>>({});
   let expandedPaths = $state<string[]>([]);
   let loadingPaths = $state<string[]>([]);
-  let preview = $state<ChatWorkspaceFilePreview | null>(null);
+  let preview = $state<ProjectWorkingFolderFilePreview | null>(null);
   let previewElement: HTMLElement | undefined = $state();
   let panelElement: HTMLDivElement | undefined = $state();
   let panelWidth = $state(0);
   let renderedTreeWidth = $state(DEFAULT_TREE_WIDTH);
   let resizingTree = $state(false);
   let query = $state("");
-  let searchResults = $state<ChatWorkspacePathRead[]>([]);
+  let searchResults = $state<ProjectWorkingFolderPathRead[]>([]);
   let includeIgnored = $state(false);
   let loadingRoot = $state(false);
   let loadingPreview = $state(false);
@@ -75,7 +75,7 @@
   let previewRequestId = 0;
   let treeResizeFrame: number | null = null;
   let treeResizeEndFrame: number | null = null;
-  const workspaceId = $derived(chat.selectedWorkspaceId);
+  const workingFolderId = $derived(chat.selectedWorkingFolderId);
   const treeRows = $derived(flattenChatFileTree(rootEntries, childrenByDirectory, expandedPaths));
   const shownRows = $derived.by<ChatFileTreeRow[]>(() => {
     if (!query.trim()) return treeRows;
@@ -112,7 +112,7 @@
   });
 
   $effect(() => {
-    const workspace = workspaceId;
+    const workspace = workingFolderId;
     const scope = `${workspace ?? ""}:${chat.selectedThreadId ?? ""}`;
     if (!workspace || scope === loadedScope) return;
     loadedScope = scope;
@@ -125,7 +125,7 @@
   });
 
   $effect(() => {
-    const workspace = workspaceId;
+    const workspace = workingFolderId;
     const value = query.trim();
     const showIgnored = includeIgnored;
     if (!workspace || !value) {
@@ -134,7 +134,7 @@
     }
     let cancelled = false;
     const timer = window.setTimeout(() => {
-      void chatApi.searchChatWorkspacePaths(workspace, value, showIgnored, null, 100)
+      void chatApi.searchChatWorkingFolderPaths(workspace, value, showIgnored, null, 100)
         .then((page) => { if (!cancelled) searchResults = page.entries; })
         .catch((reason: unknown) => { if (!cancelled) error = message(reason); });
     }, 160);
@@ -149,8 +149,8 @@
     loadingRoot = true;
     error = null;
     try {
-      const result = await chatApi.listChatWorkspaceDirectory(workspace, "", includeIgnored);
-      if (requestId !== treeRequestId || workspace !== workspaceId) return;
+      const result = await chatApi.listProjectWorkingFolderDirectory(workspace, "", includeIgnored);
+      if (requestId !== treeRequestId || workspace !== workingFolderId) return;
       rootEntries = result.entries;
       if (pathToReveal) await revealDirectory(pathToReveal);
     } catch (reason: unknown) {
@@ -161,13 +161,13 @@
   }
 
   async function loadDirectory(path: string): Promise<void> {
-    const workspace = workspaceId;
+    const workspace = workingFolderId;
     if (!workspace || childrenByDirectory[path] || loadingPaths.includes(path)) return;
     const requestId = treeRequestId;
     loadingPaths = [...loadingPaths, path];
     try {
-      const result = await chatApi.listChatWorkspaceDirectory(workspace, path, includeIgnored);
-      if (requestId !== treeRequestId || workspace !== workspaceId) return;
+      const result = await chatApi.listProjectWorkingFolderDirectory(workspace, path, includeIgnored);
+      if (requestId !== treeRequestId || workspace !== workingFolderId) return;
       childrenByDirectory = { ...childrenByDirectory, [path]: result.entries };
     } catch (reason: unknown) {
       if (requestId === treeRequestId) error = message(reason);
@@ -188,7 +188,7 @@
     }
   }
 
-  function toggleDirectory(entry: ChatWorkspaceFileEntry): void {
+  function toggleDirectory(entry: ProjectWorkingFolderFileEntry): void {
     if (entry.kind !== "directory") return;
     if (query.trim()) {
       query = "";
@@ -205,7 +205,7 @@
   }
 
   async function selectFile(path: string): Promise<void> {
-    const workspace = workspaceId;
+    const workspace = workingFolderId;
     if (!workspace) return;
     const requestId = ++previewRequestId;
     onStateChange({ selectedPath: path });
@@ -213,8 +213,8 @@
     loadingPreview = true;
     error = null;
     try {
-      const result = await chatApi.previewChatWorkspaceFile(workspace, path);
-      if (requestId === previewRequestId && workspace === workspaceId) preview = result;
+      const result = await chatApi.previewProjectWorkingFolderFile(workspace, path);
+      if (requestId === previewRequestId && workspace === workingFolderId) preview = result;
     } catch (reason: unknown) {
       if (requestId === previewRequestId) error = message(reason);
     } finally {
@@ -222,13 +222,13 @@
     }
   }
 
-  function openEntry(entry: ChatWorkspaceFileEntry): void {
+  function openEntry(entry: ProjectWorkingFolderFileEntry): void {
     if (entry.kind === "directory") toggleDirectory(entry);
     else void selectFile(entry.relativePath);
   }
 
   function reloadTree(): void {
-    const workspace = workspaceId;
+    const workspace = workingFolderId;
     if (!workspace) return;
     childrenByDirectory = {};
     expandedPaths = [];
@@ -325,14 +325,14 @@
   }
 
   async function attachSelection(): Promise<void> {
-    if (!workspaceId || !selectedPath) return;
+    if (!workingFolderId || !selectedPath) return;
     const browserSelection = window.getSelection();
     if (!browserSelection || !previewElement?.contains(browserSelection.anchorNode)) return;
     const selection = browserSelection.toString();
     const bounded = boundTerminalContext(selection, 128 * 1024);
     if (!bounded.text) return;
     const attachment = await chatApi.importChatTextSnippet(
-      workspaceId,
+      workingFolderId,
       crypto.randomUUID(),
       `${selectedPath} selection.txt`,
       bounded.text,
@@ -383,7 +383,7 @@
           <button type="button" class="chat-icon-button" title={t("chat.inspector.copyPath")} aria-label={t("chat.inspector.copyPath")} onclick={() => navigator.clipboard.writeText(selectedPath ?? "")}><Copy size={13} /></button>
           <button type="button" class="chat-icon-button" title={t("chat.inspector.attachFile")} aria-label={t("chat.inspector.attachFile")} onclick={() => selectedPath && attachFileReference(selectedPath)}><Paperclip size={13} /></button>
           <button type="button" class="chat-icon-button" title={t("chat.inspector.attachSelection")} aria-label={t("chat.inspector.attachSelection")} onclick={() => { void attachSelection().catch((reason) => { error = message(reason); }); }}><TextSelect size={13} /></button>
-          <button type="button" class="chat-icon-button" title={t("chat.inspector.openExternally")} aria-label={t("chat.inspector.openExternally")} onclick={() => workspaceId && selectedPath && chatApi.openChatWorkspaceFile(workspaceId, selectedPath)}><ExternalLink size={13} /></button>
+          <button type="button" class="chat-icon-button" title={t("chat.inspector.openExternally")} aria-label={t("chat.inspector.openExternally")} onclick={() => workingFolderId && selectedPath && chatApi.openProjectWorkingFolderFile(workingFolderId, selectedPath)}><ExternalLink size={13} /></button>
         {:else}
           <span class="min-w-0 flex-1 truncate text-[0.733333rem] text-muted-foreground">{t("chat.inspector.filePreview")}</span>
         {/if}

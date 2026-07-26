@@ -17,7 +17,7 @@ export function parseChatDraftRead(value: unknown): ChatDraftRead {
   if (!Array.isArray(mentions.value)) throw new Error("Chat draft.mentions.value must be an array");
   return {
     id: readIdentifier(record.id, "Chat draft.id"),
-    workspaceId: readIdentifier(record.workspaceId, "Chat draft.workspaceId"),
+    workingFolderId: readIdentifier(record.workingFolderId, "Chat draft.workingFolderId"),
     threadId: readNullable(record.threadId, "Chat draft.threadId", readIdentifier),
     text: readString(record.text, "Chat draft.text"),
     attachmentIds: readArray(record.attachmentIds, "Chat draft.attachmentIds", readIdentifier),

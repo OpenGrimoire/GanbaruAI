@@ -12,8 +12,8 @@ use super::device_state::{
     read_active_device_scope, update_active_device_scope, ChatProviderDeviceState,
 };
 use super::models::{
-    ChatError, ChatErrorCode, ChatResult, ChatThreadId, ChatWorkspaceId, CredentialReferenceId,
-    ModelId, ProbeState, ProviderFamilyId, ProviderFamilyMetadataRead,
+    ChatError, ChatErrorCode, ChatResult, ChatThreadId, CredentialReferenceId, ModelId, ProbeState,
+    ProjectWorkingFolderId, ProviderFamilyId, ProviderFamilyMetadataRead,
     ProviderImplementationStatus, ProviderInstanceConfig, ProviderInstanceId, ProviderModelCatalog,
     ProviderProbeResult, VersionedJson,
 };
@@ -577,7 +577,7 @@ pub fn chat_remove_provider(
             .remembered_selections
             .retain(|selection| selection.provider_instance_id != instance_id);
         config
-            .workspace_provider_preferences
+            .working_folder_provider_preferences
             .retain(|_, provider_id| provider_id != &instance_id);
         Ok(())
     })?;
@@ -728,10 +728,10 @@ pub fn chat_update_panels(
 }
 
 #[tauri::command]
-pub fn chat_set_workspace_provider_preference(
+pub fn chat_set_working_folder_provider_preference(
     app: tauri::AppHandle,
     state: tauri::State<'_, ChatSettingsState>,
-    workspace_id: ChatWorkspaceId,
+    working_folder_id: ProjectWorkingFolderId,
     instance_id: Option<ProviderInstanceId>,
 ) -> ChatResult<ChatVaultConfig> {
     mutate_chat_config(&app, &state, |config| {
@@ -745,11 +745,13 @@ pub fn chat_set_workspace_provider_preference(
                     return Err(provider_not_found());
                 }
                 config
-                    .workspace_provider_preferences
-                    .insert(workspace_id, instance_id);
+                    .working_folder_provider_preferences
+                    .insert(working_folder_id, instance_id);
             }
             None => {
-                config.workspace_provider_preferences.remove(&workspace_id);
+                config
+                    .working_folder_provider_preferences
+                    .remove(&working_folder_id);
             }
         }
         Ok(())
@@ -771,7 +773,7 @@ pub fn chat_remember_composer_selection(
             return Err(provider_not_found());
         }
         config.remembered_selections.retain(|existing| {
-            existing.workspace_id != selection.workspace_id
+            existing.working_folder_id != selection.working_folder_id
                 || existing.provider_instance_id != selection.provider_instance_id
         });
         config.remembered_selections.push(selection);

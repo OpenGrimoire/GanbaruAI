@@ -299,7 +299,8 @@ fn driver_starts_dispatches_and_stops_a_native_session() {
                 StartSessionRequest {
                     thread_id: ChatThreadId::new("thread-1".to_string()).unwrap(),
                     workspace: VerifiedWorkspaceContext {
-                        workspace_id: ChatWorkspaceId::new("workspace-1".to_string()).unwrap(),
+                        working_folder_id: ProjectWorkingFolderId::new("workspace-1".to_string())
+                            .unwrap(),
                         canonical_path: workspace.path().to_string_lossy().into_owned(),
                         repository_kind: RepositoryKind::None,
                         repository_identity: None,

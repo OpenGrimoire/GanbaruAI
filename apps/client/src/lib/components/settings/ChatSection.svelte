@@ -1,7 +1,6 @@
 <script lang="ts">
   import Bot from "@lucide/svelte/icons/bot";
   import Boxes from "@lucide/svelte/icons/boxes";
-  import FolderGit2 from "@lucide/svelte/icons/folder-git-2";
   import Plus from "@lucide/svelte/icons/plus";
   import RefreshCw from "@lucide/svelte/icons/refresh-cw";
   import ShieldCheck from "@lucide/svelte/icons/shield-check";
@@ -16,7 +15,6 @@
   import type { ChatProviderSetupTarget, ChatSettingsSubsection } from "./types";
   import ProviderCard from "./chat/ProviderCard.svelte";
   import ChatModelsSettings from "./chat/ChatModelsSettings.svelte";
-  import ChatWorkspacesSettings from "./chat/ChatWorkspacesSettings.svelte";
   import ChatPermissionsSettings from "./chat/ChatPermissionsSettings.svelte";
   import ChatBehaviorSettings from "./chat/ChatBehaviorSettings.svelte";
 
@@ -44,7 +42,6 @@
   }> = [
     { id: "providers", label: () => t("settings.chat.providers.heading"), icon: Bot },
     { id: "models", label: () => t("settings.chat.models.heading"), icon: Boxes },
-    { id: "workspaces", label: () => t("settings.chat.workspaces.heading"), icon: FolderGit2 },
     { id: "permissions", label: () => t("settings.chat.permissions.heading"), icon: ShieldCheck },
     { id: "behavior", label: () => t("settings.chat.behavior.heading"), icon: SlidersHorizontal },
   ];
@@ -160,8 +157,6 @@
     </section>
   {:else if activeTab === "models"}
     <div data-chat-settings-subsection="models"><ChatModelsSettings /></div>
-  {:else if activeTab === "workspaces"}
-    <div data-chat-settings-subsection="workspaces"><ChatWorkspacesSettings /></div>
   {:else if activeTab === "permissions"}
     <div data-chat-settings-subsection="permissions"><ChatPermissionsSettings /></div>
   {:else}

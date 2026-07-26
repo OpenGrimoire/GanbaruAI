@@ -142,8 +142,8 @@
     active: boolean;
   } | null>(null);
   const threadId = $derived(chat.selectedThreadId ?? chat.draftThreadId);
-  const workspaceId = $derived(chat.selectedWorkspaceId);
-  const sessionKey = $derived(inspectorSessionKey(threadId, workspaceId));
+  const workingFolderId = $derived(chat.selectedWorkingFolderId);
+  const sessionKey = $derived(inspectorSessionKey(threadId, workingFolderId));
   const selectedTerminal = $derived(terminals.find((terminal) => terminal.id === selectedTerminalId) ?? null);
   const panelTabs: {
     id: Exclude<ChatInspectorTab, "terminal">;
@@ -205,7 +205,7 @@
   $effect(() => {
     const terminalOpen = panelState.openTabs.includes("terminal");
     const thread = threadId;
-    const workspace = workspaceId;
+    const workspace = workingFolderId;
     const nextKey = `${thread ?? ""}:${workspace ?? ""}`;
     if (!terminalOpen || !thread || !workspace) {
       terminalScopeKey = "";
@@ -322,7 +322,7 @@
         const snapshot = await createTerminal(thread, workspace);
         return [snapshot.terminal];
       });
-      if (thread !== threadId || workspace !== workspaceId) return;
+      if (thread !== threadId || workspace !== workingFolderId) return;
       terminals = loaded;
       const placeholderName = panelState.tabNames.terminal;
       const firstTerminal = loaded[0];
@@ -339,7 +339,7 @@
     } catch (reason: unknown) {
       error = message(reason);
     } finally {
-      if (thread === threadId && workspace === workspaceId) terminalsLoading = false;
+      if (thread === threadId && workspace === workingFolderId) terminalsLoading = false;
     }
   }
 
@@ -350,7 +350,7 @@
     const snapshot = await chatApi.createChatTerminal({
       terminalId: crypto.randomUUID(),
       threadId: thread,
-      workspaceId: workspace,
+      workingFolderId: workspace,
       columns: 80,
       rows: 24,
     });
@@ -359,9 +359,9 @@
   }
 
   async function addTerminal(): Promise<void> {
-    if (!threadId || !workspaceId) return;
+    if (!threadId || !workingFolderId) return;
     panelPickerOpen = false;
-    const snapshot = await createTerminal(threadId, workspaceId);
+    const snapshot = await createTerminal(threadId, workingFolderId);
     const previousOrder = orderedTabKeys;
     terminals = [...terminals, snapshot.terminal];
     update({
@@ -377,7 +377,7 @@
 
   function retryTerminalLoad(): void {
     const thread = threadId;
-    const workspace = workspaceId;
+    const workspace = workingFolderId;
     if (!thread || !workspace) return;
     const scopeKey = `${thread}:${workspace}`;
     terminalScopeKey = scopeKey;
@@ -402,11 +402,11 @@
   }
 
   async function closeTerminal(terminal: ChatTerminalRead): Promise<void> {
-    if (!threadId || !workspaceId) return;
-    let result = await chatApi.closeChatTerminal(terminal.id, threadId, workspaceId, false);
+    if (!threadId || !workingFolderId) return;
+    let result = await chatApi.closeChatTerminal(terminal.id, threadId, workingFolderId, false);
     if (result.confirmationRequired) {
       if (!window.confirm(t("chat.inspector.confirmCloseTerminal"))) return;
-      result = await chatApi.closeChatTerminal(terminal.id, threadId, workspaceId, true);
+      result = await chatApi.closeChatTerminal(terminal.id, threadId, workingFolderId, true);
     }
     if (!result.closed) return;
     terminalPanels.release(terminal.id);

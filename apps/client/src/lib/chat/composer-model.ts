@@ -1,7 +1,7 @@
 import type {
   ChatPromptCatalogEntry,
   ChatSendKey,
-  ChatWorkspacePathRead,
+  ProjectWorkingFolderPathRead,
   InteractionMode,
   JsonValue,
   ModelOptionDefinition,
@@ -28,7 +28,7 @@ export interface ComposerActionState {
 }
 
 export interface ComposerSelections {
-  workspaceId: string | null;
+  workingFolderId: string | null;
   providerInstanceId: string | null;
   modelId: string | null;
   providerManagedModel: boolean;
@@ -112,7 +112,7 @@ export function validateComposerSelections(
   capabilities: ProviderCapabilities,
 ): ComposerSelectionError[] {
   const errors: ComposerSelectionError[] = [];
-  if (!selections.workspaceId) errors.push({ field: "workspace", message: "Choose a workspace" });
+  if (!selections.workingFolderId) errors.push({ field: "workspace", message: "Choose a workspace" });
   if (!selections.providerInstanceId) errors.push({ field: "provider", message: "Choose a provider" });
   if (!selections.modelId && !selections.providerManagedModel) errors.push({ field: "model", message: "Choose a model or provider-managed model" });
   if (!selections.safetyMode) errors.push({ field: "safety", message: "Choose a safety mode" });
@@ -155,7 +155,7 @@ export function filterPromptCatalog(
       || left.label.localeCompare(right.label));
 }
 
-export function filterWorkspacePaths(entries: ChatWorkspacePathRead[], query: string): ChatWorkspacePathRead[] {
+export function filterWorkspacePaths(entries: ProjectWorkingFolderPathRead[], query: string): ProjectWorkingFolderPathRead[] {
   const normalized = query.trim().toLowerCase();
   return [...entries]
     .filter((entry) => fuzzyMatch(entry.relativePath, normalized))

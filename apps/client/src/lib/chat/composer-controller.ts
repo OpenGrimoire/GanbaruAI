@@ -4,7 +4,7 @@ import type {
   ChatDraftMention,
   ChatDraftRead,
   ChatThreadId,
-  ChatWorkspaceId,
+  ProjectWorkingFolderId,
   InteractionMode,
   ProviderInstanceId,
   SafetyMode,
@@ -20,7 +20,7 @@ export interface ChatDraftApi {
 
 export interface ChatComposerSnapshot {
   draftId: string | null;
-  workspaceId: ChatWorkspaceId | null;
+  workingFolderId: ProjectWorkingFolderId | null;
   threadId: ChatThreadId | null;
   text: string;
   attachmentIds: ChatAttachmentId[];
@@ -72,14 +72,14 @@ export class ChatComposerController {
     return () => this.listeners.delete(listener);
   }
 
-  public async bind(workspaceId: ChatWorkspaceId, threadId: ChatThreadId | null): Promise<void> {
+  public async bind(workingFolderId: ProjectWorkingFolderId, threadId: ChatThreadId | null): Promise<void> {
     await this.flush();
     const generation = ++this.generation;
-    const draftId = chatDraftId(workspaceId, threadId);
+    const draftId = chatDraftId(workingFolderId, threadId);
     this.state = {
       ...emptySnapshot(),
       draftId,
-      workspaceId,
+      workingFolderId,
       threadId,
       loading: true,
     };
@@ -134,7 +134,7 @@ export class ChatComposerController {
     this.state = {
       ...emptySnapshot(),
       draftId,
-      workspaceId: this.state.workspaceId,
+      workingFolderId: this.state.workingFolderId,
       threadId: this.state.threadId,
     };
     this.notify();
@@ -209,11 +209,11 @@ export class ChatComposerController {
   }
 
   private payload(): SaveChatDraftRequest | null {
-    const { draftId: id, workspaceId, threadId } = this.state;
-    if (id === null || workspaceId === null) return null;
+    const { draftId: id, workingFolderId, threadId } = this.state;
+    if (id === null || workingFolderId === null) return null;
     return {
       id,
-      workspaceId,
+      workingFolderId,
       threadId,
       text: this.state.text,
       attachmentIds: [...this.state.attachmentIds],
@@ -244,14 +244,14 @@ export class ChatComposerController {
   }
 }
 
-export function chatDraftId(workspaceId: ChatWorkspaceId, threadId: ChatThreadId | null): string {
-  return `workspace:${workspaceId}:thread:${threadId ?? "new"}`;
+export function chatDraftId(workingFolderId: ProjectWorkingFolderId, threadId: ChatThreadId | null): string {
+  return `workspace:${workingFolderId}:thread:${threadId ?? "new"}`;
 }
 
 function emptySnapshot(): ChatComposerSnapshot {
   return {
     draftId: null,
-    workspaceId: null,
+    workingFolderId: null,
     threadId: null,
     text: "",
     attachmentIds: [],
@@ -271,7 +271,7 @@ function emptySnapshot(): ChatComposerSnapshot {
 function snapshotFromDraft(draft: ChatDraftRead): ChatComposerSnapshot {
   return {
     draftId: draft.id,
-    workspaceId: draft.workspaceId,
+    workingFolderId: draft.workingFolderId,
     threadId: draft.threadId,
     text: draft.text,
     attachmentIds: [...draft.attachmentIds],

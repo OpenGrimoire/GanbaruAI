@@ -49,7 +49,7 @@ export function defaultChatVaultConfig(): ChatVaultConfig {
     providers: [],
     automaticProviderSetupDisabled: [],
     rememberedSelections: [],
-    workspaceProviderPreferences: {},
+    workingFolderProviderPreferences: {},
     panels: { ...DEFAULT_PANELS },
     behavior: { ...DEFAULT_BEHAVIOR },
   };
@@ -115,7 +115,7 @@ function parseRememberedSelection(value: unknown, label: string): RememberedComp
     throw new Error(`${label}.modelId or provider-managed model state is required`);
   }
   return {
-    workspaceId: readIdentifier(record.workspaceId, `${label}.workspaceId`),
+    workingFolderId: readIdentifier(record.workingFolderId, `${label}.workingFolderId`),
     providerInstanceId: readIdentifier(record.providerInstanceId, `${label}.providerInstanceId`),
     modelId,
     providerManagedModel,
@@ -209,16 +209,16 @@ export function parseChatVaultConfig(value: unknown, label = "chat"): ChatVaultC
   if (rememberedSelections.length > MAX_REMEMBERED_SELECTIONS) {
     throw new Error(`${label}.rememberedSelections exceeds the item limit`);
   }
-  const workspaceProviderPreferences = readStringRecord(
-    record.workspaceProviderPreferences ?? {},
-    `${label}.workspaceProviderPreferences`,
+  const workingFolderProviderPreferences = readStringRecord(
+    record.workingFolderProviderPreferences ?? {},
+    `${label}.workingFolderProviderPreferences`,
   );
   const providerIds = new Set(providers.map((provider) => provider.instanceId));
-  for (const [workspaceId, providerId] of Object.entries(workspaceProviderPreferences)) {
-    readIdentifier(workspaceId, `${label}.workspaceProviderPreferences workspace ID`);
-    readIdentifier(providerId, `${label}.workspaceProviderPreferences.${workspaceId}`);
+  for (const [workingFolderId, providerId] of Object.entries(workingFolderProviderPreferences)) {
+    readIdentifier(workingFolderId, `${label}.workingFolderProviderPreferences workspace ID`);
+    readIdentifier(providerId, `${label}.workingFolderProviderPreferences.${workingFolderId}`);
     if (!providerIds.has(providerId)) {
-      throw new Error(`${label}.workspaceProviderPreferences references an unknown provider`);
+      throw new Error(`${label}.workingFolderProviderPreferences references an unknown provider`);
     }
   }
   return {
@@ -227,7 +227,7 @@ export function parseChatVaultConfig(value: unknown, label = "chat"): ChatVaultC
     providers,
     automaticProviderSetupDisabled,
     rememberedSelections,
-    workspaceProviderPreferences,
+    workingFolderProviderPreferences,
     panels: parsePanels(record.panels ?? DEFAULT_PANELS, `${label}.panels`),
     behavior: parseBehavior(record.behavior ?? DEFAULT_BEHAVIOR, `${label}.behavior`),
   };

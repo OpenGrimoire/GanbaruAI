@@ -52,10 +52,10 @@ export function parseChatThreadShells(value: unknown, label = "Chat thread shell
 export function parseChatProjectShell(value: unknown, label = "Chat project shell"): ChatProjectShellRead {
   const record = readRecord(value, label);
   return {
-    projectId: readNullable(record.projectId, `${label}.projectId`, readString),
-    workspaceId: readIdentifier(record.workspaceId, `${label}.workspaceId`),
-    workspaceName: readString(record.workspaceName, `${label}.workspaceName`),
-    workspaceArchivedAt: readNullable(record.workspaceArchivedAt, `${label}.workspaceArchivedAt`, readUtcTimestamp),
+    projectId: readIdentifier(record.projectId, `${label}.projectId`),
+    workingFolderId: readIdentifier(record.workingFolderId, `${label}.workingFolderId`),
+    workingFolderName: readString(record.workingFolderName, `${label}.workingFolderName`),
+    workingFolderArchivedAt: readNullable(record.workingFolderArchivedAt, `${label}.workingFolderArchivedAt`, readUtcTimestamp),
     activeThreadCount: readNonNegativeSafeInteger(record.activeThreadCount, `${label}.activeThreadCount`),
     archivedThreadCount: readNonNegativeSafeInteger(record.archivedThreadCount, `${label}.archivedThreadCount`),
   };
@@ -120,8 +120,8 @@ export function parseChatThreadShell(value: unknown, label = "Chat thread shell"
   const record = readRecord(value, label);
   return {
     id: readIdentifier(record.id, `${label}.id`),
-    workspaceId: readIdentifier(record.workspaceId, `${label}.workspaceId`),
-    projectId: readNullable(record.projectId, `${label}.projectId`, readString),
+    workingFolderId: readIdentifier(record.workingFolderId, `${label}.workingFolderId`),
+    projectId: readIdentifier(record.projectId, `${label}.projectId`),
     title: readString(record.title, `${label}.title`),
     providerFamilyId: readIdentifier(record.providerFamilyId, `${label}.providerFamilyId`),
     providerInstanceId: readIdentifier(record.providerInstanceId, `${label}.providerInstanceId`),

@@ -4,16 +4,18 @@ use super::checkpoints::{
     delete_exact_ref, diff_files, file_diff, read_stored_checkpoint, verify_checkpoint,
     ChatChangedFileRead, ChatCheckpointFileDiffRead,
 };
-use super::device_state::read_active_device_scope;
 use super::events::ChangedFileSummary;
 use super::models::UtcTimestamp;
 use super::models::{
     ChatCheckpointId, ChatError, ChatErrorCode, ChatResult, ChatThreadId, ChatTurnId,
-    ChatWorkspaceId,
+    ProjectWorkingFolderId,
 };
 use super::repository::workspaces;
-use super::workspace::{authorize_workspace, AuthorizedWorkspace, WorkspaceAuthorizationOperation};
+use super::workspace::{
+    authorize_workspace, AuthorizedWorkingFolder, WorkingFolderAuthorizationOperation,
+};
 use crate::db_path;
+use crate::projects::working_folders::read_active_working_folder_scope;
 use chrono::{SecondsFormat, Utc};
 use serde::Serialize;
 use sqlx::{Row, SqlitePool};
@@ -43,7 +45,7 @@ pub async fn chat_read_checkpoint_diff(
 ) -> ChatResult<ChatCheckpointDiffRead> {
     validate_scope(&scope)?;
     let pool = chat_pool(app.clone(), db_url).await?;
-    let (workspace_id, authorized) = authorize_thread(&app, &pool, &thread_id).await?;
+    let (working_folder_id, authorized) = authorize_thread(&app, &pool, &thread_id).await?;
     let provider_files = provider_files(&pool, &thread_id, turn_id.as_ref(), &scope).await?;
     let Some((pre_id, post_id)) =
         checkpoint_pair(&pool, &thread_id, turn_id.as_ref(), &scope).await?
@@ -59,7 +61,7 @@ pub async fn chat_read_checkpoint_diff(
     if pre.thread_id != thread_id
         || post.thread_id != thread_id
         || pre.repository_identity != post.repository_identity
-        || authorized.workspace_id != workspace_id
+        || authorized.working_folder_id != working_folder_id
     {
         return Ok(unavailable_diff(
             scope,
@@ -141,7 +143,7 @@ pub async fn chat_run_checkpoint_cleanup(app: tauri::AppHandle, db_url: String) 
     let pool = chat_pool(app.clone(), db_url).await?;
     let now = now_timestamp()?;
     let rows = sqlx::query(
-        "SELECT id, workspace_id, exact_target, repository_identity, expected_object_id
+        "SELECT id, working_folder_id, exact_target, repository_identity, expected_object_id
          FROM chat_cleanup_queue
          WHERE cleanup_kind = 'checkpoint_ref' AND state IN ('pending', 'failed')
            AND not_before <= ?
@@ -154,8 +156,9 @@ pub async fn chat_run_checkpoint_cleanup(app: tauri::AppHandle, db_url: String) 
     let mut completed = 0;
     for row in rows {
         let cleanup_id: String = row.try_get("id").map_err(persistence_error)?;
-        let workspace_id: Option<String> =
-            row.try_get("workspace_id").map_err(persistence_error)?;
+        let working_folder_id: Option<String> = row
+            .try_get("working_folder_id")
+            .map_err(persistence_error)?;
         let reference: String = row.try_get("exact_target").map_err(persistence_error)?;
         let repository_identity: Option<String> = row
             .try_get("repository_identity")
@@ -172,16 +175,16 @@ pub async fn chat_run_checkpoint_cleanup(app: tauri::AppHandle, db_url: String) 
         .execute(&pool)
         .await
         .map_err(persistence_error)?;
-        let result = match (workspace_id, repository_identity, expected_object_id) {
-            (Some(workspace_id), Some(repository_identity), Some(expected_object_id)) => {
-                let workspace_id =
-                    ChatWorkspaceId::new(workspace_id).map_err(|_| corrupt_data())?;
-                let workspace = workspaces::read_workspace(&pool, &workspace_id).await?;
-                let scope = read_active_device_scope(&app).map_err(device_state_error)?;
+        let result = match (working_folder_id, repository_identity, expected_object_id) {
+            (Some(working_folder_id), Some(repository_identity), Some(expected_object_id)) => {
+                let working_folder_id =
+                    ProjectWorkingFolderId::new(working_folder_id).map_err(|_| corrupt_data())?;
+                let workspace = workspaces::read_workspace(&pool, &working_folder_id).await?;
+                let scope = read_active_working_folder_scope(&app).map_err(device_state_error)?;
                 let authorized = authorize_workspace(
                     &workspace,
                     &scope,
-                    WorkspaceAuthorizationOperation::Restore,
+                    WorkingFolderAuthorizationOperation::Restore,
                 )?;
                 if authorized.repository_identity.as_deref() != Some(&repository_identity) {
                     Err(ChatError::new(
@@ -374,21 +377,25 @@ async fn authorize_thread(
     app: &tauri::AppHandle,
     pool: &SqlitePool,
     thread_id: &ChatThreadId,
-) -> ChatResult<(ChatWorkspaceId, AuthorizedWorkspace)> {
-    let workspace_id: String = sqlx::query_scalar(
-        "SELECT workspace_id FROM chat_threads WHERE id = ? AND state != 'closed'",
+) -> ChatResult<(ProjectWorkingFolderId, AuthorizedWorkingFolder)> {
+    let working_folder_id: String = sqlx::query_scalar(
+        "SELECT working_folder_id FROM chat_threads WHERE id = ? AND state != 'closed'",
     )
     .bind(thread_id.as_str())
     .fetch_optional(pool)
     .await
     .map_err(persistence_error)?
     .ok_or_else(|| ChatError::new(ChatErrorCode::NotFound, "Chat thread was not found", true))?;
-    let workspace_id = ChatWorkspaceId::new(workspace_id).map_err(|_| corrupt_data())?;
-    let workspace = workspaces::read_workspace(pool, &workspace_id).await?;
-    let scope = read_active_device_scope(app).map_err(device_state_error)?;
-    let authorized =
-        authorize_workspace(&workspace, &scope, WorkspaceAuthorizationOperation::Diff)?;
-    Ok((workspace_id, authorized))
+    let working_folder_id =
+        ProjectWorkingFolderId::new(working_folder_id).map_err(|_| corrupt_data())?;
+    let workspace = workspaces::read_workspace(pool, &working_folder_id).await?;
+    let scope = read_active_working_folder_scope(app).map_err(device_state_error)?;
+    let authorized = authorize_workspace(
+        &workspace,
+        &scope,
+        WorkingFolderAuthorizationOperation::Diff,
+    )?;
+    Ok((working_folder_id, authorized))
 }
 
 fn unavailable_diff(

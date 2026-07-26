@@ -1,29 +1,26 @@
-//! Logical Chat workspaces and device-local binding authorization.
+//! Project-owned working folders and device-local binding authorization.
 
-use super::device_state::{
-    read_active_device_scope, update_active_device_scope, ChatDeviceScope,
-    ChatWorkspaceBindingState,
-};
 use super::models::{
-    ChatError, ChatErrorCode, ChatResult, ChatWorkspaceId, RepositoryKind, UtcTimestamp,
+    ChatError, ChatErrorCode, ChatResult, ProjectWorkingFolderId, RepositoryKind, UtcTimestamp,
 };
+use crate::projects::working_folders::{
+    read_active_working_folder_scope, update_active_working_folder_scope,
+    ProjectWorkingFolderBindingState, WorkingFolderDeviceScope,
+};
+use crate::vault;
 use chrono::{SecondsFormat, Utc};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-use std::collections::BTreeMap;
 use std::ffi::OsStr;
 use std::fs;
 use std::path::{Component, Path, PathBuf};
-use std::sync::Mutex;
 use tauri::Runtime;
 
-const MAX_WORKSPACE_NAME_BYTES: usize = 240;
-const MAX_PROJECT_ID_BYTES: usize = 1_024;
 const MAX_GIT_CONFIG_BYTES: u64 = 1_048_576;
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case")]
-pub enum WorkspaceBindingStatus {
+pub enum WorkingFolderBindingStatus {
     Unbound,
     Available,
     Missing,
@@ -31,19 +28,21 @@ pub enum WorkspaceBindingStatus {
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum WorkspaceAuthorizationOperation {
+pub enum WorkingFolderAuthorizationOperation {
     ProviderStart,
     FileRead,
+    FileWrite,
     MentionResolution,
     TerminalStart,
     Diff,
     Restore,
 }
 
-impl WorkspaceAuthorizationOperation {
-    pub const ALL: [Self; 6] = [
+impl WorkingFolderAuthorizationOperation {
+    pub const ALL: [Self; 7] = [
         Self::ProviderStart,
         Self::FileRead,
+        Self::FileWrite,
         Self::MentionResolution,
         Self::TerminalStart,
         Self::Diff,
@@ -53,10 +52,13 @@ impl WorkspaceAuthorizationOperation {
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct LogicalChatWorkspace {
-    pub id: ChatWorkspaceId,
-    pub project_id: Option<String>,
+pub struct ProjectWorkingFolder {
+    pub id: ProjectWorkingFolderId,
+    pub project_id: String,
     pub display_name: String,
+    pub kind: WorkingFolderKind,
+    pub managed_relative_path: Option<String>,
+    pub sort_order: u64,
     pub repository_kind: RepositoryKind,
     pub repository_identity: Option<String>,
     pub created_at: UtcTimestamp,
@@ -67,17 +69,24 @@ pub struct LogicalChatWorkspace {
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct CreateChatWorkspaceRequest {
-    pub id: ChatWorkspaceId,
-    pub project_id: Option<String>,
+pub struct CreateProjectWorkingFolderRequest {
+    pub id: ProjectWorkingFolderId,
+    pub project_id: String,
     pub display_name: String,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum WorkingFolderKind {
+    Managed,
+    External,
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct ChatWorkspaceRead {
-    pub workspace: LogicalChatWorkspace,
-    pub binding_status: WorkspaceBindingStatus,
+pub struct ProjectWorkingFolderRead {
+    pub working_folder: ProjectWorkingFolder,
+    pub binding_status: WorkingFolderBindingStatus,
     pub canonical_path: Option<String>,
     pub last_verified_at: Option<UtcTimestamp>,
     pub current_branch: Option<String>,
@@ -91,163 +100,17 @@ pub struct RepositoryProbe {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct AuthorizedWorkspace {
-    pub workspace_id: ChatWorkspaceId,
+pub struct AuthorizedWorkingFolder {
+    pub working_folder_id: ProjectWorkingFolderId,
     pub canonical_path: PathBuf,
     pub repository_kind: RepositoryKind,
     pub repository_identity: Option<String>,
 }
 
-/// Temporary Phase 2 catalog. Phase 3 replaces this implementation with the
-/// SQLite repository while retaining the same command and authorization API.
-#[derive(Default)]
-pub struct ChatWorkspaceCatalogState {
-    workspaces: Mutex<BTreeMap<ChatWorkspaceId, LogicalChatWorkspace>>,
-}
-
-impl ChatWorkspaceCatalogState {
-    pub fn list(&self) -> ChatResult<Vec<LogicalChatWorkspace>> {
-        let workspaces = self.lock()?;
-        Ok(workspaces.values().cloned().collect())
-    }
-
-    pub fn get(&self, id: &ChatWorkspaceId) -> ChatResult<LogicalChatWorkspace> {
-        let workspaces = self.lock()?;
-        workspaces.get(id).cloned().ok_or_else(|| not_found(id))
-    }
-
-    pub fn create(&self, request: CreateChatWorkspaceRequest) -> ChatResult<LogicalChatWorkspace> {
-        validate_workspace_name(&request.display_name)?;
-        validate_project_id(request.project_id.as_deref())?;
-        let mut workspaces = self.lock()?;
-        if workspaces.contains_key(&request.id) {
-            return Err(ChatError::new(
-                ChatErrorCode::Conflict,
-                "Chat workspace ID already exists",
-                true,
-            ));
-        }
-        ensure_unique_name(
-            &workspaces,
-            None,
-            request.project_id.as_deref(),
-            &request.display_name,
-        )?;
-        let now = now_timestamp()?;
-        let workspace = LogicalChatWorkspace {
-            id: request.id,
-            project_id: request.project_id,
-            display_name: request.display_name.trim().to_string(),
-            repository_kind: RepositoryKind::None,
-            repository_identity: None,
-            created_at: now.clone(),
-            updated_at: now,
-            archived_at: None,
-            revision: 1,
-        };
-        workspaces.insert(workspace.id.clone(), workspace.clone());
-        Ok(workspace)
-    }
-
-    pub fn rename(
-        &self,
-        id: &ChatWorkspaceId,
-        display_name: &str,
-    ) -> ChatResult<LogicalChatWorkspace> {
-        validate_workspace_name(display_name)?;
-        let mut workspaces = self.lock()?;
-        let project_id = workspaces
-            .get(id)
-            .ok_or_else(|| not_found(id))?
-            .project_id
-            .clone();
-        ensure_unique_name(&workspaces, Some(id), project_id.as_deref(), display_name)?;
-        let workspace = workspaces.get_mut(id).ok_or_else(|| not_found(id))?;
-        workspace.display_name = display_name.trim().to_string();
-        touch(workspace)?;
-        Ok(workspace.clone())
-    }
-
-    pub fn set_archived(
-        &self,
-        id: &ChatWorkspaceId,
-        archived: bool,
-    ) -> ChatResult<LogicalChatWorkspace> {
-        let mut workspaces = self.lock()?;
-        let workspace = workspaces.get_mut(id).ok_or_else(|| not_found(id))?;
-        workspace.archived_at = archived.then(now_timestamp).transpose()?;
-        touch(workspace)?;
-        Ok(workspace.clone())
-    }
-
-    fn record_repository(
-        &self,
-        id: &ChatWorkspaceId,
-        probe: &RepositoryProbe,
-    ) -> ChatResult<LogicalChatWorkspace> {
-        let mut workspaces = self.lock()?;
-        let workspace = workspaces.get_mut(id).ok_or_else(|| not_found(id))?;
-        if workspace.repository_identity.is_some()
-            && workspace.repository_identity != probe.identity
-        {
-            return Err(repository_mismatch());
-        }
-        if workspace.repository_kind != RepositoryKind::None
-            && workspace.repository_kind != probe.kind
-        {
-            return Err(repository_mismatch());
-        }
-        workspace.repository_kind = probe.kind;
-        workspace.repository_identity.clone_from(&probe.identity);
-        touch(workspace)?;
-        Ok(workspace.clone())
-    }
-
-    fn lock(
-        &self,
-    ) -> ChatResult<std::sync::MutexGuard<'_, BTreeMap<ChatWorkspaceId, LogicalChatWorkspace>>>
-    {
-        self.workspaces.lock().map_err(|_| {
-            ChatError::new(
-                ChatErrorCode::Internal,
-                "Chat workspace catalog is unavailable",
-                true,
-            )
-        })
-    }
-}
-
-pub fn read_workspaces(
-    catalog: &ChatWorkspaceCatalogState,
-    scope: &ChatDeviceScope,
-) -> ChatResult<Vec<ChatWorkspaceRead>> {
-    catalog
-        .list()?
-        .into_iter()
-        .map(|workspace| workspace_read(workspace, scope))
-        .collect()
-}
-
-pub fn bind_workspace_path<R: Runtime>(
-    app: &tauri::AppHandle<R>,
-    catalog: &ChatWorkspaceCatalogState,
-    workspace_id: &ChatWorkspaceId,
-    selected_path: &Path,
-) -> ChatResult<ChatWorkspaceRead> {
-    let workspace = catalog.get(workspace_id)?;
-    let (probe, binding) = prepare_workspace_binding(&workspace, selected_path)?;
-    store_active_device_binding(app, workspace_id, binding)?;
-    let workspace = catalog.record_repository(workspace_id, &probe)?;
-    workspace_read(
-        workspace,
-        &read_active_device_scope(app).map_err(device_state_error)?,
-    )
-}
-
 pub(crate) fn prepare_workspace_binding(
-    workspace: &LogicalChatWorkspace,
+    workspace: &ProjectWorkingFolder,
     selected_path: &Path,
-) -> ChatResult<(RepositoryProbe, ChatWorkspaceBindingState)> {
+) -> ChatResult<(RepositoryProbe, ProjectWorkingFolderBindingState)> {
     let canonical_path = canonical_existing_directory(selected_path)?;
     let probe = probe_repository(&canonical_path)?;
     if workspace.repository_identity.is_some() && workspace.repository_identity != probe.identity {
@@ -257,7 +120,7 @@ pub(crate) fn prepare_workspace_binding(
     {
         return Err(repository_mismatch());
     }
-    let binding = ChatWorkspaceBindingState {
+    let binding = ProjectWorkingFolderBindingState {
         canonical_path: path_to_string(&canonical_path)?,
         repository_kind: probe.kind,
         repository_identity: probe.identity.clone(),
@@ -266,29 +129,81 @@ pub(crate) fn prepare_workspace_binding(
     Ok((probe, binding))
 }
 
+pub(crate) fn ensure_managed_working_folder_binding<R: Runtime>(
+    app: &tauri::AppHandle<R>,
+    working_folder: &ProjectWorkingFolder,
+) -> ChatResult<()> {
+    if working_folder.kind != WorkingFolderKind::Managed {
+        return Ok(());
+    }
+    let existing = read_active_working_folder_scope(app)
+        .map_err(device_state_error)?
+        .bindings
+        .contains_key(&working_folder.id);
+    if existing {
+        return Ok(());
+    }
+    let relative_path = working_folder
+        .managed_relative_path
+        .as_deref()
+        .ok_or_else(path_validation_error)?;
+    let expected = format!("projects/{}", working_folder.project_id);
+    if relative_path != expected {
+        return Err(path_validation_error());
+    }
+    let vault_root = vault::active_vault_path(app).map_err(device_state_error)?;
+    let folder_path = vault_root.join(relative_path);
+    fs::create_dir_all(&folder_path).map_err(|_| {
+        ChatError::new(
+            ChatErrorCode::Permission,
+            "The managed project working folder could not be created",
+            true,
+        )
+    })?;
+    let (_, binding) = prepare_workspace_binding(working_folder, &folder_path)?;
+    store_active_device_binding(app, &working_folder.id, binding)
+}
+
+pub(crate) fn validate_external_folder_outside_vault<R: Runtime>(
+    app: &tauri::AppHandle<R>,
+    selected_path: &Path,
+) -> ChatResult<()> {
+    let selected = canonical_existing_directory(selected_path)?;
+    let vault_root = vault::active_vault_path(app).map_err(device_state_error)?;
+    if paths_overlap(&selected, &vault_root) {
+        return Err(ChatError::validation(
+            "workingFolderPath",
+            "External project working folders cannot overlap the active Ganbaru AI folder",
+        ));
+    }
+    Ok(())
+}
+
+fn paths_overlap(left: &Path, right: &Path) -> bool {
+    left == right || left.starts_with(right) || right.starts_with(left)
+}
+
 pub(crate) fn store_active_device_binding<R: Runtime>(
     app: &tauri::AppHandle<R>,
-    workspace_id: &ChatWorkspaceId,
-    binding: ChatWorkspaceBindingState,
+    working_folder_id: &ProjectWorkingFolderId,
+    binding: ProjectWorkingFolderBindingState,
 ) -> ChatResult<()> {
-    update_active_device_scope(app, |scope| {
-        scope
-            .workspace_bindings
-            .insert(workspace_id.clone(), binding);
+    update_active_working_folder_scope(app, |scope| {
+        scope.bindings.insert(working_folder_id.clone(), binding);
         Ok(())
     })
     .map_err(device_state_error)
 }
 
 pub fn authorize_workspace(
-    workspace: &LogicalChatWorkspace,
-    scope: &ChatDeviceScope,
-    _operation: WorkspaceAuthorizationOperation,
-) -> ChatResult<AuthorizedWorkspace> {
-    let binding = scope.workspace_bindings.get(&workspace.id).ok_or_else(|| {
+    workspace: &ProjectWorkingFolder,
+    scope: &WorkingFolderDeviceScope,
+    _operation: WorkingFolderAuthorizationOperation,
+) -> ChatResult<AuthorizedWorkingFolder> {
+    let binding = scope.bindings.get(&workspace.id).ok_or_else(|| {
         ChatError::new(
             ChatErrorCode::ConfigurationInvalid,
-            "This device has no folder binding for the Chat workspace",
+            "This device has no binding for the project working folder",
             true,
         )
     })?;
@@ -296,7 +211,7 @@ pub fn authorize_workspace(
     if path_to_string(&canonical_path)? != binding.canonical_path {
         return Err(ChatError::new(
             ChatErrorCode::ConfigurationInvalid,
-            "The Chat workspace binding is stale and must be located again",
+            "The project working-folder binding is stale and must be located again",
             true,
         ));
     }
@@ -308,8 +223,8 @@ pub fn authorize_workspace(
     {
         return Err(repository_mismatch());
     }
-    Ok(AuthorizedWorkspace {
-        workspace_id: workspace.id.clone(),
+    Ok(AuthorizedWorkingFolder {
+        working_folder_id: workspace.id.clone(),
         canonical_path,
         repository_kind: probe.kind,
         repository_identity: probe.identity,
@@ -317,7 +232,7 @@ pub fn authorize_workspace(
 }
 
 pub fn resolve_workspace_relative_path(
-    authorized: &AuthorizedWorkspace,
+    authorized: &AuthorizedWorkingFolder,
     relative_path: &str,
 ) -> ChatResult<PathBuf> {
     let relative = Path::new(relative_path);
@@ -348,24 +263,24 @@ pub fn resolve_workspace_relative_path(
 
 pub fn remove_active_device_binding<R: Runtime>(
     app: &tauri::AppHandle<R>,
-    workspace_id: &ChatWorkspaceId,
+    working_folder_id: &ProjectWorkingFolderId,
 ) -> ChatResult<()> {
-    update_active_device_scope(app, |scope| {
-        scope.workspace_bindings.remove(workspace_id);
+    update_active_working_folder_scope(app, |scope| {
+        scope.bindings.remove(working_folder_id);
         Ok(())
     })
     .map_err(device_state_error)
 }
 
 pub(crate) fn workspace_read(
-    workspace: LogicalChatWorkspace,
-    scope: &ChatDeviceScope,
-) -> ChatResult<ChatWorkspaceRead> {
-    let binding = scope.workspace_bindings.get(&workspace.id);
+    workspace: ProjectWorkingFolder,
+    scope: &WorkingFolderDeviceScope,
+) -> ChatResult<ProjectWorkingFolderRead> {
+    let binding = scope.bindings.get(&workspace.id);
     let (binding_status, current_branch) = match binding {
-        None => (WorkspaceBindingStatus::Unbound, None),
+        None => (WorkingFolderBindingStatus::Unbound, None),
         Some(binding) => match canonical_existing_directory(Path::new(&binding.canonical_path)) {
-            Err(_) => (WorkspaceBindingStatus::Missing, None),
+            Err(_) => (WorkingFolderBindingStatus::Missing, None),
             Ok(path) => match probe_repository(&path) {
                 Ok(probe)
                     if probe.kind == workspace.repository_kind
@@ -373,14 +288,14 @@ pub(crate) fn workspace_read(
                         && probe.kind == binding.repository_kind
                         && probe.identity == binding.repository_identity =>
                 {
-                    (WorkspaceBindingStatus::Available, probe.current_branch)
+                    (WorkingFolderBindingStatus::Available, probe.current_branch)
                 }
-                _ => (WorkspaceBindingStatus::RepositoryMismatch, None),
+                _ => (WorkingFolderBindingStatus::RepositoryMismatch, None),
             },
         },
     };
-    Ok(ChatWorkspaceRead {
-        workspace,
+    Ok(ProjectWorkingFolderRead {
+        working_folder: workspace,
         binding_status,
         canonical_path: binding.map(|value| value.canonical_path.clone()),
         last_verified_at: binding.map(|value| value.last_verified_at.clone()),
@@ -392,26 +307,26 @@ fn canonical_existing_directory(path: &Path) -> ChatResult<PathBuf> {
     if !path.is_absolute() {
         return Err(ChatError::validation(
             "workspacePath",
-            "Chat workspace folder must be absolute",
+            "Project working-folder path must be absolute",
         ));
     }
     let metadata = fs::metadata(path).map_err(|_| {
         ChatError::new(
             ChatErrorCode::NotFound,
-            "Chat workspace folder is missing or unreadable",
+            "Project working folder is missing or unreadable",
             true,
         )
     })?;
     if !metadata.is_dir() {
         return Err(ChatError::validation(
             "workspacePath",
-            "Chat workspace path must be a directory",
+            "Project working-folder path must be a directory",
         ));
     }
     fs::canonicalize(path).map_err(|_| {
         ChatError::new(
             ChatErrorCode::Permission,
-            "Chat workspace folder could not be canonicalized",
+            "Project working folder could not be canonicalized",
             true,
         )
     })
@@ -559,59 +474,6 @@ fn hex_digest(bytes: impl AsRef<[u8]>) -> String {
         })
 }
 
-fn ensure_unique_name(
-    workspaces: &BTreeMap<ChatWorkspaceId, LogicalChatWorkspace>,
-    except_id: Option<&ChatWorkspaceId>,
-    project_id: Option<&str>,
-    display_name: &str,
-) -> ChatResult<()> {
-    let normalized = display_name.trim();
-    if workspaces.values().any(|workspace| {
-        except_id != Some(&workspace.id)
-            && workspace.project_id.as_deref() == project_id
-            && workspace.display_name.eq_ignore_ascii_case(normalized)
-    }) {
-        return Err(ChatError::new(
-            ChatErrorCode::Conflict,
-            "A Chat workspace with this name already exists in the same project context",
-            true,
-        ));
-    }
-    Ok(())
-}
-
-fn validate_workspace_name(value: &str) -> ChatResult<()> {
-    let value = value.trim();
-    if value.is_empty()
-        || value.len() > MAX_WORKSPACE_NAME_BYTES
-        || value.chars().any(char::is_control)
-    {
-        return Err(ChatError::validation(
-            "displayName",
-            "Chat workspace name is invalid",
-        ));
-    }
-    Ok(())
-}
-
-fn validate_project_id(value: Option<&str>) -> ChatResult<()> {
-    if value.is_some_and(|project_id| {
-        let project_id = project_id.trim();
-        project_id.is_empty()
-            || project_id.len() > MAX_PROJECT_ID_BYTES
-            || project_id.chars().any(char::is_control)
-    }) {
-        return Err(ChatError::validation("projectId", "project ID is invalid"));
-    }
-    Ok(())
-}
-
-fn touch(workspace: &mut LogicalChatWorkspace) -> ChatResult<()> {
-    workspace.updated_at = now_timestamp()?;
-    workspace.revision = workspace.revision.saturating_add(1);
-    Ok(())
-}
-
 fn now_timestamp() -> ChatResult<UtcTimestamp> {
     let now: chrono::DateTime<Utc> = std::time::SystemTime::now().into();
     UtcTimestamp::new(now.to_rfc3339_opts(SecondsFormat::Millis, true))
@@ -622,23 +484,15 @@ fn path_to_string(path: &Path) -> ChatResult<String> {
     path.to_str().map(ToOwned::to_owned).ok_or_else(|| {
         ChatError::validation(
             "workspacePath",
-            "Chat workspace path contains unsupported characters",
+            "Project working-folder path contains unsupported characters",
         )
     })
-}
-
-fn not_found(id: &ChatWorkspaceId) -> ChatError {
-    ChatError::new(
-        ChatErrorCode::NotFound,
-        format!("Chat workspace {id} was not found"),
-        true,
-    )
 }
 
 fn repository_mismatch() -> ChatError {
     ChatError::new(
         ChatErrorCode::ConfigurationInvalid,
-        "The selected folder belongs to a different repository. Create a new logical workspace for it.",
+        "The selected folder belongs to a different repository. Rebind the project working folder or add it separately.",
         true,
     )
 }
@@ -666,11 +520,11 @@ fn device_state_error(_error: String) -> ChatError {
     )
 }
 
-pub fn open_authorized_workspace(authorized: &AuthorizedWorkspace) -> ChatResult<()> {
+pub fn open_authorized_workspace(authorized: &AuthorizedWorkingFolder) -> ChatResult<()> {
     open_authorized_path(authorized, &authorized.canonical_path)
 }
 
-pub fn open_authorized_path(authorized: &AuthorizedWorkspace, path: &Path) -> ChatResult<()> {
+pub fn open_authorized_path(authorized: &AuthorizedWorkingFolder, path: &Path) -> ChatResult<()> {
     if !path.starts_with(&authorized.canonical_path) {
         return Err(ChatError::new(
             ChatErrorCode::Permission,
@@ -681,7 +535,7 @@ pub fn open_authorized_path(authorized: &AuthorizedWorkspace, path: &Path) -> Ch
     spawn_file_manager(path).map_err(|_| {
         ChatError::new(
             ChatErrorCode::Internal,
-            "The Chat workspace path could not be opened",
+            "The project working-folder path could not be opened",
             true,
         )
     })
@@ -722,4 +576,20 @@ where
         .stderr(std::process::Stdio::null())
         .spawn()
         .map(|_| ())
+}
+
+#[cfg(test)]
+mod overlap_tests {
+    use super::paths_overlap;
+    use std::path::Path;
+
+    #[test]
+    fn external_folder_overlap_rejects_vault_ancestors_descendants_and_identity() {
+        let vault = Path::new("data").join("Ganbaru AI");
+        let vault = vault.as_path();
+        assert!(paths_overlap(vault, vault));
+        assert!(paths_overlap(Path::new("data"), vault));
+        assert!(paths_overlap(&vault.join("projects").join("repo"), vault));
+        assert!(!paths_overlap(Path::new("work/repo"), vault));
+    }
 }

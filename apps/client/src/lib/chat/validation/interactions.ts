@@ -4,8 +4,8 @@ import type {
   ChatPendingRequestRead,
   ChatPromptCatalogEntry,
   ChatQueuedFollowupRead,
-  ChatWorkspacePathPage,
-  ChatWorkspacePathRead,
+  ProjectWorkingFolderPathPage,
+  ProjectWorkingFolderPathRead,
   ChatUserInputDraftRead,
 } from "../contracts";
 import { INTERACTION_MODES, PROVIDER_SESSION_STATES, SAFETY_MODES } from "../contracts";
@@ -33,7 +33,7 @@ export function parseChatAttachmentRead(value: unknown, label = "Chat attachment
   const record = readRecord(value, label);
   return {
     id: readIdentifier(record.id, `${label}.id`),
-    workspaceId: readIdentifier(record.workspaceId, `${label}.workspaceId`),
+    workingFolderId: readIdentifier(record.workingFolderId, `${label}.workingFolderId`),
     kind: readEnum(record.kind, ATTACHMENT_KINDS, `${label}.kind`),
     originalDisplayName: readString(record.originalDisplayName, `${label}.originalDisplayName`),
     mimeType: readString(record.mimeType, `${label}.mimeType`),
@@ -45,7 +45,7 @@ export function parseChatAttachmentRead(value: unknown, label = "Chat attachment
   };
 }
 
-function parseWorkspacePath(value: unknown, label: string): ChatWorkspacePathRead {
+function parseWorkspacePath(value: unknown, label: string): ProjectWorkingFolderPathRead {
   const record = readRecord(value, label);
   return {
     relativePath: readString(record.relativePath, `${label}.relativePath`),
@@ -55,7 +55,7 @@ function parseWorkspacePath(value: unknown, label: string): ChatWorkspacePathRea
   };
 }
 
-export function parseChatWorkspacePathPage(value: unknown): ChatWorkspacePathPage {
+export function parseProjectWorkingFolderPathPage(value: unknown): ProjectWorkingFolderPathPage {
   const record = readRecord(value, "workspace path page");
   return {
     entries: readArray(record.entries, "workspace path page.entries", parseWorkspacePath),

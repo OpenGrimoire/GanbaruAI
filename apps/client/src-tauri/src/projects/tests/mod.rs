@@ -86,6 +86,7 @@ pub(super) fn task_update_from_row(task: &ProjectTaskRow) -> ProjectTaskUpdate {
 mod custom_fields;
 mod emojis;
 mod project_lifecycle;
+mod project_working_folders;
 mod relationships;
 mod routine;
 mod structure;

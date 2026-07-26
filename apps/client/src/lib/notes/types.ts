@@ -7,3 +7,4 @@ export * from "./contracts/collaboration";
 export * from "./contracts/history";
 export * from "./contracts/knowledge";
 export * from "./contracts/view-models";
+export * from "./contracts/working-markdown";

@@ -33,11 +33,6 @@ CREATE INDEX idx_chat_events_valid_thread_sequence
 ON chat_events(thread_id, sequence, id)
 WHERE invalidated_at IS NULL;
 
-ALTER TABLE chat_cleanup_queue ADD COLUMN workspace_id TEXT
-    REFERENCES chat_workspaces(id) ON UPDATE CASCADE ON DELETE SET NULL;
-ALTER TABLE chat_cleanup_queue ADD COLUMN expected_object_id TEXT
-    CHECK (expected_object_id IS NULL OR length(expected_object_id) BETWEEN 40 AND 128);
-
 CREATE TABLE chat_checkpoint_failures (
     id TEXT PRIMARY KEY NOT NULL CHECK (length(id) BETWEEN 1 AND 1024),
     thread_id TEXT NOT NULL REFERENCES chat_threads(id) ON UPDATE CASCADE ON DELETE CASCADE,

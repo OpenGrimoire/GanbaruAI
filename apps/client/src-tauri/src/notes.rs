@@ -60,6 +60,7 @@ mod suggestions;
 mod templates;
 mod undo_state;
 mod validation;
+pub mod working_markdown;
 mod workspace_shell;
 mod writes;
 

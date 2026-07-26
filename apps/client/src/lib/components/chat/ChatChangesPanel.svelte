@@ -72,7 +72,7 @@
   let fileListResizeFrame: number | null = null;
   let fileListResizeEndFrame: number | null = null;
   const threadId = $derived(chat.selectedThreadId);
-  const workspaceId = $derived(chat.selectedWorkspaceId);
+  const workingFolderId = $derived(chat.selectedWorkingFolderId);
   const splitView = $derived(diffView === "split" || (diffView === "auto" && splitDiffFits(diffWidth)));
 
   onMount(() => {
@@ -327,7 +327,7 @@
   {#if diff?.providerMismatch}
     <p class="flex items-center gap-2 border-b border-status-tentative/30 bg-status-tentative/10 p-2 text-xs text-status-tentative"><AlertTriangle size={13} />{t("chat.inspector.providerMismatch")}</p>
   {/if}
-  {#if chat.selectedWorkspace?.workspace.repositoryKind === "none"}
+  {#if chat.selectedWorkingFolder?.workingFolder.repositoryKind === "none"}
     <p class="border-b border-border p-2 text-xs text-muted-foreground">{t("chat.inspector.nonGitNotice")}</p>
   {/if}
 
@@ -351,7 +351,7 @@
           <strong class="min-w-0 flex-1 truncate text-xs" title={selectedFile}>{selectedFile}</strong>
           <button type="button" class="chat-icon-button" title={t("chat.inspector.copyPath")} onclick={() => navigator.clipboard.writeText(selectedFile ?? "")}><Copy size={13} /></button>
           <button type="button" class="chat-icon-button" title={t("chat.inspector.attachFile")} onclick={() => selectedFile && attach(selectedFile)}><Paperclip size={13} /></button>
-          <button type="button" class="chat-icon-button" title={t("chat.inspector.openExternally")} onclick={() => workspaceId && selectedFile && chatApi.openChatWorkspaceFile(workspaceId, selectedFile)}><ExternalLink size={13} /></button>
+          <button type="button" class="chat-icon-button" title={t("chat.inspector.openExternally")} onclick={() => workingFolderId && selectedFile && chatApi.openProjectWorkingFolderFile(workingFolderId, selectedFile)}><ExternalLink size={13} /></button>
           {#if splitDiffFits(diffWidth)}<button type="button" class="diff-view-toggle" title={splitView ? t("chat.inspector.unifiedDiff") : t("chat.inspector.splitDiff")} aria-label={splitView ? t("chat.inspector.unifiedDiff") : t("chat.inspector.splitDiff")} onclick={() => onStateChange({ diffView: splitView ? "unified" : "split" })}>{#if splitView}<Rows3 size={13} />{:else}<Columns2 size={13} />{/if}</button>{/if}
         </header>
       {/if}

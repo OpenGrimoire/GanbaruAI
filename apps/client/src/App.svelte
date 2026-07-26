@@ -237,7 +237,7 @@
 
   $effect(() => {
     if (nav.current === "chat") {
-      void loadChatWorkspace().catch((error) => console.error("Chat workspace load failed", error));
+      void loadChatWorkspace().catch((error) => console.error("Project Chat load failed", error));
     }
   });
 

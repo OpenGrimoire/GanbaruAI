@@ -1,8 +1,9 @@
 import {
   REPOSITORY_KINDS,
-  WORKSPACE_BINDING_STATUSES,
-  type ChatWorkspaceRead,
-  type LogicalChatWorkspace,
+  WORKING_FOLDER_KINDS,
+  WORKING_FOLDER_BINDING_STATUSES,
+  type ProjectWorkingFolderRead,
+  type ProjectWorkingFolder,
 } from "../contracts";
 import {
   readEnum,
@@ -14,12 +15,19 @@ import {
   readUtcTimestamp,
 } from "./readers";
 
-export function parseLogicalChatWorkspace(value: unknown, label = "workspace"): LogicalChatWorkspace {
+export function parseProjectWorkingFolder(value: unknown, label = "workspace"): ProjectWorkingFolder {
   const record = readRecord(value, label);
   return {
     id: readIdentifier(record.id, `${label}.id`),
-    projectId: readNullable(record.projectId, `${label}.projectId`, readIdentifier),
+    projectId: readIdentifier(record.projectId, `${label}.projectId`),
     displayName: readString(record.displayName, `${label}.displayName`),
+    kind: readEnum(record.kind, WORKING_FOLDER_KINDS, `${label}.kind`),
+    managedRelativePath: readNullable(
+      record.managedRelativePath,
+      `${label}.managedRelativePath`,
+      readString,
+    ),
+    sortOrder: readNonNegativeSafeInteger(record.sortOrder, `${label}.sortOrder`),
     repositoryKind: readEnum(record.repositoryKind, REPOSITORY_KINDS, `${label}.repositoryKind`),
     repositoryIdentity: readNullable(record.repositoryIdentity, `${label}.repositoryIdentity`, readIdentifier),
     createdAt: readUtcTimestamp(record.createdAt, `${label}.createdAt`),
@@ -29,18 +37,21 @@ export function parseLogicalChatWorkspace(value: unknown, label = "workspace"): 
   };
 }
 
-export function parseChatWorkspaceRead(value: unknown, label = "workspaceRead"): ChatWorkspaceRead {
+export function parseProjectWorkingFolderRead(value: unknown, label = "workingFolderRead"): ProjectWorkingFolderRead {
   const record = readRecord(value, label);
   return {
-    workspace: parseLogicalChatWorkspace(record.workspace, `${label}.workspace`),
-    bindingStatus: readEnum(record.bindingStatus, WORKSPACE_BINDING_STATUSES, `${label}.bindingStatus`),
+    workingFolder: parseProjectWorkingFolder(
+      record.workingFolder,
+      `${label}.workingFolder`,
+    ),
+    bindingStatus: readEnum(record.bindingStatus, WORKING_FOLDER_BINDING_STATUSES, `${label}.bindingStatus`),
     canonicalPath: readNullable(record.canonicalPath, `${label}.canonicalPath`, readString),
     lastVerifiedAt: readNullable(record.lastVerifiedAt, `${label}.lastVerifiedAt`, readUtcTimestamp),
     currentBranch: readNullable(record.currentBranch, `${label}.currentBranch`, readString),
   };
 }
 
-export function parseChatWorkspaceReads(value: unknown): ChatWorkspaceRead[] {
-  if (!Array.isArray(value)) throw new Error("Chat workspaces must be an array");
-  return value.map((workspace, index) => parseChatWorkspaceRead(workspace, `workspaces[${index}]`));
+export function parseProjectWorkingFolderReads(value: unknown): ProjectWorkingFolderRead[] {
+  if (!Array.isArray(value)) throw new Error("Chat workingFolders must be an array");
+  return value.map((workspace, index) => parseProjectWorkingFolderRead(workspace, `workingFolders[${index}]`));
 }

@@ -39,6 +39,8 @@ pub struct VaultAppState {
     #[serde(default)]
     pub music_root_bindings: BTreeMap<String, BTreeMap<String, String>>,
     #[serde(default)]
+    pub project_working_folders: crate::projects::working_folders::WorkingFolderDeviceState,
+    #[serde(default)]
     pub chat: crate::chat::device_state::ChatDeviceState,
 }
 
@@ -1026,6 +1028,7 @@ mod tests {
             active_vault_path: Some("/tmp/ganbaru-ai-vault".to_string()),
             recent_vault_paths: vec!["/tmp/ganbaru-ai-vault".to_string()],
             music_root_bindings,
+            project_working_folders: Default::default(),
             chat: Default::default(),
         };
 

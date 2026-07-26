@@ -1,4 +1,5 @@
 import * as chatApi from "$lib/api/chat";
+import * as workingFolderApi from "$lib/api/project-working-folders";
 import type {
   ChatBehaviorPreferences,
   ChatAttachmentRead,
@@ -9,9 +10,9 @@ import type {
   ChatThreadShellRead,
   ChatTimelineItemRead,
   ChatTimelinePageRead,
-  ChatWorkspaceId,
-  ChatWorkspaceRead,
-  CreateChatWorkspaceRequest,
+  ProjectWorkingFolderId,
+  ProjectWorkingFolderRead,
+  CreateProjectWorkingFolderRequest,
   InteractionMode,
   ModelId,
   ProviderInstanceConfig,
@@ -29,6 +30,10 @@ import { evictTimelinePages, mergeTimelineItems } from "$lib/chat/timeline-virtu
 import { ChatComposerController, parseDraftMentions, type ChatComposerSnapshot } from "$lib/chat/composer-controller";
 import { queuedFollowupDispatchReady, readComposerModelSelection } from "$lib/chat/composer-model";
 import { AsyncFrameCoalescer } from "$lib/chat/frame-coalescer";
+import { getProjects } from "$lib/stores/projects.svelte";
+import { preferredProjectWorkingFolder } from "$lib/chat/working-folder-selection";
+
+const projects = getProjects();
 
 class ChatStore {
   private readonly composerController = new ChatComposerController();
@@ -38,14 +43,14 @@ class ChatStore {
   interactionLoading = $state(false);
   sendError = $state<string | null>(null);
   settings = $state<ChatSettingsRead | null>(null);
-  workspaces = $state<ChatWorkspaceRead[]>([]);
+  workingFolders = $state<ProjectWorkingFolderRead[]>([]);
   activeThreads = $state<ChatThreadShellRead[]>([]);
   archivedThreads = $state<ChatThreadShellRead[]>([]);
   loading = $state(false);
   error = $state<string | null>(null);
-  selectedWorkspaceId = $state<ChatWorkspaceId | null>(null);
+  selectedWorkingFolderId = $state<ProjectWorkingFolderId | null>(null);
   selectedThreadId = $state<ChatThreadId | null>(null);
-  draftWorkspaceId = $state<ChatWorkspaceId | null>(null);
+  draftWorkingFolderId = $state<ProjectWorkingFolderId | null>(null);
   draftThreadId = $state<ChatThreadId | null>(null);
   timelinePages = $state<ChatTimelinePageRead[]>([]);
   timelineItems = $state<ChatTimelineItemRead[]>([]);
@@ -67,7 +72,7 @@ class ChatStore {
   constructor() {
     this.composerController.subscribe((snapshot) => {
       this.composer = snapshot;
-      const key = `${snapshot.workspaceId ?? ""}:${snapshot.attachmentIds.join("\0")}`;
+      const key = `${snapshot.workingFolderId ?? ""}:${snapshot.attachmentIds.join("\0")}`;
       if (key !== this.attachmentKey) {
         this.attachmentKey = key;
         void this.loadComposerAttachments(snapshot).catch(() => undefined);
@@ -75,8 +80,8 @@ class ChatStore {
     });
   }
 
-  get selectedWorkspace(): ChatWorkspaceRead | null {
-    return this.workspaces.find((entry) => entry.workspace.id === this.selectedWorkspaceId) ?? null;
+  get selectedWorkingFolder(): ProjectWorkingFolderRead | null {
+    return this.workingFolders.find((entry) => entry.workingFolder.id === this.selectedWorkingFolderId) ?? null;
   }
 
   get selectedThread(): ChatThreadShellRead | null {
@@ -94,20 +99,21 @@ class ChatStore {
     this.loading = true;
     this.error = null;
     try {
-      const [settings, workspaces, activeThreads, archivedThreads] = await Promise.all([
+      const [settings, workingFolders, activeThreads, archivedThreads] = await Promise.all([
         chatApi.readChatSettings(),
-        chatApi.listChatWorkspaces(),
+        workingFolderApi.listProjectWorkingFolders(),
         chatApi.listChatThreads(null, false),
         chatApi.listChatThreads(null, true),
       ]);
       if (request !== this.loadRequest) return;
       this.settings = settings;
-      this.workspaces = workspaces;
+      this.workingFolders = workingFolders;
       this.activeThreads = activeThreads;
       this.archivedThreads = archivedThreads;
-      this.restoreSelection(settings);
-      const workspaceId = this.selectedWorkspaceId;
-      if (workspaceId) await this.composerController.bind(workspaceId, this.selectedThreadId);
+      await projects.ensureLoaded();
+      await this.restoreSelection(settings);
+      const workingFolderId = this.selectedWorkingFolderId;
+      if (workingFolderId) await this.composerController.bind(workingFolderId, this.selectedThreadId);
       this.loaded = true;
     } catch (error: unknown) {
       if (request !== this.loadRequest) return;
@@ -120,6 +126,14 @@ class ChatStore {
 
   async refreshSettings(): Promise<void> {
     this.settings = await chatApi.readChatSettings();
+  }
+
+  async syncProjectSelection(projectId: string | null): Promise<void> {
+    if (!projectId || !this.loaded) return;
+    if (this.selectedThread?.projectId === projectId) return;
+    const remembered = await workingFolderApi.lastProjectWorkingFolder(projectId);
+    const selected = preferredProjectWorkingFolder(this.workingFolders, projectId, remembered);
+    if (selected) this.selectWorkingFolder(selected.workingFolder.id);
   }
 
   async saveProvider(configuration: ProviderInstanceConfig): Promise<ProviderInstanceRead> {
@@ -170,59 +184,79 @@ class ChatStore {
     await this.refreshSettings();
   }
 
-  async createWorkspace(request: CreateChatWorkspaceRequest, pickerTitle: string, bind = true): Promise<ChatWorkspaceRead> {
-    let workspace = await chatApi.createChatWorkspace(request);
-    this.upsertWorkspace(workspace);
-    if (bind) {
-      workspace = await chatApi.bindChatWorkspace(workspace.workspace.id, pickerTitle) ?? workspace;
-      this.upsertWorkspace(workspace);
+  async addExternalWorkingFolder(
+    request: CreateProjectWorkingFolderRequest,
+    pickerTitle: string,
+  ): Promise<ProjectWorkingFolderRead | null> {
+    const workingFolder = await workingFolderApi.addExternalProjectWorkingFolder(request, pickerTitle);
+    if (!workingFolder) return null;
+    this.upsertWorkingFolder(workingFolder);
+    this.selectWorkingFolder(workingFolder.workingFolder.id);
+    return workingFolder;
+  }
+
+  async locateWorkingFolder(workingFolderId: ProjectWorkingFolderId, pickerTitle: string): Promise<void> {
+    const workingFolder = await workingFolderApi.locateProjectWorkingFolder(workingFolderId, pickerTitle);
+    if (workingFolder) this.upsertWorkingFolder(workingFolder);
+  }
+
+  async rebindWorkingFolder(workingFolderId: ProjectWorkingFolderId, pickerTitle: string): Promise<void> {
+    const workingFolder = await workingFolderApi.rebindProjectWorkingFolder(workingFolderId, pickerTitle);
+    if (workingFolder) this.upsertWorkingFolder(workingFolder);
+  }
+
+  async unbindWorkingFolder(workingFolderId: ProjectWorkingFolderId): Promise<void> {
+    this.upsertWorkingFolder(await workingFolderApi.unbindProjectWorkingFolder(workingFolderId));
+  }
+
+  async openWorkingFolder(workingFolderId: ProjectWorkingFolderId): Promise<void> {
+    await workingFolderApi.openProjectWorkingFolder(workingFolderId);
+  }
+
+  async recreateManagedWorkingFolder(workingFolderId: ProjectWorkingFolderId): Promise<void> {
+    this.upsertWorkingFolder(await workingFolderApi.recreateManagedProjectWorkingFolder(workingFolderId));
+  }
+
+  async renameWorkingFolder(workingFolderId: ProjectWorkingFolderId, displayName: string): Promise<void> {
+    const current = this.workingFolder(workingFolderId);
+    this.upsertWorkingFolder(await workingFolderApi.renameProjectWorkingFolder(workingFolderId, displayName, current.workingFolder.revision));
+  }
+
+  async archiveWorkingFolder(workingFolderId: ProjectWorkingFolderId): Promise<void> {
+    const current = this.workingFolder(workingFolderId);
+    this.upsertWorkingFolder(await workingFolderApi.archiveProjectWorkingFolder(workingFolderId, current.workingFolder.revision));
+  }
+
+  async restoreWorkingFolder(workingFolderId: ProjectWorkingFolderId): Promise<void> {
+    const current = this.workingFolder(workingFolderId);
+    this.upsertWorkingFolder(await workingFolderApi.restoreProjectWorkingFolder(workingFolderId, current.workingFolder.revision));
+  }
+
+  async removeWorkingFolder(workingFolderId: ProjectWorkingFolderId): Promise<void> {
+    await workingFolderApi.removeProjectWorkingFolder(workingFolderId);
+    this.workingFolders = this.workingFolders.filter(
+      (entry) => entry.workingFolder.id !== workingFolderId,
+    );
+    if (this.selectedWorkingFolderId === workingFolderId) {
+      this.selectedWorkingFolderId = null;
+      await this.syncProjectSelection(projects.selectedProjectId);
     }
-    this.selectWorkspace(workspace.workspace.id);
-    return workspace;
   }
 
-  async bindWorkspace(workspaceId: ChatWorkspaceId, pickerTitle: string): Promise<void> {
-    const workspace = await chatApi.bindChatWorkspace(workspaceId, pickerTitle);
-    if (workspace) this.upsertWorkspace(workspace);
-  }
-
-  async rebindWorkspace(workspaceId: ChatWorkspaceId, pickerTitle: string): Promise<void> {
-    const workspace = await chatApi.rebindChatWorkspace(workspaceId, pickerTitle);
-    if (workspace) this.upsertWorkspace(workspace);
-  }
-
-  async removeWorkspaceBinding(workspaceId: ChatWorkspaceId): Promise<void> {
-    this.upsertWorkspace(await chatApi.removeChatWorkspaceBinding(workspaceId));
-  }
-
-  async openWorkspaceFolder(workspaceId: ChatWorkspaceId): Promise<void> {
-    await chatApi.openChatWorkspaceFolder(workspaceId);
-  }
-
-  async renameWorkspace(workspaceId: ChatWorkspaceId, displayName: string): Promise<void> {
-    const current = this.workspace(workspaceId);
-    this.upsertWorkspace(await chatApi.renameChatWorkspace(workspaceId, displayName, current.workspace.revision));
-  }
-
-  async archiveWorkspace(workspaceId: ChatWorkspaceId): Promise<void> {
-    const current = this.workspace(workspaceId);
-    this.upsertWorkspace(await chatApi.archiveChatWorkspace(workspaceId, current.workspace.revision));
-  }
-
-  async restoreWorkspace(workspaceId: ChatWorkspaceId): Promise<void> {
-    const current = this.workspace(workspaceId);
-    this.upsertWorkspace(await chatApi.restoreChatWorkspace(workspaceId, current.workspace.revision));
-  }
-
-  async setWorkspaceProviderPreference(workspaceId: ChatWorkspaceId, instanceId: ProviderInstanceId | null): Promise<void> {
-    await chatApi.setChatWorkspaceProviderPreference(workspaceId, instanceId);
+  async setWorkingFolderProviderPreference(workingFolderId: ProjectWorkingFolderId, instanceId: ProviderInstanceId | null): Promise<void> {
+    await chatApi.setChatWorkingFolderProviderPreference(workingFolderId, instanceId);
     await this.refreshSettings();
   }
 
-  selectWorkspace(workspaceId: ChatWorkspaceId): void {
-    this.selectedWorkspaceId = workspaceId;
+  selectWorkingFolder(workingFolderId: ProjectWorkingFolderId): void {
+    this.selectedWorkingFolderId = workingFolderId;
+    const projectId = this.selectedWorkingFolder?.workingFolder.projectId;
+    if (projectId) {
+      void projects.selectProject(projectId);
+      void workingFolderApi.rememberProjectWorkingFolder(projectId, workingFolderId);
+    }
     this.selectThread(null);
-    this.ensureDraftThread(workspaceId);
+    this.ensureDraftThread(workingFolderId);
   }
 
   selectThread(threadId: ChatThreadId | null): void {
@@ -233,9 +267,13 @@ class ChatStore {
     }
     this.selectedThreadId = threadId;
     const thread = this.selectedThread;
-    if (thread) this.selectedWorkspaceId = thread.workspaceId;
-    if (this.selectedWorkspaceId) {
-      void this.composerController.bind(this.selectedWorkspaceId, threadId).catch(() => undefined);
+    if (thread) {
+      this.selectedWorkingFolderId = thread.workingFolderId;
+      void projects.selectProject(thread.projectId);
+      void workingFolderApi.rememberProjectWorkingFolder(thread.projectId, thread.workingFolderId);
+    }
+    if (this.selectedWorkingFolderId) {
+      void this.composerController.bind(this.selectedWorkingFolderId, threadId).catch(() => undefined);
     }
     void chatApi.setLastSelectedChatThread(threadId).catch((error) => {
       console.error("Failed to persist selected Chat thread", error);
@@ -252,12 +290,12 @@ class ChatStore {
     await this.loadTimeline(threadId, cursor, true, selectedSequence);
   }
 
-  newDraft(workspaceId: ChatWorkspaceId): void {
-    this.selectWorkspace(workspaceId);
+  newDraft(workingFolderId: ProjectWorkingFolderId): void {
+    this.selectWorkingFolder(workingFolderId);
   }
 
   discardDraft(): void {
-    this.draftWorkspaceId = null;
+    this.draftWorkingFolderId = null;
     this.draftThreadId = null;
   }
 
@@ -291,25 +329,25 @@ class ChatStore {
   }
 
   async sendComposer(): Promise<void> {
-    const workspaceId = this.composer.workspaceId;
+    const workingFolderId = this.composer.workingFolderId;
     const providerInstanceId = this.composer.providerInstanceId;
     const safetyMode = this.composer.safetyMode;
     const interactionMode = this.composer.interactionMode;
     const model = readComposerModelSelection(this.composer.modelSelection);
-    if (!workspaceId || !providerInstanceId || !safetyMode || !interactionMode) {
+    if (!workingFolderId || !providerInstanceId || !safetyMode || !interactionMode) {
       throw new Error("Complete every Chat composer selection before sending");
     }
     const prompt = this.composer.text;
     const attachmentIds = [...this.composer.attachmentIds];
     const mentions = this.composer.mentions.map((mention) => ({ relativePath: mention.relativePath, kind: mention.kind }));
-    await chatApi.validateChatWorkspaceMentions(workspaceId, mentions.map((mention) => mention.relativePath));
+    await chatApi.validateChatWorkingFolderMentions(workingFolderId, mentions.map((mention) => mention.relativePath));
     await this.composerController.flush();
     this.sendError = null;
     const current = this.selectedThread;
-    const newThreadId = current ? null : this.ensureDraftThread(workspaceId);
+    const newThreadId = current ? null : this.ensureDraftThread(workingFolderId);
     const result = await chatApi.sendChatTurn({
       command: { clientCommandId: crypto.randomUUID(), expectedThreadRevision: current?.revision ?? null },
-      workspaceId,
+      workingFolderId,
       threadId: current?.id ?? null,
       newThreadId,
       turnId: crypto.randomUUID(),
@@ -327,7 +365,7 @@ class ChatStore {
     await this.composerController.flush();
     this.upsertThread(result.thread);
     await chatApi.rememberChatComposerSelection({
-      workspaceId,
+      workingFolderId,
       providerInstanceId,
       modelId: model.modelId,
       providerManagedModel: model.providerManaged,
@@ -337,7 +375,7 @@ class ChatStore {
     });
     this.settings = await chatApi.readChatSettings();
     if (!current) {
-      this.draftWorkspaceId = null;
+      this.draftWorkingFolderId = null;
       this.draftThreadId = null;
     }
     this.selectThread(result.thread.id);
@@ -467,11 +505,11 @@ class ChatStore {
   }
 
   async importComposerImages(files: File[]): Promise<void> {
-    const workspaceId = this.composer.workspaceId;
-    if (!workspaceId) throw new Error("Choose a Chat workspace before attaching images");
+    const workingFolderId = this.composer.workingFolderId;
+    if (!workingFolderId) throw new Error("Choose a project working folder before attaching images");
     for (const file of files) {
       const attachment = await chatApi.importChatImage(
-        workspaceId,
+        workingFolderId,
         crypto.randomUUID(),
         file.name,
         [...new Uint8Array(await file.arrayBuffer())],
@@ -482,12 +520,12 @@ class ChatStore {
   }
 
   async pickComposerImages(title: string): Promise<void> {
-    const workspaceId = this.composer.workspaceId;
-    if (!workspaceId) throw new Error("Choose a Chat workspace before attaching images");
+    const workingFolderId = this.composer.workingFolderId;
+    if (!workingFolderId) throw new Error("Choose a project working folder before attaching images");
     const available = Math.max(0, 8 - this.composerAttachments.length);
     if (available === 0) throw new Error("Attach up to eight Chat images");
     const imported = await chatApi.pickChatImages(
-      workspaceId,
+      workingFolderId,
       Array.from({ length: available }, () => crypto.randomUUID()),
       title,
     );
@@ -543,24 +581,36 @@ class ChatStore {
     if (this.selectedThreadId === thread.id) this.selectThread(null);
   }
 
-  private restoreSelection(settings: ChatSettingsRead): void {
+  private async restoreSelection(settings: ChatSettingsRead): Promise<void> {
     const remembered = settings.configuration.behavior.restoreLastSelectedThread
       ? settings.lastSelectedThreadId
       : null;
     if (remembered && [...this.activeThreads, ...this.archivedThreads].some((thread) => thread.id === remembered)) {
       this.selectedThreadId = remembered;
-      this.selectedWorkspaceId = this.selectedThread?.workspaceId ?? null;
+      this.selectedWorkingFolderId = this.selectedThread?.workingFolderId ?? null;
+      const selectedThread = this.selectedThread;
+      if (selectedThread) await projects.selectProject(selectedThread.projectId);
       void this.loadTimeline(remembered).catch(() => undefined);
       return;
     }
-    if (this.selectedWorkspaceId && this.workspaces.some((entry) => entry.workspace.id === this.selectedWorkspaceId)) return;
+    if (this.selectedWorkingFolderId && this.workingFolders.some((entry) => (
+      entry.workingFolder.id === this.selectedWorkingFolderId
+        && entry.workingFolder.projectId === projects.selectedProjectId
+    ))) return;
     this.selectedThreadId = null;
-    this.selectedWorkspaceId = null;
+    const projectId = projects.selectedProjectId;
+    const rememberedFolderId = projectId
+      ? await workingFolderApi.lastProjectWorkingFolder(projectId)
+      : null;
+    const selected = projectId
+      ? preferredProjectWorkingFolder(this.workingFolders, projectId, rememberedFolderId)
+      : null;
+    this.selectedWorkingFolderId = selected?.workingFolder.id ?? null;
   }
 
-  private ensureDraftThread(workspaceId: ChatWorkspaceId): ChatThreadId {
-    if (this.draftWorkspaceId !== workspaceId || !this.draftThreadId) {
-      this.draftWorkspaceId = workspaceId;
+  private ensureDraftThread(workingFolderId: ProjectWorkingFolderId): ChatThreadId {
+    if (this.draftWorkingFolderId !== workingFolderId || !this.draftThreadId) {
+      this.draftWorkingFolderId = workingFolderId;
       this.draftThreadId = crypto.randomUUID();
     }
     return this.draftThreadId;
@@ -568,12 +618,12 @@ class ChatStore {
 
   private async loadComposerAttachments(snapshot: ChatComposerSnapshot): Promise<void> {
     const request = ++this.attachmentRequest;
-    if (!snapshot.workspaceId || snapshot.attachmentIds.length === 0) {
+    if (!snapshot.workingFolderId || snapshot.attachmentIds.length === 0) {
       this.composerAttachments = [];
       return;
     }
     try {
-      const attachments = await chatApi.readChatAttachments(snapshot.workspaceId, snapshot.attachmentIds);
+      const attachments = await chatApi.readChatAttachments(snapshot.workingFolderId, snapshot.attachmentIds);
       if (request === this.attachmentRequest) this.composerAttachments = attachments;
     } catch (error: unknown) {
       if (request === this.attachmentRequest) {
@@ -586,18 +636,18 @@ class ChatStore {
   private async dispatchQueuedFollowup(queued: import("$lib/chat/contracts").ChatQueuedFollowupRead): Promise<void> {
     if (this.queuedDispatches.has(queued.id)) return;
     const thread = this.selectedThread;
-    const workspaceId = this.selectedWorkspaceId;
+    const workingFolderId = this.selectedWorkingFolderId;
     const providerInstanceId = queued.providerInstanceId;
     const safetyMode = queued.safetyMode;
     const interactionMode = queued.interactionMode;
     const model = readComposerModelSelection(queued.modelSelection);
-    if (!thread || !workspaceId || !providerInstanceId || !safetyMode || !interactionMode) return;
+    if (!thread || !workingFolderId || !providerInstanceId || !safetyMode || !interactionMode) return;
     this.queuedDispatches.add(queued.id);
     try {
       const mentions = parseDraftMentions(queued.mentions);
       const result = await chatApi.sendChatTurn({
         command: { clientCommandId: `queue-dispatch:${queued.id}`, expectedThreadRevision: null },
-        workspaceId,
+        workingFolderId,
         threadId: thread.id,
         newThreadId: null,
         turnId: `queue-turn:${queued.id}`,
@@ -623,15 +673,15 @@ class ChatStore {
 
   private async forkCurrentComposer(providerInstanceId: ProviderInstanceId | null): Promise<void> {
     const snapshot = this.composerController.snapshot();
-    if (!snapshot.workspaceId) return;
+    if (!snapshot.workingFolderId) return;
     await this.composerController.flush();
     this.selectedThreadId = null;
-    this.draftWorkspaceId = snapshot.workspaceId;
+    this.draftWorkingFolderId = snapshot.workingFolderId;
     this.draftThreadId = crypto.randomUUID();
     this.timelinePages = [];
     this.timelineItems = [];
     this.interaction = null;
-    await this.composerController.bind(snapshot.workspaceId, null);
+    await this.composerController.bind(snapshot.workingFolderId, null);
     this.composerController.setText(snapshot.text);
     this.composerController.setAttachments(snapshot.attachmentIds);
     this.composerController.setMentions(snapshot.mentions);
@@ -645,17 +695,21 @@ class ChatStore {
     await chatApi.setLastSelectedChatThread(null);
   }
 
-  private workspace(workspaceId: ChatWorkspaceId): ChatWorkspaceRead {
-    const workspace = this.workspaces.find((entry) => entry.workspace.id === workspaceId);
-    if (!workspace) throw new Error("Chat workspace was not found");
-    return workspace;
+  private workingFolder(workingFolderId: ProjectWorkingFolderId): ProjectWorkingFolderRead {
+    const workingFolder = this.workingFolders.find((entry) => entry.workingFolder.id === workingFolderId);
+    if (!workingFolder) throw new Error("Project working folder was not found");
+    return workingFolder;
   }
 
-  private upsertWorkspace(workspace: ChatWorkspaceRead): void {
-    const exists = this.workspaces.some((entry) => entry.workspace.id === workspace.workspace.id);
-    this.workspaces = exists
-      ? this.workspaces.map((entry) => entry.workspace.id === workspace.workspace.id ? workspace : entry)
-      : [...this.workspaces, workspace];
+  private upsertWorkingFolder(workingFolder: ProjectWorkingFolderRead): void {
+    const exists = this.workingFolders.some((entry) => (
+      entry.workingFolder.id === workingFolder.workingFolder.id
+    ));
+    this.workingFolders = exists
+      ? this.workingFolders.map((entry) => (
+        entry.workingFolder.id === workingFolder.workingFolder.id ? workingFolder : entry
+      ))
+      : [...this.workingFolders, workingFolder];
   }
 
   private upsertThread(thread: ChatThreadShellRead): void {

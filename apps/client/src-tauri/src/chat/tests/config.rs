@@ -27,7 +27,7 @@ fn valid_config() -> serde_json::Value {
         }],
         "automaticProviderSetupDisabled": [],
         "rememberedSelections": [{
-            "workspaceId": "workspace-1",
+            "workingFolderId": "working-folder-1",
             "providerInstanceId": "codex-personal",
             "modelId": "gpt-5-codex",
             "providerManagedModel": false,
@@ -35,7 +35,7 @@ fn valid_config() -> serde_json::Value {
             "safetyMode": "ask_for_approval",
             "interactionMode": "build"
         }],
-        "workspaceProviderPreferences": {},
+        "workingFolderProviderPreferences": {},
         "panels": { "railWidthPx": 260, "inspectorWidthPx": 360 },
         "behavior": {
             "sendKey": "enter",

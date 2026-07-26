@@ -214,9 +214,9 @@
   });
 
   $effect(() => {
-    const workspaceId = chat.composer.workspaceId;
-    if (!workspaceId || chat.composer.providerInstanceId) return;
-    const preferred = chat.settings?.configuration.workspaceProviderPreferences[workspaceId];
+    const workingFolderId = chat.composer.workingFolderId;
+    if (!workingFolderId || chat.composer.providerInstanceId) return;
+    const preferred = chat.settings?.configuration.workingFolderProviderPreferences[workingFolderId];
     const preferredProvider = preferred
       ? healthyProviders.find((entry) => entry.configuration.instanceId === preferred)
       : null;
@@ -225,12 +225,12 @@
   });
 
   $effect(() => {
-    const workspaceId = chat.composer.workspaceId;
+    const workingFolderId = chat.composer.workingFolderId;
     const providerId = chat.composer.providerInstanceId;
-    if (!workspaceId || !providerId || chat.composer.loading) return;
-    const key = `${workspaceId}:${providerId}`;
+    if (!workingFolderId || !providerId || chat.composer.loading) return;
+    const key = `${workingFolderId}:${providerId}`;
     if (restoredKey === key) return;
-    const remembered = chat.settings?.configuration.rememberedSelections.find((entry) => entry.workspaceId === workspaceId && entry.providerInstanceId === providerId);
+    const remembered = chat.settings?.configuration.rememberedSelections.find((entry) => entry.workingFolderId === workingFolderId && entry.providerInstanceId === providerId);
     restoredKey = key;
     if (!remembered) return;
     if (!chat.composer.modelSelection) {
@@ -246,9 +246,9 @@
 
   $effect(() => {
     if (chat.composer.loading || chat.composer.safetyMode) return;
-    const workspaceId = chat.composer.workspaceId;
+    const workingFolderId = chat.composer.workingFolderId;
     const providerId = chat.composer.providerInstanceId;
-    if (workspaceId && providerId && restoredKey !== `${workspaceId}:${providerId}`) return;
+    if (workingFolderId && providerId && restoredKey !== `${workingFolderId}:${providerId}`) return;
     chat.setComposerModes("ask_for_approval", chat.composer.interactionMode);
   });
 

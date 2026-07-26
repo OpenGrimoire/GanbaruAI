@@ -1,5 +1,5 @@
 use crate::chat::models::{
-    ChatAttachmentId, ChatError, ChatErrorCode, ChatResult, ChatWorkspaceId, UtcTimestamp,
+    ChatAttachmentId, ChatError, ChatErrorCode, ChatResult, ProjectWorkingFolderId, UtcTimestamp,
 };
 use serde::Serialize;
 use sha2::{Digest, Sha256};
@@ -21,7 +21,7 @@ pub enum ChatAttachmentKind {
 #[serde(rename_all = "camelCase")]
 pub struct ChatAttachmentRead {
     pub id: ChatAttachmentId,
-    pub workspace_id: ChatWorkspaceId,
+    pub working_folder_id: ProjectWorkingFolderId,
     pub kind: ChatAttachmentKind,
     pub original_display_name: String,
     pub mime_type: String,
@@ -33,7 +33,7 @@ pub struct ChatAttachmentRead {
 }
 
 pub struct AttachmentBytesImport<'a> {
-    pub workspace_id: &'a ChatWorkspaceId,
+    pub working_folder_id: &'a ProjectWorkingFolderId,
     pub attachment_id: ChatAttachmentId,
     pub display_name: String,
     pub bytes: &'a [u8],
@@ -44,7 +44,7 @@ pub struct AttachmentBytesImport<'a> {
 pub async fn import_attachment(
     pool: &SqlitePool,
     vault_root: &Path,
-    workspace_id: &ChatWorkspaceId,
+    working_folder_id: &ProjectWorkingFolderId,
     attachment_id: ChatAttachmentId,
     source_path: &Path,
     requested_kind: ChatAttachmentKind,
@@ -77,7 +77,7 @@ pub async fn import_attachment(
         pool,
         vault_root,
         AttachmentBytesImport {
-            workspace_id,
+            working_folder_id,
             attachment_id,
             display_name,
             bytes: &bytes,
@@ -137,12 +137,12 @@ async fn persist_attachment_bytes(
     write_restrictive(&destination, request.bytes)?;
     let inserted = sqlx::query(
         "INSERT INTO chat_attachments
-            (id, workspace_id, kind, original_display_name, mime_type, byte_size,
+            (id, working_folder_id, kind, original_display_name, mime_type, byte_size,
              sha256, managed_relative_path, signature_kind, created_at)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
     )
     .bind(request.attachment_id.as_str())
-    .bind(request.workspace_id.as_str())
+    .bind(request.working_folder_id.as_str())
     .bind(wire_kind(request.requested_kind))
     .bind(&request.display_name)
     .bind(mime_type)
@@ -167,7 +167,7 @@ pub async fn read_attachment(
     attachment_id: &ChatAttachmentId,
 ) -> ChatResult<Option<ChatAttachmentRead>> {
     let row = sqlx::query(
-        "SELECT id, workspace_id, kind, original_display_name, mime_type, byte_size,
+        "SELECT id, working_folder_id, kind, original_display_name, mime_type, byte_size,
                 sha256, managed_relative_path, signature_kind, created_at
          FROM chat_attachments WHERE id = ? AND deletion_state != 'deleted'",
     )
@@ -179,8 +179,8 @@ pub async fn read_attachment(
         Ok(ChatAttachmentRead {
             id: ChatAttachmentId::new(row.try_get::<String, _>("id").map_err(persistence_error)?)
                 .map_err(|_| corrupt_data())?,
-            workspace_id: ChatWorkspaceId::new(
-                row.try_get::<String, _>("workspace_id")
+            working_folder_id: ProjectWorkingFolderId::new(
+                row.try_get::<String, _>("working_folder_id")
                     .map_err(persistence_error)?,
             )
             .map_err(|_| corrupt_data())?,

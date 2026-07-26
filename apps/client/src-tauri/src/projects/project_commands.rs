@@ -1,5 +1,8 @@
 use crate::db_path::connect_sqlite;
+use crate::vault;
 use sqlx::SqlitePool;
+use std::fs;
+use std::path::Path;
 use tauri::{AppHandle, Runtime};
 
 use super::models::{
@@ -26,8 +29,17 @@ pub async fn projects_create_project<R: Runtime>(
     db_url: String,
     project: ProjectCreate,
 ) -> Result<ProjectsMutationRows, String> {
+    let pool = connect_sqlite(app.clone(), db_url).await?;
+    let vault_root = vault::active_vault_path(&app)?;
+    create_project_in_pool(&pool, &vault_root, project).await
+}
+
+pub(crate) async fn create_project_in_pool(
+    pool: &SqlitePool,
+    vault_root: &Path,
+    project: ProjectCreate,
+) -> Result<ProjectsMutationRows, String> {
     validate_project_create(&project)?;
-    let pool = connect_sqlite(app, db_url).await?;
     let mut tx = pool.begin().await.map_err(|e| format!("begin: {e}"))?;
     sqlx::query(
         "INSERT INTO projects (
@@ -69,31 +81,49 @@ pub async fn projects_create_project<R: Runtime>(
     .await
     .map_err(|e| format!("create project: {e}"))?;
 
+    let managed_folder_id = format!("working-folder:{}", project.id);
+    let managed_relative_path = format!("projects/{}", project.id);
+    sqlx::query(
+        "INSERT INTO project_working_folders
+            (id, project_id, display_name, kind, managed_relative_path, sort_order)
+         VALUES (?, ?, ?, 'managed', ?, 0)",
+    )
+    .bind(&managed_folder_id)
+    .bind(&project.id)
+    .bind(project.name.trim())
+    .bind(&managed_relative_path)
+    .execute(&mut *tx)
+    .await
+    .map_err(|e| format!("create managed project working folder: {e}"))?;
+
     insert_template_sections(&mut tx, &project.id, &project.template_id).await?;
     insert_default_statuses(&mut tx, &project.id).await?;
     insert_default_priorities(&mut tx, &project.id).await?;
 
+    let managed_folder_path = vault_root.join(&managed_relative_path);
+    fs::create_dir_all(&managed_folder_path)
+        .map_err(|e| format!("create managed project working folder: {e}"))?;
     tx.commit().await.map_err(|e| format!("commit: {e}"))?;
-    let mut mutation = project_mutation(&pool, &project.id).await?;
+    let mut mutation = project_mutation(pool, &project.id).await?;
     mutation.sections = sqlx::query_as::<_, ProjectSectionRow>(
         "SELECT * FROM project_sections WHERE project_id = ? ORDER BY sort_order, id",
     )
     .bind(&project.id)
-    .fetch_all(&pool)
+    .fetch_all(pool)
     .await
     .map_err(|e| format!("load created project sections: {e}"))?;
     mutation.statuses = sqlx::query_as::<_, ProjectStatusRow>(
         "SELECT * FROM project_statuses WHERE project_id = ? ORDER BY sort_order, id",
     )
     .bind(&project.id)
-    .fetch_all(&pool)
+    .fetch_all(pool)
     .await
     .map_err(|e| format!("load created project statuses: {e}"))?;
     mutation.priorities = sqlx::query_as::<_, ProjectPriorityRow>(
         "SELECT * FROM project_priorities WHERE project_id = ? ORDER BY sort_order, id",
     )
     .bind(&project.id)
-    .fetch_all(&pool)
+    .fetch_all(pool)
     .await
     .map_err(|e| format!("load created project priorities: {e}"))?;
     Ok(mutation)

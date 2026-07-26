@@ -178,6 +178,7 @@ mod tests {
             active_vault_path: None,
             recent_vault_paths: Vec::new(),
             music_root_bindings: BTreeMap::new(),
+            project_working_folders: Default::default(),
             chat: Default::default(),
         }
     }

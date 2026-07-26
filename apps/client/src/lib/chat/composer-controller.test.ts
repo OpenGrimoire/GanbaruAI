@@ -7,7 +7,7 @@ const timestamp = "2026-07-21T12:00:00Z";
 function draft(overrides: Partial<ChatDraftRead> = {}): ChatDraftRead {
   return {
     id: chatDraftId("workspace-1", null),
-    workspaceId: "workspace-1",
+    workingFolderId: "workspace-1",
     threadId: null,
     text: "Saved prompt",
     attachmentIds: [],
@@ -96,7 +96,7 @@ describe("ChatComposerController", () => {
     const api = fakeApi({
       read: vi.fn()
         .mockReturnValueOnce(first)
-        .mockResolvedValueOnce(draft({ id: chatDraftId("workspace-2", null), workspaceId: "workspace-2", text: "New" })),
+        .mockResolvedValueOnce(draft({ id: chatDraftId("workspace-2", null), workingFolderId: "workspace-2", text: "New" })),
     });
     const controller = new ChatComposerController(api);
 
@@ -106,6 +106,6 @@ describe("ChatComposerController", () => {
     resolveFirst?.(draft({ text: "Stale" }));
     await stale;
 
-    expect(controller.snapshot()).toMatchObject({ workspaceId: "workspace-2", text: "New" });
+    expect(controller.snapshot()).toMatchObject({ workingFolderId: "workspace-2", text: "New" });
   });
 });

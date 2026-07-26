@@ -1,18 +1,20 @@
 use crate::chat::{
     device_state::{
         full_access_is_trusted, set_full_access_trust, ChatDeviceScope, ChatDeviceState,
-        ChatProviderDeviceState, ChatWorkspaceBindingState, CHAT_DEVICE_STATE_SCHEMA_VERSION,
-        DEFAULT_DIAGNOSTIC_RETENTION_DAYS,
+        CHAT_DEVICE_STATE_SCHEMA_VERSION, DEFAULT_DIAGNOSTIC_RETENTION_DAYS,
     },
-    models::{ChatWorkspaceId, ProviderInstanceId, RepositoryKind, UtcTimestamp},
+    models::{ProjectWorkingFolderId, ProviderInstanceId, RepositoryKind, UtcTimestamp},
+};
+use crate::projects::working_folders::{
+    ProjectWorkingFolderBindingState, WorkingFolderDeviceState,
+    WORKING_FOLDER_DEVICE_STATE_SCHEMA_VERSION,
 };
 
 #[test]
-fn bindings_and_provider_paths_are_scoped_by_vault_and_device() {
-    let mut state = ChatDeviceState::default();
-    let workspace_id = ChatWorkspaceId::new("workspace-1").unwrap();
-    let provider_id = ProviderInstanceId::new("codex-personal").unwrap();
-    let binding = ChatWorkspaceBindingState {
+fn bindings_are_scoped_by_vault_and_device() {
+    let mut state = WorkingFolderDeviceState::default();
+    let working_folder_id = ProjectWorkingFolderId::new("workspace-1").unwrap();
+    let binding = ProjectWorkingFolderBindingState {
         canonical_path: "/mnt/work/ganbaru".to_string(),
         repository_kind: RepositoryKind::Git,
         repository_identity: Some("git:example/ganbaru".to_string()),
@@ -21,57 +23,40 @@ fn bindings_and_provider_paths_are_scoped_by_vault_and_device() {
 
     let first_device = state.scope_mut("vault-1", "device-1");
     first_device
-        .workspace_bindings
-        .insert(workspace_id.clone(), binding.clone());
-    first_device.provider_instances.insert(
-        provider_id.clone(),
-        ChatProviderDeviceState {
-            executable_path: Some("/usr/bin/codex".to_string()),
-            provider_home_path: Some("/home/user/.codex".to_string()),
-            last_probe: None,
-            last_successful_probe_at: None,
-            model_catalog: None,
-        },
-    );
+        .bindings
+        .insert(working_folder_id.clone(), binding.clone());
 
     assert_eq!(
         state
             .scope("vault-1", "device-1")
-            .and_then(|scope| scope.workspace_bindings.get(&workspace_id)),
+            .and_then(|scope| scope.bindings.get(&working_folder_id)),
         Some(&binding)
-    );
-    assert_eq!(
-        state
-            .scope("vault-1", "device-1")
-            .and_then(|scope| scope.provider_instances.get(&provider_id))
-            .and_then(|provider| provider.executable_path.as_deref()),
-        Some("/usr/bin/codex")
     );
     assert!(state.scope("vault-1", "device-2").is_none());
     assert!(state.scope("vault-2", "device-1").is_none());
 }
 
 #[test]
-fn device_state_round_trips_typed_map_keys() {
-    let mut state = ChatDeviceState::default();
-    state
-        .scope_mut("vault-1", "device-1")
-        .workspace_bindings
-        .insert(
-            ChatWorkspaceId::new("workspace-1").unwrap(),
-            ChatWorkspaceBindingState {
-                canonical_path: "/mnt/work/ganbaru".to_string(),
-                repository_kind: RepositoryKind::Git,
-                repository_identity: Some("git:example/ganbaru".to_string()),
-                last_verified_at: UtcTimestamp::new("2026-07-20T12:00:00Z").unwrap(),
-            },
-        );
+fn working_folder_device_state_round_trips_typed_map_keys() {
+    let mut state = WorkingFolderDeviceState::default();
+    state.scope_mut("vault-1", "device-1").bindings.insert(
+        ProjectWorkingFolderId::new("workspace-1").unwrap(),
+        ProjectWorkingFolderBindingState {
+            canonical_path: "/mnt/work/ganbaru".to_string(),
+            repository_kind: RepositoryKind::Git,
+            repository_identity: Some("git:example/ganbaru".to_string()),
+            last_verified_at: UtcTimestamp::new("2026-07-20T12:00:00Z").unwrap(),
+        },
+    );
 
     let serialized = serde_json::to_value(&state).unwrap();
-    let restored: ChatDeviceState = serde_json::from_value(serialized).unwrap();
+    let restored: WorkingFolderDeviceState = serde_json::from_value(serialized).unwrap();
 
     assert_eq!(restored, state);
-    assert_eq!(restored.schema_version, CHAT_DEVICE_STATE_SCHEMA_VERSION);
+    assert_eq!(
+        restored.schema_version,
+        WORKING_FOLDER_DEVICE_STATE_SCHEMA_VERSION
+    );
 }
 
 #[test]
@@ -104,8 +89,8 @@ fn full_access_trust_never_crosses_provider_workspace_vault_or_device_boundaries
     let mut state = ChatDeviceState::default();
     let trusted_provider = ProviderInstanceId::new("codex-personal").unwrap();
     let incompatible_provider = ProviderInstanceId::new("codex-other-home").unwrap();
-    let trusted_workspace = ChatWorkspaceId::new("workspace-1").unwrap();
-    let new_workspace = ChatWorkspaceId::new("workspace-2").unwrap();
+    let trusted_workspace = ProjectWorkingFolderId::new("workspace-1").unwrap();
+    let new_workspace = ProjectWorkingFolderId::new("workspace-2").unwrap();
     let timestamp = UtcTimestamp::new("2026-07-21T12:00:00Z").unwrap();
     set_full_access_trust(
         state.scope_mut("vault-1", "device-1"),

@@ -1,6 +1,6 @@
 # Chat dependency decisions
 
-This document freezes the minimum dependency direction for the local coding-agent Chat workspace. It was reviewed on 2026-07-21. A reviewed dependency is not added until the phase that imports it. This keeps unused process, credential, terminal, and rendering code out of the application while preserving an explicit implementation choice.
+This document freezes the minimum dependency direction for project-owned coding-agent Chat. It was reviewed on 2026-07-21. A reviewed dependency is not added until the phase that imports it. This keeps unused process, credential, terminal, and rendering code out of the application while preserving an explicit implementation choice.
 
 Package metadata is not evidence that a package is advisory-free. The repository audits are the authoritative advisory gate. Run `pnpm -w run audit` when a reviewed package is first added, and run `pnpm -w run validate:full` for that dependency-sensitive phase. Keep package-security protections enabled.
 

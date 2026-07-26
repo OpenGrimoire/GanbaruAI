@@ -1,31 +1,31 @@
 import type {
   ChatThreadShellRead,
-  ChatWorkspaceRead,
+  ProjectWorkingFolderRead,
   ProviderInstanceRead,
 } from "./contracts";
 import type { Project, ProjectGroup } from "$lib/projects/types";
 
 export type ChatFirstUseState =
   | { kind: "no_provider" }
-  | { kind: "no_workspace" }
-  | { kind: "select_workspace" }
-  | { kind: "missing_binding"; workspace: ChatWorkspaceRead }
+  | { kind: "no_project" }
+  | { kind: "archived_project" }
+  | { kind: "missing_binding"; workingFolder: ProjectWorkingFolderRead }
   | { kind: "provider_unavailable"; provider: ProviderInstanceRead | null; providerInstanceId: string }
-  | { kind: "no_thread"; workspace: ChatWorkspaceRead }
+  | { kind: "no_thread"; workingFolder: ProjectWorkingFolderRead }
   | { kind: "archived_thread"; thread: ChatThreadShellRead }
   | { kind: "conversation"; thread: ChatThreadShellRead };
 
 export type ChatThreadStatus = "waiting_answer" | "waiting_approval" | "working" | "error" | "unread" | "idle" | "archived";
 
 export interface ChatRailWorkspace {
-  workspace: ChatWorkspaceRead;
+  workingFolder: ProjectWorkingFolderRead;
   showSubdivision: boolean;
   threads: ChatThreadShellRead[];
 }
 
 export interface ChatRailProject {
   project: Project;
-  workspaces: ChatRailWorkspace[];
+  workingFolders: ChatRailWorkspace[];
 }
 
 export interface ChatRailGroup {
@@ -39,14 +39,15 @@ export interface ChatRailGroup {
 
 export interface ChatRailModel {
   groups: ChatRailGroup[];
-  standalone: ChatRailWorkspace[];
   retainedThreadId: string | null;
 }
 
 export interface ChatFirstUseInput {
   providers: ProviderInstanceRead[];
-  workspaces: ChatWorkspaceRead[];
-  selectedWorkspaceId: string | null;
+  workingFolders: ProjectWorkingFolderRead[];
+  selectedProjectId: string | null;
+  selectedProjectArchived: boolean;
+  selectedWorkingFolderId: string | null;
   selectedThreadId: string | null;
   threads: ChatThreadShellRead[];
 }
@@ -61,29 +62,30 @@ export function resolveChatFirstUseState(input: ChatFirstUseInput): ChatFirstUse
     ? input.threads.find((thread) => thread.id === input.selectedThreadId) ?? null
     : null;
   if (selectedThread?.archivedAt) return { kind: "archived_thread", thread: selectedThread };
+  if (!input.selectedProjectId) return { kind: "no_project" };
+  if (input.selectedProjectArchived && !selectedThread) return { kind: "archived_project" };
+  if (selectedThread) return { kind: "conversation", thread: selectedThread };
   const enabledProviders = input.providers.filter((provider) => provider.configuration.enabled);
-  if (enabledProviders.length === 0 && !selectedThread) return { kind: "no_provider" };
-  const activeWorkspaces = input.workspaces.filter((entry) => entry.workspace.archivedAt === null);
-  if (activeWorkspaces.length === 0) return { kind: "no_workspace" };
-  if (!input.selectedWorkspaceId) return { kind: "select_workspace" };
-  const workspace = activeWorkspaces.find((entry) => entry.workspace.id === input.selectedWorkspaceId);
-  if (!workspace) return { kind: "select_workspace" };
-  if (workspace.bindingStatus !== "available") return { kind: "missing_binding", workspace };
+  if (enabledProviders.length === 0) return { kind: "no_provider" };
+  const activeWorkingFolders = input.workingFolders.filter((entry) => (
+    entry.workingFolder.projectId === input.selectedProjectId
+      && entry.workingFolder.archivedAt === null
+  ));
+  const workingFolder = activeWorkingFolders.find(
+    (entry) => entry.workingFolder.id === input.selectedWorkingFolderId,
+  ) ?? activeWorkingFolders.find((entry) => entry.workingFolder.kind === "managed") ?? null;
+  if (!workingFolder) return { kind: "no_project" };
+  if (workingFolder.bindingStatus !== "available") {
+    return { kind: "missing_binding", workingFolder };
+  }
 
-  const providerId = selectedThread?.providerInstanceId ?? null;
-  const provider = providerId
-    ? input.providers.find((entry) => entry.configuration.instanceId === providerId) ?? null
-    : enabledProviders.some((entry) => entry.lastProbe?.state === "healthy")
-      ? null
-      : enabledProviders[0] ?? null;
+  const provider = enabledProviders.some((entry) => entry.lastProbe?.state === "healthy")
+    ? null
+    : enabledProviders[0] ?? null;
   if (provider && (!provider.configuration.enabled || provider.lastProbe?.state !== "healthy")) {
     return { kind: "provider_unavailable", provider, providerInstanceId: provider.configuration.instanceId };
   }
-  if (selectedThread && providerId && !provider) {
-    return { kind: "provider_unavailable", provider: null, providerInstanceId: providerId };
-  }
-  if (selectedThread) return { kind: "conversation", thread: selectedThread };
-  return { kind: "no_thread", workspace };
+  return { kind: "no_thread", workingFolder };
 }
 
 export function threadStatus(thread: ChatThreadShellRead): ChatThreadStatus {
@@ -99,24 +101,37 @@ export function threadStatus(thread: ChatThreadShellRead): ChatThreadStatus {
 export function buildChatRailModel(
   groups: readonly ProjectGroup[],
   projects: readonly Project[],
-  workspaces: readonly ChatWorkspaceRead[],
+  workingFolders: readonly ProjectWorkingFolderRead[],
   threads: readonly ChatThreadShellRead[],
+  selectedProjectId: string | null,
   selectedThreadId: string | null,
 ): ChatRailModel {
-  const activeWorkspaces = workspaces.filter((entry) => entry.workspace.archivedAt === null);
+  const activeWorkspaces = workingFolders.filter((entry) => (
+    entry.workingFolder.archivedAt === null
+      && entry.workingFolder.projectId === selectedProjectId
+  ));
   const projectModels = projects
+    .filter((project) => project.id === selectedProjectId)
     .map((project) => {
-      const projectWorkspaces = activeWorkspaces.filter((entry) => entry.workspace.projectId === project.id);
+      const projectWorkspaces = activeWorkspaces.filter((entry) => (
+        entry.workingFolder.projectId === project.id
+          && (
+            entry.workingFolder.kind === "managed"
+            || threads.some((thread) => (
+              thread.workingFolderId === entry.workingFolder.id && thread.archivedAt === null
+            ))
+          )
+      ));
       return {
         project,
-        workspaces: projectWorkspaces.map((workspace) => railWorkspace(
+        workingFolders: projectWorkspaces.map((workspace) => railWorkspace(
           workspace,
           threads,
           projectWorkspaces.length > 1,
         )),
       };
     })
-    .filter((project) => project.workspaces.length > 0);
+    .filter((project) => project.workingFolders.length > 0);
   const orderedGroups = [...groups]
     .sort((left, right) => left.sortOrder - right.sortOrder)
     .map((group) => ({
@@ -146,9 +161,6 @@ export function buildChatRailModel(
     : null;
   return {
     groups: orderedGroups,
-    standalone: activeWorkspaces
-      .filter((entry) => entry.workspace.projectId === null)
-      .map((workspace) => railWorkspace(workspace, threads, true)),
     retainedThreadId,
   };
 }
@@ -189,15 +201,15 @@ export function nextThreadIndex(currentIndex: number, itemCount: number, directi
 }
 
 function railWorkspace(
-  workspace: ChatWorkspaceRead,
+  workingFolder: ProjectWorkingFolderRead,
   threads: readonly ChatThreadShellRead[],
   showSubdivision: boolean,
 ): ChatRailWorkspace {
   return {
-    workspace,
+    workingFolder,
     showSubdivision,
     threads: threads
-      .filter((thread) => thread.workspaceId === workspace.workspace.id && thread.archivedAt === null)
+      .filter((thread) => thread.workingFolderId === workingFolder.workingFolder.id && thread.archivedAt === null)
       .sort((left, right) => right.lastActivityAt.localeCompare(left.lastActivityAt)),
   };
 }

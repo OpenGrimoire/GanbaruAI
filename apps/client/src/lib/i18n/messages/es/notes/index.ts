@@ -9,6 +9,7 @@ import { database } from "./database";
 import { advancedBlocks } from "./advanced-blocks";
 import { pageActions } from "./page-actions";
 import { diagnostics } from "./diagnostics";
+import { workingMarkdown } from "./working-markdown";
 
 export const notes = {
   ...navigationAndSearch,
@@ -20,4 +21,5 @@ export const notes = {
   ...advancedBlocks,
   ...pageActions,
   ...diagnostics,
+  ...workingMarkdown,
 } as const satisfies MessageShape<typeof enNotes>;

@@ -5,9 +5,9 @@ use crate::chat::events::{
 use crate::chat::ingestion::{ChatChangeEmitter, ChatEventIngestor};
 use crate::chat::models::{
     ActivityStatus, CanonicalItemKind, CanonicalRequestKind, ChatAttachmentId, ChatCheckpointId,
-    ChatCommandId, ChatEventId, ChatThreadId, ChatTurnId, ChatTurnState, ChatWorkspaceId,
-    ContentStreamKind, InteractionMode, ProviderFamilyId, ProviderInstanceId, ProviderRequestId,
-    SafetyMode, TurnModeSnapshot, UtcTimestamp, VersionedJson,
+    ChatCommandId, ChatEventId, ChatThreadId, ChatTurnId, ChatTurnState, ContentStreamKind,
+    InteractionMode, ProjectWorkingFolderId, ProviderFamilyId, ProviderInstanceId,
+    ProviderRequestId, SafetyMode, TurnModeSnapshot, UtcTimestamp, VersionedJson,
 };
 use crate::chat::models::{ChatChangeNotification, ChatError, ChatResult};
 use crate::chat::repository::attachments::{
@@ -18,8 +18,7 @@ use crate::chat::repository::events::{
     append_canonical_event, read_canonical_events, AppendCanonicalEventRequest,
 };
 use crate::chat::repository::lifecycle::{
-    resolve_project_deletion, set_project_chat_archived, set_thread_archived, set_thread_read,
-    LinkedChatDeletionDecision,
+    resolve_project_deletion, set_thread_archived, set_thread_read,
 };
 use crate::chat::repository::reads::{
     parse_timeline_cursor, read_project_shells, read_thread_shells, read_timeline_page,
@@ -31,7 +30,7 @@ use crate::chat::repository::receipts::{
 };
 use crate::chat::repository::recovery::recover_orphaned_turns;
 use crate::chat::repository::workspaces::{create_workspace, list_workspaces, rename_workspace};
-use crate::chat::workspace::CreateChatWorkspaceRequest;
+use crate::chat::workspace::CreateProjectWorkingFolderRequest;
 use sqlx::Row;
 use std::collections::HashSet;
 use std::fs;
@@ -63,10 +62,22 @@ pub(crate) async fn pool_with_thread() -> sqlx::SqlitePool {
         .await
         .unwrap();
     crate::db::run_migrations(&pool).await.unwrap();
+    sqlx::query("INSERT INTO project_groups (id, name) VALUES ('group-chat', 'Chat')")
+        .execute(&pool)
+        .await
+        .unwrap();
     sqlx::query(
-        "INSERT INTO chat_workspaces
-            (id, display_name, repository_kind, created_at, updated_at)
-         VALUES ('workspace-1', 'Standalone', 'none', ?, ?)",
+        "INSERT INTO projects (id, group_id, name) VALUES ('project-chat', 'group-chat', 'Chat')",
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+    sqlx::query(
+        "INSERT INTO project_working_folders
+            (id, project_id, display_name, kind, managed_relative_path,
+             repository_kind, sort_order, created_at, updated_at)
+         VALUES ('workspace-1', 'project-chat', 'Project files', 'managed',
+                 'projects/project-chat', 'none', 0, ?, ?)",
     )
     .bind(NOW)
     .bind(NOW)
@@ -75,10 +86,10 @@ pub(crate) async fn pool_with_thread() -> sqlx::SqlitePool {
     .unwrap();
     sqlx::query(
         "INSERT INTO chat_threads
-            (id, workspace_id, title, provider_family_id, provider_instance_id,
+            (id, project_id, working_folder_id, title, provider_family_id, provider_instance_id,
              continuation_group_id, safety_mode, interaction_mode, state,
              last_activity_at, created_at, updated_at)
-         VALUES ('thread-1', 'workspace-1', 'Chat', 'codex', 'codex-personal',
+         VALUES ('thread-1', 'project-chat', 'workspace-1', 'Chat', 'codex', 'codex-personal',
                  'continuation-1', 'ask_for_approval', 'build', 'idle', ?, ?, ?)",
     )
     .bind(NOW)
@@ -271,10 +282,10 @@ fn command_receipts_reject_cross_thread_and_changed_command_reuse() {
         let pool = pool_with_thread().await;
         sqlx::query(
             "INSERT INTO chat_threads
-                (id, workspace_id, title, provider_family_id, provider_instance_id,
+                (id, project_id, working_folder_id, title, provider_family_id, provider_instance_id,
                  continuation_group_id, safety_mode, interaction_mode, state,
                  last_activity_at, created_at, updated_at)
-             VALUES ('thread-2', 'workspace-1', 'Other', 'codex', 'codex-personal',
+             VALUES ('thread-2', 'project-chat', 'workspace-1', 'Other', 'codex', 'codex-personal',
                      'continuation-1', 'ask_for_approval', 'build', 'idle', ?, ?, ?)",
         )
         .bind(NOW)
@@ -312,8 +323,11 @@ fn shell_search_timeline_and_archive_reads_stay_lightweight() {
             .await
             .unwrap();
         let projects = read_project_shells(&pool).await.unwrap();
-        assert_eq!(projects.len(), 1);
-        assert_eq!(projects[0].active_thread_count, 1);
+        let project = projects
+            .iter()
+            .find(|project| project.project_id == "project-chat")
+            .expect("Chat project shell");
+        assert_eq!(project.active_thread_count, 1);
         let shells = read_thread_shells(&pool, None, false).await.unwrap();
         assert_eq!(shells.len(), 1);
         assert_eq!(shells[0].message_count, 1);
@@ -427,7 +441,7 @@ fn durable_draft_preserves_unknown_json_and_attachment_references() {
         import_attachment(
             &pool,
             &vault_root,
-            &ChatWorkspaceId::new("workspace-1").unwrap(),
+            &ProjectWorkingFolderId::new("workspace-1").unwrap(),
             attachment_id.clone(),
             &source,
             ChatAttachmentKind::TextSnippet,
@@ -437,7 +451,7 @@ fn durable_draft_preserves_unknown_json_and_attachment_references() {
         .unwrap();
         let draft = ChatDraftWrite {
             id: "draft-1".to_string(),
-            workspace_id: ChatWorkspaceId::new("workspace-1").unwrap(),
+            working_folder_id: ProjectWorkingFolderId::new("workspace-1").unwrap(),
             thread_id: Some(ChatThreadId::new("thread-1").unwrap()),
             text: "Keep this".to_string(),
             attachment_ids: vec![attachment_id],
@@ -749,7 +763,7 @@ fn attachment_cleanup_retries_and_never_removes_referenced_files() {
         let imported = import_attachment(
             &pool,
             &vault_root,
-            &ChatWorkspaceId::new("workspace-1").unwrap(),
+            &ProjectWorkingFolderId::new("workspace-1").unwrap(),
             attachment_id.clone(),
             &source,
             ChatAttachmentKind::TextSnippet,
@@ -759,8 +773,9 @@ fn attachment_cleanup_retries_and_never_removes_referenced_files() {
         .unwrap();
         sqlx::query(
             "INSERT INTO chat_cleanup_queue
-                (id, cleanup_kind, exact_target, state, not_before, created_at, updated_at)
-             VALUES ('cleanup-retained', 'attachment_file', ?, 'failed', ?, ?, ?)",
+                (id, cleanup_kind, exact_target, state, not_before, created_at, updated_at,
+                 working_folder_id)
+             VALUES ('cleanup-retained', 'attachment_file', ?, 'failed', ?, ?, ?, 'workspace-1')",
         )
         .bind(&imported.managed_relative_path)
         .bind(NOW)
@@ -771,7 +786,7 @@ fn attachment_cleanup_retries_and_never_removes_referenced_files() {
         .unwrap();
         sqlx::query(
             "INSERT INTO chat_drafts
-                (id, workspace_id, text, mentions_data, updated_at)
+                (id, working_folder_id, text, mentions_data, updated_at)
              VALUES ('draft-retained', 'workspace-1', '', '[]', ?)",
         )
         .bind(NOW)
@@ -811,12 +826,12 @@ fn attachment_cleanup_retries_and_never_removes_referenced_files() {
 }
 
 #[test]
-fn logical_workspace_mutations_are_sqlite_backed_and_revision_checked() {
+fn project_working_folder_mutations_are_sqlite_backed_and_revision_checked() {
     tauri::async_runtime::block_on(async {
         let pool = pool_with_thread().await;
-        let request = CreateChatWorkspaceRequest {
-            id: ChatWorkspaceId::new("workspace-2").unwrap(),
-            project_id: None,
+        let request = CreateProjectWorkingFolderRequest {
+            id: ProjectWorkingFolderId::new("workspace-2").unwrap(),
+            project_id: "project-chat".to_string(),
             display_name: "Second workspace".to_string(),
         };
         let created = create_workspace(&pool, &request, &UtcTimestamp::new(NOW).unwrap())
@@ -833,7 +848,15 @@ fn logical_workspace_mutations_are_sqlite_backed_and_revision_checked() {
         .await
         .unwrap();
         assert_eq!(renamed.revision, 2);
-        assert_eq!(list_workspaces(&pool).await.unwrap().len(), 2);
+        assert_eq!(
+            list_workspaces(&pool)
+                .await
+                .unwrap()
+                .iter()
+                .filter(|folder| folder.project_id == "project-chat")
+                .count(),
+            2
+        );
         assert!(rename_workspace(
             &pool,
             &request.id,
@@ -847,38 +870,13 @@ fn logical_workspace_mutations_are_sqlite_backed_and_revision_checked() {
 }
 
 #[test]
-fn project_archive_preserves_chat_and_deletion_requires_detach_or_delete() {
+fn project_archive_preserves_chat_and_project_deletion_removes_linked_threads() {
     tauri::async_runtime::block_on(async {
         let pool = pool_with_thread().await;
-        sqlx::query("INSERT INTO project_groups (id, name) VALUES ('group-chat', 'Chat')")
+        sqlx::query("UPDATE projects SET status = 'archived' WHERE id = 'project-chat'")
             .execute(&pool)
             .await
             .unwrap();
-        sqlx::query("INSERT INTO projects (id, group_id, name) VALUES ('project-chat', 'group-chat', 'Chat')")
-            .execute(&pool)
-            .await
-            .unwrap();
-        sqlx::query(
-            "UPDATE chat_workspaces SET project_id = 'project-chat' WHERE id = 'workspace-1'",
-        )
-        .execute(&pool)
-        .await
-        .unwrap();
-        sqlx::query("UPDATE chat_threads SET project_id = 'project-chat' WHERE id = 'thread-1'")
-            .execute(&pool)
-            .await
-            .unwrap();
-        assert_eq!(
-            set_project_chat_archived(
-                &pool,
-                "project-chat",
-                true,
-                &UtcTimestamp::new(NOW).unwrap()
-            )
-            .await
-            .unwrap(),
-            1
-        );
         let thread_count: i64 = sqlx::query_scalar(
             "SELECT COUNT(*) FROM chat_threads WHERE project_id = 'project-chat'",
         )
@@ -886,6 +884,13 @@ fn project_archive_preserves_chat_and_deletion_requires_detach_or_delete() {
         .await
         .unwrap();
         assert_eq!(thread_count, 1);
+        let folder_archived_at: Option<String> = sqlx::query_scalar(
+            "SELECT archived_at FROM project_working_folders WHERE id = 'workspace-1'",
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(folder_archived_at, None);
         assert!(
             sqlx::query("DELETE FROM projects WHERE id = 'project-chat'")
                 .execute(&pool)
@@ -896,7 +901,6 @@ fn project_archive_preserves_chat_and_deletion_requires_detach_or_delete() {
             resolve_project_deletion(
                 &pool,
                 "project-chat",
-                LinkedChatDeletionDecision::Detach,
                 &UtcTimestamp::new(NOW).unwrap(),
                 &UtcTimestamp::new(NOW).unwrap(),
             )
@@ -904,12 +908,13 @@ fn project_archive_preserves_chat_and_deletion_requires_detach_or_delete() {
             .unwrap(),
             1
         );
-        let detached: Option<String> =
-            sqlx::query_scalar("SELECT project_id FROM chat_threads WHERE id = 'thread-1'")
-                .fetch_one(&pool)
-                .await
-                .unwrap();
-        assert_eq!(detached, None);
+        let remaining_threads: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM chat_threads WHERE project_id = 'project-chat'",
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(remaining_threads, 0);
         sqlx::query("DELETE FROM projects WHERE id = 'project-chat'")
             .execute(&pool)
             .await

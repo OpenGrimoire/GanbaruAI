@@ -1,6 +1,6 @@
 /**
  * Narrow bridge used by the isolated benchmark harness to drive the mounted
- * Chat workspace through the same store and DOM paths as user interaction.
+ * Project Chat surface through the same store and DOM paths as user interaction.
  */
 export interface ChatBenchmarkMeasurements {
   threadIds(): string[];
@@ -30,12 +30,12 @@ class ChatBenchmarkHandle {
 
   waitUntilUsable(): Promise<void> {
     return this.#measurements?.waitUntilUsable()
-      ?? Promise.reject(new Error("Chat workspace is not mounted"));
+      ?? Promise.reject(new Error("Project Chat is not mounted"));
   }
 
   switchThread(threadId: string): Promise<void> {
     return this.#measurements?.switchThread(threadId)
-      ?? Promise.reject(new Error("Chat workspace is not mounted"));
+      ?? Promise.reject(new Error("Project Chat is not mounted"));
   }
 
   localSearch(query: string): number {
@@ -44,7 +44,7 @@ class ChatBenchmarkHandle {
 
   streamFrames(frameCount: number): Promise<number[]> {
     return this.#measurements?.streamFrames(frameCount)
-      ?? Promise.reject(new Error("Chat workspace is not mounted"));
+      ?? Promise.reject(new Error("Project Chat is not mounted"));
   }
 }
 

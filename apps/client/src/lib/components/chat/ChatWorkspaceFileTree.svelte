@@ -5,7 +5,7 @@
   import Folder from "@lucide/svelte/icons/folder";
   import FolderOpen from "@lucide/svelte/icons/folder-open";
   import LoaderCircle from "@lucide/svelte/icons/loader-circle";
-  import type { ChatWorkspaceFileEntry } from "$lib/chat/contracts";
+  import type { ProjectWorkingFolderFileEntry } from "$lib/chat/contracts";
   import type { ChatFileTreeRow } from "$lib/chat/file-tree-model";
   import { chatVirtualRange } from "$lib/chat/file-tree-model";
   import { getLocalization } from "$lib/i18n/translator.svelte";
@@ -23,8 +23,8 @@
     selectedPath: string | null;
     changedPaths: ReadonlySet<string>;
     loadingPaths: readonly string[];
-    onToggle: (entry: ChatWorkspaceFileEntry) => void;
-    onSelect: (entry: ChatWorkspaceFileEntry) => void;
+    onToggle: (entry: ProjectWorkingFolderFileEntry) => void;
+    onSelect: (entry: ProjectWorkingFolderFileEntry) => void;
   } = $props();
 
   const { t } = getLocalization();

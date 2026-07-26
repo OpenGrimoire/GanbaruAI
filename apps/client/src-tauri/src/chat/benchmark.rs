@@ -266,8 +266,8 @@ async fn clear_previous_fixture(tx: &mut Transaction<'_, Sqlite>) -> Result<(), 
         "DELETE FROM chat_attachment_references WHERE id LIKE 'benchmark-chat-%'",
         "DELETE FROM chat_attachments WHERE id LIKE 'benchmark-chat-%'",
         "DELETE FROM chat_threads WHERE id LIKE 'benchmark-chat-%'",
-        "DELETE FROM chat_workspaces WHERE id LIKE 'benchmark-chat-%'",
         "DELETE FROM projects WHERE id LIKE 'benchmark-chat-%'",
+        "DELETE FROM project_working_folders WHERE id LIKE 'benchmark-chat-%'",
         "DELETE FROM project_groups WHERE id LIKE 'benchmark-chat-%'",
     ] {
         sqlx::query(statement).execute(&mut **tx).await?;
@@ -292,7 +292,7 @@ async fn seed_projects_and_workspaces(tx: &mut Transaction<'_, Sqlite>) -> Resul
 
     for project_index in 0..PROJECT_COUNT {
         let project_id = project_id(project_index);
-        let workspace_id = workspace_id(project_index);
+        let working_folder_id = working_folder_id(project_index);
         let created_at = timestamp(100 + project_index);
         sqlx::query(
             "INSERT INTO projects (id, group_id, name, icon, sort_order, created_at, updated_at)
@@ -307,14 +307,15 @@ async fn seed_projects_and_workspaces(tx: &mut Transaction<'_, Sqlite>) -> Resul
         .execute(&mut **tx)
         .await?;
         sqlx::query(
-            "INSERT INTO chat_workspaces
-                (id, project_id, display_name, repository_kind, repository_identity,
-                 created_at, updated_at)
-             VALUES (?, ?, ?, 'git', ?, ?, ?)",
+            "INSERT INTO project_working_folders
+                (id, project_id, display_name, kind, managed_relative_path,
+                 repository_kind, repository_identity, created_at, updated_at)
+             VALUES (?, ?, ?, 'managed', ?, 'git', ?, ?, ?)",
         )
-        .bind(workspace_id)
-        .bind(project_id)
-        .bind(format!("Workspace {:02}", project_index + 1))
+        .bind(&working_folder_id)
+        .bind(&project_id)
+        .bind(format!("Project files {:02}", project_index + 1))
+        .bind(format!("projects/{project_id}"))
         .bind(format!("benchmark-repository-{project_index:02}"))
         .bind(&created_at)
         .bind(&created_at)
@@ -333,7 +334,7 @@ async fn seed_thread(
     let timestamp = timestamp(1_000 + thread_index);
     sqlx::query(
         "INSERT INTO chat_threads
-            (id, workspace_id, project_id, title, provider_family_id,
+            (id, working_folder_id, project_id, title, provider_family_id,
              provider_instance_id, continuation_group_id, provider_thread_id,
              model_selection_data, safety_mode, interaction_mode, state,
              latest_turn_state, latest_preview, message_count, revision,
@@ -342,7 +343,7 @@ async fn seed_thread(
                  'completed', ?, ?, ?, ?, ?, ?)",
     )
     .bind(thread_id(thread_index))
-    .bind(workspace_id(project_index))
+    .bind(working_folder_id(project_index))
     .bind(project_id(project_index))
     .bind(format!(
         "Dense benchmark conversation {:03}",
@@ -544,14 +545,14 @@ async fn seed_attachments(
     tx: &mut Transaction<'_, Sqlite>,
     thread_index: usize,
 ) -> Result<(), sqlx::Error> {
-    let workspace = workspace_id(thread_index % PROJECT_COUNT);
+    let workspace = working_folder_id(thread_index % PROJECT_COUNT);
     for attachment_index in 0..ATTACHMENTS_PER_THREAD {
         let attachment = attachment_id(thread_index, attachment_index);
         let created_at =
             timestamp(14_000 + thread_index * ATTACHMENTS_PER_THREAD + attachment_index);
         sqlx::query(
             "INSERT INTO chat_attachments
-                (id, workspace_id, kind, original_display_name, mime_type, byte_size,
+                (id, working_folder_id, kind, original_display_name, mime_type, byte_size,
                  sha256, managed_relative_path, signature_kind, created_at)
              VALUES (?, ?, 'text_snippet', ?, 'text/plain', ?, ?, ?, 'utf8-text', ?)",
         )
@@ -696,7 +697,7 @@ fn group_id(index: usize) -> String {
 fn project_id(index: usize) -> String {
     format!("{FIXTURE_PREFIX}project-{index:02}")
 }
-fn workspace_id(index: usize) -> String {
+fn working_folder_id(index: usize) -> String {
     format!("{FIXTURE_PREFIX}workspace-{index:02}")
 }
 fn thread_id(index: usize) -> String {

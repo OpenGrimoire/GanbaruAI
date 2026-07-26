@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
-import type { ChatWorkspaceFileEntry } from "./contracts";
+import type { ProjectWorkingFolderFileEntry } from "./contracts";
 import { chatVirtualRange, flattenChatFileTree } from "./file-tree-model";
 
-function entry(relativePath: string, kind: "file" | "directory"): ChatWorkspaceFileEntry {
+function entry(relativePath: string, kind: "file" | "directory"): ProjectWorkingFolderFileEntry {
   return {
     relativePath,
     displayName: relativePath.split("/").at(-1) ?? relativePath,

@@ -15,7 +15,7 @@
   import Square from "@lucide/svelte/icons/square";
   import X from "@lucide/svelte/icons/x";
   import * as chatApi from "$lib/api/chat";
-  import type { ChatPromptCatalogEntry, ChatWorkspacePathRead, ProviderCapabilities, SafetyMode } from "$lib/chat/contracts";
+  import type { ChatPromptCatalogEntry, ProjectWorkingFolderPathRead, ProviderCapabilities, SafetyMode } from "$lib/chat/contracts";
   import {
     autosizeComposerHeight,
     composerActionState,
@@ -33,6 +33,7 @@
   import { formatNumber } from "$lib/i18n/formatters";
   import { getLocalization } from "$lib/i18n/translator.svelte";
   import { getChat } from "$lib/stores/chat.svelte";
+  import { getProjects } from "$lib/stores/projects.svelte";
   import ChatAccessControl from "./ChatAccessControl.svelte";
   import ChatModelControls from "./ChatModelControls.svelte";
   import ChatRequestPanel from "./ChatRequestPanel.svelte";
@@ -41,11 +42,12 @@
   const localization = getLocalization();
   const { t } = localization;
   const chat = getChat();
+  const projects = getProjects();
   let textarea: HTMLTextAreaElement | undefined = $state();
   let textareaFocused = false;
   let fileInput: HTMLInputElement | undefined = $state();
   let attachmentMenu: HTMLDetailsElement | undefined = $state();
-  let menuEntries = $state<(ChatWorkspacePathRead | ChatPromptCatalogEntry)[]>([]);
+  let menuEntries = $state<(ProjectWorkingFolderPathRead | ChatPromptCatalogEntry)[]>([]);
   let menuKind = $state<"mention" | "skill" | "command" | null>(null);
   let menuIndex = $state(0);
   let menuLoading = $state(false);
@@ -73,6 +75,13 @@
     .find((turn) => turn.turnId === chat.interaction?.activeTurnId) ?? null);
   const meter = $derived(contextMeter(latestUsage?.contextTokens ?? null, latestUsage?.contextLimit ?? null));
   const previewAttachment = $derived(chat.composerAttachments.find((attachment) => attachment.id === previewAttachmentId) ?? null);
+  const projectArchived = $derived(projects.selectedProject?.status === "archived");
+  const workingFolderUnavailable = $derived(
+    chat.selectedWorkingFolder === null
+      || chat.selectedWorkingFolder.workingFolder.archivedAt !== null
+      || chat.selectedWorkingFolder.bindingStatus !== "available",
+  );
+  const sendingBlocked = $derived(projectArchived || workingFolderUnavailable);
 
   onMount(() => {
     const stop = () => void stopTurn();
@@ -151,7 +160,7 @@
 
   async function updateMenu(text: string, cursor: number): Promise<void> {
     const trigger = composerTokenTrigger(text, cursor);
-    if (!trigger || !chat.composer.workspaceId || !chat.composer.providerInstanceId) {
+    if (!trigger || !chat.composer.workingFolderId || !chat.composer.providerInstanceId) {
       closeMenu();
       return;
     }
@@ -161,7 +170,7 @@
     menuIndex = 0;
     try {
       if (trigger.kind === "mention") {
-        const page = await chatApi.searchChatWorkspacePaths(chat.composer.workspaceId, trigger.query, includeIgnored);
+        const page = await chatApi.searchChatWorkingFolderPaths(chat.composer.workingFolderId, trigger.query, includeIgnored);
         if (request !== menuRequest) return;
         menuEntries = page.entries;
         menuCursor = page.nextCursor;
@@ -182,10 +191,10 @@
   }
 
   async function loadMoreMentions(): Promise<void> {
-    if (!menuCursor || !chat.composer.workspaceId || !textarea) return;
+    if (!menuCursor || !chat.composer.workingFolderId || !textarea) return;
     const trigger = composerTokenTrigger(textarea.value, textarea.selectionStart);
     if (!trigger) return;
-    const page = await chatApi.searchChatWorkspacePaths(chat.composer.workspaceId, trigger.query, includeIgnored, menuCursor);
+    const page = await chatApi.searchChatWorkingFolderPaths(chat.composer.workingFolderId, trigger.query, includeIgnored, menuCursor);
     menuEntries = [...menuEntries, ...page.entries];
     menuCursor = page.nextCursor;
   }
@@ -242,6 +251,14 @@
   }
 
   async function performComposerAction(): Promise<void> {
+    if (projectArchived) {
+      operationError = t("chat.composer.archivedProject");
+      return;
+    }
+    if (workingFolderUnavailable) {
+      operationError = t("chat.composer.workingFolderUnavailable");
+      return;
+    }
     if (sending || action.primary === "stopping" || action.primary === "resolve_request") return;
     if (action.primary === "stop") {
       if (action.followup === "steer") await run(() => chat.steerComposer());
@@ -258,9 +275,9 @@
   }
 
   async function send(): Promise<void> {
-    const workspaceId = chat.composer.workspaceId;
+    const workingFolderId = chat.composer.workingFolderId;
     const providerId = chat.composer.providerInstanceId;
-    const trusted = workspaceId && providerId ? await chatApi.hasChatFullAccessTrust(providerId, workspaceId) : false;
+    const trusted = workingFolderId && providerId ? await chatApi.hasChatFullAccessTrust(providerId, workingFolderId) : false;
     const model = chat.composer.modelSelection?.value;
     const modelId = typeof model === "object" && model !== null && !Array.isArray(model) && typeof model.modelId === "string" ? model.modelId : null;
     const providerManagedModel = typeof model === "object" && model !== null && !Array.isArray(model) && model.providerManaged === true;
@@ -269,7 +286,7 @@
       chat.setComposerModes(chat.composer.safetyMode, interactionMode);
     }
     const errors = validateComposerSelections({
-      workspaceId,
+      workingFolderId,
       providerInstanceId: providerId,
       modelId,
       providerManagedModel,
@@ -422,10 +439,12 @@
   {#if chat.interaction?.queuedFollowup}<div class="queued-row"><div><strong>{t("chat.composer.queued")}</strong><p>{chat.interaction.queuedFollowup.text}</p></div><button type="button" onclick={() => void chat.editQueuedFollowup()}>{t("chat.composer.editQueued")}</button><button type="button" onclick={() => void chat.cancelQueuedFollowup()}>{t("chat.composer.cancelQueued")}</button></div>{/if}
   {#if chat.sendError}<div role="alert" class="recovery-row"><strong>{t("chat.composer.launchFailed")}</strong><span>{chat.sendError}</span><button type="button" onclick={() => void run(() => chat.retryFailedSend())}>{t("chat.timeline.retry")}</button><button type="button" onclick={() => void chat.editFailedSend()}>{t("chat.composer.editDraft")}</button><button type="button" onclick={() => void chat.changeProviderAfterFailure()}>{t("chat.composer.changeProvider")}</button></div>{/if}
   {#if activeTurn}<p class="active-turn-modes">{t("chat.composer.activeTurnModes", permissionModeLabel(activeTurn.modes.safetyMode), activeTurn.modes.interactionMode === "plan" ? t("chat.hero.plan") : t("chat.hero.build"))}</p>{/if}
+  {#if projectArchived}<div role="status" class="recovery-row"><strong>{t("chat.firstUse.archivedProjectTitle")}</strong><span>{t("chat.composer.archivedProject")}</span></div>{/if}
+  {#if workingFolderUnavailable}<div role="status" class="recovery-row"><strong>{t("chat.firstUse.missingBindingTitle")}</strong><span>{t("chat.composer.workingFolderUnavailable")}</span></div>{/if}
   {#if chat.composerAttachments.length > 0}<div class="attachment-grid">{#each chat.composerAttachments as attachment}<article><button type="button" class="attachment-preview" aria-label={t("chat.composer.previewAttachment", attachment.originalDisplayName)} onclick={() => void openPreview(attachment.id)}>{#if thumbnailUrls[attachment.id]}<img src={thumbnailUrls[attachment.id]} alt={attachment.originalDisplayName} />{:else}<LoaderCircle size={16} class="animate-spin" />{/if}</button><span title={attachment.originalDisplayName}>{attachment.originalDisplayName}</span><button type="button" aria-label={t("chat.composer.removeAttachment", attachment.originalDisplayName)} onclick={() => chat.removeComposerAttachment(attachment.id)}><X size={12} /></button></article>{/each}</div>{/if}
   {#if chat.composer.mentions.length > 0}<div class="mention-chips">{#each chat.composer.mentions as mention}<span title={mention.relativePath}><AtSign size={11} />{mention.relativePath}{#if mention.ignored}<small>{t("chat.composer.ignored")}</small>{/if}<button type="button" aria-label={t("chat.composer.removeAttachment", mention.relativePath)} onclick={() => chat.setComposerMentions(chat.composer.mentions.filter((entry) => entry.relativePath !== mention.relativePath))}><X size={10} /></button></span>{/each}</div>{/if}
   <div class="editor-shell">
-    <textarea bind:this={textarea} data-chat-composer value={chat.composer.text} placeholder={action.primary === "stop" ? t("chat.composer.placeholderWorking") : t("chat.composer.placeholder")} disabled={chat.selectedThread?.archivedAt !== null && chat.selectedThread !== null} aria-label={t("chat.composer.placeholder")} onfocus={() => { textareaFocused = true; restoreComposerFocus = true; }} onblur={(event) => { const target = event.currentTarget; queueMicrotask(() => { if (target.isConnected) { textareaFocused = false; restoreComposerFocus = false; } }); }} onselect={(event) => rememberSelection(event.currentTarget)} onkeyup={(event) => rememberSelection(event.currentTarget)} oninput={handleInput} onkeydown={handleKeydown} onpaste={handlePaste}></textarea>
+    <textarea bind:this={textarea} data-chat-composer value={chat.composer.text} placeholder={action.primary === "stop" ? t("chat.composer.placeholderWorking") : t("chat.composer.placeholder")} disabled={sendingBlocked || (chat.selectedThread?.archivedAt !== null && chat.selectedThread !== null)} aria-label={t("chat.composer.placeholder")} onfocus={() => { textareaFocused = true; restoreComposerFocus = true; }} onblur={(event) => { const target = event.currentTarget; queueMicrotask(() => { if (target.isConnected) { textareaFocused = false; restoreComposerFocus = false; } }); }} onselect={(event) => rememberSelection(event.currentTarget)} onkeyup={(event) => rememberSelection(event.currentTarget)} oninput={handleInput} onkeydown={handleKeydown} onpaste={handlePaste}></textarea>
     {#if menuKind}<div class="composer-menu" role="listbox" aria-label={menuKind === "mention" ? t("chat.composer.mentionFiles") : menuKind === "skill" ? "$ skills" : "/ commands"}>{#if menuKind === "mention"}<label><input type="checkbox" bind:checked={includeIgnored} onchange={() => textarea && void updateMenu(textarea.value, textarea.selectionStart)} />{t("chat.composer.showIgnored")}</label>{/if}{#if menuLoading}<p><LoaderCircle size={13} class="animate-spin" />{t("common.loading")}</p>{:else if menuEntries.length === 0}<p>{t("chat.composer.noMatches")}</p>{:else}{#each menuEntries as entry, index}<button type="button" class:selected={index === menuIndex} role="option" aria-selected={index === menuIndex} onclick={() => chooseMenuEntry(index)}>{#if "relativePath" in entry}<strong>{entry.displayName}</strong><small>{entry.relativePath}{#if entry.ignored} · {t("chat.composer.ignored")}{/if}</small>{:else}<strong>{entry.value} · {entry.label}</strong>{#if entry.description}<small>{entry.description}</small>{/if}{#if entry.stale}<small>{t("chat.composer.staleEntry")}</small>{/if}{/if}</button>{/each}{#if menuCursor}<button type="button" onclick={() => void loadMoreMentions()}>{t("chat.composer.loadMore")}</button>{/if}{/if}</div>{/if}
     <div class="composer-toolbar">
       <div class="toolbar-left">
@@ -449,7 +468,7 @@
         </span>
         <ChatModelControls />
         {#if forceStopAvailable}<button type="button" class="force-stop" title={t("chat.composer.forceStopDescription")} onclick={() => void run(() => chat.stop(true))}>{t("chat.composer.forceStop")}</button>{/if}
-        {#if action.primary !== "resolve_request"}<button type="button" class="primary-action" disabled={sending || action.primary === "stopping" || (action.primary === "send" && !action.sendEnabled)} aria-label={action.primary === "stop" ? t("chat.composer.stop") : t("chat.composer.send")} title={action.primary === "stop" ? t("chat.composer.stop") : t("chat.composer.send")} onclick={() => void performPrimaryAction()}>{#if sending}<LoaderCircle size={15} class="animate-spin" />{:else if action.primary === "stop"}<Square size={13} />{:else if action.primary === "stopping"}<LoaderCircle size={15} class="animate-spin" />{:else}<ArrowUp size={16} />{/if}</button>{/if}
+        {#if action.primary !== "resolve_request"}<button type="button" class="primary-action" disabled={sendingBlocked || sending || action.primary === "stopping" || (action.primary === "send" && !action.sendEnabled)} aria-label={action.primary === "stop" ? t("chat.composer.stop") : t("chat.composer.send")} title={action.primary === "stop" ? t("chat.composer.stop") : t("chat.composer.send")} onclick={() => void performPrimaryAction()}>{#if sending}<LoaderCircle size={15} class="animate-spin" />{:else if action.primary === "stop"}<Square size={13} />{:else if action.primary === "stopping"}<LoaderCircle size={15} class="animate-spin" />{:else}<ArrowUp size={16} />{/if}</button>{/if}
       </div>
     </div>
   </div>

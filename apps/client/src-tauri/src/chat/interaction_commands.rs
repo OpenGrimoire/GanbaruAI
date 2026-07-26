@@ -6,7 +6,7 @@ use super::events::{
 };
 use super::models::{
     ChatAttachmentId, ChatCommandContext, ChatCommandId, ChatError, ChatErrorCode, ChatResult,
-    ChatThreadId, ChatWorkspaceId, DriverOperationReceipt, InterruptTurnRequest,
+    ChatThreadId, DriverOperationReceipt, InterruptTurnRequest, ProjectWorkingFolderId,
     ProviderCapabilities, ProviderInstanceId, ProviderSessionState, UtcTimestamp, VersionedJson,
 };
 use super::repository::receipts::{
@@ -16,8 +16,9 @@ use super::repository::receipts::{
 use super::repository::{attachments, workspaces};
 use super::runtime::ChatRuntimeRegistry;
 use super::workspace::{
-    authorize_workspace, resolve_workspace_relative_path, WorkspaceAuthorizationOperation,
+    authorize_workspace, resolve_workspace_relative_path, WorkingFolderAuthorizationOperation,
 };
+use crate::projects::working_folders::read_active_working_folder_scope;
 use crate::{db_path, vault};
 use base64::{engine::general_purpose, Engine as _};
 use chrono::{SecondsFormat, Utc};
@@ -41,7 +42,7 @@ const MAX_PATH_SCAN: usize = 20_000;
 #[serde(rename_all = "camelCase")]
 pub struct ImportChatImageRequest {
     pub attachment_id: ChatAttachmentId,
-    pub workspace_id: ChatWorkspaceId,
+    pub working_folder_id: ProjectWorkingFolderId,
     pub display_name: String,
     pub bytes: Vec<u8>,
 }
@@ -49,7 +50,7 @@ pub struct ImportChatImageRequest {
 #[derive(Clone, Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PickChatImagesRequest {
-    pub workspace_id: ChatWorkspaceId,
+    pub working_folder_id: ProjectWorkingFolderId,
     pub attachment_ids: Vec<ChatAttachmentId>,
     pub title: String,
 }
@@ -57,7 +58,7 @@ pub struct PickChatImagesRequest {
 #[derive(Clone, Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ImportChatTextSnippetRequest {
-    pub workspace_id: ChatWorkspaceId,
+    pub working_folder_id: ProjectWorkingFolderId,
     pub attachment_id: ChatAttachmentId,
     pub display_name: String,
     pub text: String,
@@ -65,7 +66,7 @@ pub struct ImportChatTextSnippetRequest {
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct ChatWorkspacePathRead {
+pub struct ProjectWorkingFolderPathRead {
     pub relative_path: String,
     pub display_name: String,
     pub kind: String,
@@ -74,8 +75,8 @@ pub struct ChatWorkspacePathRead {
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct ChatWorkspacePathPage {
-    pub entries: Vec<ChatWorkspacePathRead>,
+pub struct ProjectWorkingFolderPathPage {
+    pub entries: Vec<ProjectWorkingFolderPathRead>,
     pub next_cursor: Option<String>,
 }
 
@@ -169,8 +170,8 @@ pub async fn chat_import_image(
     require_workspace(
         &app,
         &pool,
-        &request.workspace_id,
-        WorkspaceAuthorizationOperation::FileRead,
+        &request.working_folder_id,
+        WorkingFolderAuthorizationOperation::FileRead,
     )
     .await?;
     let vault_root = vault::active_vault_path(&app).map_err(vault_error)?;
@@ -179,7 +180,7 @@ pub async fn chat_import_image(
         &pool,
         &vault_root,
         attachments::AttachmentBytesImport {
-            workspace_id: &request.workspace_id,
+            working_folder_id: &request.working_folder_id,
             attachment_id: request.attachment_id,
             display_name: request.display_name,
             bytes: &request.bytes,
@@ -239,8 +240,8 @@ pub async fn chat_pick_images(
     require_workspace(
         &app,
         &pool,
-        &request.workspace_id,
-        WorkspaceAuthorizationOperation::FileRead,
+        &request.working_folder_id,
+        WorkingFolderAuthorizationOperation::FileRead,
     )
     .await?;
     let vault_root = vault::active_vault_path(&app).map_err(vault_error)?;
@@ -272,7 +273,7 @@ pub async fn chat_pick_images(
             attachments::import_attachment(
                 &pool,
                 &vault_root,
-                &request.workspace_id,
+                &request.working_folder_id,
                 attachment_id,
                 &path,
                 attachments::ChatAttachmentKind::Image,
@@ -321,7 +322,7 @@ pub async fn chat_attachment_data_url(
 pub async fn chat_read_attachments(
     app: tauri::AppHandle,
     db_url: String,
-    workspace_id: ChatWorkspaceId,
+    working_folder_id: ProjectWorkingFolderId,
     attachment_ids: Vec<ChatAttachmentId>,
 ) -> ChatResult<Vec<attachments::ChatAttachmentRead>> {
     if attachment_ids.len() > 20 {
@@ -342,7 +343,7 @@ pub async fn chat_read_attachments(
                     true,
                 )
             })?;
-        if attachment.workspace_id != workspace_id {
+        if attachment.working_folder_id != working_folder_id {
             return Err(ChatError::new(
                 ChatErrorCode::Permission,
                 "Chat attachment belongs to another workspace",
@@ -370,8 +371,8 @@ pub async fn chat_import_text_snippet(
     require_workspace(
         &app,
         &pool,
-        &request.workspace_id,
-        WorkspaceAuthorizationOperation::FileRead,
+        &request.working_folder_id,
+        WorkingFolderAuthorizationOperation::FileRead,
     )
     .await?;
     let now = now_timestamp()?;
@@ -379,7 +380,7 @@ pub async fn chat_import_text_snippet(
         &pool,
         &vault::active_vault_path(&app).map_err(vault_error)?,
         attachments::AttachmentBytesImport {
-            workspace_id: &request.workspace_id,
+            working_folder_id: &request.working_folder_id,
             attachment_id: request.attachment_id,
             display_name: request.display_name,
             bytes: request.text.as_bytes(),
@@ -391,21 +392,21 @@ pub async fn chat_import_text_snippet(
 }
 
 #[tauri::command]
-pub async fn chat_search_workspace_paths(
+pub async fn chat_search_working_folder_paths(
     app: tauri::AppHandle,
     db_url: String,
-    workspace_id: ChatWorkspaceId,
+    working_folder_id: ProjectWorkingFolderId,
     query: String,
     include_ignored: bool,
     cursor: Option<String>,
     limit: u32,
-) -> ChatResult<ChatWorkspacePathPage> {
+) -> ChatResult<ProjectWorkingFolderPathPage> {
     let pool = chat_pool(app.clone(), db_url).await?;
     let authorized = require_workspace(
         &app,
         &pool,
-        &workspace_id,
-        WorkspaceAuthorizationOperation::MentionResolution,
+        &working_folder_id,
+        WorkingFolderAuthorizationOperation::MentionResolution,
     )
     .await?;
     let query = query.trim().to_lowercase();
@@ -431,17 +432,17 @@ pub async fn chat_search_workspace_paths(
         .take(page_size + 1)
         .collect::<Vec<_>>();
     let has_more = page.len() > page_size;
-    Ok(ChatWorkspacePathPage {
+    Ok(ProjectWorkingFolderPathPage {
         entries: page.into_iter().take(page_size).collect(),
         next_cursor: has_more.then(|| (offset + page_size).to_string()),
     })
 }
 
 #[tauri::command]
-pub async fn chat_validate_workspace_mentions(
+pub async fn chat_validate_working_folder_mentions(
     app: tauri::AppHandle,
     db_url: String,
-    workspace_id: ChatWorkspaceId,
+    working_folder_id: ProjectWorkingFolderId,
     relative_paths: Vec<String>,
 ) -> ChatResult<()> {
     if relative_paths.len() > 100 {
@@ -454,8 +455,8 @@ pub async fn chat_validate_workspace_mentions(
     let authorized = require_workspace(
         &app,
         &pool,
-        &workspace_id,
-        WorkspaceAuthorizationOperation::MentionResolution,
+        &working_folder_id,
+        WorkingFolderAuthorizationOperation::MentionResolution,
     )
     .await?;
     for path in relative_paths {
@@ -544,7 +545,7 @@ pub async fn chat_read_interaction_state(
 pub fn chat_set_full_access_trust(
     app: tauri::AppHandle,
     provider_instance_id: ProviderInstanceId,
-    workspace_id: ChatWorkspaceId,
+    working_folder_id: ProjectWorkingFolderId,
     trusted: bool,
 ) -> ChatResult<bool> {
     let timestamp = now_timestamp()?;
@@ -552,7 +553,7 @@ pub fn chat_set_full_access_trust(
         super::device_state::set_full_access_trust(
             scope,
             provider_instance_id,
-            workspace_id,
+            working_folder_id,
             trusted.then_some(timestamp),
         );
         Ok(())
@@ -565,13 +566,13 @@ pub fn chat_set_full_access_trust(
 pub fn chat_has_full_access_trust(
     app: tauri::AppHandle,
     provider_instance_id: ProviderInstanceId,
-    workspace_id: ChatWorkspaceId,
+    working_folder_id: ProjectWorkingFolderId,
 ) -> ChatResult<bool> {
     let scope = read_active_device_scope(&app).map_err(device_state_error)?;
     Ok(super::device_state::full_access_is_trusted(
         &scope,
         &provider_instance_id,
-        &workspace_id,
+        &working_folder_id,
     ))
 }
 
@@ -615,7 +616,7 @@ pub async fn chat_save_queued_followup(
     }
     let pool = chat_pool(app, db_url).await?;
     let thread = sqlx::query(
-        "SELECT workspace_id, provider_instance_id FROM chat_threads
+        "SELECT working_folder_id, provider_instance_id FROM chat_threads
          WHERE id = ? AND archived_at IS NULL",
     )
     .bind(request.thread_id.as_str())
@@ -623,7 +624,9 @@ pub async fn chat_save_queued_followup(
     .await
     .map_err(persistence_error)?
     .ok_or_else(|| ChatError::new(ChatErrorCode::NotFound, "Chat thread was not found", true))?;
-    let workspace_id: String = thread.try_get("workspace_id").map_err(persistence_error)?;
+    let working_folder_id: String = thread
+        .try_get("working_folder_id")
+        .map_err(persistence_error)?;
     let pinned_provider: String = thread
         .try_get("provider_instance_id")
         .map_err(persistence_error)?;
@@ -645,7 +648,7 @@ pub async fn chat_save_queued_followup(
                     true,
                 )
             })?;
-        if attachment.workspace_id.as_str() != workspace_id {
+        if attachment.working_folder_id.as_str() != working_folder_id {
             return Err(ChatError::new(
                 ChatErrorCode::Permission,
                 "Queued attachment belongs to another workspace",
@@ -947,11 +950,11 @@ pub async fn chat_stop_session(
 async fn require_workspace(
     app: &tauri::AppHandle,
     pool: &SqlitePool,
-    workspace_id: &ChatWorkspaceId,
-    operation: WorkspaceAuthorizationOperation,
-) -> ChatResult<super::workspace::AuthorizedWorkspace> {
-    let workspace = workspaces::read_workspace(pool, workspace_id).await?;
-    let scope = read_active_device_scope(app).map_err(device_state_error)?;
+    working_folder_id: &ProjectWorkingFolderId,
+    operation: WorkingFolderAuthorizationOperation,
+) -> ChatResult<super::workspace::AuthorizedWorkingFolder> {
+    let workspace = workspaces::read_workspace(pool, working_folder_id).await?;
+    let scope = read_active_working_folder_scope(app).map_err(device_state_error)?;
     authorize_workspace(&workspace, &scope, operation)
 }
 
@@ -1139,7 +1142,7 @@ fn scan_paths(
     root: &Path,
     include_ignored: bool,
     visible: &BTreeSet<String>,
-) -> ChatResult<Vec<ChatWorkspacePathRead>> {
+) -> ChatResult<Vec<ProjectWorkingFolderPathRead>> {
     let mut result = Vec::new();
     let mut pending = vec![root.to_path_buf()];
     while let Some(directory) = pending.pop() {
@@ -1173,7 +1176,7 @@ fn scan_paths(
                     !visible.contains(&relative)
                 };
             if include_ignored || !ignored {
-                result.push(ChatWorkspacePathRead {
+                result.push(ProjectWorkingFolderPathRead {
                     display_name: entry.file_name().to_string_lossy().into_owned(),
                     relative_path: relative,
                     kind: if file_type.is_dir() {
@@ -1526,7 +1529,7 @@ fn attachment_io_error<T>(_error: T) -> ChatError {
 fn workspace_io_error<T>(_error: T) -> ChatError {
     ChatError::new(
         ChatErrorCode::Permission,
-        "Chat workspace paths could not be read",
+        "Project working-folder paths could not be read",
         true,
     )
 }

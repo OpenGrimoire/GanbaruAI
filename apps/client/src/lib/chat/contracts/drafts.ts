@@ -1,7 +1,7 @@
 import type {
   ChatAttachmentId,
   ChatThreadId,
-  ChatWorkspaceId,
+  ProjectWorkingFolderId,
   InteractionMode,
   ProviderInstanceId,
   SafetyMode,
@@ -31,7 +31,7 @@ export interface ChatSentDraftSnapshot {
 
 export interface ChatDraftRead {
   id: string;
-  workspaceId: ChatWorkspaceId;
+  workingFolderId: ProjectWorkingFolderId;
   threadId: ChatThreadId | null;
   text: string;
   attachmentIds: ChatAttachmentId[];

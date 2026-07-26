@@ -1,8 +1,8 @@
 //! Durable commands for the Chat composer draft.
 
 use super::models::{
-    ChatAttachmentId, ChatError, ChatErrorCode, ChatResult, ChatThreadId, ChatWorkspaceId,
-    InteractionMode, ProviderInstanceId, SafetyMode, UtcTimestamp, VersionedJson,
+    ChatAttachmentId, ChatError, ChatErrorCode, ChatResult, ChatThreadId, InteractionMode,
+    ProjectWorkingFolderId, ProviderInstanceId, SafetyMode, UtcTimestamp, VersionedJson,
 };
 use super::repository::drafts::{self, ChatDraftRead, ChatDraftWrite};
 use crate::db_path;
@@ -14,7 +14,7 @@ use sqlx::SqlitePool;
 #[serde(rename_all = "camelCase")]
 pub struct SaveChatDraftRequest {
     id: String,
-    workspace_id: ChatWorkspaceId,
+    working_folder_id: ProjectWorkingFolderId,
     thread_id: Option<ChatThreadId>,
     text: String,
     attachment_ids: Vec<ChatAttachmentId>,
@@ -34,7 +34,7 @@ pub async fn chat_save_draft(
 ) -> ChatResult<ChatDraftRead> {
     let draft = ChatDraftWrite {
         id: draft.id,
-        workspace_id: draft.workspace_id,
+        working_folder_id: draft.working_folder_id,
         thread_id: draft.thread_id,
         text: draft.text,
         attachment_ids: draft.attachment_ids,

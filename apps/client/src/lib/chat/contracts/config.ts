@@ -1,5 +1,5 @@
 import type {
-  ChatWorkspaceId,
+  ProjectWorkingFolderId,
   CredentialReferenceId,
   InteractionMode,
   JsonValue,
@@ -32,7 +32,7 @@ export interface ChatPortableProviderConfig {
 }
 
 export interface RememberedComposerSelection {
-  workspaceId: ChatWorkspaceId;
+  workingFolderId: ProjectWorkingFolderId;
   providerInstanceId: ProviderInstanceId;
   modelId: ModelId | null;
   providerManagedModel: boolean;
@@ -61,7 +61,7 @@ export interface ChatVaultConfig {
   providers: ChatPortableProviderConfig[];
   automaticProviderSetupDisabled: ProviderFamilyId[];
   rememberedSelections: RememberedComposerSelection[];
-  workspaceProviderPreferences: Record<ChatWorkspaceId, ProviderInstanceId>;
+  workingFolderProviderPreferences: Record<ProjectWorkingFolderId, ProviderInstanceId>;
   panels: ChatPanelPreferences;
   behavior: ChatBehaviorPreferences;
   [unknownField: string]: JsonValue | unknown;

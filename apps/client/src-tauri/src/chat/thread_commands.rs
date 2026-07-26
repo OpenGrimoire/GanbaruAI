@@ -2,7 +2,7 @@
 
 use super::models::{
     ChatError, ChatErrorCode, ChatResult, ChatThreadId, ChatThreadShellRead, ChatTimelinePageRead,
-    ChatWorkspaceId, UtcTimestamp,
+    ProjectWorkingFolderId, UtcTimestamp,
 };
 use super::repository::{lifecycle, reads};
 use crate::db_path;
@@ -26,12 +26,12 @@ pub async fn chat_list_project_shells(
 pub async fn chat_list_threads(
     app: tauri::AppHandle,
     db_url: String,
-    workspace_id: Option<ChatWorkspaceId>,
+    working_folder_id: Option<ProjectWorkingFolderId>,
     archived: bool,
 ) -> ChatResult<Vec<ChatThreadShellRead>> {
     reads::read_thread_shells(
         &chat_pool(app, db_url).await?,
-        workspace_id.as_ref(),
+        working_folder_id.as_ref(),
         archived,
     )
     .await

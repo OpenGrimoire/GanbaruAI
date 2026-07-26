@@ -1,8 +1,8 @@
 //! Validated nonsecret Chat preferences stored in the active vault config.
 
 use super::models::{
-    ChatError, ChatResult, ChatWorkspaceId, CredentialReferenceId, InteractionMode, ModelId,
-    ModelOptionSelection, ProviderFamilyId, ProviderInstanceId, SafetyMode, VersionedJson,
+    ChatError, ChatResult, CredentialReferenceId, InteractionMode, ModelId, ModelOptionSelection,
+    ProjectWorkingFolderId, ProviderFamilyId, ProviderInstanceId, SafetyMode, VersionedJson,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -86,7 +86,7 @@ pub struct ChatPortableProviderConfig {
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RememberedComposerSelection {
-    pub workspace_id: ChatWorkspaceId,
+    pub working_folder_id: ProjectWorkingFolderId,
     pub provider_instance_id: ProviderInstanceId,
     pub model_id: Option<ModelId>,
     #[serde(default)]
@@ -160,7 +160,7 @@ pub struct ChatVaultConfig {
     #[serde(default)]
     pub remembered_selections: Vec<RememberedComposerSelection>,
     #[serde(default)]
-    pub workspace_provider_preferences: BTreeMap<ChatWorkspaceId, ProviderInstanceId>,
+    pub working_folder_provider_preferences: BTreeMap<ProjectWorkingFolderId, ProviderInstanceId>,
     #[serde(default)]
     pub panels: ChatPanelPreferences,
     #[serde(default)]
@@ -176,7 +176,7 @@ impl Default for ChatVaultConfig {
             providers: Vec::new(),
             automatic_provider_setup_disabled: BTreeSet::new(),
             remembered_selections: Vec::new(),
-            workspace_provider_preferences: BTreeMap::new(),
+            working_folder_provider_preferences: BTreeMap::new(),
             panels: ChatPanelPreferences::default(),
             behavior: ChatBehaviorPreferences::default(),
             unknown_fields: BTreeMap::new(),
@@ -230,11 +230,11 @@ impl ChatVaultConfig {
                 ));
             }
         }
-        for provider_id in self.workspace_provider_preferences.values() {
+        for provider_id in self.working_folder_provider_preferences.values() {
             if !instance_ids.contains(provider_id.as_str()) {
                 return Err(ChatError::validation(
-                    "chat.workspaceProviderPreferences",
-                    "workspace provider preference references an unknown provider instance",
+                    "chat.workingFolderProviderPreferences",
+                    "working-folder provider preference references an unknown provider instance",
                 ));
             }
         }

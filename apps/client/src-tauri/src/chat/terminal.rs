@@ -1,6 +1,6 @@
 //! Runtime-only pseudoterminal sessions with bounded replay.
 
-use super::models::{ChatError, ChatErrorCode, ChatResult, ChatThreadId, ChatWorkspaceId};
+use super::models::{ChatError, ChatErrorCode, ChatResult, ChatThreadId, ProjectWorkingFolderId};
 use base64::{engine::general_purpose, Engine as _};
 use portable_pty::{native_pty_system, ChildKiller, CommandBuilder, MasterPty, PtySize};
 use serde::Serialize;
@@ -27,7 +27,7 @@ const MAX_INPUT_BYTES: usize = 1024 * 1024;
 pub struct ChatTerminalRead {
     pub id: String,
     pub thread_id: ChatThreadId,
-    pub workspace_id: ChatWorkspaceId,
+    pub working_folder_id: ProjectWorkingFolderId,
     pub name: String,
     pub shell: String,
     pub columns: u16,
@@ -65,7 +65,7 @@ pub struct ChatTerminalCloseResult {
 pub(crate) struct ChatTerminalCreateInput {
     pub terminal_id: String,
     pub thread_id: ChatThreadId,
-    pub workspace_id: ChatWorkspaceId,
+    pub working_folder_id: ProjectWorkingFolderId,
     pub workspace_path: PathBuf,
     pub columns: u16,
     pub rows: u16,
@@ -74,7 +74,7 @@ pub(crate) struct ChatTerminalCreateInput {
 struct TerminalSpawnSpec {
     terminal_id: String,
     thread_id: ChatThreadId,
-    workspace_id: ChatWorkspaceId,
+    working_folder_id: ProjectWorkingFolderId,
     workspace_path: PathBuf,
     name: String,
     columns: u16,
@@ -106,7 +106,7 @@ struct TerminalMutable {
 struct TerminalSession {
     id: String,
     thread_id: ChatThreadId,
-    workspace_id: ChatWorkspaceId,
+    working_folder_id: ProjectWorkingFolderId,
     mutable: Mutex<TerminalMutable>,
     master: Mutex<Option<Box<dyn MasterPty + Send>>>,
     writer: Mutex<Option<Box<dyn Write + Send>>>,
@@ -119,7 +119,7 @@ impl TerminalSession {
         Ok(ChatTerminalRead {
             id: self.id.clone(),
             thread_id: self.thread_id.clone(),
-            workspace_id: self.workspace_id.clone(),
+            working_folder_id: self.working_folder_id.clone(),
             name: state.name.clone(),
             shell: state.shell.clone(),
             columns: state.columns,
@@ -136,7 +136,7 @@ impl TerminalSession {
         let terminal = ChatTerminalRead {
             id: self.id.clone(),
             thread_id: self.thread_id.clone(),
-            workspace_id: self.workspace_id.clone(),
+            working_folder_id: self.working_folder_id.clone(),
             name: state.name.clone(),
             shell: state.shell.clone(),
             columns: state.columns,
@@ -257,13 +257,13 @@ impl ChatTerminalRegistry {
     pub fn list(
         &self,
         thread_id: &ChatThreadId,
-        workspace_id: &ChatWorkspaceId,
+        working_folder_id: &ProjectWorkingFolderId,
     ) -> ChatResult<Vec<ChatTerminalRead>> {
         let sessions = self.sessions.lock().map_err(|_| terminal_state_error())?;
         let mut result = sessions
             .values()
             .filter(|session| {
-                &session.thread_id == thread_id && &session.workspace_id == workspace_id
+                &session.thread_id == thread_id && &session.working_folder_id == working_folder_id
             })
             .map(|session| session.read())
             .collect::<ChatResult<Vec<_>>>()?;
@@ -316,7 +316,7 @@ impl ChatTerminalRegistry {
             TerminalSpawnSpec {
                 terminal_id: input.terminal_id,
                 thread_id: input.thread_id,
-                workspace_id: input.workspace_id,
+                working_folder_id: input.working_folder_id,
                 workspace_path: input.workspace_path,
                 name: terminal_name,
                 columns: input.columns,
@@ -337,10 +337,10 @@ impl ChatTerminalRegistry {
         &self,
         terminal_id: &str,
         thread_id: &ChatThreadId,
-        workspace_id: &ChatWorkspaceId,
+        working_folder_id: &ProjectWorkingFolderId,
     ) -> ChatResult<()> {
         let session = self.session(terminal_id)?;
-        if &session.thread_id != thread_id || &session.workspace_id != workspace_id {
+        if &session.thread_id != thread_id || &session.working_folder_id != working_folder_id {
             return Err(ChatError::new(
                 ChatErrorCode::Permission,
                 "Chat terminal belongs to another thread or workspace",
@@ -445,11 +445,11 @@ impl ChatTerminalRegistry {
         Ok(count)
     }
 
-    pub fn shutdown_workspace(&self, workspace_id: &ChatWorkspaceId) -> ChatResult<()> {
+    pub fn shutdown_workspace(&self, working_folder_id: &ProjectWorkingFolderId) -> ChatResult<()> {
         let mut sessions = self.sessions.lock().map_err(|_| terminal_state_error())?;
         let terminal_ids = sessions
             .values()
-            .filter(|session| &session.workspace_id == workspace_id)
+            .filter(|session| &session.working_folder_id == working_folder_id)
             .map(|session| session.id.clone())
             .collect::<Vec<_>>();
         for terminal_id in terminal_ids {
@@ -511,7 +511,7 @@ fn spawn_session(
     let session = Arc::new(TerminalSession {
         id: spec.terminal_id,
         thread_id: spec.thread_id,
-        workspace_id: spec.workspace_id,
+        working_folder_id: spec.working_folder_id,
         mutable: Mutex::new(TerminalMutable {
             name: spec.name,
             shell: default_shell_label(),
@@ -708,7 +708,7 @@ mod tests {
         Arc::new(TerminalSession {
             id: "terminal:test".to_string(),
             thread_id: ChatThreadId::new("thread:test").expect("thread ID should be valid"),
-            workspace_id: ChatWorkspaceId::new("workspace:test")
+            working_folder_id: ProjectWorkingFolderId::new("workspace:test")
                 .expect("workspace ID should be valid"),
             mutable: Mutex::new(TerminalMutable {
                 name: "Terminal 1".to_string(),

@@ -1,16 +1,19 @@
 import { describe, expect, it } from "vitest";
-import type { ChatThreadShellRead, ChatWorkspaceRead, ProviderInstanceRead } from "./contracts";
+import type { ChatThreadShellRead, ProjectWorkingFolderRead, ProviderInstanceRead } from "./contracts";
 import type { Project, ProjectGroup } from "$lib/projects/types";
 import { buildChatRailModel, filterArchivedThreads, filterThreadTitles, nextThreadIndex, partitionThreadSearchResults, resolveChatFirstUseState, threadStatus } from "./shell-model";
 
 const timestamp = "2026-07-20T12:00:00.000Z";
 
-function workspace(id = "workspace", projectId: string | null = "project"): ChatWorkspaceRead {
+function workspace(id = "workspace", projectId = "project"): ProjectWorkingFolderRead {
   return {
-    workspace: {
+    workingFolder: {
       id,
       projectId,
       displayName: id,
+      kind: "external",
+      managedRelativePath: null,
+      sortOrder: 10,
       repositoryKind: "git",
       repositoryIdentity: "git-sha256:test",
       createdAt: timestamp,
@@ -60,7 +63,7 @@ function provider(state: ProviderInstanceRead["lastProbe"] extends infer _Probe 
 function thread(id = "thread", overrides: Partial<ChatThreadShellRead> = {}): ChatThreadShellRead {
   return {
     id,
-    workspaceId: "workspace",
+    workingFolderId: "workspace",
     projectId: "project",
     title: "Fix calendar",
     providerFamilyId: "codex",
@@ -84,17 +87,20 @@ function thread(id = "thread", overrides: Partial<ChatThreadShellRead> = {}): Ch
 
 describe("Chat shell model", () => {
   it("routes every first-use and unavailable state precisely", () => {
-    const base = { providers: [provider()], workspaces: [workspace()], selectedWorkspaceId: "workspace", selectedThreadId: null, threads: [] };
+    const base = { providers: [provider()], workingFolders: [workspace()], selectedProjectId: "project", selectedProjectArchived: false, selectedWorkingFolderId: "workspace", selectedThreadId: null, threads: [] };
     expect(resolveChatFirstUseState({ ...base, providers: [] }).kind).toBe("no_provider");
-    expect(resolveChatFirstUseState({ ...base, workspaces: [] }).kind).toBe("no_workspace");
-    expect(resolveChatFirstUseState({ ...base, selectedWorkspaceId: null }).kind).toBe("select_workspace");
-    expect(resolveChatFirstUseState({ ...base, workspaces: [{ ...workspace(), bindingStatus: "missing" }] }).kind).toBe("missing_binding");
+    expect(resolveChatFirstUseState({ ...base, selectedProjectId: null }).kind).toBe("no_project");
+    expect(resolveChatFirstUseState({ ...base, selectedProjectArchived: true }).kind).toBe("archived_project");
+    expect(resolveChatFirstUseState({ ...base, workingFolders: [] }).kind).toBe("no_project");
+    expect(resolveChatFirstUseState({ ...base, workingFolders: [{ ...workspace(), bindingStatus: "missing" }] }).kind).toBe("missing_binding");
     expect(resolveChatFirstUseState(base).kind).toBe("no_thread");
     expect(resolveChatFirstUseState({ ...base, providers: [provider("authentication_required")] }).kind).toBe("provider_unavailable");
     expect(resolveChatFirstUseState({ ...base, providers: [provider("authentication_required"), { ...provider(), configuration: { ...provider().configuration, instanceId: "healthy" }, lastProbe: { ...provider().lastProbe!, instanceId: "healthy" } }] }).kind).toBe("no_thread");
     expect(resolveChatFirstUseState({ ...base, selectedThreadId: "thread", threads: [thread()] }).kind).toBe("conversation");
-    expect(resolveChatFirstUseState({ ...base, providers: [], selectedThreadId: "thread", threads: [thread()] }).kind).toBe("provider_unavailable");
-    expect(resolveChatFirstUseState({ ...base, providers: [provider("authentication_required")], selectedThreadId: "thread", threads: [thread()] }).kind).toBe("provider_unavailable");
+    expect(resolveChatFirstUseState({ ...base, providers: [], selectedThreadId: "thread", threads: [thread()] }).kind).toBe("conversation");
+    expect(resolveChatFirstUseState({ ...base, providers: [provider("authentication_required")], selectedThreadId: "thread", threads: [thread()] }).kind).toBe("conversation");
+    expect(resolveChatFirstUseState({ ...base, workingFolders: [{ ...workspace(), bindingStatus: "missing" }], selectedThreadId: "thread", threads: [thread()] }).kind).toBe("conversation");
+    expect(resolveChatFirstUseState({ ...base, workingFolders: [{ ...workspace(), workingFolder: { ...workspace().workingFolder, archivedAt: timestamp } }], selectedThreadId: "thread", threads: [thread()] }).kind).toBe("conversation");
     expect(resolveChatFirstUseState({ ...base, providers: [provider("authentication_required")], selectedThreadId: "thread", threads: [thread("thread", { archivedAt: timestamp })] }).kind).toBe("archived_thread");
   });
 
@@ -106,13 +112,21 @@ describe("Chat shell model", () => {
     expect(threadStatus(thread("unread", { unreadAt: timestamp }))).toBe("unread");
   });
 
-  it("groups Projects without copying their identity and subdivides multiple workspaces", () => {
+  it("groups Projects without copying their identity and subdivides multiple workingFolders", () => {
     const groups: ProjectGroup[] = [{ id: "group", name: "Work", icon: "lucide:folder", sortOrder: 1, collapsed: true, createdAt: timestamp, updatedAt: timestamp }];
     const projects: Project[] = [{ id: "project", groupId: "group", name: "Ganbaru", icon: "lucide:folder", sortOrder: 1, status: "active", defaultEventName: null, defaultEventTimeMode: "timed", defaultEventDurationMinutes: null, defaultPomodoroMode: "preset", defaultIdleSettingsSource: "global", defaultIdlePauseEnabled: true, defaultIdleThresholdMinutes: 5, createdAt: timestamp, updatedAt: timestamp }];
-    const model = buildChatRailModel(groups, projects, [workspace("workspace"), workspace("second"), workspace("standalone", null)], [thread()], "thread");
+    const managed = workspace("workspace");
+    managed.workingFolder.kind = "managed";
+    const model = buildChatRailModel(
+      groups,
+      projects,
+      [managed, workspace("second")],
+      [thread(), thread("other", { workingFolderId: "second" })],
+      "project",
+      "thread",
+    );
     expect(model.groups[0].projects[0].project).toBe(projects[0]);
-    expect(model.groups[0].projects[0].workspaces.every((entry) => entry.showSubdivision)).toBe(true);
-    expect(model.standalone).toHaveLength(1);
+    expect(model.groups[0].projects[0].workingFolders.every((entry) => entry.showSubdivision)).toBe(true);
     expect(model.retainedThreadId).toBe("thread");
   });
 

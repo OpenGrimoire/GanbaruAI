@@ -16,7 +16,10 @@ use super::repository::receipts::{
 };
 use super::repository::{attachments, reads, workspaces};
 use super::runtime::{ChatRuntimeRegistry, ThreadRuntimeOwner};
-use super::workspace::{authorize_workspace, AuthorizedWorkspace, WorkspaceAuthorizationOperation};
+use super::workspace::{
+    authorize_workspace, AuthorizedWorkingFolder, WorkingFolderAuthorizationOperation,
+};
+use crate::projects::working_folders::read_active_working_folder_scope;
 use crate::{db_path, vault};
 use chrono::{SecondsFormat, Utc};
 use serde::{Deserialize, Serialize};
@@ -35,7 +38,7 @@ const TURN_OPERATION_TIMEOUT: Duration = Duration::from_secs(30);
 #[serde(rename_all = "camelCase")]
 pub struct SendChatTurnCommand {
     pub command: ChatCommandContext,
-    pub workspace_id: ChatWorkspaceId,
+    pub working_folder_id: ProjectWorkingFolderId,
     pub thread_id: Option<ChatThreadId>,
     pub new_thread_id: Option<ChatThreadId>,
     pub turn_id: ChatTurnId,
@@ -113,18 +116,24 @@ pub async fn chat_send_turn(
     if let Some(receipt) = read_command_receipt(&pool, &request.command.client_command_id).await? {
         return replay_send_receipt(&pool, &thread_id, &receipt).await;
     }
-    let logical_workspace = workspaces::read_workspace(&pool, &request.workspace_id).await?;
+    let logical_workspace = workspaces::read_workspace(&pool, &request.working_folder_id).await?;
+    require_project_accepts_ai_work(&pool, &logical_workspace.project_id).await?;
     let scope = read_active_device_scope(&app).map_err(device_state_error)?;
+    let working_folder_scope =
+        read_active_working_folder_scope(&app).map_err(device_state_error)?;
     let authorized = authorize_workspace(
         &logical_workspace,
-        &scope,
-        WorkspaceAuthorizationOperation::ProviderStart,
+        &working_folder_scope,
+        WorkingFolderAuthorizationOperation::ProviderStart,
     )?;
     if matches!(
         request.modes.safety_mode,
         SafetyMode::FullAccess | SafetyMode::Custom
-    ) && !full_access_is_trusted(&scope, &request.provider_instance_id, &request.workspace_id)
-    {
+    ) && !full_access_is_trusted(
+        &scope,
+        &request.provider_instance_id,
+        &request.working_folder_id,
+    ) {
         return Err(ChatError::new(
             ChatErrorCode::Permission,
             "Broad permissions are not trusted for this provider and workspace",
@@ -143,7 +152,7 @@ pub async fn chat_send_turn(
         None => None,
     };
     if let Some(existing) = &existing {
-        if existing.workspace_id != request.workspace_id
+        if existing.working_folder_id != request.working_folder_id
             || existing.provider_instance_id != request.provider_instance_id
         {
             return Err(ChatError::new(
@@ -180,9 +189,13 @@ pub async fn chat_send_turn(
         new_driver = Some(driver);
         continuation
     };
-    let attachment_references =
-        read_attachment_references(&app, &pool, &request.workspace_id, &request.attachment_ids)
-            .await?;
+    let attachment_references = read_attachment_references(
+        &app,
+        &pool,
+        &request.working_folder_id,
+        &request.attachment_ids,
+    )
+    .await?;
     let persistence_now = now_timestamp()?;
     persist_user_turn(PersistUserTurnContext {
         pool: &pool,
@@ -268,6 +281,33 @@ pub async fn chat_send_turn(
     )
     .await?;
     Ok(result)
+}
+
+async fn require_project_accepts_ai_work(pool: &SqlitePool, project_id: &str) -> ChatResult<()> {
+    let status: Option<String> = sqlx::query_scalar("SELECT status FROM projects WHERE id = ?")
+        .bind(project_id)
+        .fetch_optional(pool)
+        .await
+        .map_err(|_| {
+            ChatError::new(
+                ChatErrorCode::Persistence,
+                "Project state could not be read",
+                true,
+            )
+        })?;
+    match status.as_deref() {
+        Some("archived") => Err(ChatError::new(
+            ChatErrorCode::Conflict,
+            "Restore the archived project before starting new AI work",
+            true,
+        )),
+        Some(_) => Ok(()),
+        None => Err(ChatError::new(
+            ChatErrorCode::NotFound,
+            "The Chat project was not found",
+            true,
+        )),
+    }
 }
 
 #[tauri::command]
@@ -455,7 +495,7 @@ struct EnsureSessionContext<'a> {
     owner: &'a Arc<ThreadRuntimeOwner>,
     new_driver: Option<Box<dyn ProviderDriver>>,
     configuration: ProviderInstanceConfig,
-    workspace: &'a super::workspace::AuthorizedWorkspace,
+    workspace: &'a super::workspace::AuthorizedWorkingFolder,
     thread_id: &'a ChatThreadId,
     existing: Option<&'a ThreadRuntimeData>,
     continuation_group_id: &'a ContinuationGroupId,
@@ -502,7 +542,7 @@ async fn ensure_session(context: EnsureSessionContext<'_>) -> ChatResult<Provide
     };
     validate_modes(&driver.capabilities(), request.modes)?;
     let verified = VerifiedWorkspaceContext {
-        workspace_id: workspace.workspace_id.clone(),
+        working_folder_id: workspace.working_folder_id.clone(),
         canonical_path: workspace
             .canonical_path
             .to_str()
@@ -568,7 +608,7 @@ async fn ensure_session(context: EnsureSessionContext<'_>) -> ChatResult<Provide
 struct DurableChatEventSink {
     app: tauri::AppHandle,
     pool: SqlitePool,
-    workspace: super::workspace::AuthorizedWorkspace,
+    workspace: super::workspace::AuthorizedWorkingFolder,
     ingestor: Mutex<ChatEventIngestor>,
 }
 
@@ -577,7 +617,7 @@ impl DurableChatEventSink {
         app: tauri::AppHandle,
         pool: SqlitePool,
         emitter: Arc<dyn super::ingestion::ChatChangeEmitter>,
-        workspace: super::workspace::AuthorizedWorkspace,
+        workspace: super::workspace::AuthorizedWorkingFolder,
     ) -> Self {
         Self {
             app,
@@ -629,7 +669,7 @@ impl ProviderEventSink for DurableChatEventSink {
 
 async fn ensure_pre_turn_checkpoint(
     pool: &SqlitePool,
-    workspace: &super::workspace::AuthorizedWorkspace,
+    workspace: &super::workspace::AuthorizedWorkingFolder,
     thread_id: &ChatThreadId,
     turn_id: &ChatTurnId,
     now: &UtcTimestamp,
@@ -695,7 +735,7 @@ async fn ensure_pre_turn_checkpoint(
 
 async fn ensure_post_turn_checkpoint(
     pool: &SqlitePool,
-    workspace: &super::workspace::AuthorizedWorkspace,
+    workspace: &super::workspace::AuthorizedWorkingFolder,
     thread_id: &ChatThreadId,
     turn_id: &ChatTurnId,
     now: &UtcTimestamp,
@@ -795,7 +835,7 @@ async fn record_checkpoint_failure(
 
 #[derive(Clone, Debug)]
 struct ThreadRuntimeData {
-    workspace_id: ChatWorkspaceId,
+    working_folder_id: ProjectWorkingFolderId,
     provider_instance_id: ProviderInstanceId,
     continuation_group_id: ContinuationGroupId,
     provider_thread_id: Option<ProviderThreadId>,
@@ -808,7 +848,7 @@ async fn read_thread_runtime_data(
     thread_id: &ChatThreadId,
 ) -> ChatResult<ThreadRuntimeData> {
     let row = sqlx::query(
-        "SELECT workspace_id, provider_instance_id, continuation_group_id,
+        "SELECT working_folder_id, provider_instance_id, continuation_group_id,
                 provider_thread_id, resume_cursor_schema_version, resume_cursor_data, revision
          FROM chat_threads WHERE id = ? AND archived_at IS NULL AND state != 'closed'",
     )
@@ -831,8 +871,8 @@ async fn read_thread_runtime_data(
         _ => return Err(corrupt_data()),
     };
     Ok(ThreadRuntimeData {
-        workspace_id: ChatWorkspaceId::new(
-            row.try_get::<String, _>("workspace_id")
+        working_folder_id: ProjectWorkingFolderId::new(
+            row.try_get::<String, _>("working_folder_id")
                 .map_err(persistence_error)?,
         )
         .map_err(|_| corrupt_data())?,
@@ -864,7 +904,7 @@ async fn read_thread_runtime_data(
 async fn read_attachment_references(
     app: &tauri::AppHandle,
     pool: &SqlitePool,
-    workspace_id: &ChatWorkspaceId,
+    working_folder_id: &ProjectWorkingFolderId,
     attachment_ids: &[ChatAttachmentId],
 ) -> ChatResult<Vec<PromptAttachmentReference>> {
     if attachment_ids.len() > 8 {
@@ -892,7 +932,7 @@ async fn read_attachment_references(
                     true,
                 )
             })?;
-        if &attachment.workspace_id != workspace_id {
+        if &attachment.working_folder_id != working_folder_id {
             return Err(ChatError::new(
                 ChatErrorCode::Permission,
                 "Chat attachment belongs to another workspace",
@@ -954,7 +994,7 @@ async fn read_attachment_references(
 
 struct PersistUserTurnContext<'a> {
     pool: &'a SqlitePool,
-    workspace: &'a super::workspace::LogicalChatWorkspace,
+    workspace: &'a super::workspace::ProjectWorkingFolder,
     thread_id: &'a ChatThreadId,
     existing: Option<&'a ThreadRuntimeData>,
     continuation_group_id: &'a ContinuationGroupId,
@@ -1030,7 +1070,7 @@ async fn persist_user_turn(context: PersistUserTurnContext<'_>) -> ChatResult<()
         let title = prompt_title(&request.prompt);
         sqlx::query(
             "INSERT INTO chat_threads
-                (id, workspace_id, project_id, title, provider_family_id,
+                (id, working_folder_id, project_id, title, provider_family_id,
                  provider_instance_id, continuation_group_id, model_selection_data,
                  safety_mode, interaction_mode, state, latest_turn_state,
                  last_activity_at, created_at, updated_at)
@@ -1038,7 +1078,7 @@ async fn persist_user_turn(context: PersistUserTurnContext<'_>) -> ChatResult<()
         )
         .bind(thread_id.as_str())
         .bind(workspace.id.as_str())
-        .bind(workspace.project_id.as_deref())
+        .bind(&workspace.project_id)
         .bind(title)
         .bind(provider_family_id.as_str())
         .bind(request.provider_instance_id.as_str())
@@ -1598,7 +1638,7 @@ fn validate_mentions(mentions: &[WorkspaceMentionReference]) -> ChatResult<()> {
 }
 
 fn validate_send_mentions(
-    authorized: &AuthorizedWorkspace,
+    authorized: &AuthorizedWorkingFolder,
     mentions: &[WorkspaceMentionReference],
 ) -> ChatResult<()> {
     for mention in mentions {
@@ -1770,8 +1810,8 @@ mod tests {
         tauri::async_runtime::block_on(async {
             let pool = pool_with_thread().await;
             let thread_id = ChatThreadId::new("thread-1").unwrap();
-            let workspace_id = ChatWorkspaceId::new("workspace-1").unwrap();
-            let workspace = workspaces::read_workspace(&pool, &workspace_id)
+            let working_folder_id = ProjectWorkingFolderId::new("workspace-1").unwrap();
+            let workspace = workspaces::read_workspace(&pool, &working_folder_id)
                 .await
                 .unwrap();
             let existing = read_thread_runtime_data(&pool, &thread_id).await.unwrap();
@@ -1780,7 +1820,7 @@ mod tests {
                     client_command_id: ChatCommandId::new("send-before-dispatch").unwrap(),
                     expected_thread_revision: Some(existing.revision),
                 },
-                workspace_id,
+                working_folder_id,
                 thread_id: Some(thread_id.clone()),
                 new_thread_id: None,
                 turn_id: ChatTurnId::new("turn-before-dispatch").unwrap(),
@@ -2014,8 +2054,8 @@ mod tests {
         std::fs::write(outside.0.join("secret.txt"), "outside").unwrap();
         std::fs::create_dir(workspace.0.join("selected-directory")).unwrap();
         std::fs::create_dir(outside.0.join("outside-directory")).unwrap();
-        let authorized = AuthorizedWorkspace {
-            workspace_id: ChatWorkspaceId::new("workspace-1").unwrap(),
+        let authorized = AuthorizedWorkingFolder {
+            working_folder_id: ProjectWorkingFolderId::new("workspace-1").unwrap(),
             canonical_path: workspace.0.clone(),
             repository_kind: RepositoryKind::None,
             repository_identity: None,

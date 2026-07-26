@@ -98,6 +98,26 @@ A Notes folder belongs to exactly one project, folder parents stay inside that p
 
 **Enforced by:** SQLite foreign keys and placement triggers, folder create and update validation, the atomic page move command, defensive mixed-tree planning, migration invariant tests, and focused folder and page-movement tests.
 
+## 9. Every Chat thread belongs to one project working folder
+
+**Statement:** every project owns exactly one active managed working folder, and every Chat thread has one non-null project id plus one non-null working-folder id that belongs to that project. A thread never changes either owner after creation.
+
+**Why:** Projects define all working context. Chat, terminals, attachments, checkpoints, and filesystem Notes must authorize against the same stable folder identity.
+
+**What would break:** provider continuation could resume in another repository, global search could open a thread under the wrong project, folder-specific drafts or trust could leak across contexts, and archived history could become unreadable.
+
+**Enforced by:** the `project_working_folders` managed-row index and triggers, composite SQLite foreign keys, project creation and Routine repair, non-null Chat DTOs, working-folder authorization, and focused schema tests.
+
+## 10. Working-folder filesystem access stays bounded
+
+**Statement:** the frontend passes a working-folder id and normalized relative path, never an arbitrary root path. Rust recanonicalizes the binding and rechecks repository identity before every filesystem-sensitive operation.
+
+**Why:** folder selection grants a narrow project capability, not general filesystem access.
+
+**What would break:** traversal, symbolic-link escapes, stale bindings, repository replacement, or vault overlap could expose or modify data outside the selected context.
+
+**Enforced by:** the shared Rust authorization boundary, device-local vault and device scoping, vault-overlap validation, symlink rejection, bounded Markdown scanning, expected revision saves, and authorization tests.
+
 ## Adding new invariants
 
 When an operation reveals a constraint the system depends on but had not stated explicitly, add it here as the next number. Number reuse is forbidden; numbers may be marked deprecated but never recycled. Each new invariant gets the same five fields: statement, why, what would break, enforced by, plus any cross-doc links.

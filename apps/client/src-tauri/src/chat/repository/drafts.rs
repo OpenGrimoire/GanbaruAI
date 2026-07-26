@@ -1,6 +1,6 @@
 use crate::chat::models::{
-    ChatAttachmentId, ChatError, ChatErrorCode, ChatResult, ChatThreadId, ChatWorkspaceId,
-    InteractionMode, ProviderInstanceId, SafetyMode, UtcTimestamp, VersionedJson,
+    ChatAttachmentId, ChatError, ChatErrorCode, ChatResult, ChatThreadId, InteractionMode,
+    ProjectWorkingFolderId, ProviderInstanceId, SafetyMode, UtcTimestamp, VersionedJson,
 };
 use serde::{Deserialize, Serialize};
 use sqlx::{Row, SqlitePool};
@@ -9,7 +9,7 @@ use sqlx::{Row, SqlitePool};
 #[serde(rename_all = "camelCase")]
 pub struct ChatDraftWrite {
     pub id: String,
-    pub workspace_id: ChatWorkspaceId,
+    pub working_folder_id: ProjectWorkingFolderId,
     pub thread_id: Option<ChatThreadId>,
     pub text: String,
     pub attachment_ids: Vec<ChatAttachmentId>,
@@ -33,13 +33,13 @@ pub async fn save_draft(pool: &SqlitePool, draft: &ChatDraftWrite) -> ChatResult
     validate_draft_owner(&mut transaction, draft).await?;
     sqlx::query(
         "INSERT INTO chat_drafts
-            (id, workspace_id, thread_id, text, mentions_schema_version, mentions_data,
+            (id, working_folder_id, thread_id, text, mentions_schema_version, mentions_data,
              provider_instance_id, model_selection_schema_version, model_selection_data,
              safety_mode, interaction_mode, sent_snapshot_schema_version,
              sent_snapshot_data, updated_at)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT(id) DO UPDATE SET
-             workspace_id = excluded.workspace_id, thread_id = excluded.thread_id,
+             working_folder_id = excluded.working_folder_id, thread_id = excluded.thread_id,
              text = excluded.text, mentions_schema_version = excluded.mentions_schema_version,
              mentions_data = excluded.mentions_data,
              provider_instance_id = excluded.provider_instance_id,
@@ -50,7 +50,7 @@ pub async fn save_draft(pool: &SqlitePool, draft: &ChatDraftWrite) -> ChatResult
              sent_snapshot_data = excluded.sent_snapshot_data, updated_at = excluded.updated_at",
     )
     .bind(&draft.id)
-    .bind(draft.workspace_id.as_str())
+    .bind(draft.working_folder_id.as_str())
     .bind(draft.thread_id.as_ref().map(ChatThreadId::as_str))
     .bind(&draft.text)
     .bind(i64::from(draft.mentions.schema_version))
@@ -78,16 +78,16 @@ pub async fn save_draft(pool: &SqlitePool, draft: &ChatDraftWrite) -> ChatResult
         .map_err(persistence_error)?;
     for (index, attachment_id) in draft.attachment_ids.iter().enumerate() {
         let workspace: Option<String> = sqlx::query_scalar(
-            "SELECT workspace_id FROM chat_attachments WHERE id = ? AND deletion_state = 'active'",
+            "SELECT working_folder_id FROM chat_attachments WHERE id = ? AND deletion_state = 'active'",
         )
         .bind(attachment_id.as_str())
         .fetch_optional(&mut *transaction)
         .await
         .map_err(persistence_error)?;
-        if workspace.as_deref() != Some(draft.workspace_id.as_str()) {
+        if workspace.as_deref() != Some(draft.working_folder_id.as_str()) {
             return Err(ChatError::validation(
                 "attachmentIds",
-                "Draft attachment does not belong to the active Chat workspace",
+                "Draft attachment does not belong to the active project working folder",
             ));
         }
         sqlx::query(
@@ -108,7 +108,7 @@ pub async fn save_draft(pool: &SqlitePool, draft: &ChatDraftWrite) -> ChatResult
 
 pub async fn read_draft(pool: &SqlitePool, id: &str) -> ChatResult<Option<ChatDraftRead>> {
     let row = sqlx::query(
-        "SELECT id, workspace_id, thread_id, text, mentions_schema_version, mentions_data,
+        "SELECT id, working_folder_id, thread_id, text, mentions_schema_version, mentions_data,
                 provider_instance_id, model_selection_schema_version, model_selection_data,
                 safety_mode, interaction_mode, sent_snapshot_schema_version,
                 sent_snapshot_data, updated_at
@@ -129,8 +129,8 @@ pub async fn read_draft(pool: &SqlitePool, id: &str) -> ChatResult<Option<ChatDr
     .map_err(persistence_error)?;
     Ok(Some(ChatDraftRead {
         id: row.try_get("id").map_err(persistence_error)?,
-        workspace_id: ChatWorkspaceId::new(
-            row.try_get::<String, _>("workspace_id")
+        working_folder_id: ProjectWorkingFolderId::new(
+            row.try_get::<String, _>("working_folder_id")
                 .map_err(persistence_error)?,
         )
         .map_err(|_| corrupt_data())?,
@@ -226,12 +226,12 @@ async fn validate_draft_owner(
 ) -> ChatResult<()> {
     if let Some(thread_id) = &draft.thread_id {
         let workspace: Option<String> =
-            sqlx::query_scalar("SELECT workspace_id FROM chat_threads WHERE id = ?")
+            sqlx::query_scalar("SELECT working_folder_id FROM chat_threads WHERE id = ?")
                 .bind(thread_id.as_str())
                 .fetch_optional(&mut **transaction)
                 .await
                 .map_err(persistence_error)?;
-        if workspace.as_deref() != Some(draft.workspace_id.as_str()) {
+        if workspace.as_deref() != Some(draft.working_folder_id.as_str()) {
             return Err(ChatError::validation(
                 "threadId",
                 "Draft thread does not belong to its workspace",

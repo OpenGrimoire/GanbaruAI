@@ -1,13 +1,13 @@
 //! Bounded, workspace-authorized file browsing and preview commands.
 
-use super::device_state::read_active_device_scope;
-use super::models::{ChatError, ChatErrorCode, ChatResult, ChatWorkspaceId, RepositoryKind};
+use super::models::{ChatError, ChatErrorCode, ChatResult, ProjectWorkingFolderId, RepositoryKind};
 use super::repository::workspaces;
 use super::workspace::{
-    authorize_workspace, resolve_workspace_relative_path, AuthorizedWorkspace,
-    WorkspaceAuthorizationOperation,
+    authorize_workspace, resolve_workspace_relative_path, AuthorizedWorkingFolder,
+    WorkingFolderAuthorizationOperation,
 };
 use crate::db_path;
+use crate::projects::working_folders::read_active_working_folder_scope;
 use serde::Serialize;
 use sqlx::SqlitePool;
 use std::collections::HashSet;
@@ -22,7 +22,7 @@ const MAX_RELATIVE_PATH_BYTES: usize = 4_096;
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct ChatWorkspaceFileEntry {
+pub struct ProjectWorkingFolderFileEntry {
     pub relative_path: String,
     pub display_name: String,
     pub kind: String,
@@ -32,15 +32,15 @@ pub struct ChatWorkspaceFileEntry {
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct ChatWorkspaceDirectoryRead {
+pub struct ProjectWorkingFolderDirectoryRead {
     pub relative_path: String,
-    pub entries: Vec<ChatWorkspaceFileEntry>,
+    pub entries: Vec<ProjectWorkingFolderFileEntry>,
     pub truncated: bool,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct ChatWorkspaceFilePreview {
+pub struct ProjectWorkingFolderFilePreview {
     pub relative_path: String,
     pub display_name: String,
     pub language: Option<String>,
@@ -52,48 +52,48 @@ pub struct ChatWorkspaceFilePreview {
 }
 
 #[tauri::command]
-pub async fn chat_list_workspace_directory(
+pub async fn project_list_working_folder_directory(
     app: tauri::AppHandle,
     db_url: String,
-    workspace_id: ChatWorkspaceId,
+    working_folder_id: ProjectWorkingFolderId,
     relative_path: String,
     include_ignored: bool,
-) -> ChatResult<ChatWorkspaceDirectoryRead> {
+) -> ChatResult<ProjectWorkingFolderDirectoryRead> {
     let pool = chat_pool(app.clone(), db_url).await?;
-    let authorized = require_workspace(&app, &pool, &workspace_id).await?;
+    let authorized = require_workspace(&app, &pool, &working_folder_id).await?;
     list_workspace_directory(&authorized, &relative_path, include_ignored)
 }
 
 #[tauri::command]
-pub async fn chat_preview_workspace_file(
+pub async fn project_preview_working_folder_file(
     app: tauri::AppHandle,
     db_url: String,
-    workspace_id: ChatWorkspaceId,
+    working_folder_id: ProjectWorkingFolderId,
     relative_path: String,
-) -> ChatResult<ChatWorkspaceFilePreview> {
+) -> ChatResult<ProjectWorkingFolderFilePreview> {
     let pool = chat_pool(app.clone(), db_url).await?;
-    let authorized = require_workspace(&app, &pool, &workspace_id).await?;
+    let authorized = require_workspace(&app, &pool, &working_folder_id).await?;
     preview_workspace_file(&authorized, &relative_path)
 }
 
 #[tauri::command]
-pub async fn chat_open_workspace_file(
+pub async fn project_open_working_folder_file(
     app: tauri::AppHandle,
     db_url: String,
-    workspace_id: ChatWorkspaceId,
+    working_folder_id: ProjectWorkingFolderId,
     relative_path: String,
 ) -> ChatResult<()> {
     let pool = chat_pool(app.clone(), db_url).await?;
-    let authorized = require_workspace(&app, &pool, &workspace_id).await?;
+    let authorized = require_workspace(&app, &pool, &working_folder_id).await?;
     let path = resolve_workspace_relative_path(&authorized, &relative_path)?;
     super::workspace::open_authorized_path(&authorized, &path)
 }
 
 pub fn list_workspace_directory(
-    authorized: &AuthorizedWorkspace,
+    authorized: &AuthorizedWorkingFolder,
     relative_path: &str,
     include_ignored: bool,
-) -> ChatResult<ChatWorkspaceDirectoryRead> {
+) -> ChatResult<ProjectWorkingFolderDirectoryRead> {
     validate_optional_relative_path(relative_path)?;
     let directory = if relative_path.is_empty() {
         authorized.canonical_path.clone()
@@ -128,7 +128,7 @@ pub fn list_workspace_directory(
         {
             continue;
         }
-        entries.push(ChatWorkspaceFileEntry {
+        entries.push(ProjectWorkingFolderFileEntry {
             ignored: common_ignored(&child_relative),
             relative_path: child_relative,
             display_name,
@@ -167,7 +167,7 @@ pub fn list_workspace_directory(
             })
             .then_with(|| left.display_name.cmp(&right.display_name))
     });
-    Ok(ChatWorkspaceDirectoryRead {
+    Ok(ProjectWorkingFolderDirectoryRead {
         relative_path: relative_path.to_string(),
         entries,
         truncated,
@@ -175,9 +175,9 @@ pub fn list_workspace_directory(
 }
 
 pub fn preview_workspace_file(
-    authorized: &AuthorizedWorkspace,
+    authorized: &AuthorizedWorkingFolder,
     relative_path: &str,
-) -> ChatResult<ChatWorkspaceFilePreview> {
+) -> ChatResult<ProjectWorkingFolderFilePreview> {
     validate_required_relative_path(relative_path)?;
     if safety_excluded(relative_path) {
         return Err(ChatError::new(
@@ -209,7 +209,7 @@ pub fn preview_workspace_file(
         .ok_or_else(|| ChatError::validation("relativePath", "Workspace filename is unsupported"))?
         .to_string();
     if metadata.len() > MAX_PREVIEW_BYTES {
-        return Ok(ChatWorkspaceFilePreview {
+        return Ok(ProjectWorkingFolderFilePreview {
             relative_path: relative_path.to_string(),
             display_name,
             language: language_for_path(&path),
@@ -240,7 +240,7 @@ pub fn preview_workspace_file(
             value.lines().count() as u64
         }
     });
-    Ok(ChatWorkspaceFilePreview {
+    Ok(ProjectWorkingFolderFilePreview {
         relative_path: relative_path.to_string(),
         display_name,
         language: language_for_path(&path),
@@ -255,14 +255,14 @@ pub fn preview_workspace_file(
 async fn require_workspace(
     app: &tauri::AppHandle,
     pool: &SqlitePool,
-    workspace_id: &ChatWorkspaceId,
-) -> ChatResult<AuthorizedWorkspace> {
-    let workspace = workspaces::read_workspace(pool, workspace_id).await?;
-    let scope = read_active_device_scope(app).map_err(device_state_error)?;
+    working_folder_id: &ProjectWorkingFolderId,
+) -> ChatResult<AuthorizedWorkingFolder> {
+    let workspace = workspaces::read_workspace(pool, working_folder_id).await?;
+    let scope = read_active_working_folder_scope(app).map_err(device_state_error)?;
     authorize_workspace(
         &workspace,
         &scope,
-        WorkspaceAuthorizationOperation::FileRead,
+        WorkingFolderAuthorizationOperation::FileRead,
     )
 }
 
@@ -424,9 +424,9 @@ mod tests {
             Self(fs::canonicalize(path).expect("test path should canonicalize"))
         }
 
-        fn authorized(&self, kind: RepositoryKind) -> AuthorizedWorkspace {
-            AuthorizedWorkspace {
-                workspace_id: ChatWorkspaceId::new("workspace:file-test")
+        fn authorized(&self, kind: RepositoryKind) -> AuthorizedWorkingFolder {
+            AuthorizedWorkingFolder {
+                working_folder_id: ProjectWorkingFolderId::new("workspace:file-test")
                     .expect("workspace ID should be valid"),
                 canonical_path: self.0.clone(),
                 repository_kind: kind,

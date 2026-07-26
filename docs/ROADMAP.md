@@ -152,9 +152,10 @@ The agent integration layer. The `ganbaru-ai` CLI and an embedded terminal bring
 **Includes:**
 
 - `ganbaru-ai` CLI: Rust binary linking to the same SQLite, human-readable and JSON output, commands for projects, tasks, calendar, workspace, pomodoro, import/export
-- Integrated terminal: xterm.js embedded in Tauri webview, runs Codex or another CLI coding agent
+- Project-owned working folders: one managed `projects/{project-id}/` folder for every project, optional device-bound external folders, and shared authorization for Chat and filesystem Notes
+- Integrated Chat and terminal: provider-native conversations and xterm.js sessions fixed to one project working folder
 - Context injection: Ganbaru AI assembles project/task context and passes it through the launch prompt or standard input. `AGENTS.md` stays as project-level conventions, per-task context is dynamic.
-- Session management: per-project conversation threads in SQLite, calendar-driven automatic switching (save current session, resume the session for the new calendar event's project)
+- Session management: multiple project conversations in SQLite, each permanently bound to one working folder, with shared project selection across Projects, Notes, and Chat
 - Kanban task activation: clicking "Start" on a task injects its details into the current AI conversation
 - Workflow phase prompts: structured system prompts for brainstorming, evaluation, planning, execution modes
 - Prompt buttons: UI buttons that insert pre-built prompts into the terminal (e.g., "Plan this sprint", "Research competitors")

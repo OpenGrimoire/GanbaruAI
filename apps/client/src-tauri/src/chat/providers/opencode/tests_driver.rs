@@ -586,7 +586,7 @@ fn start_request(workspace: &std::path::Path) -> StartSessionRequest {
 
 fn verified_workspace(workspace: &std::path::Path) -> VerifiedWorkspaceContext {
     VerifiedWorkspaceContext {
-        workspace_id: ChatWorkspaceId::new("workspace-opencode").unwrap(),
+        working_folder_id: ProjectWorkingFolderId::new("workspace-opencode").unwrap(),
         canonical_path: workspace.to_string_lossy().into_owned(),
         repository_kind: RepositoryKind::None,
         repository_identity: None,

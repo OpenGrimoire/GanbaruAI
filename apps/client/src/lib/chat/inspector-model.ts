@@ -347,10 +347,10 @@ export function closeInspectorTab(
 
 export function inspectorSessionKey(
   threadId: ChatThreadId | null,
-  workspaceId: string | null,
+  workingFolderId: string | null,
 ): string | null {
   if (threadId) return threadId;
-  return workspaceId ? `draft:${workspaceId}` : null;
+  return workingFolderId ? `draft:${workingFolderId}` : null;
 }
 
 export function buildChangedFileTree(files: readonly ChatChangedFileRead[]): ChatChangedFileTreeNode[] {

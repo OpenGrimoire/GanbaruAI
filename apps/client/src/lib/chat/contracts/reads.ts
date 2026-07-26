@@ -4,7 +4,7 @@ import type {
   ChatThreadState,
   ChatTurnId,
   ChatTurnState,
-  ChatWorkspaceId,
+  ProjectWorkingFolderId,
   ContinuationGroupId,
   ModelId,
   ProviderFamilyId,
@@ -59,8 +59,8 @@ export interface ProviderHistoryPage {
 
 export interface ChatThreadShellRead {
   id: ChatThreadId;
-  workspaceId: ChatWorkspaceId;
-  projectId: string | null;
+  workingFolderId: ProjectWorkingFolderId;
+  projectId: string;
   title: string;
   providerFamilyId: ProviderFamilyId;
   providerInstanceId: ProviderInstanceId;
@@ -80,10 +80,10 @@ export interface ChatThreadShellRead {
 }
 
 export interface ChatProjectShellRead {
-  projectId: string | null;
-  workspaceId: ChatWorkspaceId;
-  workspaceName: string;
-  workspaceArchivedAt: UtcTimestamp | null;
+  projectId: string;
+  workingFolderId: ProjectWorkingFolderId;
+  workingFolderName: string;
+  workingFolderArchivedAt: UtcTimestamp | null;
   activeThreadCount: number;
   archivedThreadCount: number;
 }

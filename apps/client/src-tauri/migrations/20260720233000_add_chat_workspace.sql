@@ -1,37 +1,7 @@
-CREATE TABLE chat_workspaces (
-    id TEXT PRIMARY KEY NOT NULL CHECK (length(id) BETWEEN 1 AND 1024),
-    project_id TEXT REFERENCES projects(id) ON UPDATE CASCADE ON DELETE RESTRICT,
-    display_name TEXT NOT NULL CHECK (length(trim(display_name)) BETWEEN 1 AND 240),
-    repository_kind TEXT NOT NULL CHECK (repository_kind IN ('git', 'none')),
-    repository_identity TEXT CHECK (
-        repository_identity IS NULL OR length(repository_identity) BETWEEN 1 AND 1024
-    ),
-    created_at TEXT NOT NULL CHECK (length(created_at) >= 20),
-    updated_at TEXT NOT NULL CHECK (length(updated_at) >= 20),
-    archived_at TEXT CHECK (archived_at IS NULL OR length(archived_at) >= 20),
-    revision INTEGER NOT NULL DEFAULT 1 CHECK (revision >= 1),
-    UNIQUE (id, project_id),
-    CHECK (
-        (repository_kind = 'git' AND repository_identity IS NOT NULL)
-        OR (repository_kind = 'none' AND repository_identity IS NULL)
-    )
-) STRICT;
-
-CREATE UNIQUE INDEX idx_chat_workspaces_project_name
-ON chat_workspaces(project_id, display_name COLLATE NOCASE)
-WHERE project_id IS NOT NULL;
-
-CREATE UNIQUE INDEX idx_chat_workspaces_standalone_name
-ON chat_workspaces(display_name COLLATE NOCASE)
-WHERE project_id IS NULL;
-
-CREATE INDEX idx_chat_workspaces_project_active
-ON chat_workspaces(project_id, archived_at, display_name COLLATE NOCASE, id);
-
 CREATE TABLE chat_threads (
     id TEXT PRIMARY KEY NOT NULL CHECK (length(id) BETWEEN 1 AND 1024),
-    workspace_id TEXT NOT NULL,
-    project_id TEXT,
+    working_folder_id TEXT NOT NULL,
+    project_id TEXT NOT NULL,
     title TEXT NOT NULL DEFAULT '' CHECK (length(title) <= 1000),
     title_search TEXT GENERATED ALWAYS AS (lower(trim(title))) STORED,
     title_source TEXT NOT NULL DEFAULT 'user' CHECK (title_source IN ('user', 'provider')),
@@ -77,11 +47,8 @@ CREATE TABLE chat_threads (
     archived_at TEXT CHECK (archived_at IS NULL OR length(archived_at) >= 20),
     created_at TEXT NOT NULL CHECK (length(created_at) >= 20),
     updated_at TEXT NOT NULL CHECK (length(updated_at) >= 20),
-    FOREIGN KEY (workspace_id, project_id)
-        REFERENCES chat_workspaces(id, project_id)
-        ON UPDATE CASCADE ON DELETE RESTRICT,
-    FOREIGN KEY (workspace_id)
-        REFERENCES chat_workspaces(id)
+    FOREIGN KEY (working_folder_id, project_id)
+        REFERENCES project_working_folders(id, project_id)
         ON UPDATE CASCADE ON DELETE RESTRICT,
     CHECK (
         (resume_cursor_schema_version IS NULL AND resume_cursor_data IS NULL)
@@ -93,8 +60,8 @@ CREATE INDEX idx_chat_threads_active_project
 ON chat_threads(project_id, last_activity_at DESC, id)
 WHERE archived_at IS NULL AND state != 'closed';
 
-CREATE INDEX idx_chat_threads_active_workspace
-ON chat_threads(workspace_id, last_activity_at DESC, id)
+CREATE INDEX idx_chat_threads_active_working_folder
+ON chat_threads(working_folder_id, last_activity_at DESC, id)
 WHERE archived_at IS NULL AND state != 'closed';
 
 CREATE INDEX idx_chat_threads_archived
@@ -104,24 +71,24 @@ WHERE archived_at IS NOT NULL;
 CREATE INDEX idx_chat_threads_title_search
 ON chat_threads(title_search, last_activity_at DESC, id);
 
-CREATE TRIGGER chat_threads_project_matches_workspace_insert
+CREATE TRIGGER chat_threads_project_matches_working_folder_insert
 BEFORE INSERT ON chat_threads
 WHEN NOT EXISTS (
-    SELECT 1 FROM chat_workspaces
-    WHERE id = NEW.workspace_id AND project_id IS NEW.project_id
+    SELECT 1 FROM project_working_folders
+    WHERE id = NEW.working_folder_id AND project_id = NEW.project_id
 )
 BEGIN
-    SELECT RAISE(ABORT, 'Chat thread project must match its workspace');
+    SELECT RAISE(ABORT, 'Chat thread project must match its working folder');
 END;
 
-CREATE TRIGGER chat_threads_project_matches_workspace_update
-BEFORE UPDATE OF workspace_id, project_id ON chat_threads
+CREATE TRIGGER chat_threads_project_matches_working_folder_update
+BEFORE UPDATE OF working_folder_id, project_id ON chat_threads
 WHEN NOT EXISTS (
-    SELECT 1 FROM chat_workspaces
-    WHERE id = NEW.workspace_id AND project_id IS NEW.project_id
+    SELECT 1 FROM project_working_folders
+    WHERE id = NEW.working_folder_id AND project_id = NEW.project_id
 )
 BEGIN
-    SELECT RAISE(ABORT, 'Chat thread project must match its workspace');
+    SELECT RAISE(ABORT, 'Chat thread project must match its working folder');
 END;
 
 CREATE TABLE chat_checkpoints (
@@ -306,7 +273,7 @@ ON chat_plans(thread_id, sequence_anchor, id);
 
 CREATE TABLE chat_drafts (
     id TEXT PRIMARY KEY NOT NULL CHECK (length(id) BETWEEN 1 AND 1024),
-    workspace_id TEXT NOT NULL REFERENCES chat_workspaces(id) ON UPDATE CASCADE ON DELETE CASCADE,
+    working_folder_id TEXT NOT NULL REFERENCES project_working_folders(id) ON UPDATE CASCADE ON DELETE CASCADE,
     thread_id TEXT REFERENCES chat_threads(id) ON UPDATE CASCADE ON DELETE CASCADE,
     text TEXT NOT NULL DEFAULT '' CHECK (length(text) <= 16777216),
     mentions_schema_version INTEGER NOT NULL DEFAULT 1 CHECK (mentions_schema_version >= 1),
@@ -339,13 +306,13 @@ CREATE UNIQUE INDEX idx_chat_drafts_thread
 ON chat_drafts(thread_id)
 WHERE thread_id IS NOT NULL;
 
-CREATE UNIQUE INDEX idx_chat_drafts_new_workspace
-ON chat_drafts(workspace_id)
+CREATE UNIQUE INDEX idx_chat_drafts_new_working_folder
+ON chat_drafts(working_folder_id)
 WHERE thread_id IS NULL;
 
 CREATE TABLE chat_attachments (
     id TEXT PRIMARY KEY NOT NULL CHECK (length(id) BETWEEN 1 AND 1024),
-    workspace_id TEXT NOT NULL REFERENCES chat_workspaces(id) ON UPDATE CASCADE ON DELETE RESTRICT,
+    working_folder_id TEXT NOT NULL REFERENCES project_working_folders(id) ON UPDATE CASCADE ON DELETE RESTRICT,
     kind TEXT NOT NULL CHECK (kind IN ('image', 'text_snippet')),
     original_display_name TEXT NOT NULL CHECK (length(trim(original_display_name)) BETWEEN 1 AND 1000),
     mime_type TEXT NOT NULL CHECK (length(mime_type) BETWEEN 1 AND 255),
@@ -479,6 +446,7 @@ ON chat_command_receipts(thread_id, created_at DESC, client_command_id);
 
 CREATE TABLE chat_cleanup_queue (
     id TEXT PRIMARY KEY NOT NULL CHECK (length(id) BETWEEN 1 AND 1024),
+    working_folder_id TEXT NOT NULL REFERENCES project_working_folders(id) ON UPDATE CASCADE ON DELETE RESTRICT,
     source_thread_id TEXT CHECK (source_thread_id IS NULL OR length(source_thread_id) BETWEEN 1 AND 1024),
     cleanup_kind TEXT NOT NULL CHECK (
         cleanup_kind IN ('checkpoint_ref', 'attachment_file', 'diagnostic_event')
@@ -486,6 +454,9 @@ CREATE TABLE chat_cleanup_queue (
     exact_target TEXT NOT NULL CHECK (length(exact_target) BETWEEN 1 AND 4096),
     repository_identity TEXT CHECK (
         repository_identity IS NULL OR length(repository_identity) BETWEEN 1 AND 1024
+    ),
+    expected_object_id TEXT CHECK (
+        expected_object_id IS NULL OR length(expected_object_id) BETWEEN 40 AND 128
     ),
     state TEXT NOT NULL DEFAULT 'pending' CHECK (
         state IN ('pending', 'running', 'failed', 'completed')

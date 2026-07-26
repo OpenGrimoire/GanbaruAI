@@ -58,7 +58,7 @@ The Pomodoro timer is the heartbeat of the app. Every productivity signal flows 
 
 ### Note-taking
 
-A Notion-like block-based editor powered by Tiptap. Supports slash commands, drag-to-reorder blocks, rich formatting, and markdown serialization. Notes are stored as `.md` files on disk, and the user owns their files.
+A Notion-like block-based editor powered by Tiptap stores canonical pages and blocks in SQLite. The same project tree also exposes existing `.md` files from project working folders through a separate file-backed editor. Those files remain directly owned by the user and are not imported into the block graph.
 
 Notes link bidirectionally to tasks, projects, calendar events, and diary entries via backlinks tracked in SQLite. Cross-referencing notes via backlinks supports the Zettelkasten principle of connecting ideas for better mental organization.
 
@@ -139,7 +139,7 @@ Design principle: minimize clicks. Every action reachable from the edge panel sh
 
 The AI panel is Ganbaru AI's conversational interface for working with AI assistants. It appears as a panel in the app, supporting two modes: an embedded terminal running Codex or another CLI coding agent (developer path) and a chat widget connecting to BYOK LLM providers (general user path). All AI features are opt-in. The app is fully functional without any AI.
 
-**One conversation per project, calendar-driven switching.** Each project has its own persistent conversation thread stored in SQLite. When a calendar event starts, the AI panel automatically saves the current conversation and resumes (or starts) the conversation for the new event's project. A developer working on four different projects in a week has four conversation threads, each resuming exactly where they left off. Manual override is always available.
+**Project-owned folders and conversations.** Every project owns a managed folder at `projects/{project-id}/` and can assign several external working folders. A project can have many persistent conversations in SQLite, and every conversation is permanently bound to one of its working folders. Projects, Notes, and Chat share the selected project. Calendar-driven switching may select that project, but it never retargets an existing conversation to another folder.
 
 **Context injection from app state.** When a session starts or switches, Ganbaru AI assembles context from the active project, current kanban tasks, recent progress, calendar events, and related notes. For the terminal, context is passed through the launch prompt or standard input, depending on the selected agent. For the chat widget, context is sent as the system prompt in API calls. `AGENTS.md` stays as project-level conventions; per-task context comes from Ganbaru AI dynamically.
 
@@ -347,7 +347,7 @@ The AI can create and modify calendar events via the CLI: scheduling work sessio
 
 ### AI panel → Notes
 
-The AI can read and write project notes. In the terminal path, Codex or another CLI coding agent edits markdown files directly. In the BYOK chat path, the AI can read notes for context and suggest content.
+The AI can read and write file-authoritative Markdown inside an authorized project working folder. SQLite Notes remain a separate block graph and require typed Ganbaru AI operations. In the BYOK chat path, the AI can read permitted project context and suggest content.
 
 ### AI panel → Project management
 
@@ -374,7 +374,7 @@ When a project is a software repository, Ganbaru AI bridges its internal data wi
 - **The `ganbaru-ai` CLI** exports repo-facing markdown views such as `KANBAN.md` and generated reports into the git repository. This makes project context available to collaborators who don't use Ganbaru AI and to AI agents that read the repo natively. The export is a view of the database, not the source of truth. Changes made to exported markdown by agents or humans can be imported back when the export type supports imports.
 - **AI agents** interact with Ganbaru AI via the CLI: querying tasks, creating calendar events, updating progress. This works with Codex, Cursor, and any agent that can run shell commands, with no MCP server or plugin required.
 
-The data split: documents (notes, diary, project docs) are markdown files on disk. Structured data (events, tasks, workspace configs) is SQLite. The CLI bridges the two worlds. See TECH_STACK.md for the full technical rationale.
+The data split: diary entries, project working documents, and reports are files on disk. SQLite Notes, events, tasks, project working-folder identities, and work-environment configs are structured data. File-backed Markdown and SQLite Notes coexist in the project tree without sharing a source of truth. The CLI bridges the two worlds. See TECH_STACK.md for the full technical rationale.
 
 ---
 

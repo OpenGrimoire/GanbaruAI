@@ -1,12 +1,6 @@
 use crate::chat::models::{ChatError, ChatErrorCode, ChatResult, ChatThreadId, UtcTimestamp};
 use sqlx::SqlitePool;
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum LinkedChatDeletionDecision {
-    Detach,
-    Delete,
-}
-
 pub async fn rename_thread(
     pool: &SqlitePool,
     thread_id: &ChatThreadId,
@@ -115,8 +109,8 @@ pub async fn permanently_delete_thread(
         Some(value) if value != i64_value(expected_revision) => return Err(stale()),
         Some(_) => {}
     }
-    let workspace_id: String =
-        sqlx::query_scalar("SELECT workspace_id FROM chat_threads WHERE id = ?")
+    let working_folder_id: String =
+        sqlx::query_scalar("SELECT working_folder_id FROM chat_threads WHERE id = ?")
             .bind(thread_id.as_str())
             .fetch_one(&mut *transaction)
             .await
@@ -138,7 +132,7 @@ pub async fn permanently_delete_thread(
                 kind: "checkpoint_ref",
                 target: &hidden_ref,
                 repository_identity: Some(&repository_identity),
-                workspace_id: Some(&workspace_id),
+                working_folder_id: Some(&working_folder_id),
                 expected_object_id: Some(&object_id),
                 not_before: now,
                 now,
@@ -190,7 +184,7 @@ pub async fn permanently_delete_thread(
                     kind: "attachment_file",
                     target: &relative_path,
                     repository_identity: None,
-                    workspace_id: Some(&workspace_id),
+                    working_folder_id: Some(&working_folder_id),
                     expected_object_id: None,
                     not_before: cleanup_not_before,
                     now,
@@ -202,77 +196,29 @@ pub async fn permanently_delete_thread(
     transaction.commit().await.map_err(persistence_error)
 }
 
-pub async fn set_project_chat_archived(
-    pool: &SqlitePool,
-    project_id: &str,
-    archived: bool,
-    now: &UtcTimestamp,
-) -> ChatResult<u64> {
-    let archived_at = archived.then_some(now.as_str());
-    let result = sqlx::query(
-        "UPDATE chat_workspaces SET archived_at = ?, revision = revision + 1, updated_at = ?
-         WHERE project_id = ?",
-    )
-    .bind(archived_at)
-    .bind(now.as_str())
-    .bind(project_id)
-    .execute(pool)
-    .await
-    .map_err(persistence_error)?;
-    Ok(result.rows_affected())
-}
-
 pub async fn resolve_project_deletion(
     pool: &SqlitePool,
     project_id: &str,
-    decision: LinkedChatDeletionDecision,
     cleanup_not_before: &UtcTimestamp,
     now: &UtcTimestamp,
 ) -> ChatResult<u64> {
-    match decision {
-        LinkedChatDeletionDecision::Detach => {
-            let result = sqlx::query(
-                "UPDATE chat_workspaces SET project_id = NULL, revision = revision + 1, updated_at = ?
-                 WHERE project_id = ?",
-            )
-            .bind(now.as_str())
-            .bind(project_id)
-            .execute(pool)
-            .await
-            .map_err(persistence_error)?;
-            Ok(result.rows_affected())
-        }
-        LinkedChatDeletionDecision::Delete => {
-            let thread_rows: Vec<(String, i64)> = sqlx::query_as(
-                "SELECT id, revision FROM chat_threads WHERE project_id = ? ORDER BY id",
-            )
+    let thread_rows: Vec<(String, i64)> =
+        sqlx::query_as("SELECT id, revision FROM chat_threads WHERE project_id = ? ORDER BY id")
             .bind(project_id)
             .fetch_all(pool)
             .await
             .map_err(persistence_error)?;
-            for (thread_id, revision) in &thread_rows {
-                permanently_delete_thread(
-                    pool,
-                    &ChatThreadId::new(thread_id.clone()).map_err(|_| corrupt_data())?,
-                    u64::try_from(*revision).map_err(|_| corrupt_data())?,
-                    cleanup_not_before,
-                    now,
-                )
-                .await?;
-            }
-            sqlx::query(
-                "UPDATE chat_workspaces SET project_id = NULL, archived_at = ?,
-                        revision = revision + 1, updated_at = ? WHERE project_id = ?",
-            )
-            .bind(now.as_str())
-            .bind(now.as_str())
-            .bind(project_id)
-            .execute(pool)
-            .await
-            .map_err(persistence_error)?;
-            Ok(thread_rows.len() as u64)
-        }
+    for (thread_id, revision) in &thread_rows {
+        permanently_delete_thread(
+            pool,
+            &ChatThreadId::new(thread_id.clone()).map_err(|_| corrupt_data())?,
+            u64::try_from(*revision).map_err(|_| corrupt_data())?,
+            cleanup_not_before,
+            now,
+        )
+        .await?;
     }
+    Ok(thread_rows.len() as u64)
 }
 
 struct CleanupRequest<'a> {
@@ -281,7 +227,7 @@ struct CleanupRequest<'a> {
     kind: &'a str,
     target: &'a str,
     repository_identity: Option<&'a str>,
-    workspace_id: Option<&'a str>,
+    working_folder_id: Option<&'a str>,
     expected_object_id: Option<&'a str>,
     not_before: &'a UtcTimestamp,
     now: &'a UtcTimestamp,
@@ -294,7 +240,7 @@ async fn enqueue_cleanup(
     sqlx::query(
         "INSERT INTO chat_cleanup_queue
             (id, source_thread_id, cleanup_kind, exact_target, repository_identity,
-             not_before, created_at, updated_at, workspace_id, expected_object_id)
+             not_before, created_at, updated_at, working_folder_id, expected_object_id)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT(cleanup_kind, exact_target) DO UPDATE SET
             state = CASE WHEN chat_cleanup_queue.state = 'completed' THEN 'completed' ELSE 'pending' END,
@@ -309,7 +255,7 @@ async fn enqueue_cleanup(
     .bind(request.not_before.as_str())
     .bind(request.now.as_str())
     .bind(request.now.as_str())
-    .bind(request.workspace_id)
+    .bind(request.working_folder_id)
     .bind(request.expected_object_id)
     .execute(&mut **transaction)
     .await

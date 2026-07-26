@@ -28,7 +28,7 @@ fn fresh_database_applies_baseline_and_additive_migrations() {
 
         for object in [
             "calendar_events",
-            "chat_workspaces",
+            "project_working_folders",
             "chat_threads",
             "chat_turns",
             "chat_messages",
@@ -81,6 +81,7 @@ fn fresh_database_applies_baseline_and_additive_migrations() {
             assert_eq!(exists, Some(1), "{object} should exist");
         }
         for obsolete in [
+            "chat_workspaces",
             "project_labels",
             "project_task_label_links",
             "project_view_preferences_new",

@@ -25,7 +25,7 @@ vi.mock("$lib/api/chat", async (importOriginal) => ({
   chatAttachmentDataUrl: api.attachmentUrl,
   hasChatFullAccessTrust: vi.fn(async () => false),
   listChatPromptCatalog: vi.fn(async () => []),
-  searchChatWorkspacePaths: vi.fn(async () => ({ entries: [], nextCursor: null })),
+  searchChatWorkingFolderPaths: vi.fn(async () => ({ entries: [], nextCursor: null })),
 }));
 
 describe("ChatComposer", () => {
@@ -41,9 +41,9 @@ describe("ChatComposer", () => {
     chat.settings = null;
     chat.activeThreads = [];
     chat.archivedThreads = [];
-    chat.workspaces = [];
+    chat.workingFolders = [availableWorkingFolder()];
     chat.selectedThreadId = null;
-    chat.selectedWorkspaceId = "workspace-1";
+    chat.selectedWorkingFolderId = "workspace-1";
     chat.timelinePages = [];
     api.attachmentUrl.mockClear();
   });
@@ -110,11 +110,14 @@ describe("ChatComposer", () => {
       safetyMode: "ask_for_approval",
       interactionMode: "build",
     };
-    chat.workspaces = [{
-      workspace: {
+    chat.workingFolders = [{
+      workingFolder: {
         id: "workspace-1",
-        projectId: null,
+        projectId: "project-1",
         displayName: "Example",
+        kind: "external",
+        managedRelativePath: null,
+        sortOrder: 10,
         repositoryKind: "git",
         repositoryIdentity: "example-repository",
         createdAt: "2026-07-24T12:00:00.000Z",
@@ -571,10 +574,33 @@ describe("ChatComposer", () => {
   });
 });
 
+function availableWorkingFolder() {
+  return {
+    workingFolder: {
+      id: "workspace-1",
+      projectId: "project-1",
+      displayName: "Example",
+      kind: "external" as const,
+      managedRelativePath: null,
+      sortOrder: 10,
+      repositoryKind: "git" as const,
+      repositoryIdentity: "example-repository",
+      createdAt: "2026-07-24T12:00:00.000Z",
+      updatedAt: "2026-07-24T12:00:00.000Z",
+      archivedAt: null,
+      revision: 1,
+    },
+    bindingStatus: "available" as const,
+    canonicalPath: "/workspace/example",
+    lastVerifiedAt: "2026-07-24T12:00:00.000Z",
+    currentBranch: "feat/chat",
+  };
+}
+
 function composer(): ChatComposerSnapshot {
   return {
     draftId: "workspace:workspace-1:thread:new",
-    workspaceId: "workspace-1",
+    workingFolderId: "workspace-1",
     threadId: null,
     text: "Review the calendar implementation",
     attachmentIds: [],
@@ -603,7 +629,7 @@ function pointerEvent(type: string, clientX: number): PointerEvent {
 function imageAttachment(): ChatAttachmentRead {
   return {
     id: "attachment-1",
-    workspaceId: "workspace-1",
+    workingFolderId: "workspace-1",
     kind: "image",
     originalDisplayName: "diagram.png",
     mimeType: "image/png",
@@ -622,7 +648,7 @@ function modelSettings(): ChatSettingsRead {
       providers: [],
       automaticProviderSetupDisabled: [],
       rememberedSelections: [],
-      workspaceProviderPreferences: {},
+      workingFolderProviderPreferences: {},
       panels: { railWidthPx: 320, inspectorWidthPx: 520 },
       behavior: {
         sendKey: "enter",

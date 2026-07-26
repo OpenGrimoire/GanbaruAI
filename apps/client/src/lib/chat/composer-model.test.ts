@@ -37,7 +37,7 @@ describe("Chat composer model", () => {
 
   it("requires every explicit first-use choice and workspace-specific broad permission trust", () => {
     expect(validateComposerSelections({
-      workspaceId: null,
+      workingFolderId: null,
       providerInstanceId: null,
       modelId: null,
       providerManagedModel: false,
@@ -46,7 +46,7 @@ describe("Chat composer model", () => {
       fullAccessTrusted: false,
     }, capabilities())).toHaveLength(5);
     expect(validateComposerSelections({
-      workspaceId: "workspace-1",
+      workingFolderId: "workspace-1",
       providerInstanceId: "codex",
       modelId: "gpt-5",
       providerManagedModel: false,

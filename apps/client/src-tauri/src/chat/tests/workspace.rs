@@ -1,9 +1,11 @@
-use super::super::device_state::{ChatDeviceScope, ChatWorkspaceBindingState};
-use super::super::models::{ChatWorkspaceId, RepositoryKind, UtcTimestamp};
+use super::super::models::{ProjectWorkingFolderId, RepositoryKind, UtcTimestamp};
 use super::super::workspace::{
-    authorize_workspace, probe_repository, read_workspaces, resolve_workspace_relative_path,
-    ChatWorkspaceCatalogState, CreateChatWorkspaceRequest, LogicalChatWorkspace,
-    WorkspaceAuthorizationOperation, WorkspaceBindingStatus,
+    authorize_workspace, probe_repository, resolve_workspace_relative_path, workspace_read,
+    ProjectWorkingFolder, WorkingFolderAuthorizationOperation, WorkingFolderBindingStatus,
+    WorkingFolderKind,
+};
+use crate::projects::working_folders::{
+    ProjectWorkingFolderBindingState, WorkingFolderDeviceScope,
 };
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -59,11 +61,14 @@ fn timestamp() -> UtcTimestamp {
     UtcTimestamp::new("2026-07-20T12:00:00Z").expect("timestamp should be valid")
 }
 
-fn workspace(id: &str, kind: RepositoryKind, identity: Option<String>) -> LogicalChatWorkspace {
-    LogicalChatWorkspace {
-        id: ChatWorkspaceId::new(id).expect("workspace ID should be valid"),
-        project_id: Some("project-1".to_string()),
+fn workspace(id: &str, kind: RepositoryKind, identity: Option<String>) -> ProjectWorkingFolder {
+    ProjectWorkingFolder {
+        id: ProjectWorkingFolderId::new(id).expect("workspace ID should be valid"),
+        project_id: "project-1".to_string(),
         display_name: "Frontend".to_string(),
+        kind: WorkingFolderKind::External,
+        managed_relative_path: None,
+        sort_order: 10,
         repository_kind: kind,
         repository_identity: identity,
         created_at: timestamp(),
@@ -77,8 +82,8 @@ fn binding(
     path: &Path,
     kind: RepositoryKind,
     identity: Option<String>,
-) -> ChatWorkspaceBindingState {
-    ChatWorkspaceBindingState {
+) -> ProjectWorkingFolderBindingState {
+    ProjectWorkingFolderBindingState {
         canonical_path: path
             .to_str()
             .expect("test path should be UTF-8")
@@ -90,39 +95,16 @@ fn binding(
 }
 
 #[test]
-fn logical_workspaces_link_projects_or_explicit_standalone_contexts() {
-    let catalog = ChatWorkspaceCatalogState::default();
-    let project_workspace = catalog
-        .create(CreateChatWorkspaceRequest {
-            id: ChatWorkspaceId::new("workspace-project").unwrap(),
-            project_id: Some("project-1".to_string()),
-            display_name: "Frontend".to_string(),
-        })
-        .unwrap();
-    let standalone_workspace = catalog
-        .create(CreateChatWorkspaceRequest {
-            id: ChatWorkspaceId::new("workspace-standalone").unwrap(),
-            project_id: None,
-            display_name: "Scratch repository".to_string(),
-        })
-        .unwrap();
-
-    assert_eq!(project_workspace.project_id.as_deref(), Some("project-1"));
-    assert_eq!(standalone_workspace.project_id, None);
-    assert_eq!(catalog.list().unwrap().len(), 2);
-}
-
-#[test]
 fn non_git_workspace_is_authorized_for_every_guarded_operation() {
     let directory = TestDirectory::new("non-git");
     let workspace = workspace("workspace-1", RepositoryKind::None, None);
-    let mut scope = ChatDeviceScope::default();
-    scope.workspace_bindings.insert(
+    let mut scope = WorkingFolderDeviceScope::default();
+    scope.bindings.insert(
         workspace.id.clone(),
         binding(directory.path(), RepositoryKind::None, None),
     );
 
-    for operation in WorkspaceAuthorizationOperation::ALL {
+    for operation in WorkingFolderAuthorizationOperation::ALL {
         let authorized = authorize_workspace(&workspace, &scope, operation).unwrap();
         assert_eq!(authorized.canonical_path, directory.path());
     }
@@ -130,46 +112,41 @@ fn non_git_workspace_is_authorized_for_every_guarded_operation() {
 
 #[test]
 fn another_device_without_a_binding_remains_unbound() {
-    let catalog = ChatWorkspaceCatalogState::default();
-    catalog
-        .create(CreateChatWorkspaceRequest {
-            id: ChatWorkspaceId::new("workspace-1").unwrap(),
-            project_id: None,
-            display_name: "Standalone".to_string(),
-        })
-        .unwrap();
-
-    let reads = read_workspaces(&catalog, &ChatDeviceScope::default()).unwrap();
-    assert_eq!(reads[0].binding_status, WorkspaceBindingStatus::Unbound);
-    assert_eq!(reads[0].canonical_path, None);
+    let read = workspace_read(
+        workspace("working-folder-1", RepositoryKind::None, None),
+        &WorkingFolderDeviceScope::default(),
+    )
+    .unwrap();
+    assert_eq!(read.binding_status, WorkingFolderBindingStatus::Unbound);
+    assert_eq!(read.canonical_path, None);
 }
 
 #[test]
 fn missing_and_stale_bindings_are_rejected() {
     let missing = std::env::temp_dir().join("ganbaru-chat-definitely-missing");
     let workspace = workspace("workspace-1", RepositoryKind::None, None);
-    let mut scope = ChatDeviceScope::default();
-    scope.workspace_bindings.insert(
+    let mut scope = WorkingFolderDeviceScope::default();
+    scope.bindings.insert(
         workspace.id.clone(),
         binding(&missing, RepositoryKind::None, None),
     );
     assert!(authorize_workspace(
         &workspace,
         &scope,
-        WorkspaceAuthorizationOperation::ProviderStart
+        WorkingFolderAuthorizationOperation::ProviderStart
     )
     .is_err());
 
     let directory = TestDirectory::new("stale");
     let noncanonical = directory.path().join(".");
-    scope.workspace_bindings.insert(
+    scope.bindings.insert(
         workspace.id.clone(),
         binding(&noncanonical, RepositoryKind::None, None),
     );
     assert!(authorize_workspace(
         &workspace,
         &scope,
-        WorkspaceAuthorizationOperation::ProviderStart
+        WorkingFolderAuthorizationOperation::ProviderStart
     )
     .is_err());
 }
@@ -205,22 +182,26 @@ fn repository_mismatch_blocks_authorization() {
         RepositoryKind::Git,
         first_probe.identity.clone(),
     );
-    let mut scope = ChatDeviceScope::default();
-    scope.workspace_bindings.insert(
+    let mut scope = WorkingFolderDeviceScope::default();
+    scope.bindings.insert(
         workspace.id.clone(),
         binding(second.path(), RepositoryKind::Git, second_probe.identity),
     );
 
-    let error = authorize_workspace(&workspace, &scope, WorkspaceAuthorizationOperation::Restore)
-        .unwrap_err();
+    let error = authorize_workspace(
+        &workspace,
+        &scope,
+        WorkingFolderAuthorizationOperation::Restore,
+    )
+    .unwrap_err();
     assert!(error.message.contains("different repository"));
 }
 
 #[test]
 fn traversal_and_absolute_paths_are_rejected() {
     let directory = TestDirectory::new("paths");
-    let authorized = super::super::workspace::AuthorizedWorkspace {
-        workspace_id: ChatWorkspaceId::new("workspace-1").unwrap(),
+    let authorized = super::super::workspace::AuthorizedWorkingFolder {
+        working_folder_id: ProjectWorkingFolderId::new("workspace-1").unwrap(),
         canonical_path: directory.path().to_path_buf(),
         repository_kind: RepositoryKind::None,
         repository_identity: None,
@@ -244,8 +225,8 @@ fn symlink_escape_is_rejected_at_resolution_time() {
         workspace_directory.path().join("escape"),
     )
     .expect("test symlink should be created");
-    let authorized = super::super::workspace::AuthorizedWorkspace {
-        workspace_id: ChatWorkspaceId::new("workspace-1").unwrap(),
+    let authorized = super::super::workspace::AuthorizedWorkingFolder {
+        working_folder_id: ProjectWorkingFolderId::new("workspace-1").unwrap(),
         canonical_path: workspace_directory.path().to_path_buf(),
         repository_kind: RepositoryKind::None,
         repository_identity: None,

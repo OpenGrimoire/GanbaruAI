@@ -22,6 +22,8 @@ Why SQLite and not markdown:
 
 The rule is one-directional: structured data and Notes pages may be exported as markdown for collaborators or AI agents that read repos, but those exports are views, not source. They can be regenerated at any time. The reverse, treating an exported markdown file as authoritative, is forbidden unless an explicit import command converts it back into canonical rows.
 
+Project working-folder Markdown is a separate document source, not a Notes export. Each project has one managed folder under `projects/{project-id}/` and may reference external folders whose absolute bindings are device-local. Existing `.md` files in those folders remain file-authoritative and appear beside SQLite Notes in one project tree. They are not copied into the Notes graph or enriched with block metadata.
+
 ## Ganbaru AI folder layout
 
 Everything portable that the app produces lives under one folder. First launch defaults to `Documents/Ganbaru AI` in production and `Documents/Ganbaru AI Dev` in development builds, with secondary actions to choose another folder or import an existing Ganbaru AI folder from another installation. Development setup warns the user to use the dev default or a copied production folder so test data does not mix with real production data. Tauri's platform app config directory stores only device-local bootstrap and runtime state, such as the active folder pointer, benchmark state, and transient doomscrolling snapshots.
@@ -37,7 +39,7 @@ Ganbaru AI/
   ganbaru-ai.sqlite                  # SQLite source of truth for structured data, Notes, and indexes
   notes/exports/                    # derivative markdown exports for notes (planned)
   diary/morning/, diary/evening/    # dated diary entries (markdown plus indexed fields)
-  projects/{project-id}/            # per-project file attachments (PDFs, references)
+  projects/{project-id}/            # managed working folder created for every project
   reports/                          # generated project status reports (markdown, PDF)
   assets/                           # user assets (images embedded in notes, attachments)
     notes/page-icons/               # copied local Notes page icon images

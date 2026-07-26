@@ -3,7 +3,7 @@ import type {
   ChatCheckpointId,
   ChatThreadId,
   ChatTurnId,
-  ChatWorkspaceId,
+  ProjectWorkingFolderId,
   UtcTimestamp,
 } from "./common";
 
@@ -11,7 +11,7 @@ export type ChatInspectorTab = "changes" | "plan" | "files" | "terminal";
 export type ChatChangeScope = "current_turn" | "entire_thread";
 export type ChatChangedFileStatus = "added" | "modified" | "deleted" | "renamed" | "type_changed" | "unknown";
 
-export interface ChatWorkspaceFileEntry {
+export interface ProjectWorkingFolderFileEntry {
   relativePath: string;
   displayName: string;
   kind: "file" | "directory";
@@ -19,13 +19,13 @@ export interface ChatWorkspaceFileEntry {
   byteSize: number | null;
 }
 
-export interface ChatWorkspaceDirectoryRead {
+export interface ProjectWorkingFolderDirectoryRead {
   relativePath: string;
-  entries: ChatWorkspaceFileEntry[];
+  entries: ProjectWorkingFolderFileEntry[];
   truncated: boolean;
 }
 
-export interface ChatWorkspaceFilePreview {
+export interface ProjectWorkingFolderFilePreview {
   relativePath: string;
   displayName: string;
   language: string | null;
@@ -88,7 +88,7 @@ export interface ChatRestoreResultRead {
 export interface ChatTerminalRead {
   id: string;
   threadId: ChatThreadId;
-  workspaceId: ChatWorkspaceId;
+  workingFolderId: ProjectWorkingFolderId;
   name: string;
   shell: string;
   columns: number;

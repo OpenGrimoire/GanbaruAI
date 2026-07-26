@@ -230,6 +230,24 @@ async fn repair_built_in_routine_defaults(pool: &sqlx::SqlitePool) -> Result<(),
         .await
         .map_err(|e| format!("restore built-in Routine projects: {e}"))?;
 
+    for project in BUILT_IN_ROUTINE_PROJECTS {
+        sqlx::query(
+            "INSERT OR IGNORE INTO project_working_folders
+                (id, project_id, display_name, kind, managed_relative_path, sort_order)
+             VALUES (?, ?, ?, 'managed', ?, 0)",
+        )
+        .bind(format!(
+            "working-folder-{}",
+            project.id.strip_prefix("project-").unwrap_or(project.id)
+        ))
+        .bind(project.id)
+        .bind(project.name)
+        .bind(format!("projects/{}", project.id))
+        .execute(&mut *tx)
+        .await
+        .map_err(|e| format!("restore built-in Routine working folder: {e}"))?;
+    }
+
     let mut normalize_projects =
         sqlx::QueryBuilder::<sqlx::Sqlite>::new("UPDATE projects SET group_id = ");
     normalize_projects

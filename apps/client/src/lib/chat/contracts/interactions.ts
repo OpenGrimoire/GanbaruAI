@@ -1,7 +1,7 @@
 import type {
   ChatAttachmentId,
   ChatThreadId,
-  ChatWorkspaceId,
+  ProjectWorkingFolderId,
   ProviderSessionState,
   UtcTimestamp,
   VersionedJson,
@@ -11,7 +11,7 @@ import type { AccountStatusEvent, RateLimitStatusEvent, ThreadUsageUpdatedEvent 
 
 export interface ChatAttachmentRead {
   id: ChatAttachmentId;
-  workspaceId: ChatWorkspaceId;
+  workingFolderId: ProjectWorkingFolderId;
   kind: "image" | "text_snippet";
   originalDisplayName: string;
   mimeType: string;
@@ -22,15 +22,15 @@ export interface ChatAttachmentRead {
   createdAt: UtcTimestamp;
 }
 
-export interface ChatWorkspacePathRead {
+export interface ProjectWorkingFolderPathRead {
   relativePath: string;
   displayName: string;
   kind: "file" | "directory";
   ignored: boolean;
 }
 
-export interface ChatWorkspacePathPage {
-  entries: ChatWorkspacePathRead[];
+export interface ProjectWorkingFolderPathPage {
+  entries: ProjectWorkingFolderPathRead[];
   nextCursor: string | null;
 }
 
@@ -98,7 +98,7 @@ export interface SaveQueuedFollowupRequest {
 
 export interface SendChatTurnCommand {
   command: import("./commands").ChatCommandContext;
-  workspaceId: ChatWorkspaceId;
+  workingFolderId: ProjectWorkingFolderId;
   threadId: ChatThreadId | null;
   newThreadId: ChatThreadId | null;
   turnId: string;

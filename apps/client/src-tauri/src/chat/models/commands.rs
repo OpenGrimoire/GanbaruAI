@@ -1,8 +1,8 @@
 use super::{
     ApprovalDecisionKind, ChatAttachmentId, ChatCheckpointId, ChatCommandId, ChatRequestId,
-    ChatThreadId, ChatTurnId, ChatWorkspaceId, ContinuationGroupId, ModelId, ModelOptionSelection,
-    ProviderInstanceId, ProviderRequestId, ProviderSessionId, ProviderThreadId, RepositoryKind,
-    TurnModeSnapshot, VersionedJson,
+    ChatThreadId, ChatTurnId, ContinuationGroupId, ModelId, ModelOptionSelection,
+    ProjectWorkingFolderId, ProviderInstanceId, ProviderRequestId, ProviderSessionId,
+    ProviderThreadId, RepositoryKind, TurnModeSnapshot, VersionedJson,
 };
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
@@ -17,7 +17,7 @@ pub struct ChatCommandContext {
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct VerifiedWorkspaceContext {
-    pub workspace_id: ChatWorkspaceId,
+    pub working_folder_id: ProjectWorkingFolderId,
     pub canonical_path: String,
     pub repository_kind: RepositoryKind,
     pub repository_identity: Option<String>,
