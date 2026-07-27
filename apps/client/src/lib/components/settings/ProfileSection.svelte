@@ -191,7 +191,7 @@
             </div>
           </div>
         </div>
-        <div class="flex shrink-0 items-center gap-2 max-[520px]:pl-[4.25rem]">
+        <div class="flex shrink-0 items-center gap-2 max-[520px]:pl-17">
           <button
             type="button"
             class="inline-flex h-8 items-center gap-1.5 rounded-md border border-border bg-card px-2.5 text-[0.8rem] font-medium text-foreground transition-colors hover:bg-accent disabled:opacity-55 dark:bg-transparent"

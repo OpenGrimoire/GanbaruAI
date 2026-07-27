@@ -22,6 +22,7 @@ All documentation lives in `docs/`. Top-level overviews:
 - **docs/TECH_STACK.md**: how it's built
 - **docs/ROADMAP.md**: phased development plan
 - **docs/PERFORMANCE.md**: memory, startup, and package size measurements
+- **docs/TESTING.md**: testing strategy, validation gates, command topology, caching, and resource constraints
 - **docs/release.md**, **docs/rulesets.md**, and **CONTRIBUTING.md**: branch, PR, ruleset, and release workflow
 
 Granular docs (read the relevant one when working on a feature):
@@ -195,6 +196,8 @@ Tauri's platform app config directory stores device-local bootstrap and runtime 
 
 ## Testing
 
+Read `docs/TESTING.md` when changing tests, validation scripts, task ordering, concurrency, sharding, cache inputs, test profiles, or test target selection.
+
 **Writing tests:**
 - Tests live next to source with `.test.ts` suffix (e.g., `utils.ts` and `utils.test.ts`)
 - Pure functions are the best candidates. If a function depends on Tauri IPC or DOM, extract the pure logic into a separate function or skip testing it.
@@ -206,6 +209,7 @@ Tauri's platform app config directory stores device-local bootstrap and runtime 
 
 **Validation policy for agent work:**
 - The root `check`, `test`, and `validate` scripts intentionally cap tool concurrency. Use those scripts for broad local verification instead of direct full-suite `turbo`, `vitest`, or `cargo` commands.
+- The broad root scripts intentionally run Rust work before frontend work, use one Cargo build job and Rust test thread, and split Vitest into sequential one-worker shards. Do not increase their concurrency, combine Rust and frontend stages, or remove the sharding without measuring peak memory and confirming that coverage is preserved.
 - Run frontend and Rust validation sequentially. Do not run Cargo compilation or tests concurrently with Vitest, Svelte checks, Turbo, or another Node-based validation command.
 - Do not run additional validation commands while a root `check`, `test`, `validate`, or `validate:full` command is active.
 - For direct focused checks, use one Vitest worker and one Cargo build job and test thread unless the user explicitly requests higher concurrency. Add `--lib` when the filtered Rust test is in the library so Cargo does not build unrelated binary test targets. Use an explicit `--bin <name>` only when testing that binary.
@@ -224,17 +228,17 @@ Tauri's platform app config directory stores device-local bootstrap and runtime 
 - `pnpm -w run check`: broad static feedback, including Svelte and TypeScript checks through Turbo, Rust formatting, and Rust clippy.
 - `pnpm --dir apps/client run check`: client-only Svelte and TypeScript checks.
 - `pnpm -w run editor-check`: editor-style diagnostics, including Tailwind canonical class checks.
-- `pnpm -w run test`: all tests (vitest + cargo test) with capped Vitest, Cargo build, and Rust test concurrency. Use after changes to tested code.
+- `pnpm -w run test`: all tests, with serialized Rust execution followed by sequential one-worker Vitest shards. Use after changes to tested code.
 - `pnpm --dir apps/client exec vitest run path/to/file.test.ts --maxWorkers=1`: focused frontend test file.
 - `cargo test -p ganbaru-ai --lib -j 1 test_name -- --test-threads=1`: focused Rust library test by name. Replace `--lib` with the relevant `--bin <name>` only for a binary-local test.
 - `cargo fmt --check`: Rust formatting only.
-- `cargo clippy --workspace -j 2 -- -D warnings`: Rust linting only.
+- `cargo clippy --workspace -j 1 -- -D warnings`: Rust linting only.
 - `pnpm -w run audit:deps`: npm advisory audit for workspace dependencies. Run for dependency or lockfile changes, before PRs, before releases, and when investigating security alerts.
 - `pnpm -w run audit:rust`: RustSec audit for cargo dependencies. Run for dependency or lockfile changes, before PRs, before releases, and when investigating security alerts. Reviewed ignores live in `.cargo/audit.toml` and must be documented in `docs/data/security.md`.
 - `pnpm -w run audit`: both dependency audits (`audit:deps` + `audit:rust`).
 - `pnpm -w run validate`: full normal gate (check + test + editor-check + bundle contracts). Run before PRs, releases, risk-sensitive completion gates, and explicit full-validation requests. Do not treat ordinary task completion or a commit alone as requiring this gate. All errors must be fixed before treating that gate as passed.
 - `pnpm -w run validate:full`: security and code gate (audit + validate). Run for dependency or lockfile changes, before PRs, before releases, and when explicitly requested.
-- `pnpm test:coverage` (from apps/client): coverage report to see what's tested.
+- `pnpm --dir apps/client run test:coverage`: frontend coverage report to see what is tested.
 
 After the relevant gate passes, finish the task without extra dev-server, Tauri launch, status, or diff checks unless they are directly required for the request, a commit, or an unexpected issue.
 

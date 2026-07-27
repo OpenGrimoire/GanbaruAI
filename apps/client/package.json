@@ -6,9 +6,10 @@
   "scripts": {
     "dev": "vite dev",
     "build": "vite build",
-    "check:first-use-bundle": "vite build && node scripts/check-first-use-bundle.mjs",
+    "check:first-use-bundle": "pnpm run build && pnpm run bundle-contracts",
+    "bundle-contracts": "node scripts/check-first-use-bundle.mjs",
     "preview": "vite preview",
-    "check": "svelte-check --tsconfig ./tsconfig.json && tsc -p tsconfig.node.json",
+    "check": "node --max-old-space-size=1536 ./node_modules/svelte-check/bin/svelte-check --tsconfig ./tsconfig.json && tsc -p tsconfig.node.json",
     "editor-check": "node scripts/check-tailwind-diagnostics.mjs",
     "generate:chat-file-icons": "node scripts/generate-chat-file-icons.mjs",
     "generate:project-emojis": "node scripts/generate-project-emoji-catalog.mjs",

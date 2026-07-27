@@ -1,0 +1,241 @@
+# Testing
+
+Ganbaru AI uses layered validation across its Svelte frontend, Rust backend, SQLite persistence, browser extension code, production bundle, and dependency graph. This document defines the durable testing strategy and local validation workflow. Mandatory agent behavior remains summarized in `AGENTS.md`.
+
+## Goals
+
+The test and validation system should:
+
+- Protect durable user data and security boundaries.
+- Catch behavior, type, styling, platform, and production-bundle regressions.
+- Give focused feedback during development and a comprehensive gate when required.
+- Keep broad validation predictable on resource-constrained development and CI machines.
+- Preserve platform portability across Linux, Windows, and macOS.
+- Prefer meaningful boundary coverage over a large test count for its own sake.
+
+The number of tests is not a quality target. Coverage should follow product risk, state complexity, interoperability requirements, and the cost of a regression.
+
+## Validation layers
+
+### Frontend tests
+
+Frontend tests use Vitest. Test files live next to their source with a `.test.ts` suffix. The default environment is Node. A test should request jsdom only when it needs browser or DOM behavior.
+
+Pure domain logic is the preferred testing boundary. When behavior is entangled with Tauri IPC or component rendering, extract pure decisions into explicit functions when that improves the design. Component tests are appropriate when rendering, events, accessibility, loading behavior, or Svelte state integration are the behavior under test.
+
+### Rust tests
+
+Rust tests cover domain behavior, command boundaries, provider protocols, platform integration, persistence, migrations, transactions, and recovery. Most backend tests are library tests. The native messaging host retains its own binary-local tests.
+
+The desktop binary test harness and library doctest phase are disabled while they contain no tests. Re-enable the relevant phase if real binary tests or doctests are introduced.
+
+### Static checks
+
+Static checks are part of validation even though they are not runtime tests:
+
+- Svelte Check validates Svelte components, runes, props, and TypeScript integration.
+- TypeScript validates Node-side configuration and tool files.
+- `cargo fmt` validates Rust formatting.
+- Clippy rejects Rust warnings.
+- Tailwind diagnostics enforce supported and canonical utilities.
+
+### Production bundle contracts
+
+The production bundle contract performs a real Vite build and inspects emitted module metadata. It protects route and first-use loading boundaries, source-module ceilings, and forbidden eager imports. Unit tests do not replace this gate because only a production transform exposes the final chunk graph.
+
+### Dependency audits
+
+The full security gate runs both pnpm advisory checks and RustSec checks. Reviewed Rust audit exceptions live in `.cargo/audit.toml` and must be documented in `docs/data/security.md`.
+
+## Root commands
+
+Run root scripts with the workspace flag:
+
+| Command | Purpose |
+| --- | --- |
+| `pnpm -w run check` | Rust formatting and Clippy, followed by frontend Svelte and TypeScript checks. |
+| `pnpm -w run test` | All Rust tests, followed by all frontend tests in sequential shards. |
+| `pnpm -w run editor-check` | Tailwind editor-style diagnostics. |
+| `pnpm -w run bundle-contracts` | Cached production build and bundle-contract validation. |
+| `pnpm -w run audit` | pnpm and Rust dependency audits. |
+| `pnpm -w run validate` | The complete normal code gate. |
+| `pnpm -w run validate:full` | Dependency audits followed by the complete normal code gate. |
+
+`validate` is the normal comprehensive gate. `validate:full` is required for dependency, lockfile, security, PR, and release-sensitive work.
+
+## Validation execution model
+
+The broad root scripts intentionally optimize for bounded peak resource use rather than minimum wall time. The complete normal gate runs in this order:
+
+1. Rust formatting and Clippy with one Cargo build job.
+2. Rust workspace tests with one Cargo build job and one runtime test thread.
+3. Svelte Check with a 1,536 MiB Node old-space limit, followed by TypeScript checking.
+4. Four sequential Vitest shards, each with one worker.
+5. Tailwind diagnostics through Turbo.
+6. A production build and bundle-contract checks through Turbo.
+
+Rust work runs first because compiler and linker peaks are the least predictable. Rust and frontend tools must not overlap. Do not start another Cargo, Vitest, Svelte Check, Turbo, or broad validation command while a root `check`, `test`, `validate`, or `validate:full` command is active.
+
+One Cargo build job prevents multiple large compiler or linker processes from competing for memory. One Rust test thread also serializes data-heavy integration behavior. Sequential Vitest shards release transformed module graphs between groups while preserving the complete frontend suite.
+
+Do not increase broad concurrency, combine Rust and frontend stages, or remove Vitest sharding solely to make a warm run faster. Any topology change requires measurements and proof that coverage is unchanged.
+
+## Cache behavior and expected timing
+
+Validation duration depends strongly on what changed and which caches are warm.
+
+Cargo reuses compilation artifacts when Rust inputs and build configuration are unchanged. Rust tests still execute even when compilation is reused.
+
+Turbo hashes task inputs, configuration, environment inputs, and command arguments. The four Vitest shards have distinct command arguments and therefore distinct cache entries. Tailwind diagnostics use declared client source inputs. Bundle contracts depend on the production build, whose `dist` output is cached.
+
+A warm repeated validation may restore frontend checks, tests, diagnostics, and bundle results instead of executing them again. A changed source file, dependency, configuration file, environment input, or command invalidates the affected task. A cold or substantially changed run can take much longer and use more memory than a warm run.
+
+Do not interpret a fast cached run as proof that a cold build has the same resource profile. When changing validation topology, measure at least one affected cache-miss run and one warm repeat.
+
+Do not clear Cargo or Turbo caches as a routine memory fix. Cache removal increases work on the next run and changes the conditions being measured. Clear a cache only when investigating concrete corruption or invalidation behavior.
+
+## Choosing the appropriate gate
+
+Start with the narrowest command that can catch a plausible regression.
+
+### Focused development
+
+Use a focused Vitest file for isolated frontend behavior:
+
+```sh
+pnpm --dir apps/client exec vitest run src/path/to/file.test.ts --maxWorkers=1
+```
+
+Confirm that Vitest reports only the requested files. Stop and correct the command if the full suite starts unexpectedly.
+
+Use a filtered Rust library test for isolated backend behavior:
+
+```sh
+cargo test -p ganbaru-ai --lib -j 1 test_name -- --test-threads=1
+```
+
+Use the relevant binary only for a binary-local test:
+
+```sh
+cargo test -p ganbaru-ai --bin ganbaru-ai-native-messaging -j 1 test_name -- --test-threads=1
+```
+
+Useful focused static commands include:
+
+```sh
+pnpm --dir apps/client run check
+cargo fmt --check
+cargo clippy --workspace -j 1 -- -D warnings
+pnpm -w run editor-check
+```
+
+### Small UI and documentation changes
+
+Do not run the complete gate merely because a small UI or documentation edit is finished. Use `pnpm -w run check` or `pnpm -w run editor-check` when a change can affect Svelte compilation, TypeScript, Tailwind classes, or shared UI structure. Add focused tests when behavior changes.
+
+Mechanically obvious documentation or copy-only changes do not require validation unless a relevant workflow requires it.
+
+### Data-sensitive changes
+
+Backend, persistence, SQLite, import, export, migration, project-membership, note-saving, and other data-loss-sensitive changes require focused tests during implementation and a broader gate before completion or commit when the risk warrants it.
+
+Tests for persisted data must consider existing installs, stale rows, rollback, partial failure, unknown values, older exports, and cleanup of obsolete data.
+
+### Pull requests, releases, and dependencies
+
+Run `pnpm -w run validate` before opening a normal pull request and before risk-sensitive release work. Run `pnpm -w run validate:full` for dependency or lockfile changes, before pull requests and releases where dependency auditing is required, and when explicitly requested.
+
+If a batch already passed the required gate, do not repeat it unless later changes materially affect behavior covered by that gate. Use focused checks for later isolated edits.
+
+## Writing valuable tests
+
+Test names should describe observable behavior, not implementation details. A useful test protects a decision, invariant, failure mode, or user-visible contract.
+
+Cover relevant cases such as:
+
+- Boundary values and realistic maximum sizes.
+- Invalid, missing, stale, truncated, and unknown input.
+- Transaction rollback and partial failure.
+- Restart, crash recovery, retry, and idempotency.
+- Ordering, pagination, deduplication, and stable identity.
+- Permission, path, URL, protocol, and redaction boundaries.
+- Import and export round trips and interoperability fixtures.
+- State-machine transitions and forbidden transitions.
+- Cross-platform path and process behavior.
+
+Avoid shallow existence assertions and tests that merely repeat the type system. Before adding a test, inspect nearby tests and match their depth, fixture style, and naming conventions.
+
+Do not shrink realistic security, data-volume, or interoperability bounds only to shorten the suite. If a stress test is valuable but expensive, prefer bounded serialization, shared fixture design, or focused execution over deleting its coverage.
+
+## Frontend test guidance
+
+Keep the default Node environment when possible. jsdom adds startup and memory cost, so request it only for tests that exercise DOM behavior.
+
+Mock the narrowest external boundary. Avoid loading a broad real component or API graph through a partial mock when the imported behavior is not part of the test. At the same time, retain representative integration tests for important component loading, first-use behavior, accessibility, and user-visible flows.
+
+Tests that import component registries should distinguish between two guarantees:
+
+- Generic loader behavior, such as caching, retries, and single-flight loading, belongs in focused loader tests.
+- Production wiring and chunk placement belong in type checking and bundle contracts, with representative runtime smoke coverage where useful.
+
+Do not globally disable Vitest isolation without a dedicated state-leak audit. Shared Svelte stores, module caches, fake timers, DOM globals, and mocks can otherwise make results order-dependent.
+
+## Rust and SQLite test guidance
+
+Use library tests for backend behavior unless the behavior belongs specifically to a binary target. Add `--lib` to focused Cargo commands so unrelated binary targets are not built.
+
+Persistence tests should use isolated temporary databases. Tests that depend on the current schema should apply the real migration chain or a proven equivalent fixture. Migration-specific tests must always exercise the actual migrations and SQLx checksums.
+
+Database fixture optimizations must preserve:
+
+- Isolation between tests.
+- Foreign-key behavior.
+- Migration checksums and ordering.
+- Transaction and rollback semantics.
+- Cleanup on every supported platform.
+
+The workspace test profile intentionally limits debug information to keep test binaries and relinks smaller while retaining useful line-based stack traces. Restore fuller debug information only for a concrete debugging session that requires local-variable inspection.
+
+Standard Cargo commands must remain portable. Do not require an external linker repository-wide. An optional linker optimization must retain the standard toolchain as a fallback and must be benchmarked on supported platforms.
+
+## UI verification
+
+Automated tests cannot replace manual inspection of the real Tauri application. Component tests can verify logic, events, accessibility, and deterministic layout decisions, but they do not prove that the complete native window looks or behaves correctly on every platform and window size.
+
+During iterative UI work, use focused checks and tests. Do not launch a development server, Tauri app, or HTTP smoke check as a substitute for requested user inspection. Run the risk-appropriate completion gate after the batch is ready.
+
+For responsive behavior, prefer pure helper tests when layout decisions depend on measured width, available space, anchors, or collision rules. Manual verification should include the app's recoverability floor and realistic desktop sizes.
+
+## Coverage reports
+
+Generate frontend coverage with:
+
+```sh
+pnpm --dir apps/client run test:coverage
+```
+
+Coverage is a diagnostic, not a completion gate. Use it to find untested decisions and branches, not to justify low-value assertions or pursue a percentage without regard to risk. The repository does not currently define a root Rust coverage command.
+
+## Changing the validation system
+
+Changes to concurrency, sharding, task ordering, heap limits, cache inputs, test profiles, or target selection can silently change both coverage and resource use. Before adopting such a change:
+
+1. Record the existing command topology and relevant task counts.
+2. Run the proposed command with representative changed inputs.
+3. Confirm that no test files or Cargo targets are omitted.
+4. Compare wall time, peak memory, and swap behavior.
+5. Repeat with warm caches to verify cache keys and invalidation.
+6. Preserve standard toolchain behavior on every supported platform.
+7. Update this document, `AGENTS.md`, and affected command descriptions together.
+
+Prefer orchestration changes before removing coverage. Serialization, bounded workers, process-level sharding, target selection, and correct caching generally reduce peak pressure with less risk than deleting tests.
+
+## Troubleshooting
+
+When a broad gate fails, identify the first failing stage and reproduce it with the narrowest relevant command. Do not start additional broad commands while the original gate is active.
+
+If Svelte Check reaches its configured heap limit, treat that as a controlled failure. Investigate frontend graph growth, generated inputs, and checker topology before raising the limit. A higher limit must be measured as part of the complete validation process.
+
+If a focused Vitest command unexpectedly collects the full suite, stop it and correct the path or argument placement. If Turbo restores a result that appears stale, first inspect the task inputs and command hash. Do not immediately disable caching or delete every cache.
+
+If a Cargo build becomes unexpectedly large, confirm that the command selects only the intended library or binary target and still uses one build job. Avoid running frontend tools concurrently while diagnosing it.
