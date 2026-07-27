@@ -72,7 +72,7 @@ export const SHORTCUT_GROUPS: readonly ShortcutGroup[] = Object.freeze([
       { keys: ["Mod + F"], action: "Focus thread search" },
       { keys: ["Mod + L"], action: "Focus composer" },
       { keys: ["Alt + Arrow up", "Alt + Arrow down"], action: "Previous or next thread" },
-      { keys: ["Mod + B"], action: "Toggle thread rail" },
+      { keys: ["Mod + B"], action: "Toggle chat explorer" },
       { keys: ["Mod + Shift + J"], action: "Toggle Chat inspector" },
       { keys: ["Mod + ."], action: "Stop active turn" },
       { keys: ["Enter", "Mod + Enter"], action: "Send Chat message" },
@@ -134,7 +134,7 @@ function localizedAction(action: string, t: Translate): string {
       return t("settings.shortcuts.action.focusComposer");
     case "Previous or next thread":
       return t("settings.shortcuts.action.previousNextThread");
-    case "Toggle thread rail":
+    case "Toggle chat explorer":
       return t("settings.shortcuts.action.toggleThreadRail");
     case "Toggle Chat inspector":
       return t("settings.shortcuts.action.toggleChatInspector");

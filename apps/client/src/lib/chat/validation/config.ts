@@ -32,7 +32,7 @@ const MAX_LABEL_BYTES = 160;
 const MAX_ARGUMENT_BYTES = 4_096;
 const MAX_ENVIRONMENT_VALUE_BYTES = 16_384;
 
-const DEFAULT_PANELS: ChatPanelPreferences = { railWidthPx: 320, inspectorWidthPx: 520 };
+const DEFAULT_PANELS: ChatPanelPreferences = { inspectorWidthPx: 520 };
 const DEFAULT_BEHAVIOR: ChatBehaviorPreferences = {
   sendKey: "enter",
   restoreLastSelectedThread: true,
@@ -127,14 +127,12 @@ function parseRememberedSelection(value: unknown, label: string): RememberedComp
 
 function parsePanels(value: unknown, label: string): ChatPanelPreferences {
   const record = readRecord(value, label);
-  const railWidthPx = readNonNegativeSafeInteger(record.railWidthPx ?? DEFAULT_PANELS.railWidthPx, `${label}.railWidthPx`);
   const inspectorWidthPx = readNonNegativeSafeInteger(
     record.inspectorWidthPx ?? DEFAULT_PANELS.inspectorWidthPx,
     `${label}.inspectorWidthPx`,
   );
-  if (railWidthPx < 160 || railWidthPx > 520) throw new Error(`${label}.railWidthPx is out of range`);
   if (inspectorWidthPx < 240 || inspectorWidthPx > 960) throw new Error(`${label}.inspectorWidthPx is out of range`);
-  return { railWidthPx, inspectorWidthPx };
+  return { inspectorWidthPx };
 }
 
 function parseBehavior(value: unknown, label: string): ChatBehaviorPreferences {

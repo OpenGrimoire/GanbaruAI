@@ -65,7 +65,7 @@ export const focusAndShortcuts = {
       focusThreadSearch: "Focus thread search",
       focusComposer: "Focus composer",
       previousNextThread: "Previous or next thread",
-      toggleThreadRail: "Toggle thread rail",
+      toggleThreadRail: "Toggle chat explorer",
       toggleChatInspector: "Toggle Chat inspector",
       stopActiveTurn: "Stop active turn",
       sendChatMessage: "Send Chat message",

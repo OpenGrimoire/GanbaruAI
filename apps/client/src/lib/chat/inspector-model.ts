@@ -18,7 +18,6 @@ export interface ChatInspectorThreadState {
   changedFileListHeightPx: number;
   whitespaceIgnored: boolean;
   diffView: "auto" | "unified" | "split";
-  maximized: boolean;
 }
 
 export interface ChatChangedFileTreeNode {
@@ -43,7 +42,6 @@ const DEFAULT_STATE: ChatInspectorThreadState = {
   changedFileListHeightPx: 160,
   whitespaceIgnored: false,
   diffView: "auto",
-  maximized: false,
 };
 
 export class ChatInspectorSessionState {
@@ -414,16 +412,6 @@ export function splitPaneResizeBounds(
     minimum: Math.min(primaryMinimum, maximum),
     maximum,
   };
-}
-
-export type ChatInspectorPresentation = "column" | "sheet" | "full";
-
-export function inspectorPresentation(
-  containerWidth: number,
-  maximized: boolean,
-): ChatInspectorPresentation {
-  if (maximized) return "full";
-  return containerWidth < 920 ? "sheet" : "column";
 }
 
 export function inspectorFocusAction(

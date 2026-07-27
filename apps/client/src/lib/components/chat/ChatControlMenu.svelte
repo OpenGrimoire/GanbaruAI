@@ -244,6 +244,7 @@
 {/if}
 
 <style>
+  .control-popover :global(svg) { stroke-width: 2 !important; }
   .control-trigger { display: inline-flex; min-width: 0; height: 1.9rem; max-width: 10rem; flex: 0 1 auto; align-items: center; gap: 0.4rem; border-radius: 0.55rem; padding: 0.25rem 0.45rem; color: var(--muted-foreground); font-size: 0.766667rem; white-space: nowrap; }
   .control-trigger:hover, .control-trigger[aria-expanded="true"] { background: var(--accent); color: var(--foreground); }
   .control-trigger.minimal { padding-inline: 0.35rem; }

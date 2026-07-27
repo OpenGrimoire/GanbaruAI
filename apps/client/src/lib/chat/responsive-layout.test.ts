@@ -6,11 +6,9 @@ import {
   chatLayoutPrimaryActions,
   chatInspectorResizeMaximum,
   chatScrollBehavior,
-  chatRailResizeMaximum,
   clampPanelSizeToWholePixel,
   fittedChatBottomPanelHeight,
   fittedChatInspectorWidth,
-  fittedChatRailWidth,
   middleTruncate,
   panelSizeWithCollapseSnap,
   panelWidthFromKey,
@@ -30,7 +28,6 @@ function layout(
     fontScale,
     railOpen: true,
     inspectorOpen: true,
-    railWidth: 260,
     inspectorWidth: 520,
     previousVariant,
   });
@@ -49,7 +46,6 @@ describe("Chat responsive layout", () => {
       fontScale: 1,
       railOpen: true,
       inspectorOpen: false,
-      railWidth: 260,
       inspectorWidth: 360,
     }).variant).toBe("no_inspector");
   });
@@ -64,6 +60,28 @@ describe("Chat responsive layout", () => {
     expect(layout(1_230, 700, "inspector_sheet").variant).toBe("inspector_sheet");
     expect(layout(695, 700, "no_inspector").railPresentation).toBe("column");
     expect(layout(695, 700, "rail_sheet").railPresentation).toBe("sheet");
+  });
+
+  it("reserves only the restoration strip when the column explorer is collapsed", () => {
+    const collapsed = chatLayoutDecision({
+      containerWidth: 520,
+      containerHeight: 700,
+      fontScale: 1,
+      railOpen: false,
+      inspectorOpen: false,
+      inspectorWidth: 520,
+    });
+    const expanded = chatLayoutDecision({
+      containerWidth: 520,
+      containerHeight: 700,
+      fontScale: 1,
+      railOpen: true,
+      inspectorOpen: false,
+      inspectorWidth: 520,
+    });
+
+    expect(collapsed.railPresentation).toBe("column");
+    expect(expanded.railPresentation).toBe("sheet");
   });
 
   it("keeps every primary recovery route in every layout", () => {
@@ -88,7 +106,6 @@ describe("Chat responsive layout", () => {
       fontScale: 1,
       railOpen: true,
       inspectorOpen: false,
-      railWidth: 260,
       inspectorWidth: 360,
     });
     expect(rail.activeSurface).toBe("rail");
@@ -98,7 +115,6 @@ describe("Chat responsive layout", () => {
       fontScale: 1,
       railOpen: false,
       inspectorOpen: false,
-      railWidth: 260,
       inspectorWidth: 360,
     });
     expect(conversation.activeSurface).toBe("conversation");
@@ -176,65 +192,26 @@ describe("Chat responsive layout", () => {
     const maximum = (containerWidth: number, railVisible = true) => chatInspectorResizeMaximum({
       containerWidth,
       railVisible,
-      railWidth: 260,
       minimum: 240,
       maximum: 960,
     });
-    expect(maximum(1_400)).toBe(700);
-    expect(maximum(1_400, false)).toBe(960);
+    expect(maximum(1_400)).toBe(704);
+    expect(maximum(1_400, false)).toBe(916);
     expect(maximum(2_000)).toBe(960);
     expect(maximum(700)).toBe(240);
-    expect(maximum(1_399.75)).toBe(699);
-  });
-
-  it("limits the rail without displacing visible adjacent content", () => {
-    const maximum = (containerWidth: number, inspectorVisible = true) => chatRailResizeMaximum({
-      containerWidth,
-      inspectorVisible,
-      inspectorWidth: 520,
-      minimum: 160,
-      maximum: 520,
-    });
-    expect(maximum(1_400)).toBe(440);
-    expect(maximum(1_400, false)).toBe(520);
-    expect(maximum(800, false)).toBe(360);
-    expect(maximum(1_400, true)).toBeLessThan(maximum(1_400, false));
+    expect(maximum(1_399.75)).toBe(703);
   });
 
   it("fits each outer panel to its content role and available space", () => {
-    expect(fittedChatRailWidth({
-      containerWidth: 1_200,
-      inspectorVisible: false,
-      inspectorWidth: 520,
-      minimum: 160,
-      maximum: 520,
-    })).toBe(300);
-    expect(fittedChatRailWidth({
-      containerWidth: 1_920,
-      inspectorVisible: false,
-      inspectorWidth: 520,
-      minimum: 160,
-      maximum: 520,
-    })).toBe(400);
-    expect(fittedChatRailWidth({
-      containerWidth: 1_200,
-      inspectorVisible: false,
-      inspectorWidth: 520,
-      fontScale: 1.5,
-      minimum: 160,
-      maximum: 520,
-    })).toBe(420);
     expect(fittedChatInspectorWidth({
       containerWidth: 1_400,
       railVisible: true,
-      railWidth: 320,
       minimum: 240,
       maximum: 960,
     })).toBe(532);
     expect(fittedChatInspectorWidth({
       containerWidth: 1_920,
       railVisible: true,
-      railWidth: 400,
       minimum: 240,
       maximum: 960,
     })).toBe(720);

@@ -8,6 +8,7 @@
     selectedProjectId,
     selectedGroupId = null,
     showInactiveProjects,
+    iconStrokeWidth = 1.6,
     onShowInactiveProjectsChange,
     onProjectSelected,
     panelMode = "groups",
@@ -16,6 +17,7 @@
     selectedProjectId: string | null;
     selectedGroupId?: string | null;
     showInactiveProjects: boolean;
+    iconStrokeWidth?: number;
     onShowInactiveProjectsChange: (value: boolean) => void;
     onProjectSelected: () => void;
     panelMode?: ProjectNavigatorPanelMode;
@@ -36,6 +38,7 @@
   {selectedProjectId}
   {selectedGroupId}
   mode={panelMode}
+  {iconStrokeWidth}
   panelMaxHeight={panelMaxHeight}
   mainVisibleRows={null}
   subpanelVisibleRows={null}

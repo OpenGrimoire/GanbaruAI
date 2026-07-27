@@ -1,7 +1,19 @@
 import { describe, expect, it } from "vitest";
 import type { ChatThreadShellRead, ProjectWorkingFolderRead, ProviderInstanceRead } from "./contracts";
-import type { Project, ProjectGroup } from "$lib/projects/types";
-import { buildChatRailModel, filterArchivedThreads, filterThreadTitles, nextThreadIndex, partitionThreadSearchResults, resolveChatFirstUseState, threadStatus } from "./shell-model";
+import {
+  buildChatRailModel,
+  chatHeaderActionInset,
+  chatHeaderShowsResourcePath,
+  chatNavigationFolders,
+  contextualChatFolders,
+  filterArchivedThreads,
+  filterThreadTitles,
+  nextThreadIndex,
+  partitionThreadSearchResults,
+  resolveChatFirstUseState,
+  siblingChatThreads,
+  threadStatus,
+} from "./shell-model";
 
 const timestamp = "2026-07-20T12:00:00.000Z";
 
@@ -112,22 +124,69 @@ describe("Chat shell model", () => {
     expect(threadStatus(thread("unread", { unreadAt: timestamp }))).toBe("unread");
   });
 
-  it("groups Projects without copying their identity and subdivides multiple workingFolders", () => {
-    const groups: ProjectGroup[] = [{ id: "group", name: "Work", icon: "lucide:folder", sortOrder: 1, collapsed: true, createdAt: timestamp, updatedAt: timestamp }];
-    const projects: Project[] = [{ id: "project", groupId: "group", name: "Ganbaru", icon: "lucide:folder", sortOrder: 1, status: "active", defaultEventName: null, defaultEventTimeMode: "timed", defaultEventDurationMinutes: null, defaultPomodoroMode: "preset", defaultIdleSettingsSource: "global", defaultIdlePauseEnabled: true, defaultIdleThresholdMinutes: 5, createdAt: timestamp, updatedAt: timestamp }];
+  it("builds a project-scoped folder rail with managed, selected, active, and draft context", () => {
     const managed = workspace("workspace");
     managed.workingFolder.kind = "managed";
+    managed.workingFolder.sortOrder = 30;
+    const selectedEmpty = workspace("selected");
+    const hiddenEmpty = workspace("hidden");
+    const otherProject = workspace("other-project", "project-2");
     const model = buildChatRailModel(
-      groups,
-      projects,
-      [managed, workspace("second")],
+      [hiddenEmpty, selectedEmpty, otherProject, managed, workspace("second")],
       [thread(), thread("other", { workingFolderId: "second" })],
       "project",
-      "thread",
+      "selected",
+      null,
     );
-    expect(model.groups[0].projects[0].project).toBe(projects[0]);
-    expect(model.groups[0].projects[0].workingFolders.every((entry) => entry.showSubdivision)).toBe(true);
-    expect(model.retainedThreadId).toBe("thread");
+    expect(model.folders.map((entry) => entry.workingFolder.workingFolder.id)).toEqual([
+      "workspace",
+      "second",
+      "selected",
+    ]);
+    expect(model.folders.find((entry) => entry.workingFolder.workingFolder.id === "selected")?.hasDraft).toBe(true);
+    expect(model.folders.find((entry) => entry.workingFolder.workingFolder.id === "second")?.threads.map((entry) => entry.id)).toEqual(["other"]);
+  });
+
+  it("builds complete hover navigation and sorted sibling chats", () => {
+    const managed = workspace("managed");
+    managed.workingFolder.kind = "managed";
+    managed.workingFolder.sortOrder = 50;
+    const external = workspace("external");
+    external.workingFolder.sortOrder = 1;
+    const archived = workspace("archived");
+    archived.workingFolder.archivedAt = timestamp;
+    expect(chatNavigationFolders([external, archived, managed], "project").map((entry) => entry.workingFolder.id)).toEqual([
+      "managed",
+      "external",
+    ]);
+    expect(siblingChatThreads([
+      thread("older", { workingFolderId: "external", lastActivityAt: "2026-07-19T12:00:00.000Z" }),
+      thread("newer", { workingFolderId: "external", lastActivityAt: "2026-07-21T12:00:00.000Z" }),
+      thread("archived-thread", { workingFolderId: "external", archivedAt: timestamp }),
+    ], "project", "external").map((entry) => entry.id)).toEqual(["newer", "older"]);
+  });
+
+  it("keeps only contextual folders in the ordinary explorer", () => {
+    const managed = workspace("managed");
+    managed.workingFolder.kind = "managed";
+    expect(contextualChatFolders(
+      [workspace("empty"), workspace("selected"), workspace("active"), managed],
+      [thread("active-thread", { workingFolderId: "active" })],
+      "project",
+      "selected",
+    ).map((entry) => entry.workingFolder.id)).toEqual(["managed", "active", "selected"]);
+  });
+
+  it("shows resource breadcrumbs only when the explorer is collapsed", () => {
+    expect(chatHeaderShowsResourcePath(true)).toBe(false);
+    expect(chatHeaderShowsResourcePath(false)).toBe(true);
+  });
+
+  it("keeps header actions attached to the panel edge until fixed actions require clearance", () => {
+    expect(chatHeaderActionInset(400, 720, 12)).toBe(12);
+    expect(chatHeaderActionInset(720, 720, 12)).toBe(12);
+    expect(chatHeaderActionInset(768, 720, 12)).toBe(60);
+    expect(chatHeaderActionInset(768, 720, -4)).toBe(48);
   });
 
   it("filters titles locally and wraps keyboard traversal", () => {

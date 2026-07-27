@@ -649,7 +649,7 @@ function modelSettings(): ChatSettingsRead {
       automaticProviderSetupDisabled: [],
       rememberedSelections: [],
       workingFolderProviderPreferences: {},
-      panels: { railWidthPx: 320, inspectorWidthPx: 520 },
+      panels: { inspectorWidthPx: 520 },
       behavior: {
         sendKey: "enter",
         restoreLastSelectedThread: true,

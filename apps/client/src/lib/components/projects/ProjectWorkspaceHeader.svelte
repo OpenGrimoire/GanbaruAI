@@ -1,7 +1,6 @@
 <script lang="ts">
   import ArrowUpDown from "@lucide/svelte/icons/arrow-up-down";
   import CalendarDays from "@lucide/svelte/icons/calendar-days";
-  import ChevronDown from "@lucide/svelte/icons/chevron-down";
   import Columns3 from "@lucide/svelte/icons/columns-3";
   import FileChartColumnIncreasing from "@lucide/svelte/icons/file-chart-column-increasing";
   import Layers from "@lucide/svelte/icons/layers";
@@ -33,6 +32,7 @@
   import { getViewport } from "$lib/stores/viewport.svelte";
   import { cn } from "$lib/utils";
   import ProjectIcon from "./ProjectIcon.svelte";
+  import WorkspaceBreadcrumbTerminalIcon from "$lib/components/WorkspaceBreadcrumbTerminalIcon.svelte";
   import ProjectNavigator from "./ProjectNavigator.svelte";
 
   let {
@@ -331,7 +331,7 @@
           class="shrink-0"
         />
         <span class="min-w-0 truncate font-semibold text-foreground">{selectedProject.name}</span>
-        <ChevronDown size={14} strokeWidth={1.75} class="shrink-0 text-muted-foreground" />
+        <WorkspaceBreadcrumbTerminalIcon kind="chevron" class="shrink-0 text-muted-foreground" />
         {#if selectedProject.status !== "active"}
           <span class={cn("shrink-0 rounded border px-1.5 py-0.5 text-[0.666667rem]", projectLifecycleBadgeClass(selectedProject.status))}>
             {projectLifecycleLabel(selectedProject.status, t)}

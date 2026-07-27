@@ -51,6 +51,7 @@
     selectedProjectId = null,
     selectedGroupId = null,
     mode = "groups",
+    iconStrokeWidth = 1.6,
     panelMaxHeight = null,
     panelHeight = $bindable(0),
     mainVisibleRows = 6,
@@ -72,6 +73,7 @@
     selectedProjectId?: string | null;
     selectedGroupId?: string | null;
     mode?: ProjectNavigatorPanelMode;
+    iconStrokeWidth?: number;
     panelMaxHeight?: number | null;
     panelHeight?: number;
     mainVisibleRows?: number | null;
@@ -93,7 +95,6 @@
 
   const projects = getProjects();
   const { t } = getLocalization();
-  const iconStrokeWidth = 1.6;
   const iconSize = 13;
   const emojiScale = 0.94;
   const panelFallbackHeaderHeight = 40;

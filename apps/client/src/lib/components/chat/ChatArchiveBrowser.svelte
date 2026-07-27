@@ -8,7 +8,7 @@
   import { getChat } from "$lib/stores/chat.svelte";
   import { getProjects } from "$lib/stores/projects.svelte";
 
-  let { onClose, onDelete }: { onClose: () => void; onDelete: (thread: ChatThreadShellRead) => void } = $props();
+  let { onClose, onRestored, onDelete }: { onClose: () => void; onRestored: () => void; onDelete: (thread: ChatThreadShellRead) => void } = $props();
   const { t } = getLocalization();
   const chat = getChat();
   const projects = getProjects();
@@ -21,11 +21,21 @@
     ...projects.projects.map((project) => ({ value: project.id, label: project.name })),
   ]);
 
+  function threadContext(thread: ChatThreadShellRead): string {
+    const project = projects.projectById(thread.projectId);
+    const folder = chat.workingFolders.find((entry) => (
+      entry.workingFolder.id === thread.workingFolderId
+    ))?.workingFolder;
+    return [project?.name, folder?.displayName].filter(Boolean).join(" / ");
+  }
+
   function restore(thread: ChatThreadShellRead): void {
     error = null;
-    void chat.restoreThread(thread).catch((cause: unknown) => {
-      error = cause instanceof Error ? cause.message : String(cause);
-    });
+    void chat.restoreThread(thread)
+      .then(onRestored)
+      .catch((cause: unknown) => {
+        error = cause instanceof Error ? cause.message : String(cause);
+      });
   }
 </script>
 
@@ -37,7 +47,7 @@
     {#if threads.length === 0}<p class="py-8 text-center text-sm text-muted-foreground">{t("chat.archiveBrowser.empty")}</p>{/if}
     <div class="flex flex-col gap-1">
       {#each threads as thread}
-        <div class="flex items-center gap-2 rounded-md border border-border/70 p-2"><div class="min-w-0 flex-1"><span class="block truncate text-sm font-medium">{thread.title}</span><span class="block truncate text-xs text-muted-foreground">{chat.workingFolders.find((entry) => entry.workingFolder.id === thread.workingFolderId)?.workingFolder.displayName}</span></div><button type="button" class="chat-small-button" onclick={() => restore(thread)}>{t("chat.restore")}</button><button type="button" class="chat-small-button text-destructive" onclick={() => onDelete(thread)}>{t("chat.deletePermanently")}</button></div>
+        <div class="flex items-center gap-2 rounded-md border border-border/70 p-2"><div class="min-w-0 flex-1"><span class="block truncate text-sm font-medium">{thread.title}</span><span class="block truncate text-xs text-muted-foreground">{threadContext(thread)}</span></div><button type="button" class="chat-small-button" onclick={() => restore(thread)}>{t("chat.restore")}</button><button type="button" class="chat-small-button text-destructive" onclick={() => onDelete(thread)}>{t("chat.deletePermanently")}</button></div>
       {/each}
     </div>
   </div>

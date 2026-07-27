@@ -36,7 +36,7 @@ fn valid_config() -> serde_json::Value {
             "interactionMode": "build"
         }],
         "workingFolderProviderPreferences": {},
-        "panels": { "railWidthPx": 260, "inspectorWidthPx": 360 },
+        "panels": { "inspectorWidthPx": 360 },
         "behavior": {
             "sendKey": "enter",
             "restoreLastSelectedThread": true,
@@ -56,7 +56,6 @@ fn missing_chat_branch_uses_safe_defaults() {
 
     assert_eq!(config.schema_version, CHAT_VAULT_CONFIG_SCHEMA_VERSION);
     assert!(config.providers.is_empty());
-    assert_eq!(config.panels.rail_width_px, 320);
     assert_eq!(config.panels.inspector_width_px, 520);
     assert!(config.behavior.confirm_multiline_terminal_paste);
 }

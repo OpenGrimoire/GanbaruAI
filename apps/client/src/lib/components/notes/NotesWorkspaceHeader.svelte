@@ -1,7 +1,5 @@
 <script lang="ts">
-  import ChevronDown from "@lucide/svelte/icons/chevron-down";
   import Folder from "@lucide/svelte/icons/folder";
-  import Plus from "@lucide/svelte/icons/plus";
   import Settings2 from "@lucide/svelte/icons/settings-2";
   import { getLocalization } from "$lib/i18n/translator.svelte";
   import {
@@ -35,6 +33,7 @@
   import { getViewport } from "$lib/stores/viewport.svelte";
   import { cn } from "$lib/utils";
   import ProjectIcon from "$lib/components/projects/ProjectIcon.svelte";
+  import WorkspaceBreadcrumbTerminalIcon from "$lib/components/WorkspaceBreadcrumbTerminalIcon.svelte";
   import NotesHierarchyPickerPanel from "./NotesHierarchyPickerPanel.svelte";
   import NotesPageIcon from "./NotesPageIcon.svelte";
   import NotesProjectNavigator from "./NotesProjectNavigator.svelte";
@@ -339,13 +338,13 @@
             class="shrink-0"
           />
           <span class="min-w-0 truncate font-semibold text-foreground">{selectedProject.name}</span>
-          {#if !selectedPageTitle}
-            <ChevronDown size={14} strokeWidth={1.75} class="shrink-0 text-muted-foreground" />
-          {/if}
           {#if selectedProject.status !== "active"}
             <span class={cn("shrink-0 rounded border px-1.5 py-0.5 text-[0.666667rem]", projectLifecycleBadgeClass(selectedProject.status))}>
               {projectLifecycleLabel(selectedProject.status, t)}
             </span>
+          {/if}
+          {#if !showSelectedPagePath}
+            <WorkspaceBreadcrumbTerminalIcon kind="chevron" context="notes" class="shrink-0 text-muted-foreground" />
           {/if}
         </button>
         {#if !showSelectedPagePath}
@@ -357,11 +356,11 @@
             title={newPageTitle}
             onclick={createPage}
           >
-            <Plus size={14} strokeWidth={1.75} />
+            <WorkspaceBreadcrumbTerminalIcon kind="plus" />
           </button>
         {/if}
         {#if showSelectedPagePath}
-          {#each selectedPagePath as node (node.key)}
+          {#each selectedPagePath as node, nodeIndex (node.key)}
             {@const pathTitle = node.kind === "folder"
               ? node.folder.name
               : node.page.id === selectedPageId && selectedPageTitle
@@ -398,8 +397,8 @@
                 />
               {/if}
               <span class="min-w-0 truncate font-semibold text-foreground">{pathTitle}</span>
-              {#if node.hasChildren}
-                <ChevronDown size={14} strokeWidth={1.75} class="shrink-0 text-muted-foreground" />
+              {#if nodeIndex === selectedPagePath.length - 1}
+                <WorkspaceBreadcrumbTerminalIcon kind="chevron" context="notes" class="shrink-0 text-muted-foreground" />
               {/if}
             </button>
           {/each}
@@ -411,7 +410,7 @@
             title={newPageTitle}
             onclick={createPage}
           >
-            <Plus size={14} strokeWidth={1.75} />
+            <WorkspaceBreadcrumbTerminalIcon kind="plus" />
           </button>
         {/if}
       {:else}
@@ -434,7 +433,7 @@
             class="shrink-0"
           />
           <span class="min-w-0 truncate font-semibold text-foreground">{selectedPageTitle ?? t("notes.title")}</span>
-          <ChevronDown size={14} strokeWidth={1.75} class="shrink-0 text-muted-foreground" />
+          <WorkspaceBreadcrumbTerminalIcon kind="chevron" class="shrink-0 text-muted-foreground" />
         </button>
         <button
           type="button"
@@ -444,7 +443,7 @@
           title={newPageTitle}
           onclick={createPage}
         >
-          <Plus size={14} strokeWidth={1.75} />
+          <WorkspaceBreadcrumbTerminalIcon kind="plus" />
         </button>
       {/if}
     </div>

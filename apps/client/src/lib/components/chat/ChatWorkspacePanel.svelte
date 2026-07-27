@@ -31,8 +31,6 @@
   import FileDiff from "@lucide/svelte/icons/file-diff";
   import Files from "@lucide/svelte/icons/files";
   import ListTodo from "@lucide/svelte/icons/list-todo";
-  import Maximize2 from "@lucide/svelte/icons/maximize-2";
-  import Minimize2 from "@lucide/svelte/icons/minimize-2";
   import Plus from "@lucide/svelte/icons/plus";
   import SquareTerminal from "@lucide/svelte/icons/square-terminal";
   import X from "@lucide/svelte/icons/x";
@@ -77,12 +75,10 @@
     placement,
     visible = true,
     onClose,
-    onMaximizedChange = () => undefined,
   }: {
     placement: "inspector" | "bottom";
     visible?: boolean;
     onClose: () => void;
-    onMaximizedChange?: (maximized: boolean) => void;
   } = $props();
 
   const localization = getLocalization();
@@ -199,7 +195,6 @@
     closeTabRenamePanel();
     loadedKey = key;
     panelState = placementSession().read(key);
-    onMaximizedChange(panelState.maximized);
   });
 
   $effect(() => {
@@ -226,7 +221,6 @@
     const key = sessionKey;
     if (!key) return;
     panelState = placementSession().update(key, updateValue);
-    if (updateValue.maximized !== undefined) onMaximizedChange(updateValue.maximized);
   }
 
   function openPanel(tab: ChatInspectorTab): void {
@@ -855,8 +849,8 @@
 
 <section class="workspace-panel" data-placement={placement} aria-label={placement === "bottom" ? t("chat.bottomPanel") : t("chat.inspector.title")}>
   <div class="panel-tabbar" class:reordering={draggedTabKey !== null}>
-    <div bind:this={panelTabbar} class="panel-tab-strip" role="tablist" aria-label={placement === "bottom" ? t("chat.bottomPanel") : t("chat.inspector.title")} onwheel={handleTabStripWheel}>
-      {#each orderedTabs as item (item.key)}
+      <div bind:this={panelTabbar} class="panel-tab-strip" role="tablist" aria-label={placement === "bottom" ? t("chat.bottomPanel") : t("chat.inspector.title")} onwheel={handleTabStripWheel}>
+        {#each orderedTabs as item (item.key)}
         <div role="presentation" class="panel-tab-slot" class:dragging={draggedTabKey === item.key} data-panel-tab-key={item.key} style:--tab-shift-x={`${tabDragShift(item.key)}px`} onpointerdown={(event) => beginTabDrag(event, item.key)} onmousedown={preventMiddleButtonScroll} onauxclick={(event) => closeTabFromAuxClick(event, item.key, item.type === "terminal" ? item.terminal : undefined)} oncontextmenu={(event) => handleTabContextMenu(event, item.key)}>
           {#if item.type === "loading-terminal"}
             <button type="button" role="tab" aria-selected={panelState.tab === "terminal"} tabindex={panelState.tab === "terminal" ? 0 : -1} class="terminal-tab loading" class:active={panelState.tab === "terminal"} title={workspacePanelTabLabel(item.key)} onclick={() => selectPanel("terminal")} onkeydown={(event) => handleTabKeydown(event, item.key)}>
@@ -880,17 +874,18 @@
             </div>
           {/if}
         </div>
-      {/each}
-    </div>
+        {/each}
+      </div>
 
     <button
       bind:this={panelPickerTrigger}
       type="button"
-      class="chat-icon-button"
+      class="panel-add-button"
       aria-label={t("chat.inspector.addPanel")}
       aria-haspopup="menu"
       aria-expanded={panelPickerOpen}
-      title={t("chat.inspector.addPanel")}
+      data-app-tooltip-disabled="true"
+      data-app-tooltip-focus-disabled="true"
       onclick={() => void togglePanelPicker()}
       onkeydown={handlePanelPickerTriggerKeydown}
     ><Plus size={14} /></button>
@@ -957,12 +952,9 @@
     {/if}
 
     <span class="flex-1"></span>
-    {#if placement === "inspector"}
-      <button type="button" class="chat-icon-button" aria-label={panelState.maximized ? t("chat.inspector.restore") : t("chat.inspector.maximize")} onclick={() => update({ maximized: !panelState.maximized })}>
-        {#if panelState.maximized}<Minimize2 size={14} />{:else}<Maximize2 size={14} />{/if}
-      </button>
+    {#if placement === "bottom"}
+      <button type="button" class="chat-icon-button" aria-label={t("chat.closeBottomPanel")} onclick={onClose}><X size={14} /></button>
     {/if}
-    <button type="button" class="chat-icon-button" aria-label={placement === "bottom" ? t("chat.closeBottomPanel") : t("chat.closeInspector")} onclick={onClose}><X size={14} /></button>
   </div>
 
   {#if error}<p role="alert" class="border-b border-destructive/30 p-2 text-xs text-destructive">{error}</p>{/if}
@@ -1021,13 +1013,17 @@
 </section>
 
 <style>
+  .panel-picker :global(svg), .tab-rename-panel :global(svg) { stroke-width: 2 !important; }
   .workspace-panel { display: flex; height: 100%; min-height: 0; flex-direction: column; background: var(--cal-bg); }
   .panel-tabbar { --workspace-panel-tab-width: 9.5rem; position: relative; display: flex; min-height: 2.65rem; flex: 0 0 auto; align-items: center; gap: 0.2rem; padding-inline: 0.45rem; }
+  .workspace-panel[data-placement="inspector"] .panel-tabbar { height: var(--cal-header-row-h); min-height: var(--cal-header-row-h); border-bottom: 1px solid var(--sidebar); background: var(--cal-header-bg); padding-right: var(--chat-global-actions-width); }
   .panel-tabbar.reordering { user-select: none; }
   .panel-tabbar > :global(.chat-icon-button) { flex: 0 0 auto; align-self: center; }
+  .panel-add-button { display: grid; width: 1.75rem; height: 1.75rem; flex: 0 0 1.75rem; place-items: center; align-self: center; border-radius: 0.375rem; color: var(--muted-foreground); transition: color 120ms ease, background-color 120ms ease; }
+  .panel-add-button:hover, .panel-add-button:focus-visible, .panel-add-button[aria-expanded="true"] { background: var(--accent); color: var(--accent-foreground); }
   .panel-tab-strip { display: flex; min-width: 0; flex: 0 1 auto; align-items: stretch; gap: 0.2rem; overflow-x: auto; overflow-y: hidden; scrollbar-width: none; }
   .panel-tab-strip::-webkit-scrollbar { display: none; }
-  .panel-tab-slot { display: flex; width: var(--workspace-panel-tab-width); min-width: 0; flex: 0 0 var(--workspace-panel-tab-width); transform: translate3d(var(--tab-shift-x), 0, 0); align-items: stretch; transition: transform 140ms cubic-bezier(0.2, 0, 0, 1); }
+  .panel-tab-slot { display: flex; width: var(--workspace-panel-tab-width); min-width: 3.75rem; flex: 0 1 var(--workspace-panel-tab-width); transform: translate3d(var(--tab-shift-x), 0, 0); align-items: stretch; transition: transform 140ms cubic-bezier(0.2, 0, 0, 1); }
   .panel-tabbar.reordering .panel-tab-slot { will-change: transform; }
   .panel-tab-slot.dragging { z-index: 1; transition: none; }
   .terminal-tab, .panel-tab { display: flex; min-width: 0; min-height: 2rem; flex: 1 1 auto; align-items: center; gap: 0.4rem; overflow: hidden; padding: 0.3rem 0.65rem; color: inherit; font-size: 0.733333rem; }

@@ -273,7 +273,7 @@ describe("Chat vault configuration", () => {
   it("uses explicit safe defaults when the Chat branch is absent", () => {
     const defaults = defaultChatVaultConfig();
     expect(parseChatConfigRoot({ language: "en" })).toEqual(defaults);
-    expect(defaults.panels).toEqual({ railWidthPx: 320, inspectorWidthPx: 520 });
+    expect(defaults.panels).toEqual({ inspectorWidthPx: 520 });
   });
 
   it("preserves portable unknown fields while validating known fields", () => {
@@ -305,7 +305,7 @@ describe("Chat vault configuration", () => {
         interactionMode: "build",
       }],
       workingFolderProviderPreferences: {},
-      panels: { railWidthPx: 280, inspectorWidthPx: 420 },
+      panels: { inspectorWidthPx: 420 },
       behavior: {
         sendKey: "enter",
         restoreLastSelectedThread: true,

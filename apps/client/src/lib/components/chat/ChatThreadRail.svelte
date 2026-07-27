@@ -1,33 +1,66 @@
 <script lang="ts">
   import { onMount, tick } from "svelte";
-  import ChevronDown from "@lucide/svelte/icons/chevron-down";
-  import ChevronRight from "@lucide/svelte/icons/chevron-right";
+  import Archive from "@lucide/svelte/icons/archive";
+  import ChevronsDownUp from "@lucide/svelte/icons/chevrons-down-up";
   import ChevronsLeft from "@lucide/svelte/icons/chevrons-left";
+  import ChevronsRight from "@lucide/svelte/icons/chevrons-right";
+  import ChevronsUpDown from "@lucide/svelte/icons/chevrons-up-down";
   import CircleAlert from "@lucide/svelte/icons/circle-alert";
   import CircleDot from "@lucide/svelte/icons/circle-dot";
   import Ellipsis from "@lucide/svelte/icons/ellipsis";
+  import Folder from "@lucide/svelte/icons/folder";
+  import FolderOpen from "@lucide/svelte/icons/folder-open";
   import LoaderCircle from "@lucide/svelte/icons/loader-circle";
+  import MessageSquare from "@lucide/svelte/icons/message-square";
   import MessageSquarePlus from "@lucide/svelte/icons/message-square-plus";
+  import Plus from "@lucide/svelte/icons/plus";
   import Search from "@lucide/svelte/icons/search";
-  import SettingsIcon from "@lucide/svelte/icons/settings";
   import X from "@lucide/svelte/icons/x";
-  import type { ChatThreadShellRead, ProjectWorkingFolderId } from "$lib/chat/contracts";
-  import { buildChatRailModel, filterThreadTitles, partitionThreadSearchResults, threadStatus } from "$lib/chat/shell-model";
+  import type {
+    ChatThreadShellRead,
+    ProjectWorkingFolderId,
+    ProjectWorkingFolderRead,
+  } from "$lib/chat/contracts";
+  import {
+    buildChatRailModel,
+    filterThreadTitles,
+    partitionThreadSearchResults,
+    threadStatus,
+  } from "$lib/chat/shell-model";
   import * as chatApi from "$lib/api/chat";
   import { getLocalization } from "$lib/i18n/translator.svelte";
+  import {
+    COMPACT_IDENTITY_ICON_SIZE,
+    COMPACT_IDENTITY_ICON_STROKE_WIDTH,
+  } from "$lib/icon-sizing";
+  import {
+    notesRowContextMenuGeometry,
+    notesRowContextMenuStyle,
+  } from "$lib/notes/row-context-menu";
   import { getChat } from "$lib/stores/chat.svelte";
   import { getProjects } from "$lib/stores/projects.svelte";
-  import { getSettingsLauncher } from "$lib/stores/settingsLauncher.svelte";
   import { openDetachedViewWindow } from "$lib/windows/detached";
-  import ProjectIcon from "$lib/components/projects/ProjectIcon.svelte";
   import ConfirmDialog from "$lib/components/ui/ConfirmDialog.svelte";
   import ChatArchiveBrowser from "./ChatArchiveBrowser.svelte";
 
-  let { onCollapse }: { onCollapse: () => void } = $props();
+  let {
+    expanded,
+    showCollapsedStrip,
+    onExpand,
+    onCollapse,
+  }: {
+    expanded: boolean;
+    showCollapsedStrip: boolean;
+    onExpand: () => void;
+    onCollapse: () => void;
+  } = $props();
+
   const { t } = getLocalization();
   const chat = getChat();
   const projects = getProjects();
-  const settings = getSettingsLauncher();
+  const explorerToolbarIconSize = 16;
+  const explorerRowIconSize = COMPACT_IDENTITY_ICON_SIZE;
+  const explorerIconStrokeWidth = COMPACT_IDENTITY_ICON_STROKE_WIDTH;
   let search = $state("");
   let searchOpen = $state(false);
   let remoteResults = $state<ChatThreadShellRead[]>([]);
@@ -35,39 +68,56 @@
   let deleteThread = $state<ChatThreadShellRead | null>(null);
   let renameThreadId = $state<string | null>(null);
   let renameValue = $state("");
+  let menuThread = $state<ChatThreadShellRead | null>(null);
+  let menuStyle = $state("");
   let railError = $state<string | null>(null);
-  let searchInput: HTMLInputElement | undefined = $state();
-  const localResults = $derived(filterThreadTitles([...chat.activeThreads, ...chat.archivedThreads], search));
+  let searchInput = $state<HTMLInputElement | null>(null);
+  let collapsedFolderIds = $state<string[]>([]);
+  const localResults = $derived(filterThreadTitles(
+    [...chat.activeThreads, ...chat.archivedThreads],
+    search,
+  ));
   const searchResults = $derived(search.trim() ? mergeResults(localResults, remoteResults) : []);
   const partitionedSearchResults = $derived(partitionThreadSearchResults(searchResults));
-  const activeSearchResults = $derived(partitionedSearchResults.active);
-  const archivedSearchResults = $derived(partitionedSearchResults.archived);
   const rail = $derived(buildChatRailModel(
-    projects.groups,
-    projects.projects,
     chat.workingFolders,
     chat.activeThreads,
     projects.selectedProjectId,
+    chat.selectedWorkingFolderId,
     chat.selectedThreadId,
   ));
+  const allFoldersExpanded = $derived(rail.folders.every((entry) => (
+    !collapsedFolderIds.includes(entry.workingFolder.workingFolder.id)
+  )));
 
   onMount(() => {
     const focusSearch = () => { void openSearch(); };
     window.addEventListener("ganbaru-ai:chat-focus-search", focusSearch);
-    return () => {
-      window.removeEventListener("ganbaru-ai:chat-focus-search", focusSearch);
-    };
+    return () => window.removeEventListener("ganbaru-ai:chat-focus-search", focusSearch);
+  });
+
+  $effect(() => {
+    const selectedFolderId = chat.selectedWorkingFolderId;
+    if (!selectedFolderId || !collapsedFolderIds.includes(selectedFolderId)) return;
+    collapsedFolderIds = collapsedFolderIds.filter((id) => id !== selectedFolderId);
   });
 
   $effect(() => {
     const query = search.trim();
-    if (!query) { remoteResults = []; return; }
+    if (!query) {
+      remoteResults = [];
+      return;
+    }
     const timer = window.setTimeout(() => {
       void chatApi.searchChatThreadTitles(query, null)
-        .then((results) => { if (search.trim() === query) remoteResults = results; })
-        .catch((error: unknown) => { railError = errorMessage(error); });
+        .then((results) => {
+          if (search.trim() === query) remoteResults = results;
+        })
+        .catch((error: unknown) => {
+          railError = errorMessage(error);
+        });
     }, 250);
-    return () => clearTimeout(timer);
+    return () => window.clearTimeout(timer);
   });
 
   async function openSearch(): Promise<void> {
@@ -77,85 +127,145 @@
   }
 
   function newChat(workingFolderId?: ProjectWorkingFolderId): void {
-    const target = workingFolderId
-      ?? chat.selectedWorkingFolderId
-      ?? chat.workingFolders.find((entry) => (
-        entry.workingFolder.projectId === projects.selectedProjectId
-          && entry.workingFolder.kind === "managed"
-      ))?.workingFolder.id;
-    if (!target) return;
-    chat.newDraft(target);
+    const requested = workingFolderId
+      ? chat.workingFolders.find((entry) => entry.workingFolder.id === workingFolderId)
+      : chat.selectedWorkingFolder;
+    const target = requested?.bindingStatus === "available" && requested.workingFolder.archivedAt === null
+      ? requested
+      : workingFolderId
+        ? null
+        : chat.workingFolders.find((entry) => (
+            entry.workingFolder.projectId === projects.selectedProjectId
+              && entry.workingFolder.kind === "managed"
+              && entry.bindingStatus === "available"
+          ));
+    if (!target) {
+      railError = t("chat.explorer.noAvailableFolder");
+      return;
+    }
+    chat.newDraft(target.workingFolder.id);
+  }
+
+  function toggleFolder(workingFolderId: string): void {
+    collapsedFolderIds = collapsedFolderIds.includes(workingFolderId)
+      ? collapsedFolderIds.filter((id) => id !== workingFolderId)
+      : [...collapsedFolderIds, workingFolderId];
+  }
+
+  function toggleAllFolders(): void {
+    collapsedFolderIds = allFoldersExpanded
+      ? rail.folders.map((entry) => entry.workingFolder.workingFolder.id)
+      : [];
+  }
+
+  function folderStatus(folder: ProjectWorkingFolderRead): string | null {
+    if (folder.workingFolder.archivedAt) return t("chat.explorer.folderArchived");
+    if (folder.bindingStatus === "available") return null;
+    if (folder.bindingStatus === "repository_mismatch") return t("chat.explorer.repositoryMismatch");
+    if (folder.bindingStatus === "missing") return t("chat.explorer.folderMissing");
+    return t("chat.explorer.folderUnbound");
+  }
+
+  function recoverFolder(folder: ProjectWorkingFolderRead): void {
+    const title = t("chat.firstUse.locateFolder");
+    runRailOperation(() => {
+      if (folder.workingFolder.archivedAt) {
+        return chat.restoreWorkingFolder(folder.workingFolder.id);
+      }
+      return folder.bindingStatus === "repository_mismatch"
+        ? chat.rebindWorkingFolder(folder.workingFolder.id, title)
+        : chat.locateWorkingFolder(folder.workingFolder.id, title);
+    });
   }
 
   function threadContext(thread: ChatThreadShellRead): string {
     const project = projects.projectById(thread.projectId);
-    const folder = chat.workingFolders.find(
-      (entry) => entry.workingFolder.id === thread.workingFolderId,
-    )?.workingFolder;
+    const folder = chat.workingFolders.find((entry) => (
+      entry.workingFolder.id === thread.workingFolderId
+    ))?.workingFolder;
     return [project?.name, folder?.displayName].filter(Boolean).join(" / ");
-  }
-
-  function beginRename(thread: ChatThreadShellRead): void {
-    renameThreadId = thread.id;
-    renameValue = thread.title;
-  }
-
-  async function commitRename(thread: ChatThreadShellRead): Promise<void> {
-    try {
-      if (renameValue.trim() && renameValue.trim() !== thread.title) await chat.renameThread(thread, renameValue.trim());
-      renameThreadId = null;
-    } catch (error: unknown) {
-      railError = errorMessage(error);
-    }
-  }
-
-  async function detach(thread: ChatThreadShellRead): Promise<void> {
-    try {
-      chat.selectThread(thread.id);
-      await openDetachedViewWindow("chat");
-    } catch (error: unknown) {
-      railError = errorMessage(error);
-    }
-  }
-
-  function statusLabel(thread: ChatThreadShellRead): string {
-    switch (threadStatus(thread)) {
-      case "waiting_answer": return t("chat.status.waitingAnswer");
-      case "waiting_approval": return t("chat.status.waitingApproval");
-      case "working": return t("chat.status.working");
-      case "error": return t("chat.status.error");
-      case "unread": return t("chat.status.unread");
-      case "archived": return t("chat.status.archived");
-      default: return t("chat.status.idle");
-    }
   }
 
   function selectSearchResult(thread: ChatThreadShellRead): void {
     chat.selectThread(thread.id);
     search = "";
     searchOpen = false;
-    if (thread.archivedAt) showArchive = true;
+    showArchive = false;
   }
 
-  function searchResultKeydown(event: KeyboardEvent): void {
-    if (!["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) return;
+  function beginRename(thread: ChatThreadShellRead): void {
+    menuThread = null;
+    renameThreadId = thread.id;
+    renameValue = thread.title;
+  }
+
+  function openThreadMenu(thread: ChatThreadShellRead, clientX: number, clientY: number): void {
+    menuStyle = notesRowContextMenuStyle(notesRowContextMenuGeometry({
+      clientX,
+      clientY,
+      viewportWidth: window.innerWidth,
+      viewportHeight: window.innerHeight,
+    }));
+    menuThread = thread;
+  }
+
+  function openThreadButtonMenu(event: MouseEvent, thread: ChatThreadShellRead): void {
     event.preventDefault();
-    const rows = [...document.querySelectorAll<HTMLElement>("[data-chat-search-result]")];
-    const current = rows.indexOf(event.currentTarget as HTMLElement);
-    const next = event.key === "Home" ? 0
-      : event.key === "End" ? rows.length - 1
-      : Math.max(0, Math.min(rows.length - 1, current + (event.key === "ArrowDown" ? 1 : -1)));
-    rows[next]?.focus();
+    event.stopPropagation();
+    const target = event.currentTarget;
+    if (!(target instanceof HTMLElement)) return;
+    const rect = target.getBoundingClientRect();
+    openThreadMenu(thread, rect.right, rect.bottom + 4);
   }
 
-  function toggleGroup(groupId: string, collapsed: boolean): void {
-    if (groupId === "ungrouped") return;
-    runRailOperation(() => projects.setGroupCollapsed(groupId, !collapsed));
+  function openThreadContextMenu(event: MouseEvent, thread: ChatThreadShellRead): void {
+    event.preventDefault();
+    event.stopPropagation();
+    openThreadMenu(thread, event.clientX, event.clientY);
   }
 
-  function mergeResults(local: ChatThreadShellRead[], remote: ChatThreadShellRead[]): ChatThreadShellRead[] {
+  function closeThreadMenuFromWindow(event: PointerEvent): void {
+    const target = event.target;
+    if (!(target instanceof Element)) return;
+    if (target.closest("[data-chat-thread-menu], [data-chat-thread-menu-trigger]")) return;
+    menuThread = null;
+  }
+
+  function handleWindowKeydown(event: KeyboardEvent): void {
+    if (event.key !== "Escape" || !menuThread) return;
+    event.preventDefault();
+    menuThread = null;
+  }
+
+  async function commitRename(thread: ChatThreadShellRead): Promise<void> {
+    try {
+      const title = renameValue.trim();
+      if (title && title !== thread.title) await chat.renameThread(thread, title);
+      renameThreadId = null;
+    } catch (error: unknown) {
+      railError = errorMessage(error);
+    }
+  }
+
+  function statusLabel(thread: ChatThreadShellRead): string {
+    const status = threadStatus(thread);
+    if (status === "waiting_answer") return t("chat.status.waitingAnswer");
+    if (status === "waiting_approval") return t("chat.status.waitingApproval");
+    if (status === "working") return t("chat.status.working");
+    if (status === "error") return t("chat.status.error");
+    if (status === "unread") return t("chat.status.unread");
+    if (status === "archived") return t("chat.status.archived");
+    return t("chat.status.idle");
+  }
+
+  function mergeResults(
+    local: ChatThreadShellRead[],
+    remote: ChatThreadShellRead[],
+  ): ChatThreadShellRead[] {
     const seen = new Set<string>();
-    return [...local, ...remote].filter((thread) => !seen.has(thread.id) && Boolean(seen.add(thread.id)));
+    return [...local, ...remote].filter((thread) => (
+      !seen.has(thread.id) && Boolean(seen.add(thread.id))
+    ));
   }
 
   function confirmDelete(): void {
@@ -165,13 +275,28 @@
     runRailOperation(() => chat.deleteThread(thread));
   }
 
+  function runMenuOperation(
+    thread: ChatThreadShellRead,
+    action: (selected: ChatThreadShellRead) => Promise<unknown>,
+  ): void {
+    menuThread = null;
+    runRailOperation(() => action(thread));
+  }
+
   function runRailOperation(action: () => Promise<unknown>): void {
     railError = null;
-    void action().catch((error: unknown) => { railError = errorMessage(error); });
+    void action().catch((error: unknown) => {
+      railError = errorMessage(error);
+    });
   }
 
   function copyThreadId(threadId: string): void {
     runRailOperation(() => navigator.clipboard.writeText(threadId));
+  }
+
+  function detach(thread: ChatThreadShellRead): void {
+    chat.selectThread(thread.id);
+    runRailOperation(() => openDetachedViewWindow("chat"));
   }
 
   function errorMessage(error: unknown): string {
@@ -179,102 +304,169 @@
   }
 
   function rowKeydown(event: KeyboardEvent, thread: ChatThreadShellRead): void {
-    if (event.key === "Enter") { event.preventDefault(); chat.selectThread(thread.id); }
-    if (["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) {
+    if (event.key === "Enter") {
       event.preventDefault();
-      const rows = [...document.querySelectorAll<HTMLElement>("[data-chat-thread-id]")];
-      const current = rows.indexOf(event.currentTarget as HTMLElement);
-      const next = event.key === "Home" ? 0
-        : event.key === "End" ? rows.length - 1
+      chat.selectThread(thread.id);
+      return;
+    }
+    if (!["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) return;
+    event.preventDefault();
+    const rows = [...document.querySelectorAll<HTMLElement>("[data-chat-thread-id]")];
+    const current = rows.indexOf(event.currentTarget as HTMLElement);
+    const next = event.key === "Home"
+      ? 0
+      : event.key === "End"
+        ? rows.length - 1
         : Math.max(0, Math.min(rows.length - 1, current + (event.key === "ArrowDown" ? 1 : -1)));
-      rows[next]?.focus();
-    }
-    if (event.key === "ContextMenu" || (event.shiftKey && event.key === "F10")) {
-      event.preventDefault();
-      (event.currentTarget as HTMLElement).parentElement?.querySelector<HTMLDetailsElement>("details")?.setAttribute("open", "");
-    }
+    rows[next]?.focus();
   }
 </script>
 
-<aside class="chat-rail" aria-label={t("chat.title")}>
-  <header class="chat-rail-header">
-    <strong class="min-w-0 flex-1 truncate px-1 text-base font-medium">{t("chat.title")}</strong>
-    <button type="button" class="chat-icon-button" aria-label={t("chat.search")} onclick={() => void openSearch()}><Search size={15} /></button>
-    <details class="relative"><summary class="chat-icon-button list-none" aria-label={t("chat.moreActions")}><Ellipsis size={15} /></summary><div class="chat-menu right-0"><button type="button" onclick={() => { showArchive = true; }}>{t("chat.archivedChats")}</button><button type="button" onclick={() => settings.open("chat")}>{t("chat.settings")}</button></div></details>
-    <button type="button" class="chat-icon-button" aria-label={t("chat.collapseRail")} onclick={onCollapse}><ChevronsLeft size={15} /></button>
-  </header>
-  <button type="button" class="new-chat-action" onclick={() => newChat()}><MessageSquarePlus size={16} /><span>{t("chat.newChat")}</span></button>
-  {#if searchOpen || search}<div class="chat-rail-search"><label><Search size={14} /><input bind:this={searchInput} type="search" bind:value={search} placeholder={t("chat.search")} /> <button type="button" aria-label={t("chat.clearSearch")} onclick={() => { search = ""; searchOpen = false; }}><X size={13} /></button></label></div>{/if}
-  {#if railError}<div role="alert" class="border-b border-destructive/30 px-3 py-2 text-xs text-destructive">{railError}</div>{/if}
+<svelte:window onpointerdown={closeThreadMenuFromWindow} onkeydown={handleWindowKeydown} />
 
-  {#if search.trim()}
-    <div class="min-h-0 flex-1 overflow-y-auto px-3 py-2">
-      {#if searchResults.length === 0}<p class="p-3 text-xs text-muted-foreground">{t("chat.noSearchResults")}</p>{/if}
-      {#if activeSearchResults.length > 0}<h2 class="px-2 pb-1 pt-2 text-[0.733333rem] font-medium text-muted-foreground">{t("chat.activeChats")}</h2>{#each activeSearchResults as thread}<button type="button" data-chat-search-result class="w-full rounded-md p-2 text-left hover:bg-accent" onkeydown={searchResultKeydown} onclick={() => selectSearchResult(thread)}><span class="block truncate text-xs font-medium">{thread.title}</span><span class="block truncate text-[0.666667rem] text-muted-foreground">{threadContext(thread)}</span></button>{/each}{/if}
-      {#if archivedSearchResults.length > 0}<h2 class="px-2 pb-1 pt-3 text-[0.733333rem] font-medium text-muted-foreground">{t("chat.archivedChats")}</h2>{#each archivedSearchResults as thread}<button type="button" data-chat-search-result class="w-full rounded-md p-2 text-left hover:bg-accent" onkeydown={searchResultKeydown} onclick={() => selectSearchResult(thread)}><span class="block truncate text-xs font-medium">{thread.title}</span><span class="block truncate text-[0.666667rem] text-muted-foreground">{threadContext(thread)}</span></button>{/each}{/if}
+<aside class="chat-project-explorer relative h-full min-h-0 overflow-hidden" class:expanded aria-label={t("chat.explorer.label")}>
+  <div class="chat-explorer-collapsed-rail absolute inset-y-0 left-0 z-10 w-11" class:visible={!expanded && showCollapsedStrip} aria-hidden={expanded || !showCollapsedStrip}>
+    <div class="flex h-(--cal-header-row-h) items-center justify-center">
+      <button type="button" class="chat-explorer-icon-button" aria-label={t("chat.openRail")} data-app-tooltip={t("chat.openRail")} onclick={onExpand}>
+        <ChevronsRight size={explorerToolbarIconSize} strokeWidth={explorerIconStrokeWidth} />
+      </button>
     </div>
-  {:else}
-    <div class="min-h-0 flex-1 overflow-y-auto px-3 py-2">
-      {#each rail.groups as group}
-        <section class="mb-2">
-          <button type="button" class="chat-group-header" disabled={group.id === "ungrouped"} onclick={() => toggleGroup(group.id, group.collapsed)}>{#if group.collapsed}<ChevronRight size={12} />{:else}<ChevronDown size={12} />{/if}<span class="truncate">{group.label}</span>{#if group.hidden}<span>{t("chat.hiddenGroup")}</span>{/if}{#if group.archived}<span>{t("chat.status.archived")}</span>{/if}</button>
-          {#each group.projects as projectModel}
-            {@const selectedInProject = projectModel.workingFolders.some((workspace) => workspace.threads.some((thread) => thread.id === chat.selectedThreadId))}
-            {#if !group.collapsed || selectedInProject}
-              <div class="chat-project"><div class="chat-project-header"><ProjectIcon name={projectModel.project.icon} size={14} /><span class="truncate">{projectModel.project.name}</span><button type="button" class="ml-auto chat-icon-button size-6" aria-label={t("chat.newChat")} onclick={() => newChat(projectModel.workingFolders[0]?.workingFolder.workingFolder.id)}><MessageSquarePlus size={12} /></button></div>
-                {#each projectModel.workingFolders as workspaceModel}
-                  {#if workspaceModel.showSubdivision}<div class="workspace-subdivision">{workspaceModel.workingFolder.workingFolder.displayName}</div>{/if}
-                  {#each workspaceModel.threads as thread}
-                    <div class="chat-thread-row group" class:active={chat.selectedThreadId === thread.id}>
-                      {#if renameThreadId === thread.id}<input class="mx-2 h-7 min-w-0 flex-1 rounded border border-ring bg-background px-1 text-xs" bind:value={renameValue} onkeydown={(event) => { if (event.key === "Enter") void commitRename(thread); if (event.key === "Escape") renameThreadId = null; }} onblur={() => void commitRename(thread)} />{:else}<button type="button" class="chat-thread-row-main" data-chat-thread-id={thread.id} title={statusLabel(thread)} onkeydown={(event) => rowKeydown(event, thread)} onclick={() => chat.selectThread(thread.id)}>{#if threadStatus(thread) === "working"}<LoaderCircle size={12} class="animate-spin" />{:else if threadStatus(thread) === "error"}<CircleAlert size={12} />{:else if threadStatus(thread) === "unread" || threadStatus(thread).startsWith("waiting")}<CircleDot size={12} />{/if}<span class="thread-title">{thread.title}</span></button>{/if}
-                      <details class="relative"><summary class="chat-icon-button size-6 list-none opacity-100 @min-[500px]:opacity-0 @min-[500px]:group-hover:opacity-100" aria-label={t("chat.moreActions")}><Ellipsis size={12} /></summary><div class="chat-menu right-0 top-6"><button type="button" onclick={() => beginRename(thread)}>{t("chat.rename")}</button><button type="button" onclick={() => runRailOperation(() => chat.setThreadRead(thread, Boolean(thread.unreadAt)))}>{thread.unreadAt ? t("chat.markRead") : t("chat.markUnread")}</button><button type="button" onclick={() => void detach(thread)}>{t("chat.detach")}</button><button type="button" onclick={() => copyThreadId(thread.id)}>{t("chat.copyThreadId")}</button><button type="button" onclick={() => runRailOperation(() => chat.openWorkingFolder(thread.workingFolderId))}>{t("chat.openFolder")}</button><button type="button" onclick={() => runRailOperation(() => chat.archiveThread(thread))}>{t("chat.archive")}</button><button type="button" class="text-destructive" onclick={() => { deleteThread = thread; }}>{t("chat.deletePermanently")}</button></div></details>
-                    </div>
-                  {/each}
+  </div>
+
+  <div class="chat-explorer-content flex h-full min-h-0 w-64 min-w-64 flex-col" inert={!expanded}>
+    <div class="flex h-(--cal-header-row-h) shrink-0 items-center gap-0.5 px-2">
+      <button type="button" class="chat-explorer-icon-button" aria-label={t("chat.newChat")} data-app-tooltip={t("chat.newChat")} onclick={() => newChat()}><MessageSquarePlus size={explorerToolbarIconSize} strokeWidth={explorerIconStrokeWidth} /></button>
+      <button type="button" class="chat-explorer-icon-button" aria-label={t("chat.archivedChats")} data-app-tooltip={t("chat.archivedChats")} onclick={() => { showArchive = true; }}><Archive size={explorerToolbarIconSize} strokeWidth={explorerIconStrokeWidth} /></button>
+      <button type="button" class="chat-explorer-icon-button" aria-label={allFoldersExpanded ? t("chat.explorer.collapseFolders") : t("chat.explorer.expandFolders")} data-app-tooltip={allFoldersExpanded ? t("chat.explorer.collapseFolders") : t("chat.explorer.expandFolders")} onclick={toggleAllFolders}>
+        {#if allFoldersExpanded}<ChevronsDownUp size={explorerToolbarIconSize} strokeWidth={explorerIconStrokeWidth} />{:else}<ChevronsUpDown size={explorerToolbarIconSize} strokeWidth={explorerIconStrokeWidth} />{/if}
+      </button>
+      <button type="button" class="chat-explorer-icon-button" class:active={searchOpen} aria-label={t("chat.search")} data-app-tooltip={t("chat.search")} onclick={() => void openSearch()}><Search size={explorerToolbarIconSize} strokeWidth={explorerIconStrokeWidth} /></button>
+      <button type="button" class="chat-explorer-icon-button" aria-label={t("chat.collapseRail")} data-app-tooltip={t("chat.collapseRail")} onclick={onCollapse}><ChevronsLeft size={explorerToolbarIconSize} strokeWidth={explorerIconStrokeWidth} /></button>
+    </div>
+
+    {#if searchOpen}
+      <div class="shrink-0 px-2 pb-2">
+        <label class="flex items-center gap-1.5 rounded-md bg-accent/50 px-2 py-1.5">
+          <Search size={explorerRowIconSize} strokeWidth={explorerIconStrokeWidth} class="shrink-0 text-muted-foreground" />
+          <input bind:this={searchInput} class="min-w-0 flex-1 bg-transparent text-[0.8rem] outline-none placeholder:text-muted-foreground" type="search" bind:value={search} placeholder={t("chat.search")} />
+          <button type="button" class="flex size-5 items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-foreground" aria-label={t("chat.clearSearch")} onclick={() => { search = ""; searchOpen = false; }}><X size={explorerRowIconSize} strokeWidth={explorerIconStrokeWidth} /></button>
+        </label>
+      </div>
+    {/if}
+    {#if railError}<div role="alert" class="shrink-0 px-3 pb-2 text-[0.733333rem] text-destructive">{railError}</div>{/if}
+
+    <div class="min-h-0 flex-1 overflow-y-auto px-2 pb-2">
+      {#if search.trim()}
+        {#if searchResults.length === 0}<p class="px-1 py-2 text-[0.8rem] text-muted-foreground">{t("chat.noSearchResults")}</p>{/if}
+        {#if partitionedSearchResults.active.length > 0}
+          <h2 class="px-1 pb-1 pt-2 text-[0.7rem] font-medium text-muted-foreground">{t("chat.activeChats")}</h2>
+          {#each partitionedSearchResults.active as thread (thread.id)}
+            <button type="button" class="chat-search-result" onclick={() => selectSearchResult(thread)}><MessageSquare size={explorerRowIconSize} strokeWidth={explorerIconStrokeWidth} /><span class="min-w-0 flex-1"><strong>{thread.title}</strong><small>{threadContext(thread)}</small></span></button>
+          {/each}
+        {/if}
+        {#if partitionedSearchResults.archived.length > 0}
+          <h2 class="px-1 pb-1 pt-3 text-[0.7rem] font-medium text-muted-foreground">{t("chat.archivedChats")}</h2>
+          {#each partitionedSearchResults.archived as thread (thread.id)}
+            <button type="button" class="chat-search-result" onclick={() => selectSearchResult(thread)}><Archive size={explorerRowIconSize} strokeWidth={explorerIconStrokeWidth} /><span class="min-w-0 flex-1"><strong>{thread.title}</strong><small>{threadContext(thread)}</small></span></button>
+          {/each}
+        {/if}
+      {:else if rail.folders.length === 0}
+        <p class="px-1 py-2 text-[0.8rem] text-muted-foreground">{t("chat.explorer.noFolders")}</p>
+      {:else}
+        {#each rail.folders as folderModel (folderModel.workingFolder.workingFolder.id)}
+          {@const folder = folderModel.workingFolder}
+          {@const folderId = folder.workingFolder.id}
+          {@const collapsed = collapsedFolderIds.includes(folderId)}
+          {@const status = folderStatus(folder)}
+          <section class="mb-1">
+            <div class="chat-folder-row group/folder" class:selected={folderModel.selected}>
+              <button type="button" class="chat-folder-main" aria-expanded={!collapsed} onclick={() => toggleFolder(folderId)}>
+                {#if collapsed}<Folder size={explorerRowIconSize} strokeWidth={explorerIconStrokeWidth} />{:else}<FolderOpen size={explorerRowIconSize} strokeWidth={explorerIconStrokeWidth} />{/if}
+                <span class="min-w-0 flex-1 truncate">{folder.workingFolder.displayName}</span>
+                {#if status}<span class="max-w-20 truncate text-[0.633333rem] text-muted-foreground">{status}</span>{/if}
+              </button>
+              {#if folder.bindingStatus === "available" && !folder.workingFolder.archivedAt}
+                <button type="button" class="chat-folder-action" aria-label={t("chat.explorer.newChatInFolder", folder.workingFolder.displayName)} onclick={() => newChat(folderId)}><Plus size={explorerRowIconSize} strokeWidth={explorerIconStrokeWidth} /></button>
+              {:else}
+                <button type="button" class="chat-folder-action visible" aria-label={folder.workingFolder.archivedAt ? t("chat.restore") : t("chat.firstUse.locateFolder")} onclick={() => recoverFolder(folder)}><FolderOpen size={explorerRowIconSize} strokeWidth={explorerIconStrokeWidth} /></button>
+              {/if}
+            </div>
+            {#if !collapsed}
+              <div class="pl-4">
+                {#if folderModel.hasDraft}
+                  <div class="chat-thread-row selected">
+                    <button type="button" class="chat-thread-main font-semibold" aria-current="page" onclick={() => newChat(folderId)}><MessageSquarePlus size={explorerRowIconSize} strokeWidth={explorerIconStrokeWidth} /><span>{t("chat.newChat")}</span></button>
+                  </div>
+                {/if}
+                {#each folderModel.threads as thread (thread.id)}
+                  {@const statusKind = threadStatus(thread)}
+                  <div class="chat-thread-row group/thread" class:selected={chat.selectedThreadId === thread.id} role="group" oncontextmenu={(event) => openThreadContextMenu(event, thread)}>
+                    {#if renameThreadId === thread.id}
+                      <input class="mx-1 h-7 min-w-0 flex-1 rounded border border-ring bg-background px-1 text-xs" bind:value={renameValue} onkeydown={(event) => { if (event.key === "Enter") void commitRename(thread); if (event.key === "Escape") renameThreadId = null; }} onblur={() => void commitRename(thread)} />
+                    {:else}
+                      <button type="button" class="chat-thread-main" data-chat-thread-id={thread.id} title={statusLabel(thread)} onkeydown={(event) => rowKeydown(event, thread)} onclick={() => chat.selectThread(thread.id)}>
+                        {#if statusKind === "working"}<LoaderCircle size={explorerRowIconSize} strokeWidth={explorerIconStrokeWidth} class="animate-spin" />{:else if statusKind === "error"}<CircleAlert size={explorerRowIconSize} strokeWidth={explorerIconStrokeWidth} />{:else if statusKind === "unread" || statusKind.startsWith("waiting")}<CircleDot size={explorerRowIconSize} strokeWidth={explorerIconStrokeWidth} />{:else}<MessageSquare size={explorerRowIconSize} strokeWidth={explorerIconStrokeWidth} />{/if}
+                        <span>{thread.title}</span>
+                      </button>
+                    {/if}
+                    <button type="button" class="chat-thread-menu-trigger" aria-label={t("chat.moreActions")} data-chat-thread-menu-trigger onclick={(event) => openThreadButtonMenu(event, thread)}><Ellipsis size={explorerRowIconSize} strokeWidth={explorerIconStrokeWidth} /></button>
+                  </div>
                 {/each}
               </div>
             {/if}
-          {/each}
-        </section>
-      {/each}
+          </section>
+        {/each}
+      {/if}
     </div>
-  {/if}
+  </div>
 
-  {#if showArchive}<ChatArchiveBrowser onClose={() => { showArchive = false; }} onDelete={(thread) => { deleteThread = thread; }} />{/if}
-  <footer class="chat-rail-footer"><button type="button" onclick={() => settings.open("chat")}><SettingsIcon size={14} /><span>{t("chat.settings")}</span></button></footer>
+  {#if showArchive}
+    <ChatArchiveBrowser onClose={() => { showArchive = false; }} onRestored={() => { showArchive = false; }} onDelete={(thread) => { deleteThread = thread; }} />
+  {/if}
 </aside>
+
+{#if menuThread}
+  {@const currentMenuThread = menuThread}
+  <div class="chat-menu fixed z-90 overflow-y-auto" style={menuStyle} data-chat-thread-menu role="menu">
+    <button type="button" role="menuitem" onclick={() => beginRename(currentMenuThread)}>{t("chat.rename")}</button>
+    <button type="button" role="menuitem" onclick={() => runMenuOperation(currentMenuThread, (thread) => chat.setThreadRead(thread, Boolean(thread.unreadAt)))}>{currentMenuThread.unreadAt ? t("chat.markRead") : t("chat.markUnread")}</button>
+    <button type="button" role="menuitem" onclick={() => { menuThread = null; detach(currentMenuThread); }}>{t("chat.detach")}</button>
+    <button type="button" role="menuitem" onclick={() => { menuThread = null; copyThreadId(currentMenuThread.id); }}>{t("chat.copyThreadId")}</button>
+    <button type="button" role="menuitem" onclick={() => runMenuOperation(currentMenuThread, (thread) => chat.openWorkingFolder(thread.workingFolderId))}>{t("chat.openFolder")}</button>
+    <button type="button" role="menuitem" onclick={() => runMenuOperation(currentMenuThread, (thread) => chat.archiveThread(thread))}>{t("chat.archive")}</button>
+    <button type="button" role="menuitem" class="text-destructive" onclick={() => { deleteThread = currentMenuThread; menuThread = null; }}>{t("chat.deletePermanently")}</button>
+  </div>
+{/if}
 
 {#if deleteThread}<ConfirmDialog title={t("chat.deleteTitle")} message={t("chat.deleteMessage", deleteThread.title)} confirmLabel={t("chat.deletePermanently")} cancelLabel={t("chat.cancel")} onConfirm={confirmDelete} onCancel={() => { deleteThread = null; }} />{/if}
 
 <style>
-  .chat-rail { position: relative; display: flex; height: 100%; min-height: 0; flex-direction: column; background: color-mix(in srgb, var(--cal-bg) 97%, var(--card)); }
-  .chat-rail-header { display: flex; min-height: 3.4rem; flex: 0 0 auto; align-items: center; gap: 0.15rem; padding-inline: 0.9rem 0.65rem; }
-  .new-chat-action { display: flex; min-height: 2.4rem; flex: 0 0 auto; align-items: center; gap: 0.7rem; margin: 0.1rem 0.75rem 0.4rem; border-radius: 0.6rem; padding-inline: 0.7rem; color: color-mix(in srgb, var(--foreground) 92%, transparent); font-size: 0.9rem; text-align: left; }
-  .new-chat-action:hover { background: var(--accent); color: var(--foreground); }
-  .chat-rail-search { padding: 0 0.65rem 0.5rem; }
-  .chat-rail-search label { display: flex; min-height: 2.15rem; align-items: center; gap: 0.5rem; border: 1px solid var(--border); border-radius: 0.55rem; padding-inline: 0.55rem; color: var(--muted-foreground); background: var(--background); }
-  .chat-rail-search label:focus-within { border-color: var(--ring); color: var(--foreground); }
-  .chat-rail-search input { min-width: 0; flex: 1; border: 0; background: transparent; color: var(--foreground); font-size: 0.8rem; outline: 0; }
-  .chat-rail-search input::placeholder { color: var(--muted-foreground); }
-  .chat-rail-search button { display: inline-flex; width: 1.5rem; height: 1.5rem; align-items: center; justify-content: center; border-radius: 0.35rem; }
-  .chat-group-header { display: flex; width: 100%; min-height: 1.9rem; align-items: center; gap: 0.4rem; border-radius: 0.45rem; padding: 0.4rem 0.3rem 0.2rem; color: var(--muted-foreground); font-size: 0.7rem; font-weight: 600; letter-spacing: 0.035em; text-align: left; text-transform: uppercase; }
-  .chat-group-header:hover:not(:disabled) { background: color-mix(in srgb, var(--accent) 65%, transparent); color: var(--foreground); }
-  .chat-project { margin-block: 0.1rem 0.4rem; }
-  .chat-project-header { display: flex; min-height: 2.25rem; align-items: center; gap: 0.6rem; border-radius: 0.55rem; padding: 0.25rem 0.45rem; color: color-mix(in srgb, var(--foreground) 94%, transparent); font-size: 0.9rem; font-weight: 500; }
-  .chat-project-header:hover { background: color-mix(in srgb, var(--accent) 60%, transparent); }
-  .chat-project .chat-thread-row { width: calc(100% - 1.65rem); margin-left: 1.65rem; }
-  .workspace-subdivision { display: flex; align-items: center; padding: 0.25rem 0.75rem; color: var(--muted-foreground); font-size: 0.766667rem; }
-  .chat-rail-footer { flex: 0 0 auto; border-top: 1px solid color-mix(in srgb, var(--border) 65%, transparent); padding: 0.5rem 0.65rem; }
-  .chat-rail-footer button { display: flex; min-height: 2.2rem; width: 100%; align-items: center; gap: 0.6rem; border-radius: 0.5rem; padding-inline: 0.55rem; color: var(--muted-foreground); font-size: 0.8rem; text-align: left; }
-  .chat-rail-footer button:hover { background: var(--accent); color: var(--foreground); }
-  :global(.chat-icon-button) { display: inline-flex; width: 1.9rem; height: 1.9rem; flex: 0 0 auto; align-items: center; justify-content: center; border-radius: 0.45rem; color: var(--muted-foreground); }
-  :global(.chat-icon-button:hover) { background: var(--accent); color: var(--foreground); }
-  :global(.chat-small-button) { min-height: 1.75rem; border-radius: 0.375rem; border: 1px solid var(--border); padding: 0.2rem 0.5rem; font-size: 0.666667rem; }
-  :global(.chat-menu) { position: absolute; z-index: 50; display: flex; width: max-content; min-width: 10rem; flex-direction: column; border: 1px solid var(--border); border-radius: 0.6rem; background: var(--popover); padding: 0.3rem; box-shadow: 0 10px 28px rgb(0 0 0 / 0.18); }
-  :global(.chat-menu button) { min-height: 2rem; border-radius: 0.4rem; padding: 0.3rem 0.55rem; text-align: left; font-size: 0.8rem; }
-  :global(.chat-menu button:hover) { background: var(--accent); }
-  .chat-thread-row { display: flex; width: calc(100% - 0.5rem); min-height: 2.15rem; margin-inline: 0.5rem 0; align-items: center; border-radius: 0.55rem; color: color-mix(in srgb, var(--foreground) 82%, transparent); text-align: left; }
-  .chat-thread-row-main { display: flex; min-width: 0; flex: 1; align-items: center; gap: 0.5rem; padding: 0.35rem 0.45rem 0.35rem 0.65rem; text-align: left; }
-  .thread-title { min-width: 0; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 0.833333rem; }
-  .chat-thread-row:hover { background: color-mix(in srgb, var(--accent) 65%, transparent); color: var(--foreground); }
-  .chat-thread-row.active { background: var(--accent); color: var(--foreground); }
+  .chat-project-explorer { width: 2.75rem; background: var(--cal-bg); transition: width 180ms cubic-bezier(0.2, 0, 0, 1); }
+  .chat-project-explorer.expanded { width: 16rem; }
+  .chat-explorer-collapsed-rail { background: var(--cal-bg); opacity: 0; pointer-events: none; transition: opacity 60ms linear; }
+  .chat-explorer-collapsed-rail.visible { opacity: 1; pointer-events: auto; transition-delay: 100ms; }
+  .chat-explorer-icon-button { display: flex; width: 1.75rem; height: 1.75rem; flex: 0 0 auto; align-items: center; justify-content: center; border-radius: 0.375rem; color: var(--muted-foreground); }
+  .chat-explorer-icon-button:hover, .chat-explorer-icon-button.active { background: var(--accent); color: var(--foreground); }
+  .chat-folder-row { display: flex; min-height: 2rem; align-items: center; border-radius: 0.375rem; color: var(--foreground); }
+  .chat-folder-row:hover { background: color-mix(in srgb, var(--accent) 68%, transparent); }
+  .chat-folder-row.selected { font-weight: 600; }
+  .chat-folder-main { display: flex; min-width: 0; min-height: 2rem; flex: 1; align-items: center; gap: 0.5rem; padding-inline: 0.375rem 0.25rem; text-align: left; font-size: 0.8rem; }
+  .chat-folder-action { display: flex; width: 1.5rem; height: 1.5rem; flex: 0 0 auto; align-items: center; justify-content: center; border-radius: 0.3rem; color: var(--muted-foreground); opacity: 0; }
+  .chat-folder-action.visible, .chat-folder-row:hover .chat-folder-action, .chat-folder-action:focus-visible { opacity: 1; }
+  .chat-folder-action:hover { background: var(--accent); color: var(--foreground); }
+  .chat-thread-row { display: flex; min-height: 1.9rem; align-items: center; border-radius: 0.375rem; color: var(--muted-foreground); }
+  .chat-thread-row:hover { background: color-mix(in srgb, var(--accent) 60%, transparent); color: var(--foreground); }
+  .chat-thread-row.selected { color: var(--foreground); font-weight: 600; }
+  .chat-thread-main { display: flex; min-width: 0; min-height: 1.9rem; flex: 1; align-items: center; gap: 0.45rem; padding-inline: 0.375rem; text-align: left; }
+  .chat-thread-main span { min-width: 0; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 0.8rem; }
+  .chat-thread-menu-trigger { display: flex; width: 1.5rem; height: 1.5rem; align-items: center; justify-content: center; border-radius: 0.3rem; color: var(--muted-foreground); opacity: 0; }
+  .chat-thread-row:hover .chat-thread-menu-trigger, .chat-thread-menu-trigger:focus-visible { opacity: 1; }
+  .chat-thread-menu-trigger:hover { background: var(--accent); color: var(--foreground); }
+  .chat-search-result { display: flex; width: 100%; min-height: 2.4rem; align-items: flex-start; gap: 0.5rem; border-radius: 0.375rem; padding: 0.375rem; text-align: left; }
+  .chat-search-result:hover { background: var(--accent); }
+  .chat-search-result strong, .chat-search-result small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .chat-search-result strong { font-size: 0.8rem; font-weight: 500; }
+  .chat-search-result small { color: var(--muted-foreground); font-size: 0.666667rem; }
+  @media (hover: none) { .chat-folder-action, .chat-thread-menu-trigger { opacity: 1; } }
+  @media (prefers-reduced-motion: reduce) { .chat-project-explorer, .chat-explorer-collapsed-rail { transition: none; } }
 </style>

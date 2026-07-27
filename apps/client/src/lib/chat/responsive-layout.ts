@@ -11,7 +11,6 @@ export interface ChatLayoutInput {
   fontScale: number;
   railOpen: boolean;
   inspectorOpen: boolean;
-  railWidth: number;
   inspectorWidth: number;
   previousVariant?: ChatLayoutVariant;
 }
@@ -24,14 +23,13 @@ export interface ChatLayoutDecision {
 }
 
 const BASE_CONVERSATION_MIN = 440;
+export const CHAT_RAIL_WIDTH_PX = 256;
+export const CHAT_RAIL_COLLAPSED_WIDTH_PX = 44;
 const BASE_MINIMUM_ENTER_WIDTH = 320;
 const BASE_MINIMUM_EXIT_WIDTH = 360;
 const BASE_MINIMUM_ENTER_HEIGHT = 210;
 const BASE_MINIMUM_EXIT_HEIGHT = 240;
 const BASE_HYSTERESIS = 24;
-const RAIL_FIT_RATIO = 0.25;
-const RAIL_FIT_MINIMUM = 280;
-const RAIL_FIT_MAXIMUM = 400;
 const INSPECTOR_FIT_RATIO = 0.38;
 const INSPECTOR_FIT_MINIMUM = 420;
 const INSPECTOR_FIT_MAXIMUM = 720;
@@ -45,16 +43,6 @@ const COLLAPSE_SNAP_RATIO = 0.45;
 export interface ChatInspectorResizeInput {
   containerWidth: number;
   railVisible: boolean;
-  railWidth: number;
-  fontScale?: number;
-  minimum: number;
-  maximum: number;
-}
-
-export interface ChatRailResizeInput {
-  containerWidth: number;
-  inspectorVisible: boolean;
-  inspectorWidth: number;
   fontScale?: number;
   minimum: number;
   maximum: number;
@@ -90,7 +78,7 @@ export function preferredPanelWidth(
  * @returns The largest inspector width that keeps the conversation usable.
  */
 export function chatInspectorResizeMaximum(input: ChatInspectorResizeInput): number {
-  const occupiedByRail = input.railVisible ? input.railWidth : 0;
+  const occupiedByRail = input.railVisible ? CHAT_RAIL_WIDTH_PX : CHAT_RAIL_COLLAPSED_WIDTH_PX;
   const available = input.containerWidth
     - occupiedByRail
     - scaledConversationWidth(input.fontScale);
@@ -98,41 +86,6 @@ export function chatInspectorResizeMaximum(input: ChatInspectorResizeInput): num
     available,
     input.minimum,
     Math.min(input.maximum, available),
-  );
-}
-
-/**
- * Bounds the thread rail without displacing a visible column inspector or the
- * minimum useful conversation width.
- *
- * @param input Current shell and adjacent panel constraints.
- * @returns The largest useful rail width for the current layout.
- */
-export function chatRailResizeMaximum(input: ChatRailResizeInput): number {
-  const occupiedByInspector = input.inspectorVisible ? input.inspectorWidth : 0;
-  const available = input.containerWidth
-    - occupiedByInspector
-    - scaledConversationWidth(input.fontScale);
-  return clampPanelSizeToWholePixel(
-    available,
-    input.minimum,
-    Math.min(input.maximum, available),
-  );
-}
-
-/**
- * Selects a comfortable thread rail width from the available shell width.
- *
- * @param input Current shell and adjacent panel constraints.
- * @returns A context-sensitive rail width inside the hard resize bounds.
- */
-export function fittedChatRailWidth(input: ChatRailResizeInput): number {
-  const scale = boundedFontScale(input.fontScale);
-  return fittedPanelSize(
-    input.containerWidth * RAIL_FIT_RATIO,
-    RAIL_FIT_MINIMUM * scale,
-    RAIL_FIT_MAXIMUM * scale,
-    chatRailResizeMaximum(input),
   );
 }
 
@@ -229,7 +182,8 @@ export function chatLayoutDecision(input: ChatLayoutInput): ChatLayoutDecision {
   }
 
   const conversationMin = BASE_CONVERSATION_MIN * scale;
-  const railRequired = input.railWidth + conversationMin;
+  const railWidth = input.railOpen ? CHAT_RAIL_WIDTH_PX : CHAT_RAIL_COLLAPSED_WIDTH_PX;
+  const railRequired = railWidth + conversationMin;
   const railWasColumn = previous === "three_column"
     || previous === "no_inspector"
     || previous === "inspector_sheet";

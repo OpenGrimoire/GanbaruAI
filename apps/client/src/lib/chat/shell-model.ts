@@ -3,7 +3,6 @@ import type {
   ProjectWorkingFolderRead,
   ProviderInstanceRead,
 } from "./contracts";
-import type { Project, ProjectGroup } from "$lib/projects/types";
 
 export type ChatFirstUseState =
   | { kind: "no_provider" }
@@ -17,29 +16,15 @@ export type ChatFirstUseState =
 
 export type ChatThreadStatus = "waiting_answer" | "waiting_approval" | "working" | "error" | "unread" | "idle" | "archived";
 
-export interface ChatRailWorkspace {
+export interface ChatRailFolder {
   workingFolder: ProjectWorkingFolderRead;
-  showSubdivision: boolean;
   threads: ChatThreadShellRead[];
-}
-
-export interface ChatRailProject {
-  project: Project;
-  workingFolders: ChatRailWorkspace[];
-}
-
-export interface ChatRailGroup {
-  id: string;
-  label: string;
-  collapsed: boolean;
-  hidden: boolean;
-  archived: boolean;
-  projects: ChatRailProject[];
+  selected: boolean;
+  hasDraft: boolean;
 }
 
 export interface ChatRailModel {
-  groups: ChatRailGroup[];
-  retainedThreadId: string | null;
+  folders: ChatRailFolder[];
 }
 
 export interface ChatFirstUseInput {
@@ -99,70 +84,88 @@ export function threadStatus(thread: ChatThreadShellRead): ChatThreadStatus {
 }
 
 export function buildChatRailModel(
-  groups: readonly ProjectGroup[],
-  projects: readonly Project[],
   workingFolders: readonly ProjectWorkingFolderRead[],
   threads: readonly ChatThreadShellRead[],
   selectedProjectId: string | null,
+  selectedWorkingFolderId: string | null,
   selectedThreadId: string | null,
 ): ChatRailModel {
-  const activeWorkspaces = workingFolders.filter((entry) => (
-    entry.workingFolder.archivedAt === null
-      && entry.workingFolder.projectId === selectedProjectId
-  ));
-  const projectModels = projects
-    .filter((project) => project.id === selectedProjectId)
-    .map((project) => {
-      const projectWorkspaces = activeWorkspaces.filter((entry) => (
-        entry.workingFolder.projectId === project.id
-          && (
-            entry.workingFolder.kind === "managed"
-            || threads.some((thread) => (
-              thread.workingFolderId === entry.workingFolder.id && thread.archivedAt === null
-            ))
-          )
-      ));
-      return {
-        project,
-        workingFolders: projectWorkspaces.map((workspace) => railWorkspace(
-          workspace,
-          threads,
-          projectWorkspaces.length > 1,
-        )),
-      };
-    })
-    .filter((project) => project.workingFolders.length > 0);
-  const orderedGroups = [...groups]
-    .sort((left, right) => left.sortOrder - right.sortOrder)
-    .map((group) => ({
-      id: group.id,
-      label: group.name,
-      collapsed: group.collapsed,
-      hidden: Boolean(group.hiddenAt),
-      archived: Boolean(group.archivedAt),
-      projects: projectModels
-        .filter((entry) => entry.project.groupId === group.id)
-        .sort((left, right) => left.project.sortOrder - right.project.sortOrder),
-    }))
-    .filter((group) => group.projects.length > 0);
-  const ungrouped = projectModels.filter((entry) => !groups.some((group) => group.id === entry.project.groupId));
-  if (ungrouped.length > 0) {
-    orderedGroups.push({
-      id: "ungrouped",
-      label: "Projects",
-      collapsed: false,
-      hidden: false,
-      archived: false,
-      projects: ungrouped,
-    });
-  }
-  const retainedThreadId = selectedThreadId && threads.some((thread) => thread.id === selectedThreadId)
-    ? selectedThreadId
-    : null;
   return {
-    groups: orderedGroups,
-    retainedThreadId,
+    folders: contextualChatFolders(
+      workingFolders,
+      threads,
+      selectedProjectId,
+      selectedWorkingFolderId,
+    ).map((workingFolder) => ({
+      workingFolder,
+      threads: siblingChatThreads(
+        threads,
+        selectedProjectId,
+        workingFolder.workingFolder.id,
+      ),
+      selected: workingFolder.workingFolder.id === selectedWorkingFolderId,
+      hasDraft: selectedThreadId === null
+        && workingFolder.workingFolder.id === selectedWorkingFolderId,
+    })),
   };
+}
+
+export function chatHeaderShowsResourcePath(explorerExpanded: boolean): boolean {
+  return !explorerExpanded;
+}
+
+export function chatHeaderActionInset(
+  headerRight: number,
+  fixedActionsLeft: number,
+  edgeGap: number,
+): number {
+  const safeGap = Math.max(0, edgeGap);
+  return Math.max(safeGap, headerRight - fixedActionsLeft + safeGap);
+}
+
+export function chatNavigationFolders(
+  workingFolders: readonly ProjectWorkingFolderRead[],
+  selectedProjectId: string | null,
+): ProjectWorkingFolderRead[] {
+  return sortChatFolders(workingFolders.filter((entry) => (
+    entry.workingFolder.projectId === selectedProjectId
+      && entry.workingFolder.archivedAt === null
+  )));
+}
+
+export function siblingChatThreads(
+  threads: readonly ChatThreadShellRead[],
+  selectedProjectId: string | null,
+  workingFolderId: string | null,
+): ChatThreadShellRead[] {
+  return threads
+    .filter((thread) => (
+      thread.projectId === selectedProjectId
+        && thread.workingFolderId === workingFolderId
+        && thread.archivedAt === null
+    ))
+    .sort((left, right) => right.lastActivityAt.localeCompare(left.lastActivityAt));
+}
+
+export function contextualChatFolders(
+  workingFolders: readonly ProjectWorkingFolderRead[],
+  threads: readonly ChatThreadShellRead[],
+  selectedProjectId: string | null,
+  selectedWorkingFolderId: string | null,
+): ProjectWorkingFolderRead[] {
+  const activeThreadFolderIds = new Set(
+    threads
+      .filter((thread) => thread.projectId === selectedProjectId && thread.archivedAt === null)
+      .map((thread) => thread.workingFolderId),
+  );
+  return sortChatFolders(workingFolders.filter((entry) => (
+    entry.workingFolder.projectId === selectedProjectId
+      && (
+        entry.workingFolder.kind === "managed"
+        || entry.workingFolder.id === selectedWorkingFolderId
+        || activeThreadFolderIds.has(entry.workingFolder.id)
+      )
+  )));
 }
 
 export function filterThreadTitles(
@@ -200,18 +203,17 @@ export function nextThreadIndex(currentIndex: number, itemCount: number, directi
   return (currentIndex + (direction === "next" ? 1 : -1) + itemCount) % itemCount;
 }
 
-function railWorkspace(
-  workingFolder: ProjectWorkingFolderRead,
-  threads: readonly ChatThreadShellRead[],
-  showSubdivision: boolean,
-): ChatRailWorkspace {
-  return {
-    workingFolder,
-    showSubdivision,
-    threads: threads
-      .filter((thread) => thread.workingFolderId === workingFolder.workingFolder.id && thread.archivedAt === null)
-      .sort((left, right) => right.lastActivityAt.localeCompare(left.lastActivityAt)),
-  };
+function sortChatFolders(
+  workingFolders: readonly ProjectWorkingFolderRead[],
+): ProjectWorkingFolderRead[] {
+  return [...workingFolders].sort((left, right) => {
+    if (left.workingFolder.kind !== right.workingFolder.kind) {
+      return left.workingFolder.kind === "managed" ? -1 : 1;
+    }
+    return left.workingFolder.sortOrder - right.workingFolder.sortOrder
+      || left.workingFolder.displayName.localeCompare(right.workingFolder.displayName)
+      || left.workingFolder.id.localeCompare(right.workingFolder.id);
+  });
 }
 
 function normalizeSearch(value: string): string {

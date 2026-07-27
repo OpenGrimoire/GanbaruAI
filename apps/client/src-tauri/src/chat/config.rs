@@ -17,8 +17,6 @@ const MAX_REMEMBERED_SELECTIONS: usize = 256;
 const MAX_LABEL_BYTES: usize = 160;
 const MAX_ARGUMENT_BYTES: usize = 4_096;
 const MAX_ENVIRONMENT_VALUE_BYTES: usize = 16_384;
-const MIN_RAIL_WIDTH_PX: u32 = 160;
-const MAX_RAIL_WIDTH_PX: u32 = 520;
 const MIN_INSPECTOR_WIDTH_PX: u32 = 240;
 const MAX_INSPECTOR_WIDTH_PX: u32 = 960;
 const MIN_TERMINAL_SCROLLBACK_LINES: u32 = 1_000;
@@ -28,10 +26,6 @@ const MAX_IDLE_SESSION_TIMEOUT_SECONDS: u32 = 7_200;
 
 fn current_schema_version() -> u32 {
     CHAT_VAULT_CONFIG_SCHEMA_VERSION
-}
-
-fn default_rail_width_px() -> u32 {
-    320
 }
 
 fn default_inspector_width_px() -> u32 {
@@ -100,8 +94,6 @@ pub struct RememberedComposerSelection {
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ChatPanelPreferences {
-    #[serde(default = "default_rail_width_px")]
-    pub rail_width_px: u32,
     #[serde(default = "default_inspector_width_px")]
     pub inspector_width_px: u32,
 }
@@ -109,7 +101,6 @@ pub struct ChatPanelPreferences {
 impl Default for ChatPanelPreferences {
     fn default() -> Self {
         Self {
-            rail_width_px: default_rail_width_px(),
             inspector_width_px: default_inspector_width_px(),
         }
     }
@@ -238,12 +229,6 @@ impl ChatVaultConfig {
                 ));
             }
         }
-        validate_range(
-            self.panels.rail_width_px,
-            MIN_RAIL_WIDTH_PX,
-            MAX_RAIL_WIDTH_PX,
-            "chat.panels.railWidthPx",
-        )?;
         validate_range(
             self.panels.inspector_width_px,
             MIN_INSPECTOR_WIDTH_PX,

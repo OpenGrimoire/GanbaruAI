@@ -42,7 +42,6 @@ export interface RememberedComposerSelection {
 }
 
 export interface ChatPanelPreferences {
-  railWidthPx: number;
   inspectorWidthPx: number;
 }
 

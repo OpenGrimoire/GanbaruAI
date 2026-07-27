@@ -5,7 +5,6 @@ import {
   ChatInspectorSessionState,
   closeInspectorTab,
   inspectorFocusAction,
-  inspectorPresentation,
   inspectorSessionKey,
   moveWorkspacePanelTab,
   normalizeWorkspacePanelTabName,
@@ -204,12 +203,6 @@ describe("Chat inspector model", () => {
     expect(splitPaneResizeBounds(240, 144, 120, 360)).toEqual({ minimum: 120, maximum: 120 });
     expect(splitPaneResizeBounds(105, 112, 64, 420)).toEqual({ minimum: 41, maximum: 41 });
     expect(splitPaneResizeBounds(40, 112, 64, 420)).toEqual({ minimum: 0, maximum: 0 });
-  });
-
-  it("uses a sheet when a third column does not fit and preserves full maximize", () => {
-    expect(inspectorPresentation(1_200, false)).toBe("column");
-    expect(inspectorPresentation(700, false)).toBe("sheet");
-    expect(inspectorPresentation(1_200, true)).toBe("full");
   });
 
   it("enters and restores focus only across inspector visibility boundaries", () => {
