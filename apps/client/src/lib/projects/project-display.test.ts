@@ -10,7 +10,6 @@ import {
   projectTagColorDotStyle,
   projectTagColorSwatchClass,
   projectLifecycleBadgeClass,
-  projectPersonInitials,
   projectPriorityBadgeClass,
   projectPriorityLabel,
   projectStatusBadgeClass,
@@ -127,10 +126,4 @@ describe("project display helpers", () => {
     expect(projectTagColorDotStyle(2, lightTheme)).toMatch(/^background-color: #[0-9a-f]{6};$/i);
   });
 
-  it("returns compact initials for task people", () => {
-    expect(projectPersonInitials("You")).toBe("Y");
-    expect(projectPersonInitials("Victor Rivera")).toBe("VR");
-    expect(projectPersonInitials("  Ana Maria Lopez  ")).toBe("AM");
-    expect(projectPersonInitials("")).toBe("?");
-  });
 });

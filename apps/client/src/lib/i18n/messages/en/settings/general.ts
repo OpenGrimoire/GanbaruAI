@@ -39,6 +39,13 @@ export const general = {
   },
   profileIdentity: {
     heading: "Identity",
+    picture: "Profile picture",
+    pictureDescription: "Shown beside your messages and assignments. PNG, JPG, or WebP up to 3 MB.",
+    uploadPicture: "Upload image",
+    removePicture: "Remove profile picture",
+    picturePickerTitle: "Choose a profile picture",
+    pictureUpdateFailed: (message: string) => `Could not update profile picture: ${message}`,
+    invalidPicture: "The selected profile picture is invalid.",
     displayName: "Display name",
     description: "Used wherever your local profile name appears",
     fullName: "Full name",

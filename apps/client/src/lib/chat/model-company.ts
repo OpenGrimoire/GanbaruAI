@@ -66,7 +66,17 @@ const MODEL_MATCHERS: readonly [ModelCompanyId, RegExp][] = [
  */
 export function modelCompany(familyId: string, model: ProviderModel | null): ModelCompanyIdentity {
   if (model) {
-    const identity = `${model.id} ${model.displayName}`;
+    return modelCompanyForIdentity(familyId, `${model.id} ${model.displayName}`);
+  }
+  return COMPANIES[FAMILY_DEFAULTS[familyId] ?? "opencode"];
+}
+
+/** Resolves a model company from a stored model identity when no catalog row remains. */
+export function modelCompanyForIdentity(
+  familyId: string,
+  identity: string | null,
+): ModelCompanyIdentity {
+  if (identity) {
     for (const [companyId, matcher] of MODEL_MATCHERS) {
       if (matcher.test(identity)) return COMPANIES[companyId];
     }

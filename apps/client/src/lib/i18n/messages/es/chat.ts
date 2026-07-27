@@ -332,6 +332,7 @@ export const chat = {
     answerRequired: "Se requiere tu respuesta para que el agente de programación pueda continuar.",
   },
   timeline: {
+    you: "Tú",
     code: "Código",
     wrapCode: "Ajustar",
     copyCode: "Copiar código",

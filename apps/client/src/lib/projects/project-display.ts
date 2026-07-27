@@ -152,17 +152,6 @@ export function projectTagColorSwatchClass(color: EventColor | undefined): strin
   return color === undefined ? "border-border bg-muted/50" : "border-transparent";
 }
 
-export function projectPersonInitials(name: string): string {
-  const initials = name
-    .trim()
-    .split(/\s+/)
-    .slice(0, 2)
-    .map((part) => Array.from(part)[0] ?? "")
-    .join("")
-    .toLocaleUpperCase();
-  return initials || "?";
-}
-
 export function projectTaskTypeLabel(taskType: ProjectTaskType, t: Translate): string {
   if (taskType === "milestone") return t("projects.taskType.milestone");
   if (taskType === "bug") return t("projects.taskType.bug");

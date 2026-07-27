@@ -42,6 +42,13 @@ export const general = {
   },
   profileIdentity: {
     heading: "Identidad",
+    picture: "Imagen de perfil",
+    pictureDescription: "Aparece junto a tus mensajes y asignaciones. PNG, JPG o WebP de hasta 3 MB.",
+    uploadPicture: "Subir imagen",
+    removePicture: "Eliminar imagen de perfil",
+    picturePickerTitle: "Elegir una imagen de perfil",
+    pictureUpdateFailed: (message: string) => `No se pudo actualizar la imagen de perfil: ${message}`,
+    invalidPicture: "La imagen de perfil seleccionada no es válida.",
     displayName: "Nombre visible",
     description: "Se usa donde aparece tu nombre de perfil local",
     fullName: "Nombre completo",

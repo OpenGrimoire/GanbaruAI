@@ -6,6 +6,7 @@ import {
   DEFAULT_CALENDAR_DIM_PAST_EVENTS,
   DEFAULT_PROFILE_DISPLAY_NAME,
   DEFAULT_PROFILE_FULL_NAME,
+  DEFAULT_PROFILE_IMAGE_PATH,
   DEFAULT_MUSIC_PAUSE_ON_POMODORO_PAUSE,
   DEFAULT_CALENDAR_TIME_FORMAT,
   DEFAULT_FOCUS_IDLE_PAUSE_ON_EVENT_CREATE,
@@ -37,6 +38,7 @@ import {
   getFontFamilyById,
   isCalendarTimeFormat,
   isCalendarViewMode,
+  isProfileImagePath,
   isTitleBarControlId,
   parseFocusBreakEndEscPresses,
   parseFocusBreakExtensionLimit,
@@ -58,6 +60,7 @@ import {
 
 const PROFILE_DISPLAY_NAME_CONFIG_KEY = "profile.displayName";
 const PROFILE_FULL_NAME_CONFIG_KEY = "profile.fullName";
+const PROFILE_IMAGE_PATH_CONFIG_KEY = "profile.imagePath";
 const FONT_FAMILY_CONFIG_KEY = "preferences.fontFamilyId";
 const FONT_SCALE_CONFIG_KEY = "preferences.fontScale";
 const EVENT_TZ_DISPLAY_KEY = "preferences.eventTimezoneDisplay";
@@ -123,6 +126,11 @@ function loadSavedProfileFullName(): string {
   if (typeof saved !== "string") return DEFAULT_PROFILE_FULL_NAME;
   const normalized = normalizeProfileFullName(saved);
   return normalized.ok ? normalized.value : DEFAULT_PROFILE_FULL_NAME;
+}
+
+function loadSavedProfileImagePath(): string | null {
+  const saved = getConfigKey<unknown>(PROFILE_IMAGE_PATH_CONFIG_KEY, undefined);
+  return isProfileImagePath(saved) ? saved.trim() : DEFAULT_PROFILE_IMAGE_PATH;
 }
 
 function loadSavedCalendarTimeFormat(): CalendarTimeFormat {
@@ -225,6 +233,7 @@ let fontScale = $state<number>(loadSavedFontScale());
 let eventTimezoneDisplay = $state<EventTimezoneDisplay>(loadSavedEventTzDisplay());
 let profileDisplayName = $state<string>(loadSavedProfileDisplayName());
 let profileFullName = $state<string>(loadSavedProfileFullName());
+let profileImagePath = $state<string | null>(loadSavedProfileImagePath());
 let calendarTimeFormat = $state<CalendarTimeFormat>(loadSavedCalendarTimeFormat());
 let calendarViewMode = $state<CalendarViewMode>(loadSavedCalendarViewMode());
 let calendarDimPastEvents = $state<boolean>(loadSavedCalendarDimPastEvents());
@@ -331,6 +340,13 @@ function setProfileFullName(value: string): boolean {
     PROFILE_FULL_NAME_CONFIG_KEY,
     normalized.value ? normalized.value : undefined,
   );
+  return true;
+}
+
+function setProfileImagePath(value: string | null): boolean {
+  if (value !== null && !isProfileImagePath(value)) return false;
+  profileImagePath = value?.trim() ?? null;
+  setConfigKey(PROFILE_IMAGE_PATH_CONFIG_KEY, profileImagePath ?? undefined);
   return true;
 }
 
@@ -484,6 +500,9 @@ export function getPreferences() {
     get profileFullName(): string {
       return profileFullName;
     },
+    get profileImagePath(): string | null {
+      return profileImagePath;
+    },
     get languagePreference(): LanguagePreference {
       return localization.languagePreference;
     },
@@ -548,6 +567,7 @@ export function getPreferences() {
     setFontScale,
     setProfileDisplayName,
     setProfileFullName,
+    setProfileImagePath,
     setLanguagePreference: localization.setLanguagePreference,
     setEventTimezoneDisplay,
     setCalendarTimeFormat,

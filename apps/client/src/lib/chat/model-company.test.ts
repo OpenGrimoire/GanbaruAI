@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { ProviderModel } from "$lib/chat/contracts";
-import { compareCompanyModels, integrationCompany, modelCompany, type ModelCompanyId } from "./model-company";
+import { compareCompanyModels, integrationCompany, modelCompany, modelCompanyForIdentity, type ModelCompanyId } from "./model-company";
 
 function model(id: string, displayName = id): ProviderModel {
   return {
@@ -22,6 +22,11 @@ describe("Chat model companies", () => {
     expect(integrationCompany("grok").name).toBe("xAI");
     expect(integrationCompany("cursor").name).toBe("Cursor");
     expect(integrationCompany("opencode").name).toBe("OpenCode");
+  });
+
+  it("infers companies from stored model identities without a catalog row", () => {
+    expect(modelCompanyForIdentity("opencode", "google/gemini-3-pro").id).toBe("google");
+    expect(modelCompanyForIdentity("opencode", "anthropic/claude-opus-5").id).toBe("anthropic");
   });
 
   it("classifies models exposed through multi-vendor integrations", () => {

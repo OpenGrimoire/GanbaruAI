@@ -14,6 +14,7 @@
   import X from "@lucide/svelte/icons/x";
   import MiniDatePicker from "$lib/components/calendar/MiniDatePicker.svelte";
   import TimePicker from "$lib/components/calendar/TimePicker.svelte";
+  import ProfileAvatar from "$lib/components/profile/ProfileAvatar.svelte";
   import { formatTimeLabel } from "$lib/components/calendar/utils";
   import { getLocalization } from "$lib/i18n/translator.svelte";
   import {
@@ -25,7 +26,6 @@
     projectCustomFieldUsesTextValue,
   } from "$lib/projects/custom-fields";
   import {
-    projectPersonInitials,
     projectPriorityDisplayColor,
     projectPriorityDisplayLabel,
   } from "$lib/projects/project-display";
@@ -534,13 +534,9 @@
       </span>
     {/if}
   {:else if column === "assignee" || column === "reviewer"}
-    {@const personName = t("projects.people.you")}
-    <span
-      class="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-foreground text-[0.733333rem] font-semibold leading-none text-background"
-      aria-label={personName}
-      title={personName}
-    >
-      {projectPersonInitials(personName)}
+    {@const personName = preferences.profileDisplayName || t("projects.people.you")}
+    <span title={personName}>
+      <ProfileAvatar displayName={personName} imagePath={preferences.profileImagePath} size={24} />
     </span>
   {:else if column === "start" || column === "due"}
     {@const dateValue = column === "start" ? task.startDate : task.dueDate}

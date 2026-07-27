@@ -13,6 +13,7 @@
   import { getProjects } from "$lib/stores/projects.svelte";
   import { getSettingsLauncher } from "$lib/stores/settingsLauncher.svelte";
   import ChatComposer from "./ChatComposer.svelte";
+  import ChatTimeline from "./ChatTimeline.svelte";
 
   const { t } = getLocalization();
   const chat = getChat();
@@ -32,8 +33,8 @@
 
 </script>
 
-<div class="first-use-shell" class:new-thread={firstUse.kind === "no_thread"}>
-  <section class="first-use-content" class:new-thread={firstUse.kind === "no_thread"}>
+<div class="first-use-shell" class:new-thread={firstUse.kind === "no_thread"} class:pending-send={firstUse.kind === "no_thread" && chat.pendingUserMessage !== null}>
+  <section class="first-use-content" class:new-thread={firstUse.kind === "no_thread"} class:pending-send={firstUse.kind === "no_thread" && chat.pendingUserMessage !== null}>
     {#if operationError}<p role="alert" class="mb-3 text-sm text-destructive">{operationError}</p>{/if}
     {#if firstUse.kind !== "no_thread"}<div class="mb-4 flex size-12 items-center justify-center rounded-2xl border border-border bg-card"><MessageSquare size={22} /></div>{/if}
     {#if firstUse.kind === "no_provider"}
@@ -50,8 +51,10 @@
     {:else if firstUse.kind === "archived_thread"}
       <h2 class="text-lg font-semibold">{t("chat.firstUse.archivedTitle")}</h2><p class="mt-2 max-w-lg text-sm text-muted-foreground">{t("chat.firstUse.archivedDescription")}</p><button type="button" class="chat-primary-button mt-5" onclick={() => run(() => chat.restoreThread(firstUse.thread))}>{t("chat.restore")}</button>
     {:else if firstUse.kind === "no_thread"}
-      <div class="hero-composer-shell">
-        {#if workspace}
+      <div class="hero-composer-shell" class:pending-send={chat.pendingUserMessage !== null}>
+        {#if chat.pendingUserMessage}
+          <ChatTimeline />
+        {:else if workspace}
           <div class="working-folder-context" aria-label={t("chat.hero.workingFolder")}>
             <button type="button" title={t("chat.openFolder")} onclick={() => run(() => chat.openWorkingFolder(workspace.workingFolder.id))}>
               <Folder size={15} /><span>{workspace.workingFolder.displayName}</span>
@@ -60,7 +63,7 @@
             {#if workspace.currentBranch}<span title={t("chat.header.branch", workspace.currentBranch)}><GitBranch size={15} /><span>{workspace.currentBranch}</span></span>{/if}
           </div>
         {/if}
-        <ChatComposer hero />
+        <div class:pending-composer-dock={chat.pendingUserMessage !== null}><ChatComposer hero={chat.pendingUserMessage === null} /></div>
       </div>
     {:else}
       <h2 class="text-lg font-semibold">{firstUse.thread.title}</h2>
@@ -75,6 +78,12 @@
   .first-use-shell.new-thread { align-items: stretch; }
   .first-use-content.new-thread { max-width: none; justify-content: flex-end; padding-bottom: clamp(0.25rem, 2vh, 1.5rem); }
   .hero-composer-shell { width: min(100%, 54rem); text-align: left; }
+  .first-use-shell.pending-send { padding: 0; }
+  .first-use-content.pending-send { height: 100%; align-items: stretch; padding-bottom: 0; }
+  .hero-composer-shell.pending-send { position: relative; display: flex; width: 100%; max-width: none; min-height: 0; flex: 1; flex-direction: column; overflow: hidden; }
+  .pending-composer-dock { pointer-events: none; position: absolute; inset-inline: 0; bottom: 0; z-index: 2; padding: 0.5rem 0.75rem 0.75rem; }
+  .pending-composer-dock::before { position: absolute; inset: -1.5rem 0 -2rem; z-index: -1; background: linear-gradient(to bottom, transparent, color-mix(in srgb, var(--cal-bg) 72%, transparent) 35%, var(--cal-bg) 74%); content: ""; backdrop-filter: blur(10px); -webkit-mask-image: linear-gradient(to bottom, transparent, black 35%); mask-image: linear-gradient(to bottom, transparent, black 35%); }
+  .pending-composer-dock :global(.chat-composer) { pointer-events: auto; }
   .working-folder-context { display: flex; min-width: 0; min-height: 3.15rem; align-items: center; gap: 1.2rem; margin-inline: 1.35rem; border-radius: 1.2rem 1.2rem 0 0; background: color-mix(in srgb, var(--muted) 72%, transparent); padding: 0.45rem 1.1rem 0.7rem; color: var(--foreground); font-size: 0.8rem; }
   .working-folder-context > button, .working-folder-context > span { display: flex; min-width: 0; align-items: center; gap: 0.45rem; }
   .working-folder-context > button { max-width: 45%; border-radius: 0.4rem; }

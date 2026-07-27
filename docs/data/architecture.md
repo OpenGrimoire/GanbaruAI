@@ -30,7 +30,7 @@ Everything portable that the app produces lives under one folder. First launch d
 
 Folder setup errors are blocking and remain visible until the user starts another folder action, successfully selects a usable folder, or closes the app. The UI translates backend validation failures into user-facing guidance for non-empty unrelated folders, missing or damaged `vault.json`, unsupported folder schema versions, permission problems, missing folders, and database-open failures for `ganbaru-ai.sqlite`.
 
-Profile settings are folder-local preferences in `config.json`. `profile.displayName` is the short local name shown where a compact profile label is needed and is capped at 25 characters. `profile.fullName` stores the optional full name for future profile surfaces and is capped at 50 characters. Empty values are valid, and surfaces that require a visible self label fall back to contextual copy such as `You`.
+Profile settings are folder-local preferences in `config.json`. `profile.displayName` is the short local name shown where a compact profile label is needed and is capped at 25 characters. `profile.fullName` stores the optional full name for future profile surfaces and is capped at 50 characters. `profile.imagePath` stores an optional managed PNG, JPEG, or WebP path under `assets/profile/`. Empty values are valid, and surfaces that require a visible self label fall back to contextual copy such as `You`. Surfaces without a profile image derive at most two initials from the display name.
 
 ```
 Ganbaru AI/
@@ -42,6 +42,7 @@ Ganbaru AI/
   projects/{project-id}/            # managed working folder created for every project
   reports/                          # generated project status reports (markdown, PDF)
   assets/                           # user assets (images embedded in notes, attachments)
+    profile/                        # copied local profile image
     notes/page-icons/               # copied local Notes page icon images
     notes/page-covers/              # copied local Notes page cover images
     project-icons/                  # copied project and group icon images

@@ -329,6 +329,7 @@ export const chat = {
     answerRequired: "Your answer is required before the coding agent can continue.",
   },
   timeline: {
+    you: "You",
     code: "Code",
     wrapCode: "Wrap",
     copyCode: "Copy code",

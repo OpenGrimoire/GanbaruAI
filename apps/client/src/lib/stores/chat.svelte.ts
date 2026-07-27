@@ -30,6 +30,7 @@ import { evictTimelinePages, mergeTimelineItems } from "$lib/chat/timeline-virtu
 import { ChatComposerController, parseDraftMentions, type ChatComposerSnapshot } from "$lib/chat/composer-controller";
 import { queuedFollowupDispatchReady, readComposerModelSelection } from "$lib/chat/composer-model";
 import { AsyncFrameCoalescer } from "$lib/chat/frame-coalescer";
+import type { TimelineMessageRow } from "$lib/chat/timeline-model";
 import { getProjects } from "$lib/stores/projects.svelte";
 import { preferredProjectWorkingFolder } from "$lib/chat/working-folder-selection";
 
@@ -54,6 +55,7 @@ class ChatStore {
   draftThreadId = $state<ChatThreadId | null>(null);
   timelinePages = $state<ChatTimelinePageRead[]>([]);
   timelineItems = $state<ChatTimelineItemRead[]>([]);
+  pendingUserMessage = $state<{ threadId: ChatThreadId; row: TimelineMessageRow } | null>(null);
   timelineLoading = $state(false);
   timelineError = $state<string | null>(null);
   railOpen = $state(true);
@@ -345,25 +347,76 @@ class ChatStore {
     this.sendError = null;
     const current = this.selectedThread;
     const newThreadId = current ? null : this.ensureDraftThread(workingFolderId);
-    const result = await chatApi.sendChatTurn({
-      command: { clientCommandId: crypto.randomUUID(), expectedThreadRevision: current?.revision ?? null },
-      workingFolderId,
-      threadId: current?.id ?? null,
-      newThreadId,
-      turnId: crypto.randomUUID(),
-      messageId: crypto.randomUUID(),
-      providerInstanceId,
-      providerManagedModel: model.providerManaged,
-      modelId: model.modelId,
-      modelOptions: model.options,
-      modes: { safetyMode, interactionMode },
-      prompt,
-      attachmentIds,
-      mentions,
-    });
+    const threadId = current?.id ?? newThreadId;
+    if (!threadId) throw new Error("A Chat thread ID is required before sending");
+    const turnId = crypto.randomUUID();
+    const messageId = crypto.randomUUID();
+    this.pendingUserMessage = {
+      threadId,
+      row: {
+        id: messageId,
+        kind: "message",
+        role: "user",
+        turnId,
+        sequence: Number.MAX_SAFE_INTEGER,
+        createdAt: new Date().toISOString(),
+        markdown: prompt,
+        state: "pending",
+        userContext: {
+          attachments: this.composerAttachments
+            .filter((attachment) => attachmentIds.includes(attachment.id))
+            .map((attachment) => ({
+              id: attachment.id,
+              displayName: attachment.originalDisplayName,
+              kind: attachment.kind,
+              byteSize: attachment.byteSize,
+              status: "pending",
+            })),
+          mentions: mentions.map((mention) => ({ ...mention })),
+          terminalContext: [],
+          preCheckpointId: null,
+        },
+        metadata: null,
+      },
+    };
     this.composerController.markSent();
     await this.composerController.flush();
+    let result: Awaited<ReturnType<typeof chatApi.sendChatTurn>>;
+    try {
+      result = await chatApi.sendChatTurn({
+        command: { clientCommandId: crypto.randomUUID(), expectedThreadRevision: current?.revision ?? null },
+        workingFolderId,
+        threadId: current?.id ?? null,
+        newThreadId,
+        turnId,
+        messageId,
+        providerInstanceId,
+        providerManagedModel: model.providerManaged,
+        modelId: model.modelId,
+        modelOptions: model.options,
+        modes: { safetyMode, interactionMode },
+        prompt,
+        attachmentIds,
+        mentions,
+      });
+    } catch (error: unknown) {
+      this.pendingUserMessage = null;
+      this.composerController.restoreSentSnapshot();
+      await this.composerController.flush();
+      throw error;
+    }
     this.upsertThread(result.thread);
+    if (!current) {
+      this.draftWorkingFolderId = null;
+      this.draftThreadId = null;
+    }
+    this.selectThread(result.thread.id);
+    this.sendError = result.launchError?.message ?? null;
+    try {
+      await this.loadTimeline(result.thread.id);
+    } finally {
+      this.pendingUserMessage = null;
+    }
     await chatApi.rememberChatComposerSelection({
       workingFolderId,
       providerInstanceId,
@@ -374,13 +427,6 @@ class ChatStore {
       interactionMode,
     });
     this.settings = await chatApi.readChatSettings();
-    if (!current) {
-      this.draftWorkingFolderId = null;
-      this.draftThreadId = null;
-    }
-    this.selectThread(result.thread.id);
-    this.sendError = result.launchError?.message ?? null;
-    await this.loadTimeline(result.thread.id);
     await this.refreshInteraction(result.thread.id);
   }
 

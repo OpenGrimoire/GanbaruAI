@@ -58,6 +58,7 @@ apps/
           notes/: Notes navigation, editor, databases, history, transfer, and project surfaces
           perf/: memory and performance diagnostics surfaces
           pomodoro/: timer display, controls, break screen, and idle overlay
+          profile/: shared local profile avatar surfaces
           projects/: project navigation, planning views, task details, and settings
           quick-notes/: Quick notes panel, masonry cards, editor, and color controls
           settings/: resident settings surfaces, theme editor, preferences, and optional tools
@@ -81,6 +82,7 @@ apps/
           contracts/: typed Notes DTO families and view models
           validation/: split validation helpers
         pomodoro/: adaptive rhythm and Pomodoro domain logic
+        profile/: local profile identity helpers
         projects/: project planning, view, settings, icon, and task domain logic
         quick-notes/: Quick notes contracts, rich-text operations, masonry, persistence, and window sync
         scheduling/: lifecycle and notification schedulers
@@ -158,6 +160,7 @@ Ganbaru AI/
     {project-id}/: managed working folder created for every project
   reports/: generated project status reports (planned feature)
   assets/: user asset root
+    profile/: managed local profile image (created on demand)
     chat/attachments/: managed Chat image and text context files (created on demand)
     notes/page-icons/: managed Notes page icon images (created on demand)
     notes/page-covers/: managed Notes page cover images (created on demand)

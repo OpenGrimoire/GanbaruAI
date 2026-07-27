@@ -139,7 +139,7 @@ export interface TimelineTurnFoldRow {
   turnId: ChatTurnId;
   sequence: number;
   createdAt: UtcTimestamp;
-  state: "completed" | "interrupted" | "failed";
+  state: "active" | "completed" | "interrupted" | "failed";
   durationMs: number | null;
   hiddenRows: TimelineActivityRow[];
   expanded: boolean;
@@ -157,6 +157,30 @@ export interface TimelineActivityGroupRow {
 }
 
 export type TimelineDisplayRow = TimelineRow | TimelineTurnFoldRow | TimelineActivityGroupRow;
+
+/** Adds a local user message until the matching durable projection arrives. */
+export function includeOptimisticTimelineMessage(
+  rows: readonly TimelineRow[],
+  optimisticMessage: TimelineMessageRow | null,
+): TimelineRow[] {
+  if (!optimisticMessage || rows.some((row) => row.id === optimisticMessage.id)) return [...rows];
+  return [...rows, optimisticMessage].sort(compareRows);
+}
+
+/** Finds the first model-owned display row in each turn for participant headers. */
+export function timelineModelGroupStartIds(
+  rows: readonly TimelineDisplayRow[],
+): Set<string> {
+  const seenTurns = new Set<ChatTurnId>();
+  const startIds = new Set<string>();
+  for (const row of rows) {
+    if (!row.turnId || (row.kind === "message" && row.role === "user")) continue;
+    if (seenTurns.has(row.turnId)) continue;
+    seenTurns.add(row.turnId);
+    startIds.add(row.id);
+  }
+  return startIds;
+}
 
 interface MutableStreamRow {
   row: TimelineMessageRow | TimelineActivityRow | TimelinePlanRow;
@@ -488,14 +512,10 @@ export function buildTimelineDisplayRows(
   expandedTurnIds: ReadonlySet<ChatTurnId> = new Set(),
   expandedGroupIds: ReadonlySet<string> = new Set(),
 ): TimelineDisplayRow[] {
-  const terminalTurns = new Map(
-    turns
-      .filter((turn): turn is TimelineTurn & { state: "completed" | "interrupted" | "failed" } => isTerminalTurn(turn.state))
-      .map((turn) => [turn.id, turn]),
-  );
+  const turnsById = new Map(turns.map((turn) => [turn.id, turn]));
   const activitiesByTurn = new Map<ChatTurnId, TimelineActivityRow[]>();
   for (const row of rows) {
-    if (row.kind !== "activity" || !row.turnId || !terminalTurns.has(row.turnId)) continue;
+    if (row.kind !== "activity" || !row.turnId || !turnsById.has(row.turnId)) continue;
     const activities = activitiesByTurn.get(row.turnId) ?? [];
     activities.push(row);
     activitiesByTurn.set(row.turnId, activities);
@@ -504,29 +524,33 @@ export function buildTimelineDisplayRows(
   const emittedFolds = new Set<ChatTurnId>();
   const folded: TimelineDisplayRow[] = [];
   for (const row of rows) {
-    if (row.kind !== "activity" || !row.turnId || !terminalTurns.has(row.turnId)) {
+    if (row.kind !== "activity" || !row.turnId || !turnsById.has(row.turnId)) {
       folded.push(row);
       continue;
     }
-    const turn = terminalTurns.get(row.turnId);
+    const turn = turnsById.get(row.turnId);
     if (!turn) continue;
     const expanded = expandedTurnIds.has(row.turnId);
     if (!emittedFolds.has(row.turnId)) {
       const hiddenRows = activitiesByTurn.get(row.turnId) ?? [];
+      const state: TimelineTurnFoldRow["state"] = turn.state === "completed"
+        || turn.state === "interrupted"
+        || turn.state === "failed"
+        ? turn.state
+        : "active";
       folded.push({
         id: `turn-fold:${row.turnId}`,
         kind: "turn_fold",
         turnId: row.turnId,
         sequence: hiddenRows[0]?.sequence ?? row.sequence,
         createdAt: hiddenRows[0]?.createdAt ?? row.createdAt,
-        state: turn.state,
+        state,
         durationMs: turn.durationMs,
         hiddenRows,
         expanded,
       });
       emittedFolds.add(row.turnId);
     }
-    if (expanded) folded.push(row);
   }
 
   return groupSettledActivities(folded, expandedGroupIds);

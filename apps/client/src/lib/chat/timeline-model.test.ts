@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { CanonicalEvent, CanonicalStoredEvent, ChatTimelineItemRead, ChatTimelineTurnRead } from "./contracts";
-import { buildTimelineDisplayRows, parseTimelineUserContext, projectCanonicalTimeline, projectTimelineReadModel } from "./timeline-model";
+import { buildTimelineDisplayRows, includeOptimisticTimelineMessage, parseTimelineUserContext, projectCanonicalTimeline, projectTimelineReadModel, timelineModelGroupStartIds } from "./timeline-model";
 
 const start = "2026-07-21T14:00:00.000Z";
 
@@ -137,10 +137,52 @@ describe("canonical timeline projection", () => {
     const expanded = buildTimelineDisplayRows(projection.rows, projection.turns, new Set(["turn-1"]));
     expect(expanded.map((row) => row.id)).toEqual([
       "turn-fold:turn-1",
-      "activity:command",
-      "activity:file",
       "message:answer",
     ]);
+    expect(expanded[0]).toMatchObject({ expanded: true, hiddenRows: [{ id: "activity:command" }, { id: "activity:file" }] });
+  });
+
+  it("keeps active model work in one expandable process row", () => {
+    const projection = projectCanonicalTimeline([
+      stored(1, { type: "turn_started", payload: { providerTurnId: "provider-turn-1", state: "active", modes: { safetyMode: "ask_for_approval", interactionMode: "build" }, modelId: "gpt-5", modelOptions: [] } }),
+      stored(2, { type: "item_completed", payload: { itemId: "prompt", kind: "user_message", status: "completed", title: null, detail: "Question", safeMetadata: null } }),
+      stored(3, { type: "item_started", payload: { itemId: "command", kind: "command_execution", status: "active", title: "Run tests", detail: null, safeMetadata: null } }),
+      stored(4, { type: "item_started", payload: { itemId: "file", kind: "file_change", status: "active", title: "Edit file", detail: null, safeMetadata: null } }),
+    ]);
+
+    expect(buildTimelineDisplayRows(projection.rows, projection.turns)).toMatchObject([
+      { kind: "message", role: "user" },
+      {
+        id: "turn-fold:turn-1",
+        state: "active",
+        expanded: false,
+        hiddenRows: [{ id: "activity:command" }, { id: "activity:file" }],
+      },
+    ]);
+  });
+
+  it("shows an optimistic user message only until its durable row arrives", () => {
+    const optimistic = {
+      id: "message-pending",
+      kind: "message" as const,
+      role: "user" as const,
+      turnId: "turn-pending",
+      sequence: 2,
+      createdAt: start,
+      markdown: "Visible immediately",
+      state: "pending" as const,
+      userContext: null,
+      metadata: null,
+    };
+    const existing = projectCanonicalTimeline([
+      stored(1, { type: "item_completed", payload: { itemId: "existing", kind: "user_message", status: "completed", title: null, detail: "Earlier", safeMetadata: null } }, { turnId: null }),
+    ]).rows;
+
+    expect(includeOptimisticTimelineMessage(existing, optimistic).map((row) => row.id)).toEqual([
+      "message:existing",
+      "message-pending",
+    ]);
+    expect(includeOptimisticTimelineMessage([...existing, optimistic], optimistic).filter((row) => row.id === optimistic.id)).toHaveLength(1);
   });
 
   it("groups consecutive settled activities with stable row IDs", () => {
@@ -198,6 +240,19 @@ describe("canonical timeline projection", () => {
     expect(projectTimelineReadModel(items, turns).rows).toMatchObject([
       { id: "message-1", markdown: "Persisted", state: "complete", metadata: { durationMs: 2_000, modelId: "gpt-5" } },
     ]);
+  });
+
+  it("starts one model participant group after the user message in each turn", () => {
+    const projection = projectCanonicalTimeline([
+      stored(1, { type: "turn_started", payload: { providerTurnId: "provider-turn-1", state: "active", modes: { safetyMode: "ask_for_approval", interactionMode: "build" }, modelId: "gpt-5", modelOptions: [] } }),
+      stored(2, { type: "item_completed", payload: { itemId: "prompt", kind: "user_message", status: "completed", title: null, detail: "Question", safeMetadata: null } }),
+      stored(3, { type: "item_completed", payload: { itemId: "command", kind: "command_execution", status: "completed", title: "Checked files", detail: null, safeMetadata: null } }),
+      stored(4, { type: "item_completed", payload: { itemId: "answer", kind: "assistant_message", status: "completed", title: null, detail: "Answer", safeMetadata: null } }),
+      stored(5, { type: "turn_completed", payload: { state: "completed", stopReason: "end_turn", usage: null, changedFiles: [] } }),
+    ]);
+    const displayRows = buildTimelineDisplayRows(projection.rows, projection.turns);
+
+    expect([...timelineModelGroupStartIds(displayRows)]).toEqual(["turn-fold:turn-1"]);
   });
 
   it("bounds and validates durable user context metadata", () => {

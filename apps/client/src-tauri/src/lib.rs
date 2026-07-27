@@ -24,6 +24,7 @@ mod notes;
 mod notification;
 mod pomodoro;
 mod pomodoro_enforcement;
+mod profile_images;
 mod project_icons;
 mod projects;
 mod quick_notes;
@@ -1242,6 +1243,9 @@ pub fn run() {
             quick_notes::quick_note_tags_list,
             quick_notes::quick_note_tags_create,
             quick_notes::quick_note_tags_delete,
+            profile_images::profile_image_pick_file,
+            profile_images::profile_image_asset_data_url,
+            profile_images::profile_image_delete_file,
             project_icons::project_icon_pick_image_file,
             project_icons::project_icon_save_image_data_url,
             project_icons::project_icon_download_image_url,
