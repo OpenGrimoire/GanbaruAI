@@ -1046,6 +1046,133 @@ fn redacted_fixture_normalizes_lifecycle_content_plan_and_unknown_events() {
 }
 
 #[test]
+fn item_lifecycles_preserve_command_message_and_file_change_data() {
+    let normalizer = CodexEventNormalizer::new(
+        identifier("codex-instance-1", ProviderInstanceId::new),
+        identifier("chat-thread-1", ChatThreadId::new),
+        identifier("session-1", ProviderSessionId::new),
+    );
+    let mut state = CodexRouteState::new(
+        modes(SafetyMode::AskForApproval, InteractionMode::Build),
+        Some(identifier("gpt-5.4", ModelId::new)),
+    );
+    state.active_chat_turn_id = Some(identifier("chat-turn-1", ChatTurnId::new));
+
+    normalizer
+        .normalize_notification(
+            &mut state,
+            "turn/started",
+            json!({
+                "threadId": "provider-thread-1",
+                "turn": { "id": "provider-turn-1", "status": "inProgress" }
+            }),
+        )
+        .unwrap();
+    let assistant_events = normalizer
+        .normalize_notification(
+            &mut state,
+            "item/completed",
+            json!({
+                "threadId": "provider-thread-1",
+                "turnId": "provider-turn-1",
+                "item": {
+                    "id": "answer-1",
+                    "type": "agentMessage",
+                    "text": "Finished",
+                    "phase": "final_answer"
+                }
+            }),
+        )
+        .unwrap();
+    let command_events = normalizer
+        .normalize_notification(
+            &mut state,
+            "item/completed",
+            json!({
+                "threadId": "provider-thread-1",
+                "turnId": "provider-turn-1",
+                "item": {
+                    "id": "command-1",
+                    "type": "commandExecution",
+                    "command": "printf 4",
+                    "cwd": "/workspace",
+                    "status": "completed",
+                    "aggregatedOutput": "4\n",
+                    "exitCode": 0,
+                    "durationMs": 24
+                }
+            }),
+        )
+        .unwrap();
+    let file_events = normalizer
+        .normalize_notification(
+            &mut state,
+            "item/completed",
+            json!({
+                "threadId": "provider-thread-1",
+                "turnId": "provider-turn-1",
+                "item": {
+                    "id": "file-1",
+                    "type": "fileChange",
+                    "status": "completed",
+                    "changes": [{
+                        "path": "src/main.rs",
+                        "kind": "update",
+                        "diff": "@@ -1 +1,2 @@\n-old\n+new\n+line"
+                    }]
+                }
+            }),
+        )
+        .unwrap();
+    let turn_events = normalizer
+        .normalize_notification(
+            &mut state,
+            "turn/completed",
+            json!({
+                "threadId": "provider-thread-1",
+                "turn": { "id": "provider-turn-1", "status": "completed" }
+            }),
+        )
+        .unwrap();
+
+    let CanonicalEvent::ItemCompleted(assistant) = &assistant_events[0].event else {
+        panic!("expected assistant lifecycle");
+    };
+    assert_eq!(assistant.detail.as_deref(), Some("Finished"));
+    assert_eq!(
+        assistant.safe_metadata.as_ref().unwrap().value["phase"],
+        "final_answer"
+    );
+    let CanonicalEvent::ItemCompleted(command) = &command_events[0].event else {
+        panic!("expected command lifecycle");
+    };
+    assert_eq!(command.title.as_deref(), Some("printf 4"));
+    assert_eq!(command.detail.as_deref(), Some("4\n"));
+    assert_eq!(
+        command.safe_metadata.as_ref().unwrap().value["cwd"],
+        "/workspace"
+    );
+    assert_eq!(command.safe_metadata.as_ref().unwrap().value["exitCode"], 0);
+    assert_eq!(
+        command.safe_metadata.as_ref().unwrap().value["durationMs"],
+        24
+    );
+    assert!(file_events.iter().any(|event| matches!(
+        &event.event,
+        CanonicalEvent::DiffUpdated(diff)
+            if diff.files.len() == 1
+                && diff.files[0].relative_path == "src/main.rs"
+                && diff.files[0].additions == Some(2)
+                && diff.files[0].deletions == Some(1)
+    )));
+    let CanonicalEvent::TurnCompleted(completed) = &turn_events[0].event else {
+        panic!("expected turn completion");
+    };
+    assert_eq!(completed.changed_files.len(), 1);
+    assert_eq!(completed.changed_files[0].relative_path, "src/main.rs");
+}
+
+#[test]
 fn permission_approvals_return_only_requested_subset_and_scope() {
     tauri::async_runtime::block_on(async {
         let (client_reader, _server_writer) = tokio::io::duplex(4096);

@@ -28,6 +28,7 @@ import type {
 } from "./contracts";
 
 export type TimelineMessageState = "pending" | "streaming" | "complete" | "interrupted" | "failed";
+export type TimelineMessagePhase = "commentary" | "final_answer";
 
 export interface TimelineAssistantMetadata {
   durationMs: number | null;
@@ -66,6 +67,7 @@ export interface TimelineMessageRow {
   createdAt: UtcTimestamp;
   markdown: string;
   state: TimelineMessageState;
+  phase: TimelineMessagePhase | null;
   userContext: TimelineUserContext | null;
   metadata: TimelineAssistantMetadata | null;
 }
@@ -139,9 +141,9 @@ export interface TimelineTurnFoldRow {
   turnId: ChatTurnId;
   sequence: number;
   createdAt: UtcTimestamp;
-  state: "active" | "completed" | "interrupted" | "failed";
+  state: "completed" | "interrupted" | "failed";
   durationMs: number | null;
-  hiddenRows: TimelineActivityRow[];
+  hiddenRows: (TimelineActivityRow | TimelineMessageRow)[];
   expanded: boolean;
 }
 
@@ -157,6 +159,25 @@ export interface TimelineActivityGroupRow {
 }
 
 export type TimelineDisplayRow = TimelineRow | TimelineTurnFoldRow | TimelineActivityGroupRow;
+
+/** Returns whether an activity owns an inspectable detail disclosure in the conversation UI. */
+export function timelineActivitySupportsDisclosure(activity: TimelineActivityRow): boolean {
+  if (activity.id.startsWith("turn-pending:")
+    || activity.activityKind === "reasoning"
+    || activity.activityKind === "reasoning_text"
+    || activity.activityKind === "reasoning_summary"
+    || activity.title === "thread_reverted") return false;
+  if (activity.activityKind === "command_execution"
+    || activity.activityKind === "command_output"
+    || activity.activityKind === "file_change"
+    || activity.activityKind === "file_change_output") return true;
+  if (activity.detail?.trim()) return true;
+  const metadata = activity.metadata?.value;
+  return typeof metadata === "object"
+    && metadata !== null
+    && !Array.isArray(metadata)
+    && Object.keys(metadata).length > 0;
+}
 
 /** Adds a local user message until the matching durable projection arrives. */
 export function includeOptimisticTimelineMessage(
@@ -449,6 +470,7 @@ export function projectTimelineReadModel(
         createdAt,
         markdown,
         state,
+        phase: parseMessagePhase(data.metadata),
         userContext: role === "user" ? parseTimelineUserContext(data.metadata) : null,
         metadata: null,
       });
@@ -462,6 +484,26 @@ export function projectTimelineReadModel(
       const knownKind = isKnownValue(CANONICAL_ITEM_KINDS, activityKind) || isKnownValue(CONTENT_STREAM_KINDS, activityKind)
         ? activityKind
         : "unknown";
+      if (knownKind === "user_message") continue;
+      if (knownKind === "assistant_message") {
+        const current = rows.get(item.activityId);
+        rows.set(item.activityId, {
+          id: item.activityId,
+          kind: "message",
+          role: "assistant",
+          turnId: item.turnId,
+          sequence: current?.sequence ?? item.sequenceAnchor,
+          createdAt: current?.createdAt ?? createdAt,
+          markdown: current?.kind === "message" && current.markdown
+            ? current.markdown
+            : jsonNullableString(data.detail) ?? "",
+          state: messageState(status),
+          phase: parseMessagePhase(data.metadata),
+          userContext: null,
+          metadata: current?.kind === "message" ? current.metadata : null,
+        });
+        continue;
+      }
       rows.set(item.activityId, {
         id: item.activityId,
         kind: "activity",
@@ -513,47 +555,106 @@ export function buildTimelineDisplayRows(
   expandedGroupIds: ReadonlySet<string> = new Set(),
 ): TimelineDisplayRow[] {
   const turnsById = new Map(turns.map((turn) => [turn.id, turn]));
-  const activitiesByTurn = new Map<ChatTurnId, TimelineActivityRow[]>();
+  const processRowsByTurn = new Map<ChatTurnId, (TimelineActivityRow | TimelineMessageRow)[]>();
+  const processRowIds = new Set<string>();
+  const liveVisibleRowIds = new Set<string>();
   for (const row of rows) {
-    if (row.kind !== "activity" || !row.turnId || !turnsById.has(row.turnId)) continue;
-    const activities = activitiesByTurn.get(row.turnId) ?? [];
-    activities.push(row);
-    activitiesByTurn.set(row.turnId, activities);
+    if (!row.turnId || !turnsById.has(row.turnId)) continue;
+    if (row.kind !== "activity" && !(row.kind === "message" && row.role === "assistant")) continue;
+    const processRows = processRowsByTurn.get(row.turnId) ?? [];
+    processRows.push(row);
+    processRowsByTurn.set(row.turnId, processRows);
+    processRowIds.add(row.id);
+  }
+
+  for (const [turnId, processRows] of processRowsByTurn) {
+    const turn = turnsById.get(turnId);
+    if (!turn || isTerminalTurn(turn.state)) continue;
+    for (const processRow of processRows) {
+      if (processRow.kind === "message") {
+        if (processRow.markdown.trim()) liveVisibleRowIds.add(processRow.id);
+      } else if (!isTransientThinkingActivity(processRow)) {
+        liveVisibleRowIds.add(processRow.id);
+      }
+    }
+    const currentPlaceholder = [...processRows]
+      .reverse()
+      .find((processRow) => (
+        processRow.kind === "message"
+          ? processRow.markdown.trim().length > 0
+          : true
+      ));
+    if (currentPlaceholder?.kind === "activity" && isTransientThinkingActivity(currentPlaceholder)) {
+      liveVisibleRowIds.add(currentPlaceholder.id);
+    }
   }
 
   const emittedFolds = new Set<ChatTurnId>();
-  const folded: TimelineDisplayRow[] = [];
+  const displayRows: TimelineDisplayRow[] = [];
   for (const row of rows) {
-    if (row.kind !== "activity" || !row.turnId || !turnsById.has(row.turnId)) {
-      folded.push(row);
+    const processRows = row.turnId ? processRowsByTurn.get(row.turnId) : undefined;
+    if (!row.turnId || !processRows || !processRowIds.has(row.id)) {
+      displayRows.push(row);
       continue;
     }
     const turn = turnsById.get(row.turnId);
     if (!turn) continue;
-    const expanded = expandedTurnIds.has(row.turnId);
+
+    if (!isTerminalTurn(turn.state)) {
+      if (liveVisibleRowIds.has(row.id)) displayRows.push(row);
+      continue;
+    }
+
+    const phasedFinalAssistant = [...processRows]
+      .reverse()
+      .find((processRow): processRow is TimelineMessageRow => (
+        processRow.kind === "message"
+        && processRow.phase === "final_answer"
+        && processRow.markdown.trim().length > 0
+      ));
+    const hasMessagePhases = processRows.some(
+      (processRow) => processRow.kind === "message" && processRow.phase !== null,
+    );
+    const finalCandidate = hasMessagePhases
+      ? phasedFinalAssistant
+      : [...processRows]
+          .reverse()
+          .find((processRow) => (
+            processRow.kind === "message"
+              ? processRow.markdown.trim().length > 0
+              : !isTransientThinkingActivity(processRow)
+          ));
+    const finalAssistant = finalCandidate?.kind === "message" ? finalCandidate : undefined;
+    const hiddenRows = processRows.filter((processRow) => (
+      processRow.id !== finalAssistant?.id
+      && !(processRow.kind === "message" && processRow.markdown.trim().length === 0)
+      && !(processRow.kind === "activity" && isTransientThinkingActivity(processRow))
+    ));
     if (!emittedFolds.has(row.turnId)) {
-      const hiddenRows = activitiesByTurn.get(row.turnId) ?? [];
-      const state: TimelineTurnFoldRow["state"] = turn.state === "completed"
-        || turn.state === "interrupted"
-        || turn.state === "failed"
-        ? turn.state
-        : "active";
-      folded.push({
+      displayRows.push({
         id: `turn-fold:${row.turnId}`,
         kind: "turn_fold",
         turnId: row.turnId,
-        sequence: hiddenRows[0]?.sequence ?? row.sequence,
-        createdAt: hiddenRows[0]?.createdAt ?? row.createdAt,
-        state,
+        sequence: processRows[0]?.sequence ?? row.sequence,
+        createdAt: processRows[0]?.createdAt ?? row.createdAt,
+        state: turn.state,
         durationMs: turn.durationMs,
         hiddenRows,
-        expanded,
+        expanded: hiddenRows.length > 0 && expandedTurnIds.has(row.turnId),
       });
       emittedFolds.add(row.turnId);
     }
+    if (row.id === finalAssistant?.id) displayRows.push(finalAssistant);
   }
 
-  return groupSettledActivities(folded, expandedGroupIds);
+  return groupSettledActivities(displayRows, expandedGroupIds);
+}
+
+function isTransientThinkingActivity(row: TimelineActivityRow): boolean {
+  return row.id.startsWith("turn-pending:")
+    || row.activityKind === "reasoning"
+    || row.activityKind === "reasoning_text"
+    || row.activityKind === "reasoning_summary";
 }
 
 function ensureTurn(turns: Map<ChatTurnId, TimelineTurn>, event: CanonicalStoredEvent): TimelineTurn | null {
@@ -590,7 +691,7 @@ function appendContentDelta(
   let stream = streams.get(id);
   if (!stream) {
     const row: TimelineMessageRow | TimelineActivityRow = assistant
-      ? { id, kind: "message", role: "assistant", turnId: event.turnId, sequence: event.sequence, createdAt: event.createdAt, markdown: "", state: "streaming", userContext: null, metadata: null }
+      ? { id, kind: "message", role: "assistant", turnId: event.turnId, sequence: event.sequence, createdAt: event.createdAt, markdown: "", state: "streaming", phase: null, userContext: null, metadata: null }
       : { id, kind: "activity", turnId: event.turnId, sequence: event.sequence, createdAt: event.createdAt, activityKind: payload.streamKind, status: "active", title: activityTitle(payload.streamKind), detail: null, metadata: null };
     stream = { row, parts: new Map() };
     streams.set(id, stream);
@@ -627,22 +728,21 @@ function upsertLifecycleItem(
   event: CanonicalStoredEvent,
   payload: ItemLifecycleEvent,
 ): void {
-  if (payload.kind === "assistant_message" || payload.kind === "user_message") {
+  if (payload.kind === "user_message") return;
+  if (payload.kind === "assistant_message") {
     const id = `message:${payload.itemId}`;
     const current = rows.get(id);
-    const role = payload.kind === "user_message" ? "user" : "assistant";
     rows.set(id, {
       id,
       kind: "message",
-      role,
+      role: "assistant",
       turnId: event.turnId,
       sequence: current?.sequence ?? event.sequence,
       createdAt: current?.createdAt ?? event.createdAt,
       markdown: current?.kind === "message" && current.markdown ? current.markdown : payload.detail ?? "",
       state: messageState(payload.status),
-      userContext: role === "user"
-        ? parseTimelineUserContext(payload.safeMetadata?.value)
-        : null,
+      phase: parseMessagePhase(payload.safeMetadata?.value),
+      userContext: null,
       metadata: current?.kind === "message" ? current.metadata : null,
     });
     return;
@@ -670,7 +770,9 @@ function upsertActivity(
     activityKind,
     status,
     title,
-    detail,
+    detail: detail && detail.length > 0
+      ? detail
+      : current?.kind === "activity" ? current.detail : null,
     metadata,
   });
 }
@@ -679,7 +781,9 @@ function attachTerminalAssistantMetadata(rows: Map<string, TimelineRow>, turns: 
   for (const turn of turns.values()) {
     if (!isTerminalTurn(turn.state)) continue;
     const assistantRows = [...rows.values()].filter((row): row is TimelineMessageRow => row.kind === "message" && row.role === "assistant" && row.turnId === turn.id);
-    const assistant = assistantRows.sort((left, right) => right.sequence - left.sequence)[0];
+    assistantRows.sort((left, right) => right.sequence - left.sequence);
+    const assistant = assistantRows.find((row) => row.phase === "final_answer")
+      ?? assistantRows[0];
     if (!assistant) continue;
     assistant.state = turn.state === "completed" ? "complete" : turn.state === "interrupted" ? "interrupted" : "failed";
     assistant.metadata = {
@@ -696,8 +800,8 @@ function attachPendingTurnRows(rows: Map<string, TimelineRow>, turns: Map<ChatTu
   for (const turn of turns.values()) {
     if (turn.state !== "pending" && turn.state !== "dispatching" && turn.state !== "active") continue;
     const turnRows = [...rows.values()].filter((row) => row.turnId === turn.id);
-    if (!turnRows.some((row) => row.kind === "message" && row.role === "user")) continue;
-    const hasProviderOutput = turnRows.some((row) => row.kind !== "message" || row.role === "assistant");
+    const hasProviderOutput = turnRows.some((row) => row.kind !== "message"
+      || (row.role === "assistant" && row.markdown.trim().length > 0));
     if (hasProviderOutput) continue;
     const latest = turnRows.sort((left, right) => right.sequence - left.sequence)[0];
     rows.set(`turn-pending:${turn.id}`, {
@@ -733,7 +837,7 @@ function messageState(status: ActivityStatus): TimelineMessageState {
   return "streaming";
 }
 
-function isTerminalTurn(state: ChatTurnState): boolean {
+function isTerminalTurn(state: ChatTurnState): state is TimelineTurnFoldRow["state"] {
   return state === "completed" || state === "interrupted" || state === "failed";
 }
 
@@ -753,6 +857,13 @@ function jsonRecord(value: VersionedJson["value"] | undefined): Record<string, V
 
 function jsonString(value: VersionedJson["value"] | undefined): string | null {
   return typeof value === "string" ? value : null;
+}
+
+function parseMessagePhase(value: VersionedJson["value"] | undefined): TimelineMessagePhase | null {
+  const record = jsonRecord(value);
+  return record?.phase === "commentary" || record?.phase === "final_answer"
+    ? record.phase
+    : null;
 }
 
 function jsonNullableString(value: VersionedJson["value"] | undefined): string | null {

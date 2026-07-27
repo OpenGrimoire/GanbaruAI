@@ -27,7 +27,7 @@
 </script>
 
 <script lang="ts">
-  import { onDestroy, tick } from "svelte";
+  import { onDestroy, onMount, tick } from "svelte";
   import FileDiff from "@lucide/svelte/icons/file-diff";
   import Files from "@lucide/svelte/icons/files";
   import ListTodo from "@lucide/svelte/icons/list-todo";
@@ -179,6 +179,31 @@
     }
     return tabs;
   });
+
+  onMount(() => {
+    if (placement !== "inspector") return;
+    const openChanges = (event: Event) => {
+      if (!(event instanceof CustomEvent) || !isOpenChangesDetail(event.detail)) return;
+      openPanel("changes");
+      update({
+        changeScope: "current_turn",
+        changeTurnId: event.detail.turnId,
+        selectedFile: event.detail.relativePath,
+      });
+    };
+    window.addEventListener("ganbaru-ai:chat-open-changes", openChanges);
+    return () => window.removeEventListener("ganbaru-ai:chat-open-changes", openChanges);
+  });
+
+  function isOpenChangesDetail(value: unknown): value is {
+    turnId: string;
+    relativePath: string | null;
+  } {
+    if (typeof value !== "object" || value === null || Array.isArray(value)) return false;
+    const detail = value as Record<string, unknown>;
+    return typeof detail.turnId === "string"
+      && (detail.relativePath === null || typeof detail.relativePath === "string");
+  }
 
   function initialPanelTab(): "files" | "terminal" {
     return placement === "bottom" ? "terminal" : "files";
@@ -981,12 +1006,13 @@
     {:else if panelState.tab === "changes"}
       <ChatChangesPanel
         scope={panelState.changeScope}
+        turnId={panelState.changeTurnId}
         selectedFile={panelState.selectedFile}
         fileListHeightPx={panelState.changedFileListHeightPx}
         whitespaceIgnored={panelState.whitespaceIgnored}
         diffView={panelState.diffView}
         onStateChange={(change) => update({
-          ...(change.scope === undefined ? {} : { changeScope: change.scope }),
+          ...(change.scope === undefined ? {} : { changeScope: change.scope, changeTurnId: null }),
           ...(change.selectedFile === undefined ? {} : { selectedFile: change.selectedFile }),
           ...(change.fileListHeightPx === undefined ? {} : { changedFileListHeightPx: change.fileListHeightPx }),
           ...(change.whitespaceIgnored === undefined ? {} : { whitespaceIgnored: change.whitespaceIgnored }),

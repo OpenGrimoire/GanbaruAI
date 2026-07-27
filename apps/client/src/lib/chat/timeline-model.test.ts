@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { CanonicalEvent, CanonicalStoredEvent, ChatTimelineItemRead, ChatTimelineTurnRead } from "./contracts";
-import { buildTimelineDisplayRows, includeOptimisticTimelineMessage, parseTimelineUserContext, projectCanonicalTimeline, projectTimelineReadModel, timelineModelGroupStartIds } from "./timeline-model";
+import { buildTimelineDisplayRows, includeOptimisticTimelineMessage, parseTimelineUserContext, projectCanonicalTimeline, projectTimelineReadModel, timelineActivitySupportsDisclosure, timelineModelGroupStartIds } from "./timeline-model";
 
 const start = "2026-07-21T14:00:00.000Z";
 
@@ -26,6 +26,18 @@ function stored(sequence: number, event: CanonicalEvent, options: { eventId?: st
 }
 
 describe("canonical timeline projection", () => {
+  it("keeps real actions inspectable even before the provider reports detail", () => {
+    const command = projectCanonicalTimeline([
+      stored(1, { type: "item_started", payload: { itemId: "command", kind: "command_execution", status: "active", title: "pnpm test", detail: null, safeMetadata: null } }),
+    ]).rows[0];
+    const thinking = projectCanonicalTimeline([
+      stored(1, { type: "item_started", payload: { itemId: "thinking", kind: "reasoning", status: "active", title: "Reasoning", detail: null, safeMetadata: null } }),
+    ]).rows[0];
+
+    expect(command?.kind === "activity" && timelineActivitySupportsDisclosure(command)).toBe(true);
+    expect(thinking?.kind === "activity" && timelineActivitySupportsDisclosure(thinking)).toBe(false);
+  });
+
   it("projects durable checkpoint restores as thread-level notices", () => {
     const projection = projectCanonicalTimeline([
       stored(1, {
@@ -90,7 +102,7 @@ describe("canonical timeline projection", () => {
     const events = [
       stored(1, { type: "item_started", payload: { itemId: "command", kind: "command_execution", status: "active", title: "Run tests", detail: null, safeMetadata: null } }),
       stored(2, { type: "content_delta", payload: { itemId: "command", streamKind: "command_output", contentIndex: 0, delta: "Passed" } }),
-      stored(3, { type: "item_completed", payload: { itemId: "command", kind: "command_execution", status: "completed", title: "Run tests", detail: "Passed", safeMetadata: null } }),
+      stored(3, { type: "item_completed", payload: { itemId: "command", kind: "command_execution", status: "completed", title: "Run tests", detail: null, safeMetadata: null } }),
       stored(4, { type: "plan_updated", payload: { markdown: "Plan", steps: [{ id: "one", text: "Test", status: "completed" }] } }),
       stored(5, { type: "request_opened", payload: { requestId: "request-1", kind: "command_execution", title: "Run command?", detail: null, allowedDecisions: [], safePayload: { schemaVersion: 1, value: {} } } }),
       stored(6, { type: "request_resolved", payload: { requestId: "request-1", state: "resolved", decision: null } }),
@@ -104,13 +116,19 @@ describe("canonical timeline projection", () => {
     expect(projection.pendingRequests).toMatchObject([{ id: "request-1", state: "resolved" }]);
   });
 
-  it("shows pending work only until meaningful provider output arrives", () => {
+  it("ignores provider user-message echoes and shows pending work until meaningful output arrives", () => {
     const started = stored(1, { type: "turn_started", payload: { providerTurnId: "provider-turn-1", state: "active", modes: { safetyMode: "ask_for_approval", interactionMode: "build" }, modelId: "gpt-5", modelOptions: [] } });
     const user = stored(2, { type: "item_completed", payload: { itemId: "user", kind: "user_message", status: "completed", title: null, detail: "Please continue", safeMetadata: null } });
-    expect(projectCanonicalTimeline([started, user]).rows).toMatchObject([
-      { id: "message:user", role: "user" },
+    const pending = projectCanonicalTimeline([started, user]);
+    expect(pending.rows).toMatchObject([
       { id: "turn-pending:turn-1", status: "active" },
     ]);
+    expect(pending.rows.some((row) => row.id === "message:user")).toBe(false);
+    expect(projectCanonicalTimeline([
+      started,
+      user,
+      stored(3, { type: "item_started", payload: { itemId: "answer", kind: "assistant_message", status: "active", title: null, detail: null, safeMetadata: null } }),
+    ]).rows.some((row) => row.id === "turn-pending:turn-1")).toBe(true);
     expect(projectCanonicalTimeline([
       started,
       user,
@@ -121,16 +139,19 @@ describe("canonical timeline projection", () => {
   it("folds settled work while leaving the final assistant answer visible", () => {
     const events = [
       stored(1, { type: "turn_started", payload: { providerTurnId: "provider-turn-1", state: "active", modes: { safetyMode: "ask_for_approval", interactionMode: "build" }, modelId: "gpt-5", modelOptions: [] } }),
-      stored(2, { type: "item_completed", payload: { itemId: "command", kind: "command_execution", status: "completed", title: "Run tests", detail: "Passed", safeMetadata: null } }),
-      stored(3, { type: "item_completed", payload: { itemId: "file", kind: "file_change", status: "completed", title: "Edit file", detail: "Changed", safeMetadata: null } }),
-      stored(4, { type: "content_delta", payload: { itemId: "answer", streamKind: "assistant_text", contentIndex: 0, delta: "Finished" } }),
-      stored(5, { type: "turn_aborted", payload: { state: "interrupted", reason: "User stopped", recoverable: true } }, { createdAt: "2026-07-21T14:00:05.000Z" }),
+      stored(2, { type: "item_completed", payload: { itemId: "thinking-one", kind: "reasoning", status: "completed", title: "Reasoning", detail: null, safeMetadata: null } }),
+      stored(3, { type: "item_completed", payload: { itemId: "command", kind: "command_execution", status: "completed", title: "Run tests", detail: "Passed", safeMetadata: null } }),
+      stored(4, { type: "item_completed", payload: { itemId: "thinking-two", kind: "reasoning", status: "completed", title: "Reasoning", detail: null, safeMetadata: null } }),
+      stored(5, { type: "item_completed", payload: { itemId: "commentary", kind: "assistant_message", status: "completed", title: null, detail: "I checked the tests.", safeMetadata: null } }),
+      stored(6, { type: "item_completed", payload: { itemId: "file", kind: "file_change", status: "completed", title: "Edit file", detail: "Changed", safeMetadata: null } }),
+      stored(7, { type: "content_delta", payload: { itemId: "answer", streamKind: "assistant_text", contentIndex: 0, delta: "Finished" } }),
+      stored(8, { type: "turn_aborted", payload: { state: "interrupted", reason: "User stopped", recoverable: true } }, { createdAt: "2026-07-21T14:00:05.000Z" }),
     ];
     const projection = projectCanonicalTimeline(events);
 
     const folded = buildTimelineDisplayRows(projection.rows, projection.turns);
     expect(folded).toMatchObject([
-      { id: "turn-fold:turn-1", state: "interrupted", durationMs: 5_000, hiddenRows: [{ id: "activity:command" }, { id: "activity:file" }] },
+      { id: "turn-fold:turn-1", state: "interrupted", durationMs: 5_000, hiddenRows: [{ id: "activity:command" }, { id: "message:commentary", kind: "message" }, { id: "activity:file" }] },
       { id: "message:answer", state: "interrupted", markdown: "Finished" },
     ]);
 
@@ -139,24 +160,92 @@ describe("canonical timeline projection", () => {
       "turn-fold:turn-1",
       "message:answer",
     ]);
-    expect(expanded[0]).toMatchObject({ expanded: true, hiddenRows: [{ id: "activity:command" }, { id: "activity:file" }] });
+    expect(expanded[0]).toMatchObject({ expanded: true, hiddenRows: [{ id: "activity:command" }, { id: "message:commentary", markdown: "I checked the tests." }, { id: "activity:file" }] });
   });
 
-  it("keeps active model work in one expandable process row", () => {
+  it("uses the provider final-answer phase instead of chronological position", () => {
     const projection = projectCanonicalTimeline([
       stored(1, { type: "turn_started", payload: { providerTurnId: "provider-turn-1", state: "active", modes: { safetyMode: "ask_for_approval", interactionMode: "build" }, modelId: "gpt-5", modelOptions: [] } }),
-      stored(2, { type: "item_completed", payload: { itemId: "prompt", kind: "user_message", status: "completed", title: null, detail: "Question", safeMetadata: null } }),
-      stored(3, { type: "item_started", payload: { itemId: "command", kind: "command_execution", status: "active", title: "Run tests", detail: null, safeMetadata: null } }),
-      stored(4, { type: "item_started", payload: { itemId: "file", kind: "file_change", status: "active", title: "Edit file", detail: null, safeMetadata: null } }),
+      stored(2, { type: "item_completed", payload: { itemId: "commentary-one", kind: "assistant_message", status: "completed", title: null, detail: "Checking the result.", safeMetadata: { schemaVersion: 1, value: { phase: "commentary" } } } }),
+      stored(3, { type: "item_completed", payload: { itemId: "answer", kind: "assistant_message", status: "completed", title: null, detail: "The final answer.", safeMetadata: { schemaVersion: 1, value: { phase: "final_answer" } } } }),
+      stored(4, { type: "item_completed", payload: { itemId: "commentary-two", kind: "assistant_message", status: "completed", title: null, detail: "Late provider commentary.", safeMetadata: { schemaVersion: 1, value: { phase: "commentary" } } } }),
+      stored(5, { type: "item_completed", payload: { itemId: "command", kind: "command_execution", status: "completed", title: "pnpm test", detail: "Passed", safeMetadata: null } }),
+      stored(6, { type: "turn_completed", payload: { state: "completed", stopReason: "end_turn", usage: null, changedFiles: [] } }, { createdAt: "2026-07-21T14:00:05.000Z" }),
     ]);
 
     expect(buildTimelineDisplayRows(projection.rows, projection.turns)).toMatchObject([
-      { kind: "message", role: "user" },
       {
         id: "turn-fold:turn-1",
-        state: "active",
-        expanded: false,
-        hiddenRows: [{ id: "activity:command" }, { id: "activity:file" }],
+        hiddenRows: [
+          { id: "message:commentary-one" },
+          { id: "message:commentary-two" },
+          { id: "activity:command" },
+        ],
+      },
+      { id: "message:answer", markdown: "The final answer.", metadata: { durationMs: 5_000 } },
+    ]);
+  });
+
+  it("accumulates real live work and creates the work disclosure after settlement", () => {
+    const events = [
+      stored(1, { type: "turn_started", payload: { providerTurnId: "provider-turn-1", state: "active", modes: { safetyMode: "ask_for_approval", interactionMode: "build" }, modelId: "gpt-5", modelOptions: [] } }),
+      stored(2, { type: "item_started", payload: { itemId: "thinking-one", kind: "reasoning", status: "active", title: "Reasoning", detail: null, safeMetadata: null } }),
+      stored(3, { type: "item_completed", payload: { itemId: "commentary", kind: "assistant_message", status: "completed", title: null, detail: "I am checking this.", safeMetadata: null } }),
+      stored(4, { type: "item_started", payload: { itemId: "thinking-two", kind: "reasoning", status: "active", title: "Reasoning", detail: null, safeMetadata: null } }),
+      stored(5, { type: "item_started", payload: { itemId: "command", kind: "command_execution", status: "active", title: "pnpm test", detail: null, safeMetadata: null } }),
+    ];
+
+    expect(buildTimelineDisplayRows(projectCanonicalTimeline(events.slice(0, 2)).rows, projectCanonicalTimeline(events.slice(0, 2)).turns)).toMatchObject([
+      { id: "activity:thinking-one", kind: "activity" },
+    ]);
+    expect(buildTimelineDisplayRows(projectCanonicalTimeline(events.slice(0, 3)).rows, projectCanonicalTimeline(events.slice(0, 3)).turns)).toMatchObject([
+      { id: "message:commentary", kind: "message", markdown: "I am checking this." },
+    ]);
+    expect(buildTimelineDisplayRows(projectCanonicalTimeline(events.slice(0, 4)).rows, projectCanonicalTimeline(events.slice(0, 4)).turns)).toMatchObject([
+      { id: "message:commentary", kind: "message" },
+      { id: "activity:thinking-two", kind: "activity" },
+    ]);
+    expect(buildTimelineDisplayRows(projectCanonicalTimeline(events).rows, projectCanonicalTimeline(events).turns)).toMatchObject([
+      { id: "message:commentary", kind: "message" },
+      { id: "activity:command", kind: "activity", status: "active" },
+    ]);
+    expect(buildTimelineDisplayRows(projectCanonicalTimeline(events).rows, projectCanonicalTimeline(events).turns).some((row) => row.kind === "turn_fold")).toBe(false);
+
+    const settled = projectCanonicalTimeline([
+      ...events,
+      stored(6, { type: "item_completed", payload: { itemId: "command", kind: "command_execution", status: "completed", title: "pnpm test", detail: "Passed", safeMetadata: null } }),
+      stored(7, { type: "item_completed", payload: { itemId: "thinking-three", kind: "reasoning", status: "completed", title: "Reasoning", detail: null, safeMetadata: null } }),
+      stored(8, { type: "item_completed", payload: { itemId: "answer", kind: "assistant_message", status: "completed", title: null, detail: "All checks passed.", safeMetadata: null } }),
+      stored(9, { type: "turn_completed", payload: { state: "completed", stopReason: "end_turn", usage: null, changedFiles: [] } }),
+    ]);
+    expect(buildTimelineDisplayRows(settled.rows, settled.turns)).toMatchObject([
+      {
+        id: "turn-fold:turn-1",
+        state: "completed",
+        hiddenRows: [
+          { id: "message:commentary" },
+          { id: "activity:command" },
+        ],
+      },
+      { id: "message:answer", markdown: "All checks passed." },
+    ]);
+  });
+
+  it("does not promote earlier commentary to a final answer when work ends with an action", () => {
+    const projection = projectCanonicalTimeline([
+      stored(1, { type: "turn_started", payload: { providerTurnId: "provider-turn-1", state: "active", modes: { safetyMode: "ask_for_approval", interactionMode: "build" }, modelId: "gpt-5", modelOptions: [] } }),
+      stored(2, { type: "item_completed", payload: { itemId: "commentary", kind: "assistant_message", status: "completed", title: null, detail: "I will check this.", safeMetadata: null } }),
+      stored(3, { type: "item_completed", payload: { itemId: "command", kind: "command_execution", status: "completed", title: "pnpm test", detail: "Passed", safeMetadata: null } }),
+      stored(4, { type: "turn_completed", payload: { state: "completed", stopReason: "end_turn", usage: null, changedFiles: [] } }),
+    ]);
+
+    expect(buildTimelineDisplayRows(projection.rows, projection.turns)).toMatchObject([
+      {
+        id: "turn-fold:turn-1",
+        hiddenRows: [
+          { id: "message:commentary" },
+          { id: "activity:command" },
+        ],
       },
     ]);
   });
@@ -171,15 +260,14 @@ describe("canonical timeline projection", () => {
       createdAt: start,
       markdown: "Visible immediately",
       state: "pending" as const,
+      phase: null,
       userContext: null,
       metadata: null,
     };
-    const existing = projectCanonicalTimeline([
-      stored(1, { type: "item_completed", payload: { itemId: "existing", kind: "user_message", status: "completed", title: null, detail: "Earlier", safeMetadata: null } }, { turnId: null }),
-    ]).rows;
+    const existing = [{ ...optimistic, id: "message-existing", markdown: "Earlier", state: "complete" as const }];
 
     expect(includeOptimisticTimelineMessage(existing, optimistic).map((row) => row.id)).toEqual([
-      "message:existing",
+      "message-existing",
       "message-pending",
     ]);
     expect(includeOptimisticTimelineMessage([...existing, optimistic], optimistic).filter((row) => row.id === optimistic.id)).toHaveLength(1);
@@ -217,13 +305,29 @@ describe("canonical timeline projection", () => {
   });
 
   it("hydrates the same display model from validated paged SQLite projections", () => {
-    const items: ChatTimelineItemRead[] = [{
-      activityId: "message-1",
-      turnId: "turn-1",
-      sequenceAnchor: 2,
-      kind: "message",
-      data: { schemaVersion: 1, value: { role: "assistant", markdown: "Persisted", streamingState: "complete", providerItemId: "provider-item", metadata: {}, createdAt: start, updatedAt: start } },
-    }];
+    const items: ChatTimelineItemRead[] = [
+      {
+        activityId: "provider-user-echo",
+        turnId: "turn-1",
+        sequenceAnchor: 1,
+        kind: "activity",
+        data: { schemaVersion: 1, value: { activityKind: "user_message", status: "completed", title: "User message", detail: null, providerItemId: "provider-user", metadata: {}, createdAt: start, updatedAt: start } },
+      },
+      {
+        activityId: "message-1",
+        turnId: "turn-1",
+        sequenceAnchor: 2,
+        kind: "message",
+        data: { schemaVersion: 1, value: { role: "assistant", markdown: "Persisted", streamingState: "complete", providerItemId: "provider-item", metadata: {}, createdAt: start, updatedAt: start } },
+      },
+      {
+        activityId: "message-1",
+        turnId: "turn-1",
+        sequenceAnchor: 3,
+        kind: "activity",
+        data: { schemaVersion: 1, value: { activityKind: "assistant_message", status: "completed", title: "Assistant response", detail: "Lifecycle copy", providerItemId: "provider-item", metadata: {}, createdAt: start, updatedAt: start } },
+      },
+    ];
     const turns: ChatTimelineTurnRead[] = [{
       turnId: "turn-1",
       state: "completed",
@@ -239,6 +343,56 @@ describe("canonical timeline projection", () => {
 
     expect(projectTimelineReadModel(items, turns).rows).toMatchObject([
       { id: "message-1", markdown: "Persisted", state: "complete", metadata: { durationMs: 2_000, modelId: "gpt-5" } },
+    ]);
+  });
+
+  it("renders persisted assistant lifecycle commentary as Markdown inside expanded work", () => {
+    const items: ChatTimelineItemRead[] = [
+      {
+        activityId: "commentary",
+        turnId: "turn-1",
+        sequenceAnchor: 2,
+        kind: "activity",
+        data: { schemaVersion: 1, value: { activityKind: "assistant_message", status: "completed", title: "Assistant response", detail: "A normal **paragraph**.", providerItemId: "commentary", metadata: {}, createdAt: start, updatedAt: start } },
+      },
+      {
+        activityId: "command",
+        turnId: "turn-1",
+        sequenceAnchor: 3,
+        kind: "activity",
+        data: { schemaVersion: 1, value: { activityKind: "command_execution", status: "completed", title: "Run tests", detail: "Passed", providerItemId: "command", metadata: {}, createdAt: start, updatedAt: start } },
+      },
+      {
+        activityId: "answer",
+        turnId: "turn-1",
+        sequenceAnchor: 4,
+        kind: "message",
+        data: { schemaVersion: 1, value: { role: "assistant", markdown: "Final answer", streamingState: "complete", providerItemId: "answer", metadata: {}, createdAt: start, updatedAt: start } },
+      },
+    ];
+    const turns: ChatTimelineTurnRead[] = [{
+      turnId: "turn-1",
+      state: "completed",
+      startedAt: start,
+      completedAt: "2026-07-21T14:00:02.000Z",
+      stopReason: "end_turn",
+      modelId: "gpt-5",
+      modelOptions: [],
+      modes: { safetyMode: "ask_for_approval", interactionMode: "build" },
+      usage: null,
+      changedFiles: [],
+    }];
+
+    const projection = projectTimelineReadModel(items, turns);
+    expect(buildTimelineDisplayRows(projection.rows, projection.turns, new Set(["turn-1"]))).toMatchObject([
+      {
+        id: "turn-fold:turn-1",
+        hiddenRows: [
+          { id: "commentary", kind: "message", markdown: "A normal **paragraph**." },
+          { id: "command", kind: "activity" },
+        ],
+      },
+      { id: "answer", kind: "message", markdown: "Final answer" },
     ]);
   });
 

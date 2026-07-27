@@ -362,6 +362,7 @@ class ChatStore {
         createdAt: new Date().toISOString(),
         markdown: prompt,
         state: "pending",
+        phase: null,
         userContext: {
           attachments: this.composerAttachments
             .filter((attachment) => attachmentIds.includes(attachment.id))

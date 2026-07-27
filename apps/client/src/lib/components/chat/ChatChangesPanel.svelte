@@ -16,6 +16,7 @@
     ChatCheckpointDiffRead,
     ChatCheckpointFileDiffRead,
     ChatChangedFileRead,
+    ChatTurnId,
   } from "$lib/chat/contracts";
   import { splitDiffFits, splitPaneResizeBounds } from "$lib/chat/inspector-model";
   import { alignPanelSizeToDevicePixel } from "$lib/chat/responsive-layout";
@@ -28,6 +29,7 @@
 
   let {
     scope,
+    turnId,
     selectedFile,
     fileListHeightPx,
     whitespaceIgnored,
@@ -35,6 +37,7 @@
     onStateChange,
   }: {
     scope: ChatChangeScope;
+    turnId: ChatTurnId | null;
     selectedFile: string | null;
     fileListHeightPx: number;
     whitespaceIgnored: boolean;
@@ -104,9 +107,10 @@
   $effect(() => {
     const thread = threadId;
     const currentScope = scope;
+    const selectedTurn = turnId;
     const revision = chat.selectedThread?.revision;
     if (!thread || revision === undefined) return;
-    void loadDiff(thread, currentScope);
+    void loadDiff(thread, currentScope, selectedTurn);
   });
 
   $effect(() => {
@@ -123,12 +127,16 @@
     void loadFileDiff(thread, pre, post, path, ignored);
   });
 
-  async function loadDiff(thread: string, currentScope: ChatChangeScope): Promise<void> {
+  async function loadDiff(
+    thread: string,
+    currentScope: ChatChangeScope,
+    selectedTurn: ChatTurnId | null = turnId,
+  ): Promise<void> {
     loading = true;
     error = null;
     try {
-      const result = await chatApi.readChatCheckpointDiff(thread, currentScope);
-      if (thread !== threadId || currentScope !== scope) return;
+      const result = await chatApi.readChatCheckpointDiff(thread, currentScope, selectedTurn);
+      if (thread !== threadId || currentScope !== scope || selectedTurn !== turnId) return;
       diff = result;
       const retained = selectedFile && result.files.some((file) => file.relativePath === selectedFile)
         ? selectedFile
@@ -297,7 +305,7 @@
         confirmed: true,
       });
       await chat.handleNativeChange(threadId);
-      await loadDiff(threadId, scope);
+      await loadDiff(threadId, scope, turnId);
     } catch (reason: unknown) {
       error = message(reason);
     } finally {

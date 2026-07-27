@@ -12,7 +12,7 @@ import {
 } from "./timeline-virtualization";
 
 function row(index: number): TimelineMessageRow {
-  return { id: `row-${index}`, kind: "message", role: "assistant", turnId: null, sequence: index, createdAt: "2026-07-21T14:00:00.000Z", markdown: String(index), state: "complete", userContext: null, metadata: null };
+  return { id: `row-${index}`, kind: "message", role: "assistant", turnId: null, sequence: index, createdAt: "2026-07-21T14:00:00.000Z", markdown: String(index), state: "complete", phase: null, userContext: null, metadata: null };
 }
 
 function item(sequence: number): ChatTimelineItemRead {

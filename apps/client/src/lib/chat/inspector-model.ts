@@ -2,6 +2,7 @@ import type {
   ChatChangedFileRead,
   ChatInspectorTab,
   ChatThreadId,
+  ChatTurnId,
 } from "./contracts";
 
 export interface ChatInspectorThreadState {
@@ -15,6 +16,7 @@ export interface ChatInspectorThreadState {
   fileTreeVisible: boolean;
   fileTreeWidthPx: number;
   changeScope: "current_turn" | "entire_thread";
+  changeTurnId: ChatTurnId | null;
   changedFileListHeightPx: number;
   whitespaceIgnored: boolean;
   diffView: "auto" | "unified" | "split";
@@ -39,6 +41,7 @@ const DEFAULT_STATE: ChatInspectorThreadState = {
   fileTreeVisible: true,
   fileTreeWidthPx: 220,
   changeScope: "current_turn",
+  changeTurnId: null,
   changedFileListHeightPx: 160,
   whitespaceIgnored: false,
   diffView: "auto",

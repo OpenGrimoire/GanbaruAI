@@ -1,9 +1,10 @@
 use crate::chat::events::{
-    CanonicalEvent, CanonicalRuntimeEvent, CanonicalStoredEvent, CANONICAL_EVENT_SCHEMA_VERSION,
+    CanonicalEvent, CanonicalRuntimeEvent, CanonicalStoredEvent, ChangedFileSummary,
+    CANONICAL_EVENT_SCHEMA_VERSION,
 };
 use crate::chat::models::{
-    ChatChangeNotification, ChatError, ChatErrorCode, ChatResult, ChatThreadId, UtcTimestamp,
-    VersionedJson,
+    ActivityStatus, ChatChangeNotification, ChatError, ChatErrorCode, ChatResult, ChatThreadId,
+    UtcTimestamp, VersionedJson,
 };
 use serde::Serialize;
 use serde_json::{json, Value};
@@ -321,7 +322,23 @@ pub(super) async fn apply_projection(
                 .map(serde_json::to_string)
                 .transpose()
                 .map_err(serialization_error)?;
-            let files = serde_json::to_string(&event.changed_files).map_err(serialization_error)?;
+            let current_files: Option<String> = sqlx::query_scalar(
+                "SELECT changed_file_summary_data FROM chat_turns WHERE id = ? AND thread_id = ?",
+            )
+            .bind(turn_id)
+            .bind(thread_id)
+            .fetch_optional(&mut **transaction)
+            .await
+            .map_err(persistence_error)?
+            .flatten();
+            let mut files = current_files
+                .as_deref()
+                .map(serde_json::from_str::<Vec<ChangedFileSummary>>)
+                .transpose()
+                .map_err(serialization_error)?
+                .unwrap_or_default();
+            merge_changed_file_summaries(&mut files, &event.changed_files);
+            let files = serde_json::to_string(&files).map_err(serialization_error)?;
             let updated = sqlx::query(
                 "UPDATE chat_turns
                  SET state = ?, completed_at = ?, stop_reason = ?,
@@ -388,6 +405,39 @@ pub(super) async fn apply_projection(
             .await
             .map_err(persistence_error)?;
             changed.extend(["turns".to_string(), "thread".to_string()]);
+        }
+        CanonicalEvent::DiffUpdated(event) => {
+            let turn_id = required_turn_id(runtime)?;
+            let current: Option<String> = sqlx::query_scalar(
+                "SELECT changed_file_summary_data FROM chat_turns WHERE id = ? AND thread_id = ?",
+            )
+            .bind(turn_id)
+            .bind(thread_id)
+            .fetch_optional(&mut **transaction)
+            .await
+            .map_err(persistence_error)?
+            .flatten();
+            let mut files = current
+                .as_deref()
+                .map(serde_json::from_str::<Vec<ChangedFileSummary>>)
+                .transpose()
+                .map_err(serialization_error)?
+                .unwrap_or_default();
+            merge_changed_file_summaries(&mut files, &event.files);
+            sqlx::query(
+                "UPDATE chat_turns
+                 SET changed_file_summary_schema_version = 1,
+                     changed_file_summary_data = ?, updated_at = ?
+                 WHERE id = ? AND thread_id = ?",
+            )
+            .bind(serde_json::to_string(&files).map_err(serialization_error)?)
+            .bind(runtime.created_at.as_str())
+            .bind(turn_id)
+            .bind(thread_id)
+            .execute(&mut **transaction)
+            .await
+            .map_err(persistence_error)?;
+            changed.push("turns".to_string());
         }
         CanonicalEvent::ContentDelta(event) => {
             let item_id = &event.item_id;
@@ -459,35 +509,75 @@ pub(super) async fn apply_projection(
                 .transpose()
                 .map_err(serialization_error)?
                 .unwrap_or_else(|| "{}".to_string());
-            sqlx::query(
-                "INSERT INTO chat_activities
+            let item_kind = wire_literal(&event.kind)?;
+            if item_kind == "assistant_message" {
+                sqlx::query(
+                    "INSERT INTO chat_messages
+                        (id, thread_id, turn_id, sequence_anchor, role, normalized_markdown,
+                         streaming_state, provider_item_id, content_metadata_data,
+                         created_at, updated_at)
+                     VALUES (?, ?, ?, ?, 'assistant', ?, ?, ?, ?, ?, ?)
+                     ON CONFLICT(id) DO UPDATE SET
+                        normalized_markdown = CASE
+                            WHEN excluded.normalized_markdown = '' THEN chat_messages.normalized_markdown
+                            ELSE excluded.normalized_markdown
+                        END,
+                        streaming_state = excluded.streaming_state,
+                        content_metadata_data = excluded.content_metadata_data,
+                        updated_at = excluded.updated_at",
+                )
+                .bind(&event.item_id)
+                .bind(thread_id)
+                .bind(runtime.turn_id.as_ref().map(|value| value.as_str()))
+                .bind(sequence)
+                .bind(event.detail.as_deref().unwrap_or(""))
+                .bind(message_streaming_state(&event.status)?)
+                .bind(&event.item_id)
+                .bind(&metadata)
+                .bind(runtime.created_at.as_str())
+                .bind(runtime.created_at.as_str())
+                .execute(&mut **transaction)
+                .await
+                .map_err(persistence_error)?;
+                sqlx::query("DELETE FROM chat_activities WHERE id = ? AND thread_id = ?")
+                    .bind(&event.item_id)
+                    .bind(thread_id)
+                    .execute(&mut **transaction)
+                    .await
+                    .map_err(persistence_error)?;
+                changed.push("messages".to_string());
+            } else if item_kind != "user_message" {
+                sqlx::query(
+                    "INSERT INTO chat_activities
                     (id, thread_id, turn_id, sequence_anchor, item_kind, status, title,
                      detail, provider_item_id, safe_metadata_data, started_at,
                      source_event_type, created_at, updated_at)
                  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                  ON CONFLICT(id) DO UPDATE SET status = excluded.status,
-                    title = excluded.title, detail = excluded.detail,
+                    title = excluded.title,
+                    detail = COALESCE(NULLIF(excluded.detail, ''), chat_activities.detail),
                     safe_metadata_data = excluded.safe_metadata_data,
                     updated_at = excluded.updated_at",
-            )
-            .bind(&event.item_id)
-            .bind(thread_id)
-            .bind(runtime.turn_id.as_ref().map(|value| value.as_str()))
-            .bind(sequence)
-            .bind(wire_literal(&event.kind)?)
-            .bind(wire_literal(&event.status)?)
-            .bind(event.title.as_deref().unwrap_or(""))
-            .bind(event.detail.as_deref())
-            .bind(&event.item_id)
-            .bind(metadata)
-            .bind(runtime.created_at.as_str())
-            .bind(event_type(&runtime.event)?)
-            .bind(runtime.created_at.as_str())
-            .bind(runtime.created_at.as_str())
-            .execute(&mut **transaction)
-            .await
-            .map_err(persistence_error)?;
-            changed.push("activities".to_string());
+                )
+                .bind(&event.item_id)
+                .bind(thread_id)
+                .bind(runtime.turn_id.as_ref().map(|value| value.as_str()))
+                .bind(sequence)
+                .bind(item_kind)
+                .bind(wire_literal(&event.status)?)
+                .bind(event.title.as_deref().unwrap_or(""))
+                .bind(event.detail.as_deref())
+                .bind(&event.item_id)
+                .bind(metadata)
+                .bind(runtime.created_at.as_str())
+                .bind(event_type(&runtime.event)?)
+                .bind(runtime.created_at.as_str())
+                .bind(runtime.created_at.as_str())
+                .execute(&mut **transaction)
+                .await
+                .map_err(persistence_error)?;
+                changed.push("activities".to_string());
+            }
         }
         CanonicalEvent::RequestOpened(event) => {
             sqlx::query(
@@ -673,6 +763,32 @@ async fn upsert_activity_detail(
     .await
     .map_err(persistence_error)?;
     Ok(())
+}
+
+fn message_streaming_state(status: &ActivityStatus) -> ChatResult<&'static str> {
+    Ok(match wire_literal(status)?.as_str() {
+        "completed" => "complete",
+        "interrupted" => "interrupted",
+        "failed" => "failed",
+        "pending" => "pending",
+        _ => "streaming",
+    })
+}
+
+fn merge_changed_file_summaries(
+    current: &mut Vec<ChangedFileSummary>,
+    incoming: &[ChangedFileSummary],
+) {
+    for file in incoming {
+        if let Some(existing) = current
+            .iter_mut()
+            .find(|candidate| candidate.relative_path == file.relative_path)
+        {
+            *existing = file.clone();
+        } else {
+            current.push(file.clone());
+        }
+    }
 }
 
 async fn resolve_request<T: Serialize>(

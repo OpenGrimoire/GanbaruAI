@@ -159,7 +159,12 @@
       if (!(event instanceof CustomEvent) || !isRevertMessageDetail(event.detail)) return;
       void restoreMessageCheckpoint(event.detail.threadId, event.detail.checkpointId);
     };
+    const openChanges = (event: Event) => {
+      if (!(event instanceof CustomEvent) || !isOpenChangesDetail(event.detail)) return;
+      chat.inspectorOpen = true;
+    };
     window.addEventListener("ganbaru-ai:chat-revert-message", revertMessage);
+    window.addEventListener("ganbaru-ai:chat-open-changes", openChanges);
     const unregisterBenchmark = getChatBenchmarkHandle().register({
       threadIds: () => chat.activeThreads.map((thread) => thread.id),
       waitUntilUsable: () => waitForBenchmarkState(() => !chat.loading && chat.activeThreads.length > 0),
@@ -192,9 +197,20 @@
       }
       motionQuery.removeEventListener("change", updateMotionPreference);
       window.removeEventListener("ganbaru-ai:chat-revert-message", revertMessage);
+      window.removeEventListener("ganbaru-ai:chat-open-changes", openChanges);
       void unlisten.then((dispose) => dispose());
     };
   });
+
+  function isOpenChangesDetail(value: unknown): value is {
+    turnId: string;
+    relativePath: string | null;
+  } {
+    if (typeof value !== "object" || value === null || Array.isArray(value)) return false;
+    const detail = value as Record<string, unknown>;
+    return typeof detail.turnId === "string"
+      && (detail.relativePath === null || typeof detail.relativePath === "string");
+  }
 
   $effect(() => {
     const projectId = projects.selectedProjectId;

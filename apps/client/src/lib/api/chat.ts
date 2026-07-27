@@ -27,6 +27,7 @@ import type {
   ChatProjectShellRead,
   ChatSettingsRead,
   ChatThreadId,
+  ChatTurnId,
   ChatThreadShellRead,
   ChatTimelinePageRead,
   ProjectWorkingFolderId,
@@ -220,7 +221,7 @@ export async function importChatTerminalContext(request: {
 export async function readChatCheckpointDiff(
   threadId: ChatThreadId,
   scope: "current_turn" | "entire_thread",
-  turnId: string | null = null,
+  turnId: ChatTurnId | null = null,
 ): Promise<ChatCheckpointDiffRead> {
   return parseChatCheckpointDiff(await invoke<unknown>("chat_read_checkpoint_diff", {
     dbUrl: await ensureDbUrl(),
