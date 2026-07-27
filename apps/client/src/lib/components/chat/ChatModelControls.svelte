@@ -21,13 +21,12 @@
   import * as chatApi from "$lib/api/chat";
   import { formatNumber } from "$lib/i18n/formatters";
   import { getLocalization } from "$lib/i18n/translator.svelte";
+  import { isPointerAimingAtSubmenu, type MenuAimPoint, type MenuAimSide } from "$lib/projects/menu-aim";
   import { getChat } from "$lib/stores/chat.svelte";
   import { getSettingsLauncher } from "$lib/stores/settingsLauncher.svelte";
   import ChatProviderIcon from "./ChatProviderIcon.svelte";
 
   type KnownModelOption = Exclude<ModelOptionDefinition, { kind: "unknown" }>;
-  type PickerView = "overview" | "advanced";
-  type FlyoutView = "models" | "option";
   interface QuickEffortChoice {
     modelId: string;
     modelName: string;
@@ -69,12 +68,8 @@
   let pickerPanel: HTMLDivElement | undefined = $state();
   let pickerTrigger: HTMLButtonElement | undefined = $state();
   let pickerTriggerContent: HTMLSpanElement | undefined = $state();
-  let overviewPanel: HTMLDivElement | undefined = $state();
-  let advancedPanel: HTMLDivElement | undefined = $state();
-  let advancedToggle: HTMLButtonElement | undefined = $state();
-  let advancedHeading: HTMLButtonElement | undefined = $state();
+  let modelToggle: HTMLButtonElement | undefined = $state();
   let flyoutPanel: HTMLDivElement | undefined = $state();
-  let pickerStageHeight = $state<number | null>(null);
   let modelControlWidth = $state<number | null>(null);
   let effortPressing = $state(false);
   let effortDragging = $state(false);
@@ -92,21 +87,24 @@
   let modelQuery = $state("");
   let modelPickerError = $state<string | null>(null);
   let collapsedModelSections = $state<Set<string>>(new Set());
-  let view = $state<PickerView>("overview");
-  let flyout = $state<FlyoutView | null>(null);
+  let flyout = $state<"models" | null>(null);
   let flyoutPosition = $state<FlyoutPosition | null>(null);
-  let optionViewKey = $state<string | null>(null);
   let quickAnchorModelId = $state<string | null>(null);
   let restoredKey = $state("");
   let activeFlyoutTrigger: HTMLElement | null = null;
   let modelControlResetTimer: ReturnType<typeof setTimeout> | null = null;
+  let modelFlyoutCloseTimer: ReturnType<typeof setTimeout> | null = null;
+  let modelFlyoutAimOrigin: MenuAimPoint | null = null;
+  let modelFlyoutSide: Extract<MenuAimSide, "left" | "right"> = "left";
   let effortClickResetTimer: ReturnType<typeof setTimeout> | null = null;
   let effortPointerId: number | null = null;
   let effortPointerOrigin: { x: number; y: number } | null = null;
   let effortLastDragIndex = -1;
   let suppressEffortPointerClick = false;
-  const flyoutGapPx = 3;
+  const flyoutGapPx = 6;
   const flyoutViewportInsetPx = 8;
+  const modelFlyoutCloseDelayMs = 240;
+  const modelFlyoutExitDelayMs = 120;
   const modelControlResizeMs = 280;
   const effortDragThresholdPx = 5;
   const effortTrackHeightRem = 1.75;
@@ -136,13 +134,12 @@
     }
     return null;
   });
-  const otherDefinitions = $derived(knownOptions.filter((definition) => optionRole(definition) === "other"));
-  const optionViewDefinition = $derived(knownOptions.find((definition) => definition.key === optionViewKey) ?? (speedDefinition?.key === optionViewKey ? speedDefinition : null));
   const quickEffortChoices = $derived(buildQuickEffortChoices(quickAnchorModel, models));
   const selectedQuickEffortIndex = $derived(quickEffortChoices.findIndex((choice) => choice.modelId === selection.modelId && choice.effortValue === selectedEffortValue()));
 
   onDestroy(() => {
     cancelModelControlReset();
+    cancelModelFlyoutClose();
     cancelEffortClickReset();
   });
 
@@ -192,25 +189,6 @@
     };
     window.addEventListener("pointerdown", closeOnOutsidePointer, true);
     return () => window.removeEventListener("pointerdown", closeOnOutsidePointer, true);
-  });
-
-  $effect(() => {
-    if (!pickerOpen) {
-      pickerStageHeight = null;
-      return;
-    }
-    const activePanel = view === "overview" ? overviewPanel : advancedPanel;
-    if (!activePanel) return;
-    const updateHeight = () => {
-      const renderedHeight = activePanel.getBoundingClientRect().height;
-      const nextHeight = view === "advanced" ? Math.max(activePanel.scrollHeight, renderedHeight) : renderedHeight;
-      if (nextHeight > 0) pickerStageHeight = Math.ceil(nextHeight);
-    };
-    updateHeight();
-    if (typeof ResizeObserver === "undefined") return;
-    const observer = new ResizeObserver(updateHeight);
-    observer.observe(activePanel);
-    return () => observer.disconnect();
   });
 
   $effect(() => {
@@ -282,7 +260,6 @@
     if (!anchoredChoices.some((choice) => choice.modelId === selection.modelId && choice.effortValue === selectedEffortValue())) {
       quickAnchorModelId = selectedModel?.id ?? null;
     }
-    if (!provider) view = "advanced";
     flyout = provider ? null : "models";
     openPicker();
   }
@@ -365,6 +342,11 @@
       const panelWidth = pickerPanel?.getBoundingClientRect().width ?? compactWidth;
       pickerRoot?.getBoundingClientRect();
       modelControlWidth = Math.ceil(Math.max(compactWidth, panelWidth));
+      if (flyout === "models" && modelToggle) {
+        activeFlyoutTrigger = modelToggle;
+        positionFlyout();
+        modelSearch?.focus();
+      }
     });
   }
 
@@ -375,16 +357,6 @@
       modelControlResetTimer = null;
       if (!pickerOpen) modelControlWidth = null;
     }, modelControlResizeMs);
-  }
-
-  function setPickerView(nextView: PickerView): void {
-    if (view === nextView) return;
-    view = nextView;
-    closeFlyout();
-    void tick().then(() => {
-      const target = nextView === "advanced" ? advancedHeading : advancedToggle;
-      target?.focus({ preventScroll: true });
-    });
   }
 
   function providerAvailable(entry: (typeof providers)[number]): boolean {
@@ -417,6 +389,7 @@
 
   function chooseModel(entry: (typeof providers)[number], modelId: string | null, providerManaged: boolean): void {
     const target = { providerInstanceId: entry.configuration.instanceId, modelId, providerManaged };
+    closeFlyout();
     if (chat.selectedThread && entry.configuration.instanceId !== chat.selectedThread.providerInstanceId) {
       confirmationReturnFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
       pendingProviderModel = target;
@@ -550,39 +523,117 @@
     chooseQuickEffort(choice);
   }
 
-  function openOption(definition: KnownModelOption, trigger?: HTMLElement): void {
+  function openModelFlyout(trigger?: HTMLElement): void {
+    cancelModelFlyoutClose();
     if (trigger) activeFlyoutTrigger = trigger;
-    optionViewKey = definition.key;
-    flyout = "option";
-    scheduleFlyoutPosition();
-  }
-
-  function openFlyout(next: FlyoutView, trigger?: HTMLElement): void {
-    if (trigger) activeFlyoutTrigger = trigger;
-    if (next === "models" && flyout !== "models") {
+    if (flyout !== "models") {
       modelQuery = "";
       modelPickerError = null;
     }
-    optionViewKey = null;
-    flyout = next;
+    flyout = "models";
     scheduleFlyoutPosition();
   }
 
   function closeFlyout(): void {
-    optionViewKey = null;
+    cancelModelFlyoutClose();
     flyout = null;
     flyoutPosition = null;
     activeFlyoutTrigger = null;
   }
 
-  function handleOptionPointerEnter(definition: KnownModelOption, event: PointerEvent): void {
-    if (!(event.currentTarget instanceof HTMLElement)) return;
-    openOption(definition, event.currentTarget);
+  function pointerPoint(event: PointerEvent): MenuAimPoint {
+    return { x: event.clientX, y: event.clientY };
   }
 
-  function handleNamedFlyoutPointerEnter(next: FlyoutView, event: PointerEvent): void {
-    if (!(event.currentTarget instanceof HTMLElement)) return;
-    openFlyout(next, event.currentTarget);
+  function cancelModelFlyoutClose(): void {
+    if (modelFlyoutCloseTimer !== null) {
+      clearTimeout(modelFlyoutCloseTimer);
+      modelFlyoutCloseTimer = null;
+    }
+    modelFlyoutAimOrigin = null;
+    if (typeof window !== "undefined") {
+      window.removeEventListener("pointermove", handleModelFlyoutAim, true);
+    }
+  }
+
+  function armModelFlyoutClose(delayMs = modelFlyoutCloseDelayMs): void {
+    if (modelFlyoutCloseTimer !== null) clearTimeout(modelFlyoutCloseTimer);
+    modelFlyoutCloseTimer = setTimeout(() => {
+      modelFlyoutCloseTimer = null;
+      closeFlyout();
+    }, delayMs);
+  }
+
+  function scheduleModelFlyoutClose(event: PointerEvent): void {
+    const relatedTarget = event.relatedTarget;
+    if (
+      relatedTarget instanceof Node
+      && (modelToggle?.contains(relatedTarget) || flyoutPanel?.contains(relatedTarget))
+    ) {
+      cancelModelFlyoutClose();
+      return;
+    }
+    if (!flyoutPanel) {
+      closeFlyout();
+      return;
+    }
+    modelFlyoutAimOrigin = pointerPoint(event);
+    window.removeEventListener("pointermove", handleModelFlyoutAim, true);
+    window.addEventListener("pointermove", handleModelFlyoutAim, true);
+    armModelFlyoutClose();
+  }
+
+  function handleModelFlyoutAim(event: PointerEvent): void {
+    const target = event.target;
+    if (
+      target instanceof Node
+      && (modelToggle?.contains(target) || flyoutPanel?.contains(target))
+    ) {
+      cancelModelFlyoutClose();
+      return;
+    }
+    const origin = modelFlyoutAimOrigin;
+    const panel = flyoutPanel;
+    if (!origin || !panel) {
+      closeFlyout();
+      return;
+    }
+    const rect = panel.getBoundingClientRect();
+    const aiming = isPointerAimingAtSubmenu({
+      origin,
+      point: pointerPoint(event),
+      submenu: { left: rect.left, right: rect.right, top: rect.top, bottom: rect.bottom },
+      side: modelFlyoutSide,
+      minTowardDistance: 0,
+    });
+    if (!aiming) {
+      closeFlyout();
+      return;
+    }
+    armModelFlyoutClose();
+  }
+
+  function handleModelFlyoutPointerLeave(event: PointerEvent): void {
+    const relatedTarget = event.relatedTarget;
+    if (relatedTarget instanceof Node && modelToggle?.contains(relatedTarget)) {
+      cancelModelFlyoutClose();
+      return;
+    }
+    cancelModelFlyoutClose();
+    armModelFlyoutClose(modelFlyoutExitDelayMs);
+  }
+
+  function handleModelFlyoutFocusOut(): void {
+    queueMicrotask(() => {
+      const focused = document.activeElement;
+      if (
+        focused instanceof Node
+        && (modelToggle?.contains(focused) || flyoutPanel?.contains(focused))
+      ) {
+        return;
+      }
+      closeFlyout();
+    });
   }
 
   function scheduleFlyoutPosition(): void {
@@ -594,13 +645,17 @@
     const anchor = activeFlyoutTrigger.getBoundingClientRect();
     const parent = pickerPanel.getBoundingClientRect();
     const panel = flyoutPanel.getBoundingClientRect();
-    const rightPosition = parent.right + flyoutGapPx;
-    const leftPosition = parent.left - panel.width - flyoutGapPx;
+    const rightPosition = anchor.right + flyoutGapPx;
+    const leftPosition = anchor.left - panel.width - flyoutGapPx;
     const rightFits = rightPosition + panel.width <= window.innerWidth - flyoutViewportInsetPx;
     const leftFits = leftPosition >= flyoutViewportInsetPx;
-    const viewportLeft = rightFits || !leftFits
-      ? Math.min(rightPosition, window.innerWidth - panel.width - flyoutViewportInsetPx)
-      : leftPosition;
+    const maximumLeft = Math.max(flyoutViewportInsetPx, window.innerWidth - panel.width - flyoutViewportInsetPx);
+    const viewportLeft = leftFits
+      ? leftPosition
+      : rightFits
+        ? rightPosition
+        : Math.min(Math.max(flyoutViewportInsetPx, leftPosition), maximumLeft);
+    modelFlyoutSide = leftFits || (!rightFits && viewportLeft < anchor.left) ? "left" : "right";
     const maximumTop = Math.max(flyoutViewportInsetPx, window.innerHeight - panel.height - flyoutViewportInsetPx);
     const viewportTop = Math.min(Math.max(flyoutViewportInsetPx, anchor.top - 4), maximumTop);
     flyoutPosition = {
@@ -635,17 +690,6 @@
   function booleanValue(key: string): boolean {
     const value = option(key)?.value;
     return value?.kind === "boolean" && value.value;
-  }
-
-  function multipleIncludes(key: string, candidate: string): boolean {
-    const value = option(key)?.value;
-    return value?.kind === "multiple_choice" && value.value.includes(candidate);
-  }
-
-  function toggleMultiple(key: string, value: string, checked: boolean): void {
-    const current = option(key)?.value;
-    const values = current?.kind === "multiple_choice" ? current.value : [];
-    updateOption(key, { kind: "multiple_choice", value: checked ? [...new Set([...values, value])] : values.filter((entry) => entry !== value) });
   }
 
   function integerValue(key: string, fallback: number): number {
@@ -856,16 +900,6 @@
     return "other";
   }
 
-  function choiceDescription(definition: KnownModelOption, value: string, description: string | null): string | null {
-    const providerDescription = description?.trim();
-    if (providerDescription) return providerDescription;
-    if (optionRole(definition) !== "speed") return null;
-    const normalized = value.trim().toLowerCase();
-    if (["standard", "default", "normal"].includes(normalized)) return t("chat.composer.standardSpeedDescription");
-    if (["fast", "priority"].includes(normalized)) return t("chat.composer.fastSpeedDescription");
-    return null;
-  }
-
   function defaultOptions(definitions: ModelOptionDefinition[]): ModelOptionSelection[] {
     const options: ModelOptionSelection[] = [];
     for (const definition of definitions) {
@@ -941,8 +975,15 @@
 
   {#if pickerOpen}
     <div bind:this={pickerPanel} class="model-popover" role="dialog" aria-label={t("chat.hero.model")} tabindex="-1" onkeydown={handlePickerKeydown}>
-      <div class="picker-stage" style:height={pickerStageHeight === null ? undefined : `${pickerStageHeight}px`}>
-        <div bind:this={overviewPanel} class="picker-view overview-view" class:active={view === "overview"} inert={view !== "overview"} aria-hidden={view !== "overview"}>
+      <div class="effort-footer" class:holding={effortDragging}>
+        <div class="quick-actions" inert={effortDragging} aria-hidden={effortDragging}>
+          <button bind:this={modelToggle} type="button" class="model-picker-toggle" aria-expanded={flyout === "models"} onpointerenter={(event) => openModelFlyout(event.currentTarget)} onpointerleave={scheduleModelFlyoutClose} onfocus={(event) => openModelFlyout(event.currentTarget)} onfocusout={handleModelFlyoutFocusOut} onclick={(event) => openModelFlyout(event.currentTarget)}><span>{t("chat.hero.model")}</span><ChevronRight size={15} strokeWidth={1} /></button>
+          {#if speedDefinition}<button type="button" class="fast-button" class:active={isFastSelected()} class:ultra={isUltraSelected()} title={isFastSelected() ? t("chat.composer.fastEnabled") : t("chat.composer.enableFast")} aria-label={isFastSelected() ? t("chat.composer.fastEnabled") : t("chat.composer.enableFast")} aria-pressed={isFastSelected()} onclick={() => setFastMode(!isFastSelected())}><Zap size={16} strokeWidth={1} /></button>
+          {:else if !provider}<button type="button" class="fast-button dummy" title={t("chat.composer.providerRequiredForModelOptions")} aria-label={t("chat.composer.providerRequiredForModelOptions")} disabled><Zap size={16} strokeWidth={1} /></button>{/if}
+        </div>
+        <div class="effort-guidance" aria-hidden="true"><span>{t("chat.composer.faster")}</span><span>{t("chat.composer.smarter")}</span></div>
+      </div>
+
         {#if quickEffortChoices.length > 0}
           <div class="effort-ladder" class:fast={isFastSelected()} class:ultra={isUltraSelected()} class:holding={effortPressing} class:handle-hovered={effortHandleHovered} style={`--effort-track-height:${effortTrackHeightRem}rem`} role="group" aria-label={t("chat.composer.quickModelEffort")} onpointerdown={handleEffortPointerDown} onpointermove={handleEffortPointerMove} onpointerleave={handleEffortPointerLeave} onpointerup={(event) => finishEffortPointer(event, true)} onpointercancel={(event) => finishEffortPointer(event, false)} onlostpointercapture={(event) => finishEffortPointer(event, false)}>
             <span class="effort-fill" style={`width:${selectedQuickEffortIndex < 0 ? "0" : isUltraSelected() ? "100%" : quickStopPosition(selectedQuickEffortIndex, quickEffortChoices.length)}`} aria-hidden="true">
@@ -966,31 +1007,9 @@
             </span>
           </div>
         {/if}
-        <div class="effort-footer" class:holding={effortDragging}>
-          <div class="quick-actions" inert={effortDragging} aria-hidden={effortDragging}>
-            <button bind:this={advancedToggle} type="button" class="advanced-toggle" onclick={() => setPickerView("advanced")}><span>{t("chat.composer.advanced")}</span><span class="advanced-chevron" class:expanded={view === "advanced"}><ChevronRight size={15} /></span></button>
-            {#if speedDefinition}<button type="button" class="fast-button" class:active={isFastSelected()} class:ultra={isUltraSelected()} title={isFastSelected() ? t("chat.composer.fastEnabled") : t("chat.composer.enableFast")} aria-label={isFastSelected() ? t("chat.composer.fastEnabled") : t("chat.composer.enableFast")} aria-pressed={isFastSelected()} onclick={() => setFastMode(!isFastSelected())}><Zap size={16} /></button>
-            {:else if !provider}<button type="button" class="fast-button dummy" title={t("chat.composer.providerRequiredForModelOptions")} aria-label={t("chat.composer.providerRequiredForModelOptions")} disabled><Zap size={16} /></button>{/if}
-          </div>
-          <div class="effort-guidance" aria-hidden="true"><span>{t("chat.composer.faster")}</span><span>{t("chat.composer.smarter")}</span></div>
-        </div>
-        </div>
-        <div bind:this={advancedPanel} class="picker-view advanced-view" class:active={view === "advanced"} inert={view !== "advanced"} aria-hidden={view !== "advanced"}>
-        <button bind:this={advancedHeading} type="button" class="advanced-heading" onclick={() => setPickerView("overview")}><span>{t("chat.composer.advanced")}</span><span class="advanced-chevron" class:expanded={view === "advanced"}><ChevronRight size={15} /></span></button>
-        <div class="advanced-list">
-          <button type="button" onpointerenter={(event) => handleNamedFlyoutPointerEnter("models", event)} onfocus={(event) => openFlyout("models", event.currentTarget)} onclick={(event) => { openFlyout("models", event.currentTarget); void tick().then(() => modelSearch?.focus()); }}><span>{t("chat.hero.model")}</span><small>{selection.providerManaged ? t("chat.composer.providerManagedModel") : displayModelName(selectedModel)}</small><ChevronRight size={15} /></button>
-          {#if effortDefinition}<button type="button" onpointerenter={(event) => handleOptionPointerEnter(effortDefinition, event)} onfocus={(event) => openOption(effortDefinition, event.currentTarget)} onclick={(event) => openOption(effortDefinition, event.currentTarget)}><span>{t("chat.composer.effort")}</span><small>{selectedOptionLabel(effortDefinition)}</small><ChevronRight size={15} /></button>
-          {:else if !provider}<button type="button" disabled title={t("chat.composer.providerRequiredForModelOptions")}><span>{t("chat.composer.effort")}</span><small></small><ChevronRight size={15} /></button>{/if}
-          {#if speedDefinition}<button type="button" onpointerenter={(event) => handleOptionPointerEnter(speedDefinition, event)} onfocus={(event) => openOption(speedDefinition, event.currentTarget)} onclick={(event) => openOption(speedDefinition, event.currentTarget)}><span>{t("chat.composer.speed")}</span><small>{isFastSelected() ? t("chat.composer.fast") : t("chat.composer.standard")}</small><ChevronRight size={15} /></button>
-          {:else if !provider}<button type="button" disabled title={t("chat.composer.providerRequiredForModelOptions")}><span>{t("chat.composer.speed")}</span><small></small><ChevronRight size={15} /></button>{/if}
-          {#each otherDefinitions as definition}<button type="button" onpointerenter={(event) => handleOptionPointerEnter(definition, event)} onfocus={(event) => openOption(definition, event.currentTarget)} onclick={(event) => openOption(definition, event.currentTarget)}><span>{definition.label}</span><small>{selectedOptionLabel(definition)}</small><ChevronRight size={15} /></button>{/each}
-        </div>
-        </div>
-      </div>
 
-        {#if view === "advanced" && flyout}
-          <div bind:this={flyoutPanel} class="model-flyout" class:positioned={flyoutPosition !== null} class:model-picker-flyout={flyout === "models"} style:left={flyoutPosition === null ? undefined : `${flyoutPosition.left}px`} style:top={flyoutPosition === null ? undefined : `${flyoutPosition.top}px`} role="group" aria-label={flyout === "models" ? t("chat.hero.model") : optionViewDefinition?.label}>
-            {#if flyout === "models"}
+        {#if flyout === "models"}
+          <div bind:this={flyoutPanel} class="model-flyout model-picker-flyout" class:positioned={flyoutPosition !== null} style:left={flyoutPosition === null ? undefined : `${flyoutPosition.left}px`} style:top={flyoutPosition === null ? undefined : `${flyoutPosition.top}px`} role="group" aria-label={t("chat.hero.model")} onpointerenter={cancelModelFlyoutClose} onpointerleave={handleModelFlyoutPointerLeave} onfocusout={handleModelFlyoutFocusOut}>
               <div class="model-picker-shell">
                 <div class="model-picker-main">
                   <div class="model-list-frame">
@@ -1063,29 +1082,6 @@
                   </div>
                 </div>
               </div>
-            {:else if optionViewDefinition}
-              <div class="selection-list option-list">
-                {#if optionViewDefinition.kind === "choice"}
-                  {#each optionViewDefinition.options as choice}
-                    {@const description = choiceDescription(optionViewDefinition, choice.value, choice.description)}
-                    <button type="button" onclick={() => updateOption(optionViewDefinition.key, { kind: "choice", value: choice.value })}><span><strong>{humanizeOptionLabel(choice.label)}</strong>{#if description && optionRole(optionViewDefinition) !== "effort"}<small>{description}</small>{/if}</span>{#if choiceValue(optionViewDefinition.key) === choice.value}<Check size={14} />{/if}</button>
-                  {/each}
-                {:else if optionViewDefinition.kind === "boolean"}
-                  {#if optionRole(optionViewDefinition) === "speed"}
-                    <button type="button" onclick={() => setFastMode(false)}><span><strong>{t("chat.composer.standard")}</strong><small>{t("chat.composer.standardSpeedDescription")}</small></span>{#if !booleanValue(optionViewDefinition.key)}<Check size={14} />{/if}</button>
-                    <button type="button" onclick={() => setFastMode(true)}><span><strong>{t("chat.composer.fast")}</strong><small>{optionViewDefinition.description?.trim() || t("chat.composer.fastSpeedDescription")}</small></span>{#if booleanValue(optionViewDefinition.key)}<Check size={14} />{/if}</button>
-                  {:else}
-                    <button type="button" onclick={() => updateOption(optionViewDefinition.key, { kind: "boolean", value: !booleanValue(optionViewDefinition.key) })}><span><strong>{optionViewDefinition.label}</strong>{#if optionViewDefinition.description && optionRole(optionViewDefinition) !== "effort"}<small>{optionViewDefinition.description}</small>{/if}</span>{#if booleanValue(optionViewDefinition.key)}<Check size={14} />{/if}</button>
-                  {/if}
-                {:else if optionViewDefinition.kind === "multiple_choice"}
-                  {#each optionViewDefinition.options as choice}<label><input type="checkbox" checked={multipleIncludes(optionViewDefinition.key, choice.value)} onchange={(event) => toggleMultiple(optionViewDefinition.key, choice.value, event.currentTarget.checked)} /><span><strong>{choice.label}</strong>{#if choice.description}<small>{choice.description}</small>{/if}</span></label>{/each}
-                {:else if optionViewDefinition.kind === "integer_range"}
-                  <label class="range-option"><span>{formatNumber(localization.locale, integerValue(optionViewDefinition.key, optionViewDefinition.defaultValue ?? optionViewDefinition.minimum))}</span><input type="range" min={optionViewDefinition.minimum} max={optionViewDefinition.maximum} step={optionViewDefinition.step} value={integerValue(optionViewDefinition.key, optionViewDefinition.defaultValue ?? optionViewDefinition.minimum)} oninput={(event) => updateOption(optionViewDefinition.key, { kind: "integer", value: event.currentTarget.valueAsNumber })} /></label>
-                {:else if optionViewDefinition.kind === "text"}
-                  <label class="text-option"><span>{optionViewDefinition.label}</span><input type="text" value={textValue(optionViewDefinition.key)} oninput={(event) => updateOption(optionViewDefinition.key, { kind: "text", value: event.currentTarget.value })} /></label>
-                {/if}
-              </div>
-            {/if}
           </div>
         {/if}
     </div>
@@ -1110,13 +1106,7 @@
   .model-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .effort-name { flex: 0 0 auto; color: var(--primary); transition: color 260ms ease; }
   .effort-name.ultra { color: #7c3aed; }
-  .model-popover { position: absolute; right: 0; bottom: calc(100% + 0.45rem); z-index: 45; width: min(18.5rem, calc(100vw - 1rem)); overflow: visible; border: 1px solid var(--border); border-radius: 0.8rem; background: var(--popover); padding: 0.65rem 0.6rem 0.5rem; color: var(--popover-foreground); font-size: 0.875rem; box-shadow: 0 4px 12px rgb(0 0 0 / 0.08); }
-  .picker-stage { position: relative; overflow-x: visible; overflow-y: clip; transition: height 320ms cubic-bezier(0.22, 0.75, 0.18, 1); }
-  .picker-view { width: 100%; opacity: 0; pointer-events: none; transition: opacity 190ms ease, transform 300ms cubic-bezier(0.22, 0.75, 0.18, 1); will-change: opacity, transform; }
-  .picker-view:not(.active) { position: absolute; inset: 0 0 auto; }
-  .overview-view { padding-top: 0.45rem; transform: translateY(-0.7rem) scale(0.99); }
-  .advanced-view { transform: translateY(0.8rem) scale(0.99); }
-  .picker-view.active { position: relative; opacity: 1; pointer-events: auto; transform: translateY(0) scale(1); transition-delay: 55ms, 0ms; }
+  .model-popover { position: absolute; right: 0; bottom: calc(100% + 0.65rem); z-index: 45; width: min(18.5rem, calc(100vw - 1rem)); overflow: visible; border: 1px solid var(--border); border-radius: 0.8rem; background: var(--popover); padding: 0.8rem 0.8rem 1.2rem; color: var(--popover-foreground); font-size: 0.875rem; box-shadow: 0 2px 6px rgb(0 0 0 / 0.06); }
   .effort-ladder { position: relative; height: var(--effort-track-height); overflow: visible; border: 1px solid color-mix(in srgb, var(--border) 88%, transparent); border-radius: 999px; background: #e4e5e9; cursor: default; touch-action: none; user-select: none; transition: border-color 260ms ease, background-color 260ms ease; }
   .effort-fill { position: absolute; inset-block: 0; left: 0; overflow: hidden; border-radius: inherit; background: #0c78d0; transition: width 240ms cubic-bezier(0.22, 0.75, 0.18, 1), background-color 280ms ease; }
   .effort-fill::before { position: absolute; content: ""; inset: 0; opacity: 0; background-image: linear-gradient(105deg, #6ea8ff 0%, #7457f5 48%, #a83cf2 100%); background-size: 180% 100%; animation: ultra-color-flow 3.6s ease-in-out infinite alternate; pointer-events: none; transition: opacity 300ms ease; }
@@ -1129,8 +1119,8 @@
   .effort-options button i { width: 0.3rem; min-width: 0.3rem; max-width: 0.3rem; height: 0.3rem; min-height: 0.3rem; max-height: 0.3rem; flex: 0 0 0.3rem; border-radius: 999px; background: color-mix(in srgb, var(--muted-foreground) 58%, #e4e5e9); opacity: 1; transform: scale(1); transition: opacity 180ms ease 70ms, background-color 240ms ease, transform 180ms ease 70ms; }
   .effort-options button:hover i { transform: scale(1.4); transition-delay: 0ms; }
   .effort-options button[aria-pressed="true"] i, .effort-options button:has(~ button[aria-pressed="true"]) i { background: color-mix(in srgb, white 48%, #0c78d0); }
-  .effort-knob { position: absolute; top: 50%; width: 2.15rem; height: 2.15rem; transform: translate(-50%, -50%) scale(1); border: 1px solid color-mix(in srgb, var(--foreground) 10%, transparent); border-radius: 999px; background: #ffffff; box-shadow: 0 1px 4px rgb(0 0 0 / 0.14); pointer-events: none; transition: left 240ms cubic-bezier(0.22, 0.75, 0.18, 1), transform 170ms cubic-bezier(0.2, 0.8, 0.2, 1), border-color 260ms ease, background-color 260ms ease, box-shadow 260ms ease; }
-  .effort-options button[aria-pressed="true"]:focus-visible ~ .effort-knob, .effort-ladder:is(.holding, .handle-hovered) .effort-knob { transform: translate(-50%, -50%) scale(1.065); box-shadow: 0 2px 7px rgb(0 0 0 / 0.18); }
+  .effort-knob { position: absolute; top: 50%; width: 2.15rem; height: 2.15rem; transform: translate(-50%, -50%) scale(1); border: 1px solid color-mix(in srgb, var(--foreground) 16%, transparent); border-radius: 999px; background: #ffffff; pointer-events: none; transition: left 240ms cubic-bezier(0.22, 0.75, 0.18, 1), transform 170ms cubic-bezier(0.2, 0.8, 0.2, 1), border-color 260ms ease, background-color 260ms ease; }
+  .effort-options button[aria-pressed="true"]:focus-visible ~ .effort-knob, .effort-ladder:is(.holding, .handle-hovered) .effort-knob { transform: translate(-50%, -50%) scale(1.065); }
   .effort-ladder.ultra { border-color: color-mix(in srgb, #8b5cf6 30%, transparent); background: #ddd6fe; }
   .effort-ladder.ultra .effort-fill::before, .effort-ladder.ultra:not(.fast) .effort-particles.calm, .effort-ladder.fast .effort-particles.rapid { opacity: 1; }
   .effort-ladder.fast .effort-options button:has(~ button[aria-pressed="true"]) i, .effort-ladder.ultra .effort-options button:has(~ button[aria-pressed="true"]) i { opacity: 0; transform: scale(0.65); transition-delay: 0ms; }
@@ -1143,22 +1133,19 @@
   :global(.dark) .effort-fill { background: #1681dc; }
   :global(.dark) .effort-options button i { background: color-mix(in srgb, white 32%, #45464a); }
   :global(.dark) .effort-options button[aria-pressed="true"] i, :global(.dark) .effort-options button:has(~ button[aria-pressed="true"]) i { background: color-mix(in srgb, white 46%, #1681dc); }
-  :global(.dark) .effort-knob { border-color: rgb(255 255 255 / 0.1); background: #f4f4f6; box-shadow: 0 1px 5px rgb(0 0 0 / 0.28); }
+  :global(.dark) .effort-knob { border-color: rgb(255 255 255 / 0.18); background: #f4f4f6; }
   :global(.dark) .effort-ladder.ultra { border-color: rgb(139 92 246 / 0.4); background: #4c3b78; }
   :global(.dark) .effort-fill::before { background-image: linear-gradient(105deg, #476cf4 0%, #7144e8 48%, #9f35d7 100%); }
-  .effort-footer { display: grid; margin-top: 0.4rem; }
+  .effort-footer { display: grid; margin-bottom: 0.5rem; }
   .quick-actions, .effort-guidance { grid-area: 1 / 1; min-height: 2rem; }
-  .quick-actions { display: flex; align-items: center; justify-content: space-between; gap: 0.25rem; opacity: 1; transform: translateY(0); transition: opacity 150ms ease, transform 190ms cubic-bezier(0.2, 0.8, 0.2, 1); }
-  .effort-guidance { display: flex; align-items: center; justify-content: space-between; padding-inline: 0.15rem; color: var(--muted-foreground); opacity: 0; pointer-events: none; transform: translateY(0.28rem); transition: opacity 170ms ease, transform 210ms cubic-bezier(0.2, 0.8, 0.2, 1); }
-  .effort-footer.holding .quick-actions { opacity: 0; pointer-events: none; transform: translateY(0.22rem); }
-  .effort-footer.holding .effort-guidance { opacity: 1; transform: translateY(0); }
-  .advanced-toggle, .advanced-heading { display: flex; min-height: 2rem; align-items: center; gap: 0.2rem; border-radius: 0.5rem; padding: 0.3rem 0.2rem; color: var(--muted-foreground); text-align: left; }
-  .advanced-toggle { width: 100%; min-width: 0; flex: 1 1 auto; }
-  .advanced-toggle:hover, .advanced-heading:hover { background: color-mix(in srgb, var(--accent) 65%, transparent); color: var(--foreground); }
-  .advanced-heading { width: 100%; }
-  .advanced-chevron { display: grid; width: 0.95rem; height: 0.95rem; flex: 0 0 0.95rem; place-items: center; transform: rotate(0deg); transition: transform 240ms cubic-bezier(0.22, 0.75, 0.18, 1); }
-  .advanced-chevron.expanded { transform: rotate(90deg); }
-  .fast-button { display: flex; width: 2rem; height: 2rem; flex: 0 0 auto; align-items: center; justify-content: flex-end; border-radius: 0.55rem; color: var(--muted-foreground); transition: color 240ms ease, background-color 240ms ease, transform 180ms cubic-bezier(0.2, 0.8, 0.2, 1); }
+  .quick-actions { display: flex; align-items: center; justify-content: space-between; gap: 0.25rem; opacity: 1; transition: opacity 180ms ease; }
+  .effort-guidance { display: flex; align-items: center; justify-content: space-between; padding: 0 0.5rem 0 0.35rem; color: var(--muted-foreground); opacity: 0; pointer-events: none; transition: opacity 180ms ease; }
+  .effort-footer.holding .quick-actions { opacity: 0; pointer-events: none; }
+  .effort-footer.holding .effort-guidance { opacity: 1; }
+  .model-picker-toggle { display: flex; min-width: 0; min-height: 2rem; flex: 1 1 auto; align-items: center; gap: 0.2rem; border-radius: 0.5rem; margin-left: -0.2rem; padding: 0.3rem 0.35rem 0.3rem 0.55rem; color: var(--muted-foreground); text-align: left; }
+  .model-picker-toggle:hover, .model-picker-toggle[aria-expanded="true"] { background: color-mix(in srgb, var(--accent) 65%, transparent); color: var(--foreground); }
+  .model-picker-toggle:focus-visible { outline: 1px solid color-mix(in srgb, var(--ring) 52%, transparent); outline-offset: -1px; }
+  .fast-button { display: flex; width: 2rem; height: 2rem; flex: 0 0 auto; align-items: center; justify-content: center; border-radius: 0.55rem; color: var(--muted-foreground); transition: color 240ms ease, background-color 240ms ease, transform 180ms cubic-bezier(0.2, 0.8, 0.2, 1); }
   .fast-button :global(svg) { fill: transparent; transform: scale(0.94); transition: fill 200ms ease, transform 220ms cubic-bezier(0.2, 0.8, 0.2, 1); }
   .fast-button.active :global(svg) { fill: currentColor; transform: scale(1); }
   .fast-button:hover { background: color-mix(in srgb, var(--accent) 65%, transparent); color: var(--foreground); }
@@ -1168,33 +1155,25 @@
   .fast-button.dummy:disabled { cursor: not-allowed; opacity: 0.48; }
   :global(.dark) .fast-button.active { background: rgb(22 129 220 / 0.16); color: #3b9aeb; }
   :global(.dark) .fast-button.active.ultra { background: rgb(167 139 250 / 0.15); color: #b794ff; }
-  .advanced-list { padding-top: 0.3rem; }
-  .advanced-list button { display: grid; width: 100%; grid-template-columns: minmax(0, 1fr) minmax(0, auto) 1rem; align-items: center; gap: 0.5rem; border-radius: 0.55rem; padding: 0.5rem 0.2rem; text-align: left; }
-  .advanced-list button:hover, .advanced-list button:focus-visible { background: color-mix(in srgb, var(--accent) 70%, transparent); outline: none; }
-  .advanced-list button:disabled { cursor: not-allowed; opacity: 0.48; }
-  .advanced-list button:disabled:hover { background: transparent; }
-  .advanced-list small { overflow: hidden; max-width: 9rem; text-overflow: ellipsis; white-space: nowrap; color: var(--muted-foreground); font-size: 0.8125rem; }
-  .model-flyout { position: absolute; z-index: 46; width: min(16.5rem, calc(100vw - 1rem)); max-height: min(28rem, 72vh); overflow: hidden auto; border: 1px solid var(--border); border-radius: 0.8rem; background: var(--popover); padding: 0.35rem; font-size: 0.875rem; box-shadow: 0 4px 12px rgb(0 0 0 / 0.09); }
+  .model-flyout { position: absolute; z-index: 46; width: min(16.5rem, calc(100vw - 1rem)); max-height: min(28rem, 72vh); overflow: hidden auto; border: 1px solid var(--border); border-radius: 0.8rem; background: var(--popover); padding: 0.35rem; font-size: 0.875rem; box-shadow: 0 2px 6px rgb(0 0 0 / 0.07); }
   .model-flyout:not(.positioned) { visibility: hidden; }
   .model-flyout.model-picker-flyout { width: min(16.5rem, calc(100vw - 1rem)); overflow: hidden; padding: 0; }
   .model-picker-shell { width: 100%; height: min(24rem, 72vh); min-height: min(18rem, 72vh); }
   .model-picker-main { display: flex; width: 100%; height: 100%; min-width: 0; min-height: 0; flex-direction: column; overflow: hidden; padding: 0.5rem 0.55rem; }
   .selection-list { padding-top: 0.3rem; }
-  .selection-list > button, .model-company-content-inner > button { display: grid; width: 100%; grid-template-columns: minmax(0, 1fr) auto auto; align-items: center; gap: 0.45rem; border-radius: 0.55rem; padding: 0.5rem 0.55rem; text-align: left; }
-  .selection-list > button:has(> :global(svg:first-child)) { grid-template-columns: 1.3rem minmax(0, 1fr) auto; }
-  .selection-list > button:hover, .selection-list > button:focus-visible, .model-company-content-inner > button:hover, .model-company-content-inner > button:focus-visible { background: var(--accent); outline: none; }
-  .selection-list > button:disabled, .model-company-content-inner > button:disabled { opacity: 0.55; }
-  .selection-list > button > span, .model-company-content-inner > button > span { min-width: 0; }
-  .selection-list strong, .selection-list small { display: block; }
+  .model-company-content-inner > button { display: grid; width: 100%; grid-template-columns: minmax(0, 1fr) auto auto; align-items: center; gap: 0.45rem; border-radius: 0.55rem; padding: 0.5rem 0.55rem; text-align: left; }
+  .model-company-content-inner > button:hover, .model-company-content-inner > button:focus-visible { background: var(--accent); outline: none; }
+  .model-company-content-inner > button:disabled { opacity: 0.55; }
+  .model-company-content-inner > button > span { min-width: 0; }
+  .selection-list strong { display: block; }
   .selection-list strong { font-size: 0.875rem; font-weight: 500; }
-  .selection-list small { overflow: hidden; margin-top: 0.1rem; text-overflow: ellipsis; white-space: nowrap; color: var(--muted-foreground); font-size: 0.75rem; }
   .model-list-content > p, .model-company-content-inner > p { padding: 0.38rem 0.5rem; color: var(--muted-foreground); font-size: 0.75rem; }
   .model-search-row { display: flex; flex: 0 0 auto; align-items: center; gap: 0.35rem; border-bottom: 1px solid var(--border); margin: 0 0.15rem 0.2rem; transition: border-color 150ms ease; }
   .model-search-row:focus-within { border-color: var(--primary); }
   .model-search { display: flex; min-width: 0; flex: 1; align-items: center; gap: 0.45rem; padding: 0.5rem 0.15rem; color: var(--muted-foreground); }
   .model-search:focus-within { color: var(--foreground); }
   .model-search input { min-width: 0; flex: 1; user-select: text; background: transparent; color: var(--foreground); font-size: 0.875rem; outline: none; }
-  .model-list-frame { --cal-scrollbar-thumb: color-mix(in srgb, var(--popover-foreground) 18%, var(--popover)); --cal-scrollbar-thumb-hover: color-mix(in srgb, var(--popover-foreground) 36%, var(--popover)); position: relative; min-height: 0; flex: 1; margin-right: -0.55rem; }
+  .model-list-frame { --cal-scrollbar-thumb: color-mix(in srgb, var(--popover-foreground) 18%, var(--popover)); --cal-scrollbar-thumb-hover: var(--cal-scrollbar-thumb); position: relative; min-height: 0; flex: 1; margin-right: -0.55rem; }
   .model-list { --model-list-scroll-fade-size: 2rem; height: 100%; min-height: 0; overflow-y: auto; padding: 0 0.55rem 0 0; transition: -webkit-mask-image 120ms ease, mask-image 120ms ease; }
   .model-list-scroll-top { -webkit-mask-image: linear-gradient(to bottom, transparent, black var(--model-list-scroll-fade-size), black); mask-image: linear-gradient(to bottom, transparent, black var(--model-list-scroll-fade-size), black); }
   .model-list-scroll-bottom { -webkit-mask-image: linear-gradient(to bottom, black, black calc(100% - var(--model-list-scroll-fade-size)), transparent); mask-image: linear-gradient(to bottom, black, black calc(100% - var(--model-list-scroll-fade-size)), transparent); }
@@ -1222,16 +1201,10 @@
   .model-favorite { display: grid; width: 2rem; height: 2rem; place-items: center; border-radius: 0.45rem; color: var(--muted-foreground); }
   .model-favorite:hover, .model-favorite:focus-visible, .model-favorite.active { color: var(--foreground); }
   .model-picker-error { color: var(--destructive) !important; }
-  .option-list > label { display: flex; align-items: center; gap: 0.55rem; border-radius: 0.5rem; padding: 0.5rem; }
-  .option-list > label:hover { background: var(--accent); }
-  .option-list > label > span { min-width: 0; flex: 1; }
-  .range-option, .text-option { flex-direction: column; align-items: stretch !important; }
-  .range-option input, .text-option input { width: 100%; }
-  .text-option input { user-select: text; border-radius: 0.45rem; background: var(--muted); padding: 0.4rem 0.5rem; color: var(--foreground); outline: none; }
   @keyframes ultra-color-flow { from { background-position: 0 0; } to { background-position: 100% 0; } }
   @keyframes galaxy-drift { from { background-position: 0 0, 0 0, 0 0, 0 0, 0 0, 0 0, 0 0, 0 0; } to { background-position: -83px 0, -107px 0, -131px 0, -157px 0, -191px 0, -223px 0, -269px 0, -311px 0; } }
   @keyframes galaxy-stream { from { background-position: 0 0, 0 0, 0 0, 0 0, 0 0, 0 0, 0 0, 0 0; } to { background-position: -83px 0, -107px 0, -131px 0, -157px 0, -191px 0, -223px 0, -269px 0, -311px 0; } }
   @container chat-composer (max-width: 460px) { .model-trigger { max-width: 11rem; } .effort-name { display: none; } }
   @container chat-composer (max-width: 330px) { .model-trigger { max-width: 7.5rem; padding-inline: 0.45rem; } }
-  @media (prefers-reduced-motion: reduce) { .model-control, .picker-stage, .picker-view, .quick-actions, .effort-guidance, .model-company-content, .model-list { transition-duration: 0.01ms; } .effort-fill::before, .effort-particles { animation: none; background-position: 50% 0; } }
+  @media (prefers-reduced-motion: reduce) { .model-control, .quick-actions, .effort-guidance, .model-company-content, .model-list { transition-duration: 0.01ms; } .effort-fill::before, .effort-particles { animation: none; background-position: 50% 0; } }
 </style>
