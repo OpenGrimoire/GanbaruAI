@@ -74,7 +74,7 @@
   .first-use-content { display: flex; width: 100%; max-width: 42rem; flex-direction: column; align-items: center; text-align: center; }
   .first-use-shell.new-thread { align-items: stretch; }
   .first-use-content.new-thread { max-width: none; justify-content: flex-end; padding-bottom: clamp(0.25rem, 2vh, 1.5rem); }
-  .hero-composer-shell { width: min(100%, 46rem); text-align: left; }
+  .hero-composer-shell { width: min(100%, 54rem); text-align: left; }
   .working-folder-context { display: flex; min-width: 0; min-height: 3.15rem; align-items: center; gap: 1.2rem; margin-inline: 1.35rem; border-radius: 1.2rem 1.2rem 0 0; background: color-mix(in srgb, var(--muted) 72%, transparent); padding: 0.45rem 1.1rem 0.7rem; color: var(--foreground); font-size: 0.8rem; }
   .working-folder-context > button, .working-folder-context > span { display: flex; min-width: 0; align-items: center; gap: 0.45rem; }
   .working-folder-context > button { max-width: 45%; border-radius: 0.4rem; }

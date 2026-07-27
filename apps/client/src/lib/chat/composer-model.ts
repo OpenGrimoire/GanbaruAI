@@ -276,12 +276,6 @@ export function shouldSendComposerKey(event: Pick<KeyboardEvent, "key" | "shiftK
   return sendKey === "enter" ? !modified : modified;
 }
 
-export function autosizeComposerHeight(scrollHeight: number, lineHeight: number): number {
-  const minimum = Math.max(64, lineHeight * 3 + 16);
-  const maximum = Math.max(minimum, lineHeight * 10 + 16);
-  return Math.min(maximum, Math.max(minimum, scrollHeight));
-}
-
 export function validateImageFiles(
   files: Pick<File, "name" | "size" | "type">[],
   existingCount: number,

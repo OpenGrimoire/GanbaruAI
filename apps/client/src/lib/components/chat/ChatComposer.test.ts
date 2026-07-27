@@ -5,6 +5,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ChatComposerSnapshot } from "$lib/chat/composer-controller";
 import type { ChatAttachmentRead, ChatSettingsRead } from "$lib/chat/contracts";
 import { composerModelSelection, readComposerModelSelection } from "$lib/chat/composer-model";
+import {
+  notesTextSelectionFromEditableRoot,
+  restoreNotesEditableSelection,
+} from "$lib/notes/editor-selection";
 import { getChat } from "$lib/stores/chat.svelte";
 import ChatComposer from "./ChatComposer.svelte";
 
@@ -59,21 +63,22 @@ describe("ChatComposer", () => {
     vi.unstubAllGlobals();
   });
 
-  function setup(hero = false): { target: HTMLDivElement; textarea: HTMLTextAreaElement } {
+  function setup(hero = false): { target: HTMLDivElement; editor: HTMLElement } {
     const target = document.createElement("div");
     document.body.append(target);
     const component = mount(ChatComposer, { target, props: { hero } });
     mounted.push({ target, component });
-    const textarea = target.querySelector("textarea[data-chat-composer]");
-    if (!(textarea instanceof HTMLTextAreaElement)) throw new Error("Chat composer did not render");
-    return { target, textarea };
+    const editor = target.querySelector("[data-chat-composer]");
+    if (!(editor instanceof HTMLElement)) throw new Error("Chat composer did not render");
+    return { target, editor };
   }
 
   it("restores focus and selection when the shared composer changes layout", async () => {
     const first = setup(true);
-    first.textarea.focus();
-    first.textarea.setSelectionRange(3, 7);
-    first.textarea.dispatchEvent(new Event("select", { bubbles: true }));
+    await tick();
+    first.editor.focus();
+    restoreNotesEditableSelection(first.editor, { start: 3, end: 7 });
+    first.editor.dispatchEvent(new KeyboardEvent("keyup", { bubbles: true, key: "ArrowRight" }));
     const firstMount = mounted.pop();
     if (!firstMount) throw new Error("First composer mount was not recorded");
     await unmount(firstMount.component);
@@ -82,8 +87,46 @@ describe("ChatComposer", () => {
     const second = setup(false);
     await tick();
     await tick();
-    expect(document.activeElement).toBe(second.textarea);
-    expect([second.textarea.selectionStart, second.textarea.selectionEnd]).toEqual([3, 7]);
+    expect(document.activeElement).toBe(second.editor);
+    expect(notesTextSelectionFromEditableRoot(second.editor)).toEqual({ start: 3, end: 7 });
+  });
+
+  it("renders a text-backed empty line after a soft break", async () => {
+    const chat = getChat();
+    chat.composer = { ...composer(), text: "Example\n" };
+    const { editor } = setup(false);
+    await tick();
+
+    const lines = editor.querySelectorAll('[data-notes-editor-line="true"]');
+    expect(lines).toHaveLength(2);
+    expect(lines[0]?.textContent).toBe("Example");
+    expect(lines[1]?.querySelector('[data-notes-editor-sentinel="empty-line"]')?.textContent).toBe("\u200b");
+    expect(editor.textContent?.replace(/\u200b/gu, "")).toBe("Example");
+  });
+
+  it("inserts Shift+Enter as a controlled soft break", async () => {
+    const chat = getChat();
+    chat.composer = { ...composer(), text: "Example" };
+    vi.spyOn(chat, "setComposerText").mockImplementation((text) => {
+      chat.composer = { ...chat.composer, text };
+    });
+    const { editor } = setup(false);
+    await tick();
+    editor.focus();
+    restoreNotesEditableSelection(editor, { start: 7, end: 7 });
+
+    editor.dispatchEvent(new InputEvent("beforeinput", {
+      bubbles: true,
+      cancelable: true,
+      inputType: "insertLineBreak",
+    }));
+    await tick();
+    await tick();
+
+    expect(chat.composer.text).toBe("Example\n");
+    expect(editor.querySelectorAll('[data-notes-editor-line="true"]')).toHaveLength(2);
+    expect(editor.querySelector('[data-notes-editor-sentinel="empty-line"]')?.textContent).toBe("\u200b");
+    expect(notesTextSelectionFromEditableRoot(editor)).toEqual({ start: 8, end: 8 });
   });
 
   it("keeps the simplified composer actions directly discoverable", () => {
