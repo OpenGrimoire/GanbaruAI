@@ -919,6 +919,8 @@
 
 <style>
   .chat-workspace {
+    --chat-conversation-font-size: 0.933333rem;
+    --chat-conversation-line-height: 1.4rem;
     --chat-rail-column-width: 2.75rem;
     --chat-inspector-column-width: 0px;
     --chat-global-actions-width: 6.5rem;

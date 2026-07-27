@@ -591,9 +591,9 @@
   .chat-composer > :not(.editor-shell) { margin-inline: 0.75rem; }
   .editor-shell { position: relative; }
   .active-turn-modes { margin-top: 0.6rem; color: var(--muted-foreground); font-size: 0.666667rem; }
-  .composer-editor { display: block; width: 100%; min-height: 4.15rem; max-height: 15.35rem; overflow-y: auto; background: transparent; padding: 1rem 1.25rem 0.35rem; color: var(--foreground); caret-color: var(--foreground); font-size: 0.933333rem; line-height: 1.4rem; outline: none; white-space: pre-wrap; overflow-wrap: anywhere; }
+  .composer-editor { display: block; width: 100%; min-height: 4.15rem; max-height: 15.35rem; overflow-y: auto; background: transparent; padding: 1rem 1.25rem 0.35rem; color: var(--foreground); caret-color: var(--foreground); font-size: var(--chat-conversation-font-size, 0.933333rem); line-height: var(--chat-conversation-line-height, 1.4rem); outline: none; white-space: pre-wrap; overflow-wrap: anywhere; }
   .composer-editor:empty::before { color: color-mix(in srgb, var(--muted-foreground) 52%, transparent); content: attr(data-placeholder); pointer-events: none; }
-  .composer-editor-line { display: block; min-height: 1.4rem; line-height: inherit; }
+  .composer-editor-line { display: block; min-height: var(--chat-conversation-line-height, 1.4rem); line-height: inherit; }
   .composer-empty-line { color: transparent; }
   .composer-toolbar { display: grid; min-height: 3rem; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 0.5rem; padding: 0.3rem 0.75rem 0.65rem; }
   .toolbar-left, .toolbar-right { display: flex; min-width: 0; align-items: center; gap: 0.3rem; }
