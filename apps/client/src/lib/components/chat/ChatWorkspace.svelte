@@ -62,6 +62,8 @@
   let globalActionsElement: HTMLDivElement | undefined = $state();
   let railShell: HTMLDivElement | undefined = $state();
   let inspectorShell: HTMLElement | undefined = $state();
+  let composerDockElement: HTMLDivElement | undefined = $state();
+  let composerDockHeight = $state(0);
   let commandDialog: HTMLDivElement | undefined = $state();
   let commandMenuOpen = $state(false);
   let resizingInspector = $state(false);
@@ -359,6 +361,22 @@
         maximum,
       );
     }
+  });
+
+  $effect(() => {
+    const dock = composerDockElement;
+    if (!dock) {
+      composerDockHeight = 0;
+      return;
+    }
+    const updateHeight = () => {
+      const next = Math.ceil(dock.getBoundingClientRect().height);
+      if (next !== composerDockHeight) composerDockHeight = next;
+    };
+    updateHeight();
+    const observer = new ResizeObserver(updateHeight);
+    observer.observe(dock);
+    return () => observer.disconnect();
   });
 
   $effect(() => {
@@ -887,9 +905,9 @@
           <div class="m-auto text-sm text-muted-foreground">{t("common.loading")}</div>
         {:else if chat.selectedThread}
           <div class="chat-conversation-shell">
-            <ChatTimeline />
+            <ChatTimeline bottomInsetPx={composerDockHeight} />
             {#if !chat.selectedThread.archivedAt}
-              <div class="chat-composer-dock">
+              <div bind:this={composerDockElement} class="chat-composer-dock">
                 <div class="chat-composer-backdrop" aria-hidden="true"></div>
                 <ChatComposer />
               </div>
@@ -981,9 +999,9 @@
   .chat-bottom-transition-shell.snap-transition { transition: height var(--chat-panel-transition-duration) cubic-bezier(0.22, 1, 0.36, 1); }
   .chat-sheet-backdrop { position: absolute; inset: 0; z-index: 30; background: rgb(0 0 0 / 0.28); }
   .chat-rail-backdrop { top: var(--cal-header-row-h); }
-  .chat-conversation-shell { position: relative; display: flex; min-height: 0; flex: 1; flex-direction: column; overflow: hidden; }
+  .chat-conversation-shell { --chat-scrollbar-gutter: 8px; position: relative; display: flex; min-height: 0; flex: 1; flex-direction: column; overflow: hidden; }
   .chat-composer-dock { pointer-events: none; position: absolute; inset-inline: 0; bottom: 0; z-index: 20; padding: 0.5rem 0.75rem 0.75rem; }
-  .chat-composer-backdrop { position: absolute; inset: -1.5rem 0 -2rem; background: linear-gradient(to bottom, transparent, color-mix(in srgb, var(--cal-bg) 72%, transparent) 35%, var(--cal-bg) 74%); -webkit-mask-image: linear-gradient(to bottom, transparent, black 35%); mask-image: linear-gradient(to bottom, transparent, black 35%); }
+  .chat-composer-backdrop { position: absolute; inset: -1.5rem var(--chat-scrollbar-gutter) -2rem 0; background: linear-gradient(to bottom, transparent, color-mix(in srgb, var(--cal-bg) 72%, transparent) 35%, var(--cal-bg) 74%); -webkit-mask-image: linear-gradient(to bottom, transparent, black 35%); mask-image: linear-gradient(to bottom, transparent, black 35%); }
   .chat-composer-dock :global(.chat-composer) { pointer-events: auto; }
   .chat-command { display: flex; width: 100%; min-height: 2.25rem; align-items: center; gap: 0.5rem; border-radius: 0.375rem; padding: 0.375rem 0.5rem; font-size: 0.8rem; }
   .chat-command:hover { background: var(--accent); }

@@ -31,7 +31,6 @@
     validateImageFiles,
     validateModelOptions,
   } from "$lib/chat/composer-model";
-  import { providerPermissionFileName } from "$lib/chat/permission-modes";
   import { formatNumber } from "$lib/i18n/formatters";
   import { getLocalization } from "$lib/i18n/translator.svelte";
   import { getChat } from "$lib/stores/chat.svelte";
@@ -75,9 +74,6 @@
   const hasDraft = $derived(Boolean(chat.composer.text.trim()) || chat.composer.attachmentIds.length > 0 || chat.composer.mentions.length > 0);
   const action = $derived(composerActionState(chat.interaction?.sessionState ?? "stopped", capabilities, hasDraft, pending !== null));
   const latestUsage = $derived(chat.interaction?.usage ?? chat.timelinePages.flatMap((page) => page.turns).at(-1)?.usage ?? null);
-  const activeTurn = $derived(chat.timelinePages
-    .flatMap((page) => page.turns)
-    .find((turn) => turn.turnId === chat.interaction?.activeTurnId) ?? null);
   const meter = $derived(contextMeter(latestUsage?.contextTokens ?? null, latestUsage?.contextLimit ?? null));
   const previewAttachment = $derived(chat.composerAttachments.find((attachment) => attachment.id === previewAttachmentId) ?? null);
   const projectArchived = $derived(projects.selectedProject?.status === "archived");
@@ -466,20 +462,11 @@
     return mode === "full_access" || mode === "custom";
   }
 
-  function permissionModeLabel(mode: SafetyMode): string {
-    switch (mode) {
-      case "ask_for_approval": return t("chat.hero.askForApproval");
-      case "approve_for_me": return t("chat.hero.approveForMe");
-      case "full_access": return t("chat.hero.fullAccess");
-      case "custom": return t("chat.hero.customPermissions", providerPermissionFileName(provider?.configuration.familyId ?? null));
-    }
-  }
 </script>
 
 <section class:hero class="chat-composer" data-chat-composer-container role="group" ondragover={(event) => event.preventDefault()} ondrop={handleDrop}>
   {#if chat.interaction?.queuedFollowup}<div class="queued-row"><div><strong>{t("chat.composer.queued")}</strong><p>{chat.interaction.queuedFollowup.text}</p></div><button type="button" onclick={() => void chat.editQueuedFollowup()}>{t("chat.composer.editQueued")}</button><button type="button" onclick={() => void chat.cancelQueuedFollowup()}>{t("chat.composer.cancelQueued")}</button></div>{/if}
   {#if chat.sendError}<div role="alert" class="recovery-row"><strong>{t("chat.composer.launchFailed")}</strong><span>{chat.sendError}</span><button type="button" onclick={() => void run(() => chat.retryFailedSend())}>{t("chat.timeline.retry")}</button><button type="button" onclick={() => void chat.editFailedSend()}>{t("chat.composer.editDraft")}</button><button type="button" onclick={() => void chat.changeProviderAfterFailure()}>{t("chat.composer.changeProvider")}</button></div>{/if}
-  {#if activeTurn}<p class="active-turn-modes">{t("chat.composer.activeTurnModes", permissionModeLabel(activeTurn.modes.safetyMode), activeTurn.modes.interactionMode === "plan" ? t("chat.hero.plan") : t("chat.hero.build"))}</p>{/if}
   {#if projectArchived}<div role="status" class="recovery-row"><strong>{t("chat.firstUse.archivedProjectTitle")}</strong><span>{t("chat.composer.archivedProject")}</span></div>{/if}
   {#if workingFolderUnavailable}<div role="status" class="recovery-row"><strong>{t("chat.firstUse.missingBindingTitle")}</strong><span>{t("chat.composer.workingFolderUnavailable")}</span></div>{/if}
   {#if chat.composerAttachments.length > 0}<div class="attachment-grid">{#each chat.composerAttachments as attachment}<article><button type="button" class="attachment-preview" aria-label={t("chat.composer.previewAttachment", attachment.originalDisplayName)} onclick={() => void openPreview(attachment.id)}>{#if thumbnailUrls[attachment.id]}<img src={thumbnailUrls[attachment.id]} alt={attachment.originalDisplayName} />{:else}<LoaderCircle size={16} class="animate-spin" />{/if}</button><span title={attachment.originalDisplayName}>{attachment.originalDisplayName}</span><button type="button" aria-label={t("chat.composer.removeAttachment", attachment.originalDisplayName)} onclick={() => chat.removeComposerAttachment(attachment.id)}><X size={12} /></button></article>{/each}</div>{/if}
@@ -546,7 +533,6 @@
   .chat-composer.hero { width: min(100%, 54rem); text-align: left; }
   .chat-composer > :not(.editor-shell) { margin-inline: 0.75rem; }
   .editor-shell { position: relative; }
-  .active-turn-modes { margin-top: 0.6rem; color: var(--muted-foreground); font-size: 0.666667rem; }
   .composer-editor { position: relative; display: block; width: 100%; min-height: 4.15rem; max-height: 15.35rem; overflow-y: auto; background: transparent; padding: 1rem 1.25rem 0.35rem; color: var(--foreground); caret-color: var(--foreground); font-size: var(--chat-conversation-font-size, 0.933333rem); line-height: var(--chat-conversation-line-height, 1.4rem); outline: none; overflow-wrap: anywhere; white-space: pre-wrap; }
   .composer-editor:global([data-empty="true"])::before { position: absolute; color: color-mix(in srgb, var(--muted-foreground) 52%, transparent); content: attr(data-placeholder); pointer-events: none; }
   .composer-editor :global([data-chat-composer-line]) { display: block; min-height: var(--chat-conversation-line-height, 1.4rem); line-height: inherit; }

@@ -17,6 +17,11 @@ export interface TimelineVirtualWindow {
   paddingBottom: number;
 }
 
+export interface TimelineScrollbarThumbGeometry {
+  offset: number;
+  size: number;
+}
+
 export type TimelineScrollIntent = "following" | "near_end" | "anchored";
 export type TimelineMinimapRow = TimelineMessageRow | TimelineActivityRow;
 
@@ -98,9 +103,29 @@ export function computeTimelineVirtualWindow(
   };
 }
 
-/** Preserves the same visible anchor after older rows are prepended. */
-export function scrollTopAfterPrepend(scrollTop: number, anchorTopBefore: number, anchorTopAfter: number): number {
+/** Preserves the same visible anchor after timeline geometry changes. */
+export function scrollTopForPreservedAnchor(scrollTop: number, anchorTopBefore: number, anchorTopAfter: number): number {
   return Math.max(0, scrollTop + anchorTopAfter - anchorTopBefore);
+}
+
+/** Computes native-style scrollbar thumb geometry for a changing timeline extent. */
+export function timelineScrollbarThumbGeometry(
+  scrollHeight: number,
+  clientHeight: number,
+  scrollTop: number,
+  minimumSize = 24,
+): TimelineScrollbarThumbGeometry | null {
+  const contentSize = Math.max(0, scrollHeight);
+  const trackSize = Math.max(0, clientHeight);
+  if (trackSize === 0 || contentSize <= trackSize) return null;
+  const size = Math.min(trackSize, Math.max(minimumSize, trackSize * trackSize / contentSize));
+  const maximumOffset = trackSize - size;
+  const maximumScroll = contentSize - trackSize;
+  const boundedScrollTop = Math.min(maximumScroll, Math.max(0, scrollTop));
+  return {
+    offset: maximumScroll > 0 ? maximumOffset * boundedScrollTop / maximumScroll : 0,
+    size,
+  };
 }
 
 /** Merges paged projection rows without duplicating stable activity IDs. */

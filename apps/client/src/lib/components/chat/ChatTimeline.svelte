@@ -22,7 +22,7 @@
   import { chatScrollBehavior } from "$lib/chat/responsive-layout";
   import { chatModelParticipant, type ChatModelParticipant } from "$lib/chat/participant-identity";
   import { buildTimelineDisplayRows, includeOptimisticTimelineMessage, projectTimelineReadModel, timelineActivityShowsLiveStatus, timelineActivitySupportsDisclosure, timelineModelGroupStartIds, type TimelineActivityGroupRow, type TimelineActivityRow, type TimelineDisplayRow, type TimelineMessageRow, type TimelinePlanRow, type TimelineTurnFoldRow } from "$lib/chat/timeline-model";
-  import { computeTimelineVirtualWindow, nextTimelineUnreadCount, scrollTopAfterPrepend, timelineMinimapRows, timelineScrollIntent, type TimelineScrollIntent } from "$lib/chat/timeline-virtualization";
+  import { computeTimelineVirtualWindow, nextTimelineUnreadCount, scrollTopForPreservedAnchor, timelineMinimapRows, timelineScrollbarThumbGeometry, timelineScrollIntent, type TimelineScrollbarThumbGeometry, type TimelineScrollIntent } from "$lib/chat/timeline-virtualization";
   import { formatDateTime, formatNumber } from "$lib/i18n/formatters";
   import { getLocalization } from "$lib/i18n/translator.svelte";
   import { getChat } from "$lib/stores/chat.svelte";
@@ -35,17 +35,22 @@
   import ChatModelAvatar from "./ChatModelAvatar.svelte";
   import ProfileAvatar from "$lib/components/profile/ProfileAvatar.svelte";
 
+  const { bottomInsetPx = 0 } = $props<{ bottomInsetPx?: number }>();
+  const COMPOSER_READING_GAP_PX = 8;
+  const TIMELINE_EDGE_PADDING_PX = 16;
   const localization = getLocalization();
   const { t } = localization;
   const chat = getChat();
   const preferences = getPreferences();
   const settings = getSettingsLauncher();
   let scroller: HTMLDivElement | undefined = $state();
+  let timelineContent: HTMLDivElement | undefined = $state();
   let scrollTop = $state(0);
   let viewportHeight = $state(600);
   let viewportWidth = $state(800);
   let expandedTurns = $state<string[]>([]);
   let expandedGroups = $state<string[]>([]);
+  let expandedActivities = $state<string[]>([]);
   let expandedMessages = $state<string[]>([]);
   let dismissedPlans = $state<string[]>([]);
   let measuredHeights = $state<Map<string, number>>(new Map());
@@ -58,6 +63,17 @@
   let reducedMotion = $state(false);
   let copiedMessageId = $state<string | null>(null);
   let copiedMessageTimer: ReturnType<typeof setTimeout> | null = null;
+  let disclosureMeasureFrame: number | null = null;
+  let pendingDisclosureAnchor: { rowId: string; viewportOffset: number } | null = null;
+  let scrollbarGeometry = $state<TimelineScrollbarThumbGeometry | null>(null);
+  let scrollbarTrackTop = $state(0);
+  let scrollbarTrackHeight = $state(0);
+  let scrollbarDrag = $state<{
+    pointerId: number;
+    startClientY: number;
+    startScrollTop: number;
+    scrollPerPixel: number;
+  } | null>(null);
   const pageTurns = $derived(chat.timelinePages.flatMap((page) => page.turns));
   const projection = $derived(projectTimelineReadModel(chat.timelineItems, pageTurns));
   const selectedThread = $derived(chat.selectedThread);
@@ -74,26 +90,40 @@
   const minimapRows = $derived(timelineMinimapRows(displayRows));
   const showMinimap = $derived(displayRows.length >= 80 && viewportWidth >= 900 && minimapRows.length > 0);
   const timelineRevision = $derived(`${chat.timelinePages.at(-1)?.threadRevision ?? 0}:${chat.pendingUserMessage?.row.id ?? ""}`);
+  const bottomPadding = $derived(
+    virtualWindow.paddingBottom
+      + (bottomInsetPx > 0 ? bottomInsetPx + COMPOSER_READING_GAP_PX : TIMELINE_EDGE_PADDING_PX),
+  );
 
   onMount(() => {
     const observer = new ResizeObserver(([entry]) => {
       if (!entry) return;
       viewportHeight = entry.contentRect.height;
       viewportWidth = entry.contentRect.width;
+      updateTimelineScrollbar();
     });
     if (scroller) observer.observe(scroller);
+    const contentObserver = new ResizeObserver(updateTimelineScrollbar);
+    if (timelineContent) contentObserver.observe(timelineContent);
+    updateTimelineScrollbar();
     const motion = window.matchMedia("(prefers-reduced-motion: reduce)");
     const updateMotion = () => { reducedMotion = motion.matches; };
     updateMotion();
     motion.addEventListener("change", updateMotion);
+    scroller?.addEventListener("click", handleTimelineClick);
+    scroller?.addEventListener("transitionend", handleTimelineTransitionEnd);
     return () => {
       observer.disconnect();
+      contentObserver.disconnect();
       motion.removeEventListener("change", updateMotion);
+      scroller?.removeEventListener("click", handleTimelineClick);
+      scroller?.removeEventListener("transitionend", handleTimelineTransitionEnd);
     };
   });
 
   onDestroy(() => {
     if (copiedMessageTimer) clearTimeout(copiedMessageTimer);
+    if (disclosureMeasureFrame !== null) cancelAnimationFrame(disclosureMeasureFrame);
   });
 
   $effect(() => {
@@ -116,6 +146,12 @@
   });
 
   $effect(() => {
+    bottomInsetPx;
+    if (intent !== "following") return;
+    void tick().then(pinToLatest);
+  });
+
+  $effect(() => {
     const threadId = selectedThread?.id;
     if (!threadId || chat.timelineLoading || restoredThreadId === threadId) return;
     restoredThreadId = threadId;
@@ -130,6 +166,7 @@
   function handleScroll(): void {
     if (!scroller) return;
     scrollTop = scroller.scrollTop;
+    updateTimelineScrollbar();
     if (selectedThread) THREAD_SCROLL_OFFSETS.set(selectedThread.id, scrollTop);
     intent = timelineScrollIntent(scroller.scrollHeight - scroller.clientHeight - scroller.scrollTop, intent);
     if (intent === "following") unreadEvents = 0;
@@ -147,7 +184,7 @@
       await chat.loadOlderTimeline(virtualWindow.items[0]?.row.sequence ?? null);
       await tick();
       const after = anchorId ? scroller.querySelector<HTMLElement>(`[data-timeline-row-id="${CSS.escape(anchorId)}"]`) : null;
-      if (after) scroller.scrollTop = scrollTopAfterPrepend(beforeScroll, beforeTop, after.offsetTop);
+      if (after) scroller.scrollTop = scrollTopForPreservedAnchor(beforeScroll, beforeTop, after.offsetTop);
     } catch (error: unknown) {
       reportError(error);
     } finally {
@@ -158,10 +195,15 @@
   function measureRows(): void {
     if (!scroller) return;
     const scrollerTop = scroller.getBoundingClientRect().top;
-    const anchor = [...scroller.querySelectorAll<HTMLElement>("[data-timeline-row-id]")]
-      .find((element) => element.getBoundingClientRect().bottom >= scrollerTop);
+    const disclosureAnchor = pendingDisclosureAnchor;
+    pendingDisclosureAnchor = null;
+    const anchor = disclosureAnchor
+      ? scroller.querySelector<HTMLElement>(`[data-timeline-row-id="${CSS.escape(disclosureAnchor.rowId)}"]`)
+      : [...scroller.querySelectorAll<HTMLElement>("[data-timeline-row-id]")]
+        .find((element) => element.getBoundingClientRect().bottom >= scrollerTop);
     const anchorId = anchor?.dataset.timelineRowId;
-    const anchorOffset = anchor ? anchor.getBoundingClientRect().top - scrollerTop : 0;
+    const anchorOffset = disclosureAnchor?.viewportOffset
+      ?? (anchor ? anchor.getBoundingClientRect().top - scrollerTop : 0);
     const next = new Map(measuredHeights);
     let changed = false;
     for (const element of scroller.querySelectorAll<HTMLElement>("[data-timeline-row-id]")) {
@@ -178,10 +220,112 @@
         void tick().then(() => {
           if (!scroller) return;
           const restored = scroller.querySelector<HTMLElement>(`[data-timeline-row-id="${CSS.escape(anchorId)}"]`);
-          if (restored) scroller.scrollTop += restored.getBoundingClientRect().top - scroller.getBoundingClientRect().top - anchorOffset;
+          if (!restored) return;
+          const restoredOffset = restored.getBoundingClientRect().top - scroller.getBoundingClientRect().top;
+          scroller.scrollTop = scrollTopForPreservedAnchor(scroller.scrollTop, anchorOffset, restoredOffset);
+          scrollTop = scroller.scrollTop;
+          if (selectedThread) THREAD_SCROLL_OFFSETS.set(selectedThread.id, scrollTop);
         });
       }
     }
+  }
+
+  function handleTimelineClick(event: MouseEvent): void {
+    if (!scroller || !(event.target instanceof Element)) return;
+    const disclosure = event.target.closest<HTMLElement>("[data-timeline-disclosure-expanded]");
+    if (!disclosure || !scroller.contains(disclosure)) return;
+    const expanding = disclosure.dataset.timelineDisclosureExpanded === "false";
+    if (!expanding) return;
+    const row = disclosure.closest<HTMLElement>("[data-timeline-row-id]");
+    const rowId = row?.dataset.timelineRowId;
+    if (!row || !rowId) return;
+    pendingDisclosureAnchor = {
+      rowId,
+      viewportOffset: row.getBoundingClientRect().top - scroller.getBoundingClientRect().top,
+    };
+    intent = "anchored";
+    if (disclosureMeasureFrame !== null) cancelAnimationFrame(disclosureMeasureFrame);
+    disclosureMeasureFrame = requestAnimationFrame(() => {
+      disclosureMeasureFrame = null;
+      measureRows();
+    });
+  }
+
+  function handleTimelineTransitionEnd(event: TransitionEvent): void {
+    if (!(event.target instanceof HTMLElement)) return;
+    if (event.propertyName !== "grid-template-rows" && event.propertyName !== "max-height") return;
+    if (!event.target.matches(".chat-disclosure-region, .chat-message-expandable, .file-change-region")) return;
+    measureRows();
+  }
+
+  function updateTimelineScrollbar(): void {
+    if (!scroller) return;
+    scrollbarTrackTop = scroller.offsetTop;
+    scrollbarTrackHeight = scroller.clientHeight;
+    scrollbarGeometry = timelineScrollbarThumbGeometry(scroller.scrollHeight, scroller.clientHeight, scroller.scrollTop);
+  }
+
+  function handleScrollbarTrackPointerDown(event: PointerEvent): void {
+    if (!scroller || !scrollbarGeometry || event.button !== 0 || event.target !== event.currentTarget) return;
+    event.preventDefault();
+    const track = event.currentTarget;
+    if (!(track instanceof HTMLElement)) return;
+    const pointerOffset = event.clientY - track.getBoundingClientRect().top;
+    if (pointerOffset < scrollbarGeometry.offset) scroller.scrollTop -= scroller.clientHeight;
+    else if (pointerOffset > scrollbarGeometry.offset + scrollbarGeometry.size) scroller.scrollTop += scroller.clientHeight;
+    updateTimelineScrollbar();
+  }
+
+  function handleScrollbarThumbPointerDown(event: PointerEvent): void {
+    if (!scroller || !scrollbarGeometry || event.button !== 0) return;
+    event.preventDefault();
+    event.stopPropagation();
+    const thumb = event.currentTarget;
+    if (!(thumb instanceof HTMLElement)) return;
+    const thumbTravel = scroller.clientHeight - scrollbarGeometry.size;
+    const scrollRange = scroller.scrollHeight - scroller.clientHeight;
+    scrollbarDrag = {
+      pointerId: event.pointerId,
+      startClientY: event.clientY,
+      startScrollTop: scroller.scrollTop,
+      scrollPerPixel: thumbTravel > 0 ? scrollRange / thumbTravel : 0,
+    };
+    thumb.setPointerCapture(event.pointerId);
+  }
+
+  function handleScrollbarThumbPointerMove(event: PointerEvent): void {
+    if (!scroller || !scrollbarDrag || event.pointerId !== scrollbarDrag.pointerId) return;
+    event.preventDefault();
+    scroller.scrollTop = scrollbarDrag.startScrollTop
+      + (event.clientY - scrollbarDrag.startClientY) * scrollbarDrag.scrollPerPixel;
+    updateTimelineScrollbar();
+  }
+
+  function finishScrollbarDrag(event: PointerEvent): void {
+    if (!scrollbarDrag || event.pointerId !== scrollbarDrag.pointerId) return;
+    const thumb = event.currentTarget;
+    if (thumb instanceof HTMLElement && thumb.hasPointerCapture(event.pointerId)) thumb.releasePointerCapture(event.pointerId);
+    scrollbarDrag = null;
+  }
+
+  function handleScrollbarWheel(event: WheelEvent): void {
+    if (!scroller) return;
+    event.preventDefault();
+    scroller.scrollTop += event.deltaY;
+    updateTimelineScrollbar();
+  }
+
+  function measureExpandableHeight(node: HTMLElement): { destroy(): void } {
+    const content = node.firstElementChild;
+    const update = () => {
+      const height = content instanceof HTMLElement ? content.scrollHeight : node.scrollHeight;
+      node.style.setProperty("--chat-expanded-height", `${Math.ceil(height)}px`);
+    };
+    update();
+    const observer = new ResizeObserver(update);
+    if (content) observer.observe(content);
+    else observer.observe(node);
+    return { destroy: () => observer.disconnect() };
   }
 
   function pinToLatest(): void {
@@ -385,16 +529,21 @@
 
 {#snippet activityHistoryRow(activity: TimelineActivityRow)}
   {#if timelineActivitySupportsDisclosure(activity)}
-    <details class="chat-process-step" class:active={activityIsInProgress(activity)} class:failed={activity.status === "failed"}>
-      <summary>
+    {@const activityExpanded = expandedActivities.includes(activity.id)}
+    <div class="chat-process-step disclosure" class:active={activityIsInProgress(activity)} class:failed={activity.status === "failed"}>
+      <button type="button" class="chat-process-step-trigger" data-timeline-disclosure-expanded={activityExpanded} aria-expanded={activityExpanded} onclick={() => { expandedActivities = toggle(expandedActivities, activity.id); }}>
         {@render activityIcon(activity)}
         <span>{activityTitle(activity)}</span>
-        <ChevronRight class="chat-step-chevron" size={14} />
-      </summary>
-      <div class="chat-step-detail">
-        <ChatActivityDetail {activity} detail={activityDetail(activity)} />
+        <ChevronRight class={activityExpanded ? "chat-step-chevron expanded" : "chat-step-chevron"} size={14} />
+      </button>
+      <div class="chat-disclosure-region" class:expanded={activityExpanded} aria-hidden={!activityExpanded} inert={!activityExpanded}>
+        <div class="chat-disclosure-inner">
+          <div class="chat-step-detail">
+            <ChatActivityDetail {activity} detail={activityDetail(activity)} />
+          </div>
+        </div>
       </div>
-    </details>
+    </div>
   {:else}
     <div class="chat-process-step" class:active={activityIsInProgress(activity)} class:failed={activity.status === "failed"} class:thinking={activityIsThinking(activity)}>
       {#if !activityIsThinking(activity)}{@render activityIcon(activity)}{/if}
@@ -425,16 +574,18 @@
     {@render activityHistoryRow(activity)}
   {:else if row.kind === "activity_group"}
     {@const group = row as TimelineActivityGroupRow}
-    <button type="button" class="chat-process-toggle" class:active={activityIsInProgress(group.latest)} onclick={() => { expandedGroups = toggle(expandedGroups, group.id); }}>
+    <button type="button" class="chat-process-toggle" class:active={activityIsInProgress(group.latest)} data-timeline-disclosure-expanded={group.expanded} aria-expanded={group.expanded} onclick={() => { expandedGroups = toggle(expandedGroups, group.id); }}>
       {#if group.expanded}<ChevronDown size={15} />{:else}<ChevronRight size={15} />{/if}
       <span>{activityTitle(group.latest)}</span>
       <small>{t("chat.timeline.earlierSteps", formatNumber(localization.locale, group.earlierRows.length))}</small>
     </button>
-    {#if group.expanded}<div class="chat-process-history">{#each [...group.earlierRows, group.latest] as activity}{@render activityHistoryRow(activity)}{/each}</div>{/if}
+    <div class="chat-disclosure-region" class:expanded={group.expanded} aria-hidden={!group.expanded} inert={!group.expanded}>
+      <div class="chat-disclosure-inner"><div class="chat-process-history">{#each [...group.earlierRows, group.latest] as activity}{@render activityHistoryRow(activity)}{/each}</div></div>
+    </div>
   {:else if row.kind === "turn_fold"}
     {@const fold = row as TimelineTurnFoldRow}
     {#if fold.hiddenRows.length > 0}
-      <button type="button" class="chat-process-toggle" class:failed={fold.state === "failed"} onclick={() => { expandedTurns = toggle(expandedTurns, fold.turnId); }}>
+      <button type="button" class="chat-process-toggle" class:failed={fold.state === "failed"} data-timeline-disclosure-expanded={fold.expanded} aria-expanded={fold.expanded} onclick={() => { expandedTurns = toggle(expandedTurns, fold.turnId); }}>
         {#if fold.expanded}<ChevronDown size={15} />{:else}<ChevronRight size={15} />{/if}
         <span>{foldLabel(fold)}</span>
       </button>
@@ -443,7 +594,9 @@
         <span>{foldLabel(fold)}</span>
       </div>
     {/if}
-    {#if fold.expanded}<div class="chat-process-history">{#each fold.hiddenRows as hiddenRow}{@render modelRowContent(hiddenRow)}{/each}</div>{/if}
+    <div class="chat-disclosure-region" class:expanded={fold.expanded} aria-hidden={!fold.expanded} inert={!fold.expanded}>
+      <div class="chat-disclosure-inner"><div class="chat-process-history">{#each fold.hiddenRows as hiddenRow}{@render modelRowContent(hiddenRow)}{/each}</div></div>
+    </div>
   {:else if row.kind === "plan"}
     {@const plan = row as TimelinePlanRow}
     <article class="chat-plan">
@@ -461,8 +614,8 @@
   {#if selectedProvider && (!selectedProvider.configuration.enabled || selectedProvider.lastProbe?.state !== "healthy")}<div class="chat-timeline-banner text-status-tentative"><CircleAlert size={14} /><span>{selectedProvider.lastProbe?.detail ?? t("chat.status.providerUnavailable")}</span><button type="button" onclick={() => void chat.probeProvider(selectedProvider.configuration.instanceId).catch(reportError)}>{t("chat.timeline.retry")}</button><button type="button" onclick={() => settings.open("chat", { chatSubsection: "providers" })}><Settings size={13} />{t("chat.timeline.openSettings")}</button></div>{/if}
   {#if selectedThread?.state === "error"}<div class="chat-timeline-banner text-destructive"><CircleAlert size={14} /><span>{t("chat.timeline.threadError")}</span><button type="button" onclick={() => chat.newDraft(selectedThread.workingFolderId)}><MessageSquare size={13} />{t("chat.timeline.startNewThread")}</button></div>{/if}
   {#if operationError || chat.timelineError}<div role="alert" class="chat-timeline-banner text-destructive"><span>{operationError ?? chat.timelineError}</span>{#if selectedThread}<button type="button" onclick={() => { operationError = null; chat.selectThread(selectedThread.id); }}>{t("chat.timeline.retry")}</button>{/if}</div>{/if}
-  <div bind:this={scroller} class="chat-timeline-scroller h-full overflow-y-auto" role="feed" aria-busy={chat.timelineLoading || undefined} aria-label={t("chat.title")} onscroll={handleScroll}>
-    <div class="chat-timeline-content mx-auto flex min-h-full flex-col justify-end py-4" style={`padding-top:${virtualWindow.paddingTop + 16}px;padding-bottom:${virtualWindow.paddingBottom + 180}px`}>
+  <div bind:this={scroller} class="chat-timeline-scroller h-full overflow-y-scroll" role="feed" aria-busy={chat.timelineLoading || undefined} aria-label={t("chat.title")} onscroll={handleScroll}>
+    <div bind:this={timelineContent} class="chat-timeline-content mx-auto flex min-h-full flex-col justify-end py-4" style={`padding-top:${virtualWindow.paddingTop + TIMELINE_EDGE_PADDING_PX}px;padding-bottom:${bottomPadding}px`}>
       {#if loadingOlder}<div class="mb-3 flex justify-center text-xs text-muted-foreground"><LoaderCircle size={14} class="animate-spin" />{t("chat.timeline.loadingOlder")}</div>{/if}
       {#if chat.timelineLoading && displayRows.length === 0}<div class="py-12 text-center text-sm text-muted-foreground">{t("common.loading")}</div>{/if}
       {#each virtualWindow.items as virtual (virtual.row.id)}
@@ -470,6 +623,7 @@
         <div data-timeline-row-id={row.id} class="chat-timeline-row" class:optimistic={row.id === optimisticMessage?.id} class:participant-start={row.kind === "message" && row.role === "user" || modelGroupStartIds.has(row.id)} role="article" aria-label={rowAriaLabel(row)} aria-posinset={virtual.index + 1} aria-setsize={displayRows.length} tabindex="-1">
           {#if row.kind === "message"}
             {@const message = row as TimelineMessageRow}
+            {@const messageExpanded = expandedMessages.includes(message.id)}
             {#if message.role === "user"}
               {@const userDisplayName = preferences.profileDisplayName || t("chat.timeline.you")}
               <div class="chat-participant-row">
@@ -477,9 +631,9 @@
                 <div class="chat-participant-content">
                   <div class="chat-participant-header"><strong>{userDisplayName}</strong><span title={t("chat.timeline.timestamp")}>{timestampLabel(message.createdAt)}</span></div>
                   <article class="chat-user-message">
-                    <div class:chat-message-collapsed={message.markdown.length > 1200 && !expandedMessages.includes(message.id)}><p class="wrap-break-word whitespace-pre-wrap">{message.markdown}</p></div>
+                    <div use:measureExpandableHeight class="chat-message-expandable" class:collapsed={message.markdown.length > 1200 && !messageExpanded} class:expanded={messageExpanded}><div><p class="wrap-break-word whitespace-pre-wrap">{message.markdown}</p></div></div>
                     {#if message.userContext}<div class="chat-user-context">{#each message.userContext.attachments as attachment}<button type="button" title={attachment.status ?? t("chat.timeline.attachment")} onclick={() => copy(attachment.displayName)}><FileText size={12} /><span>{attachment.displayName}</span>{#if attachment.byteSize !== null}<small>{formatNumber(localization.locale, attachment.byteSize)} B</small>{/if}</button>{/each}{#each message.userContext.mentions as mention}<button type="button" title={t("chat.timeline.mention")} onclick={() => copy(mention.relativePath)}><span>@</span><span>{mention.relativePath}</span></button>{/each}{#each message.userContext.terminalContext as context}<button type="button" title={t("chat.timeline.terminalContext")} onclick={() => copy(context)}><Terminal size={12} /><span>{context}</span></button>{/each}</div>{/if}
-                    {#if message.markdown.length > 1200 || message.userContext?.preCheckpointId}<div class="chat-message-meta mt-2 flex flex-wrap items-center gap-2 text-muted-foreground">{#if message.markdown.length > 1200}<button type="button" onclick={() => { expandedMessages = toggle(expandedMessages, message.id); }}>{expandedMessages.includes(message.id) ? t("chat.timeline.showLess") : t("chat.timeline.showMore")}</button>{/if}{#if message.userContext?.preCheckpointId}<button type="button" class="inline-flex items-center gap-1" onclick={() => window.dispatchEvent(new CustomEvent("ganbaru-ai:chat-revert-message", { detail: { threadId: chat.selectedThreadId, checkpointId: message.userContext?.preCheckpointId, turnId: message.turnId } }))}><RotateCcw size={11} />{t("chat.timeline.revert")}</button>{/if}</div>{/if}
+                    {#if message.markdown.length > 1200 || message.userContext?.preCheckpointId}<div class="chat-message-meta mt-2 flex flex-wrap items-center gap-2 text-muted-foreground">{#if message.markdown.length > 1200}<button type="button" data-timeline-disclosure-expanded={messageExpanded} aria-expanded={messageExpanded} onclick={() => { expandedMessages = toggle(expandedMessages, message.id); }}>{messageExpanded ? t("chat.timeline.showLess") : t("chat.timeline.showMore")}</button>{/if}{#if message.userContext?.preCheckpointId}<button type="button" class="inline-flex items-center gap-1" onclick={() => window.dispatchEvent(new CustomEvent("ganbaru-ai:chat-revert-message", { detail: { threadId: chat.selectedThreadId, checkpointId: message.userContext?.preCheckpointId, turnId: message.turnId } }))}><RotateCcw size={11} />{t("chat.timeline.revert")}</button>{/if}</div>{/if}
                   </article>
                 </div>
               </div>
@@ -509,13 +663,40 @@
       {/each}
     </div>
   </div>
+  <div
+    class="chat-timeline-scrollbar"
+    class:visible={scrollbarGeometry !== null}
+    style={`top:${scrollbarTrackTop}px;height:${scrollbarTrackHeight}px`}
+    aria-hidden="true"
+    onpointerdown={handleScrollbarTrackPointerDown}
+    onwheel={handleScrollbarWheel}
+  >
+    {#if scrollbarGeometry}
+      <div
+        class="chat-timeline-scrollbar-thumb"
+        class:dragging={scrollbarDrag !== null}
+        role="presentation"
+        style={`height:${scrollbarGeometry.size}px;transform:translateY(${scrollbarGeometry.offset}px)`}
+        onpointerdown={handleScrollbarThumbPointerDown}
+        onpointermove={handleScrollbarThumbPointerMove}
+        onpointerup={finishScrollbarDrag}
+        onpointercancel={finishScrollbarDrag}
+        onlostpointercapture={finishScrollbarDrag}
+      ></div>
+    {/if}
+  </div>
   {#if showMinimap}<nav class="chat-timeline-minimap" aria-label={t("chat.timeline.minimap")}>{#each minimapRows as row}<button type="button" class:user={row.kind === "message" && row.role === "user"} class:assistant={row.kind === "message" && row.role === "assistant"} class:error={row.kind === "activity"} class:current={row.sequence >= (virtualWindow.items[0]?.row.sequence ?? Number.MAX_SAFE_INTEGER) && row.sequence <= (virtualWindow.items.at(-1)?.row.sequence ?? Number.MIN_SAFE_INTEGER)} title={minimapLabel(row)} aria-label={t("chat.timeline.minimapRow", minimapLabel(row))} onclick={() => scrollToMinimapRow(row.id)}></button>{/each}</nav>{/if}
   {#if intent !== "following"}<button type="button" class="chat-jump-latest" onclick={jumpToLatest}><ArrowDown size={13} />{t("chat.timeline.jumpLatest")}{#if unreadEvents > 0}<span>{unreadEvents}</span>{/if}</button>{/if}
 </div>
 
 <style>
   .chat-timeline-content { width: calc(100% - 1.5rem); max-width: 54rem; }
-  .chat-timeline-scroller { overflow-anchor: none; }
+  .chat-timeline-scroller { overflow-anchor: none; scrollbar-color: transparent transparent; scrollbar-gutter: stable; }
+  .chat-timeline-scroller::-webkit-scrollbar-thumb, .chat-timeline-scroller::-webkit-scrollbar-thumb:hover, .chat-timeline-scroller::-webkit-scrollbar-thumb:active { background-color: transparent; }
+  .chat-timeline-scrollbar { pointer-events: none; position: absolute; right: 0; z-index: 30; width: 8px; contain: strict; opacity: 0; touch-action: none; }
+  .chat-timeline-scrollbar.visible { pointer-events: auto; opacity: 1; }
+  .chat-timeline-scrollbar-thumb { box-sizing: border-box; width: 8px; contain: strict; border: 2px solid transparent; border-radius: 9999px; background-color: var(--app-scrollbar-thumb); background-clip: content-box; cursor: default; will-change: transform; }
+  .chat-timeline-scrollbar-thumb:hover, .chat-timeline-scrollbar-thumb.dragging { background-color: var(--app-scrollbar-thumb-hover); }
   .chat-timeline-row { --chat-participant-gap: 0.75rem; margin-bottom: 0.25rem; border-radius: 0.4rem; padding-block: 0.2rem; }
   .chat-timeline-row.optimistic { animation: chat-message-in 140ms ease-out; }
   .chat-timeline-row.participant-start { margin-top: 1.1rem; }
@@ -535,8 +716,10 @@
   .chat-user-context button { display: inline-flex; max-width: 100%; align-items: center; gap: 0.3rem; border: 1px solid var(--border); border-radius: 999px; padding: 0.18rem 0.45rem; color: var(--muted-foreground); font-size: 0.666667rem; }
   .chat-user-context button span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .chat-user-context small { font-size: inherit; opacity: 0.8; }
-  .chat-message-collapsed { position: relative; max-height: 14rem; overflow: hidden; }
-  .chat-message-collapsed::after { position: absolute; inset: auto 0 0; height: 3rem; background: linear-gradient(transparent, var(--cal-bg)); content: ""; pointer-events: none; }
+  .chat-message-expandable { --chat-expanded-height: none; position: relative; max-height: var(--chat-expanded-height); overflow: hidden; transition: max-height 420ms cubic-bezier(0.22, 1, 0.36, 1); }
+  .chat-message-expandable.collapsed { max-height: 14rem; }
+  .chat-message-expandable::after { position: absolute; inset: auto 0 0; height: 3rem; background: linear-gradient(transparent, var(--cal-bg)); content: ""; opacity: 0; pointer-events: none; transition: opacity 220ms ease; }
+  .chat-message-expandable.collapsed::after { opacity: 1; }
   .chat-process-toggle { display: flex; width: 100%; min-height: var(--chat-conversation-line-height, 1.4rem); align-items: center; gap: 0.4rem; color: var(--muted-foreground); font-size: var(--chat-conversation-font-size, 0.933333rem); line-height: var(--chat-conversation-line-height, 1.4rem); text-align: left; }
   .chat-process-toggle > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .chat-process-toggle > small { margin-left: auto; font-size: 0.7rem; }
@@ -547,12 +730,12 @@
   .chat-process-summary { padding-left: 1.4rem; }
   .chat-process-history { display: grid; min-width: 0; gap: 0.1rem; margin-block: 0.35rem 0.55rem; color: var(--muted-foreground); }
   .chat-process-step { display: grid; width: 100%; min-width: 0; grid-template-columns: 1rem minmax(0, 1fr) 1rem; align-items: start; gap: 0.45rem; color: var(--muted-foreground); padding-block: 0.15rem; font-size: var(--chat-conversation-font-size, 0.933333rem); line-height: var(--chat-conversation-line-height, 1.4rem); }
+  .chat-process-step.disclosure { display: block; }
   .chat-process-step.thinking { grid-template-columns: minmax(0, 1fr); }
-  details.chat-process-step { display: block; }
-  .chat-process-step > span, .chat-process-step summary > span { width: fit-content; min-width: 0; max-width: 100%; justify-self: start; overflow-wrap: anywhere; }
-  .chat-process-step summary { display: grid; width: 100%; min-width: 0; cursor: pointer; grid-template-columns: 1rem minmax(0, 1fr) 1rem; align-items: start; gap: 0.45rem; list-style: none; }
+  .chat-process-step > span, .chat-process-step-trigger > span { width: fit-content; min-width: 0; max-width: 100%; justify-self: start; overflow-wrap: anywhere; }
+  .chat-process-step-trigger { display: grid; width: 100%; min-width: 0; cursor: pointer; grid-template-columns: 1rem minmax(0, 1fr) 1rem; align-items: start; gap: 0.45rem; text-align: left; }
   .chat-process-step.active, .chat-process-toggle.active { color: color-mix(in srgb, var(--muted-foreground) 78%, var(--foreground)); }
-  .chat-process-step.active > span, .chat-process-step.active summary > span, .chat-process-toggle.active > span {
+  .chat-process-step.active > span, .chat-process-step.active .chat-process-step-trigger > span, .chat-process-toggle.active > span {
     animation: chat-process-shimmer 6s ease-in-out infinite;
     background: linear-gradient(100deg, var(--muted-foreground) 0%, var(--muted-foreground) 42%, var(--foreground) 50%, var(--muted-foreground) 58%, var(--muted-foreground) 100%);
     background-repeat: no-repeat;
@@ -562,9 +745,13 @@
     -webkit-background-clip: text;
     -webkit-text-fill-color: transparent;
   }
-  .chat-process-step summary::-webkit-details-marker { display: none; }
-  .chat-process-step[open] :global(.chat-step-chevron) { transform: rotate(90deg); }
+  .chat-process-step-trigger:focus-visible { border-radius: 0.25rem; outline: 2px solid var(--ring); outline-offset: 2px; }
+  :global(.chat-step-chevron.expanded) { transform: rotate(90deg); }
   :global(.chat-step-chevron) { transition: transform 120ms ease; }
+  .chat-disclosure-region { display: grid; grid-template-rows: 0fr; opacity: 0; transition: grid-template-rows 420ms cubic-bezier(0.22, 1, 0.36, 1), opacity 180ms ease; }
+  .chat-disclosure-region.expanded { grid-template-rows: 1fr; opacity: 1; transition: grid-template-rows 420ms cubic-bezier(0.22, 1, 0.36, 1), opacity 240ms ease 55ms; }
+  .chat-disclosure-inner { min-height: 0; overflow: hidden; transform: translateY(-0.3rem); transition: transform 360ms cubic-bezier(0.22, 1, 0.36, 1); }
+  .chat-disclosure-region.expanded > .chat-disclosure-inner { transform: translateY(0); }
   .chat-step-detail { box-sizing: border-box; width: calc(100% - 1.45rem); min-width: 0; max-width: calc(100% - 1.45rem); margin-top: 0.35rem; margin-left: 1.45rem; }
   .chat-plan { color: var(--foreground); font-size: var(--chat-conversation-font-size, 0.933333rem); line-height: var(--chat-conversation-line-height, 1.4rem); }
   .chat-plan h3 { display: flex; align-items: center; gap: 0.4rem; margin-bottom: 0.35rem; font-weight: 650; }
@@ -584,8 +771,8 @@
   @keyframes chat-message-in { from { opacity: 0; transform: translateY(0.2rem); } to { opacity: 1; transform: translateY(0); } }
   @keyframes chat-process-shimmer { 0%, 8% { background-position: 100% 0; } 65%, 100% { background-position: 0% 0; } }
   @media (hover: none) { .chat-message-meta, .chat-plan-actions { opacity: 1; } }
-  @media (prefers-reduced-motion: reduce) { .chat-timeline-row.optimistic, .chat-process-step.active > span, .chat-process-step.active summary > span, .chat-process-toggle.active > span { animation: none; background: none; color: inherit; -webkit-text-fill-color: currentColor; } .chat-process-toggle :global(svg), :global(.chat-step-chevron) { transition: none; } }
-  @media (forced-colors: active) { .chat-process-step.active > span, .chat-process-step.active summary > span, .chat-process-toggle.active > span { animation: none; background: none; color: inherit; -webkit-text-fill-color: currentColor; } }
+  @media (prefers-reduced-motion: reduce) { .chat-timeline-row.optimistic, .chat-process-step.active > span, .chat-process-step.active .chat-process-step-trigger > span, .chat-process-toggle.active > span { animation: none; background: none; color: inherit; -webkit-text-fill-color: currentColor; } .chat-process-toggle :global(svg), :global(.chat-step-chevron), .chat-disclosure-region, .chat-disclosure-inner, .chat-message-expandable, .chat-message-expandable::after { transition: none; } }
+  @media (forced-colors: active) { .chat-process-step.active > span, .chat-process-step.active .chat-process-step-trigger > span, .chat-process-toggle.active > span { animation: none; background: none; color: inherit; -webkit-text-fill-color: currentColor; } }
   @container chat-shell (max-width: 420px) {
     .chat-timeline-row { --chat-participant-gap: 0.5rem; }
     .chat-participant-header { flex-wrap: wrap; column-gap: 0.35rem; }

@@ -62,6 +62,28 @@ describe("ChatComposerEditor", () => {
     root.remove();
   });
 
+  it("anchors the caret to the empty editor line after an external draft clear", () => {
+    const root = document.createElement("div");
+    root.tabIndex = 0;
+    document.body.append(root);
+    const onSelectionChange = vi.fn();
+    const editor = new ChatComposerEditor(root, chatComposerDocumentFromText("Example"), {
+      onChange: vi.fn(),
+      onSelectionChange,
+    });
+    root.focus();
+    setSelection(root, 7, 7);
+
+    editor.setDocument(chatComposerDocumentFromText(""));
+
+    const sentinel = root.querySelector<HTMLElement>("[data-chat-composer-sentinel]");
+    expect(sentinel?.textContent).toBe("\u200b");
+    expect(document.getSelection()?.anchorNode).toBe(sentinel?.firstChild);
+    expect(editor.selection()).toEqual({ start: 0, end: 0 });
+    expect(onSelectionChange).toHaveBeenLastCalledWith({ start: 0, end: 0 }, []);
+    root.remove();
+  });
+
   it("preserves whitespace-only native input", () => {
     const root = document.createElement("div");
     document.body.append(root);

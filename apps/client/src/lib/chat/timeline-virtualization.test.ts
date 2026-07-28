@@ -6,8 +6,9 @@ import {
   evictTimelinePages,
   mergeTimelineItems,
   nextTimelineUnreadCount,
-  scrollTopAfterPrepend,
+  scrollTopForPreservedAnchor,
   timelineMinimapRows,
+  timelineScrollbarThumbGeometry,
   timelineScrollIntent,
 } from "./timeline-virtualization";
 
@@ -39,8 +40,18 @@ describe("timeline virtualization", () => {
     expect(markers.at(-1)?.id).toBe("row-9999");
   });
 
-  it("preserves an anchor when older rows are prepended", () => {
-    expect(scrollTopAfterPrepend(320, 48, 488)).toBe(760);
+  it("preserves an anchor when rows are prepended or expanded", () => {
+    expect(scrollTopForPreservedAnchor(320, 48, 488)).toBe(760);
+    expect(scrollTopForPreservedAnchor(640, 520, 420)).toBe(540);
+  });
+
+  it("keeps scrollbar thumb geometry bounded while disclosure height changes", () => {
+    expect(timelineScrollbarThumbGeometry(1_600, 800, 0)).toEqual({ offset: 0, size: 400 });
+    const expanded = timelineScrollbarThumbGeometry(2_400, 800, 1_600);
+    expect(expanded?.offset).toBeCloseTo(1600 / 3);
+    expect(expanded?.size).toBeCloseTo(800 / 3);
+    expect(timelineScrollbarThumbGeometry(10_000, 100, 20_000)).toEqual({ offset: 76, size: 24 });
+    expect(timelineScrollbarThumbGeometry(800, 800, 0)).toBeNull();
   });
 
   it("deduplicates page rows and retains the selected page during eviction", () => {

@@ -220,7 +220,6 @@ export const chat = {
     archivedProject: "Restaura este proyecto en Proyectos antes de enviar otro mensaje.",
     workingFolderUnavailable: "Localiza o restaura esta carpeta de trabajo, o cambia a otra carpeta del proyecto antes de enviar.",
     remembered: "Estas elecciones explícitas se restauraron de tu uso anterior.",
-    activeTurnModes: (safety: string, interaction: string) => `Turno activo: ${safety}, ${interaction}. Los cambios de controles se aplican al siguiente turno.`,
     queued: "Seguimiento en cola",
     editQueued: "Editar seguimiento en cola",
     cancelQueued: "Cancelar seguimiento en cola",

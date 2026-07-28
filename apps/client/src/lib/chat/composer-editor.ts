@@ -85,7 +85,7 @@ export class ChatComposerEditor {
   public setDocument(document: ChatComposerDocument): void {
     const normalized = normalizeChatComposerDocument(document);
     if (sameDocument(this.document, normalized)) return;
-    const selection = this.selection();
+    const selection = clampSelection(this.selection(), chatComposerPlainText(normalized).length);
     this.document = normalized;
     this.storedMarks = null;
     this.pendingNativeHistory = null;
@@ -360,8 +360,9 @@ export function renderChatComposerDocument(root: HTMLDivElement, document: ChatC
     const lineElement = owner.createElement("div");
     lineElement.dataset.chatComposerLine = "true";
     if (line.runs.length === 0) {
-      const sentinel = owner.createElement("br");
+      const sentinel = owner.createElement("span");
       sentinel.dataset.chatComposerSentinel = "true";
+      sentinel.textContent = "\u200b";
       lineElement.append(sentinel);
       return lineElement;
     }
@@ -526,4 +527,11 @@ function sameDocument(left: ChatComposerDocument, right: ChatComposerDocument): 
 
 function sameMarks(left: readonly ChatComposerMark[], right: readonly ChatComposerMark[]): boolean {
   return left.length === right.length && left.every((mark) => right.includes(mark));
+}
+
+function clampSelection(selection: ChatComposerSelection, length: number): ChatComposerSelection {
+  return {
+    start: Math.min(length, Math.max(0, selection.start)),
+    end: Math.min(length, Math.max(0, selection.end)),
+  };
 }

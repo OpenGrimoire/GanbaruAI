@@ -1,5 +1,6 @@
 <script lang="ts">
   import Check from "@lucide/svelte/icons/check";
+  import ChevronRight from "@lucide/svelte/icons/chevron-right";
   import CircleStop from "@lucide/svelte/icons/circle-stop";
   import LoaderCircle from "@lucide/svelte/icons/loader-circle";
   import X from "@lucide/svelte/icons/x";
@@ -18,6 +19,7 @@
   let { activity, detail }: { activity: TimelineActivityRow; detail: string | null } = $props();
   const command = $derived(commandActivityPresentation(activity));
   const changes = $derived(fileChangePresentation(activity));
+  let expandedChanges = $state<string[]>([]);
 
   function commandStatus(): string {
     if (command.running) return t("chat.timeline.commandRunning");
@@ -28,6 +30,12 @@
         : t("chat.timeline.commandFailedWithCode", formatNumber(localization.locale, command.exitCode));
     }
     return t("chat.timeline.commandSucceeded");
+  }
+
+  function toggleChange(path: string): void {
+    expandedChanges = expandedChanges.includes(path)
+      ? expandedChanges.filter((entry) => entry !== path)
+      : [...expandedChanges, path];
   }
 </script>
 
@@ -64,15 +72,19 @@
 {:else if isFileChangeActivity(activity) && changes.length > 0}
   <div class="file-changes">
     {#each changes as change (change.path)}
-      <details>
-        <summary>
+      {@const expanded = expandedChanges.includes(change.path)}
+      <div class="file-change">
+        <button type="button" class="file-change-trigger" data-timeline-disclosure-expanded={expanded} aria-expanded={expanded} onclick={() => toggleChange(change.path)}>
           <span class="file-path">{change.path}</span>
           <small>{change.kind}</small>
           {#if change.additions > 0}<span class="additions">+{formatNumber(localization.locale, change.additions)}</span>{/if}
           {#if change.deletions > 0}<span class="deletions">−{formatNumber(localization.locale, change.deletions)}</span>{/if}
-        </summary>
-        {#if change.diff}<pre class="file-diff">{change.diff}</pre>{/if}
-      </details>
+          <ChevronRight class={expanded ? "expanded" : undefined} size={13} />
+        </button>
+        <div class="file-change-region" class:expanded aria-hidden={!expanded} inert={!expanded}>
+          <div>{#if change.diff}<pre class="file-diff">{change.diff}</pre>{/if}</div>
+        </div>
+      </div>
     {/each}
   </div>
 {:else if detail}
@@ -93,12 +105,20 @@
   .command-card footer.failed { color: var(--destructive); }
   .command-card footer small { margin-left: 0.25rem; color: var(--muted-foreground); }
   .file-changes { display: grid; gap: 0.25rem; }
-  .file-changes details { overflow: hidden; border: 1px solid var(--border); border-radius: 0.55rem; background: color-mix(in srgb, var(--muted) 30%, transparent); }
-  .file-changes summary { display: flex; min-width: 0; cursor: pointer; align-items: center; gap: 0.45rem; padding: 0.45rem 0.6rem; }
+  .file-change { overflow: hidden; border: 1px solid var(--border); border-radius: 0.55rem; background: color-mix(in srgb, var(--muted) 30%, transparent); }
+  .file-change-trigger { display: flex; width: 100%; min-width: 0; cursor: pointer; align-items: center; gap: 0.45rem; padding: 0.45rem 0.6rem; text-align: left; }
+  .file-change-trigger:focus-visible { outline: 2px solid var(--ring); outline-offset: -2px; }
+  .file-change-trigger :global(svg) { flex: 0 0 auto; transition: transform 180ms ease; }
+  .file-change-trigger :global(svg.expanded) { transform: rotate(90deg); }
+  .file-change-region { display: grid; grid-template-rows: 0fr; opacity: 0; transition: grid-template-rows 420ms cubic-bezier(0.22, 1, 0.36, 1), opacity 180ms ease; }
+  .file-change-region.expanded { grid-template-rows: 1fr; opacity: 1; transition: grid-template-rows 420ms cubic-bezier(0.22, 1, 0.36, 1), opacity 240ms ease 55ms; }
+  .file-change-region > div { min-height: 0; overflow: hidden; transform: translateY(-0.25rem); transition: transform 360ms cubic-bezier(0.22, 1, 0.36, 1); }
+  .file-change-region.expanded > div { transform: translateY(0); }
   .file-path { min-width: 0; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: "SF Mono", "SFMono-Regular", Consolas, monospace; }
   .file-changes small { color: var(--muted-foreground); }
   .additions { color: var(--action-confirm); }
   .deletions { color: var(--destructive); }
   .file-diff { max-height: 20rem; border-top: 1px solid var(--border); padding: 0.7rem; color: var(--muted-foreground); }
   .generic-detail { max-height: 18rem; border-left: 1px solid var(--border); padding: 0.2rem 0.75rem; color: var(--muted-foreground); }
+  @media (prefers-reduced-motion: reduce) { .file-change-trigger :global(svg), .file-change-region, .file-change-region > div { transition: none; } }
 </style>

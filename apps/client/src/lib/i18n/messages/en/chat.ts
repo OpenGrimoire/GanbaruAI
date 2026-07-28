@@ -217,7 +217,6 @@ export const chat = {
     archivedProject: "Restore this project in Projects before sending another message.",
     workingFolderUnavailable: "Locate or restore this working folder, or switch to another project folder before sending.",
     remembered: "These explicit choices were restored from your previous use.",
-    activeTurnModes: (safety: string, interaction: string) => `Active turn: ${safety}, ${interaction}. Control changes apply to the next turn.`,
     queued: "Queued follow-up",
     editQueued: "Edit queued follow-up",
     cancelQueued: "Cancel queued follow-up",
