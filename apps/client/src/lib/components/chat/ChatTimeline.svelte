@@ -21,7 +21,7 @@
   import RotateCcw from "@lucide/svelte/icons/rotate-ccw";
   import { chatScrollBehavior } from "$lib/chat/responsive-layout";
   import { chatModelParticipant, type ChatModelParticipant } from "$lib/chat/participant-identity";
-  import { buildTimelineDisplayRows, includeOptimisticTimelineMessage, projectTimelineReadModel, timelineActivitySupportsDisclosure, timelineModelGroupStartIds, type TimelineActivityGroupRow, type TimelineActivityRow, type TimelineDisplayRow, type TimelineMessageRow, type TimelinePlanRow, type TimelineTurnFoldRow } from "$lib/chat/timeline-model";
+  import { buildTimelineDisplayRows, includeOptimisticTimelineMessage, projectTimelineReadModel, timelineActivityShowsLiveStatus, timelineActivitySupportsDisclosure, timelineModelGroupStartIds, type TimelineActivityGroupRow, type TimelineActivityRow, type TimelineDisplayRow, type TimelineMessageRow, type TimelinePlanRow, type TimelineTurnFoldRow } from "$lib/chat/timeline-model";
   import { computeTimelineVirtualWindow, nextTimelineUnreadCount, scrollTopAfterPrepend, timelineMinimapRows, timelineScrollIntent, type TimelineScrollIntent } from "$lib/chat/timeline-virtualization";
   import { formatDateTime, formatNumber } from "$lib/i18n/formatters";
   import { getLocalization } from "$lib/i18n/translator.svelte";
@@ -265,12 +265,7 @@
   }
 
   function activityTitle(activity: TimelineActivityRow): string {
-    if (
-      activity.id.startsWith("turn-pending:")
-      || activity.activityKind === "reasoning"
-      || activity.activityKind === "reasoning_text"
-      || activity.activityKind === "reasoning_summary"
-    ) return t("chat.timeline.thinking");
+    if (activityIsThinking(activity)) return t("chat.timeline.thinking");
     if (activity.title === "thread_reverted") return t("chat.timeline.threadRestored");
     const active = activity.status === "pending" || activity.status === "active" || activity.status === "waiting";
     if (activity.activityKind === "command_execution" || activity.activityKind === "command_output") {
@@ -306,6 +301,18 @@
       return active ? t("chat.timeline.compactingContext") : t("chat.timeline.compactedContext");
     }
     return activity.title;
+  }
+
+  function activityIsThinking(activity: TimelineActivityRow): boolean {
+    return activity.id.startsWith("turn-pending:")
+      || activity.activityKind === "reasoning"
+      || activity.activityKind === "reasoning_text"
+      || activity.activityKind === "reasoning_summary";
+  }
+
+  function activityIsInProgress(activity: TimelineActivityRow): boolean {
+    const turnState = activity.turnId ? turnsById.get(activity.turnId)?.state : null;
+    return timelineActivityShowsLiveStatus(activity, turnState);
   }
 
   function normalizedToolName(title: string): string {
@@ -378,7 +385,7 @@
 
 {#snippet activityHistoryRow(activity: TimelineActivityRow)}
   {#if timelineActivitySupportsDisclosure(activity)}
-    <details class="chat-process-step" class:failed={activity.status === "failed"}>
+    <details class="chat-process-step" class:active={activityIsInProgress(activity)} class:failed={activity.status === "failed"}>
       <summary>
         {@render activityIcon(activity)}
         <span>{activityTitle(activity)}</span>
@@ -389,8 +396,8 @@
       </div>
     </details>
   {:else}
-    <div class="chat-process-step" class:failed={activity.status === "failed"}>
-      {@render activityIcon(activity)}
+    <div class="chat-process-step" class:active={activityIsInProgress(activity)} class:failed={activity.status === "failed"} class:thinking={activityIsThinking(activity)}>
+      {#if !activityIsThinking(activity)}{@render activityIcon(activity)}{/if}
       <span>{activityTitle(activity)}</span>
     </div>
   {/if}
@@ -418,7 +425,7 @@
     {@render activityHistoryRow(activity)}
   {:else if row.kind === "activity_group"}
     {@const group = row as TimelineActivityGroupRow}
-    <button type="button" class="chat-process-toggle" onclick={() => { expandedGroups = toggle(expandedGroups, group.id); }}>
+    <button type="button" class="chat-process-toggle" class:active={activityIsInProgress(group.latest)} onclick={() => { expandedGroups = toggle(expandedGroups, group.id); }}>
       {#if group.expanded}<ChevronDown size={15} />{:else}<ChevronRight size={15} />{/if}
       <span>{activityTitle(group.latest)}</span>
       <small>{t("chat.timeline.earlierSteps", formatNumber(localization.locale, group.earlierRows.length))}</small>
@@ -455,7 +462,7 @@
   {#if selectedThread?.state === "error"}<div class="chat-timeline-banner text-destructive"><CircleAlert size={14} /><span>{t("chat.timeline.threadError")}</span><button type="button" onclick={() => chat.newDraft(selectedThread.workingFolderId)}><MessageSquare size={13} />{t("chat.timeline.startNewThread")}</button></div>{/if}
   {#if operationError || chat.timelineError}<div role="alert" class="chat-timeline-banner text-destructive"><span>{operationError ?? chat.timelineError}</span>{#if selectedThread}<button type="button" onclick={() => { operationError = null; chat.selectThread(selectedThread.id); }}>{t("chat.timeline.retry")}</button>{/if}</div>{/if}
   <div bind:this={scroller} class="chat-timeline-scroller h-full overflow-y-auto" role="feed" aria-busy={chat.timelineLoading || undefined} aria-label={t("chat.title")} onscroll={handleScroll}>
-    <div class="chat-timeline-content mx-auto py-4" style={`padding-top:${virtualWindow.paddingTop + 16}px;padding-bottom:${virtualWindow.paddingBottom + 180}px`}>
+    <div class="chat-timeline-content mx-auto flex min-h-full flex-col justify-end py-4" style={`padding-top:${virtualWindow.paddingTop + 16}px;padding-bottom:${virtualWindow.paddingBottom + 180}px`}>
       {#if loadingOlder}<div class="mb-3 flex justify-center text-xs text-muted-foreground"><LoaderCircle size={14} class="animate-spin" />{t("chat.timeline.loadingOlder")}</div>{/if}
       {#if chat.timelineLoading && displayRows.length === 0}<div class="py-12 text-center text-sm text-muted-foreground">{t("common.loading")}</div>{/if}
       {#each virtualWindow.items as virtual (virtual.row.id)}
@@ -539,10 +546,22 @@
   .chat-process-toggle.failed, .chat-process-step.failed { color: var(--destructive); }
   .chat-process-summary { padding-left: 1.4rem; }
   .chat-process-history { display: grid; min-width: 0; gap: 0.1rem; margin-block: 0.35rem 0.55rem; color: var(--muted-foreground); }
-  .chat-process-step { display: grid; width: 100%; min-width: 0; grid-template-columns: 1rem minmax(0, 1fr) 1rem; align-items: start; gap: 0.45rem; padding-block: 0.15rem; font-size: var(--chat-conversation-font-size, 0.933333rem); line-height: var(--chat-conversation-line-height, 1.4rem); }
+  .chat-process-step { display: grid; width: 100%; min-width: 0; grid-template-columns: 1rem minmax(0, 1fr) 1rem; align-items: start; gap: 0.45rem; color: var(--muted-foreground); padding-block: 0.15rem; font-size: var(--chat-conversation-font-size, 0.933333rem); line-height: var(--chat-conversation-line-height, 1.4rem); }
+  .chat-process-step.thinking { grid-template-columns: minmax(0, 1fr); }
   details.chat-process-step { display: block; }
-  .chat-process-step > span, .chat-process-step summary > span { min-width: 0; overflow-wrap: anywhere; }
+  .chat-process-step > span, .chat-process-step summary > span { width: fit-content; min-width: 0; max-width: 100%; justify-self: start; overflow-wrap: anywhere; }
   .chat-process-step summary { display: grid; width: 100%; min-width: 0; cursor: pointer; grid-template-columns: 1rem minmax(0, 1fr) 1rem; align-items: start; gap: 0.45rem; list-style: none; }
+  .chat-process-step.active, .chat-process-toggle.active { color: color-mix(in srgb, var(--muted-foreground) 78%, var(--foreground)); }
+  .chat-process-step.active > span, .chat-process-step.active summary > span, .chat-process-toggle.active > span {
+    animation: chat-process-shimmer 6s ease-in-out infinite;
+    background: linear-gradient(100deg, var(--muted-foreground) 0%, var(--muted-foreground) 42%, var(--foreground) 50%, var(--muted-foreground) 58%, var(--muted-foreground) 100%);
+    background-repeat: no-repeat;
+    background-size: 320% 100%;
+    background-clip: text;
+    color: transparent;
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+  }
   .chat-process-step summary::-webkit-details-marker { display: none; }
   .chat-process-step[open] :global(.chat-step-chevron) { transform: rotate(90deg); }
   :global(.chat-step-chevron) { transition: transform 120ms ease; }
@@ -563,8 +582,10 @@
   .chat-timeline-minimap button:focus-visible { width: 0.8rem; outline: 2px solid var(--ring); }
   .chat-jump-latest { position: absolute; bottom: 1rem; left: 50%; display: inline-flex; min-height: 2.25rem; transform: translateX(-50%); align-items: center; gap: 0.4rem; border: 1px solid var(--border); border-radius: 999px; background: var(--popover); padding: 0.35rem 0.75rem; box-shadow: 0 6px 20px rgb(0 0 0 / 0.16); font-size: 0.733333rem; }
   @keyframes chat-message-in { from { opacity: 0; transform: translateY(0.2rem); } to { opacity: 1; transform: translateY(0); } }
+  @keyframes chat-process-shimmer { 0%, 8% { background-position: 100% 0; } 65%, 100% { background-position: 0% 0; } }
   @media (hover: none) { .chat-message-meta, .chat-plan-actions { opacity: 1; } }
-  @media (prefers-reduced-motion: reduce) { .chat-timeline-row.optimistic { animation: none; } .chat-process-toggle :global(svg), :global(.chat-step-chevron) { transition: none; } }
+  @media (prefers-reduced-motion: reduce) { .chat-timeline-row.optimistic, .chat-process-step.active > span, .chat-process-step.active summary > span, .chat-process-toggle.active > span { animation: none; background: none; color: inherit; -webkit-text-fill-color: currentColor; } .chat-process-toggle :global(svg), :global(.chat-step-chevron) { transition: none; } }
+  @media (forced-colors: active) { .chat-process-step.active > span, .chat-process-step.active summary > span, .chat-process-toggle.active > span { animation: none; background: none; color: inherit; -webkit-text-fill-color: currentColor; } }
   @container chat-shell (max-width: 420px) {
     .chat-timeline-row { --chat-participant-gap: 0.5rem; }
     .chat-participant-header { flex-wrap: wrap; column-gap: 0.35rem; }

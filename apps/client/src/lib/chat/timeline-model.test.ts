@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { CanonicalEvent, CanonicalStoredEvent, ChatTimelineItemRead, ChatTimelineTurnRead } from "./contracts";
-import { buildTimelineDisplayRows, includeOptimisticTimelineMessage, parseTimelineUserContext, projectCanonicalTimeline, projectTimelineReadModel, timelineActivitySupportsDisclosure, timelineModelGroupStartIds } from "./timeline-model";
+import { buildTimelineDisplayRows, includeOptimisticTimelineMessage, parseTimelineUserContext, projectCanonicalTimeline, projectTimelineReadModel, timelineActivityShowsLiveStatus, timelineActivitySupportsDisclosure, timelineModelGroupStartIds } from "./timeline-model";
 
 const start = "2026-07-21T14:00:00.000Z";
 
@@ -36,6 +36,25 @@ describe("canonical timeline projection", () => {
 
     expect(command?.kind === "activity" && timelineActivitySupportsDisclosure(command)).toBe(true);
     expect(thinking?.kind === "activity" && timelineActivitySupportsDisclosure(thinking)).toBe(false);
+  });
+
+  it("keeps the current completed thinking placeholder visually live until its turn settles", () => {
+    const events = [
+      stored(1, { type: "turn_started", payload: { providerTurnId: "provider-turn-1", state: "active", modes: { safetyMode: "ask_for_approval", interactionMode: "build" }, modelId: "gpt-5", modelOptions: [] } }),
+      stored(2, { type: "item_completed", payload: { itemId: "thinking", kind: "reasoning", status: "completed", title: "Reasoning", detail: null, safeMetadata: null } }),
+    ];
+    const active = projectCanonicalTimeline(events);
+    const thinking = active.rows.find((row) => row.kind === "activity" && row.activityKind === "reasoning");
+
+    expect(thinking?.kind === "activity" && timelineActivityShowsLiveStatus(thinking, active.turns[0]?.state)).toBe(true);
+
+    const settled = projectCanonicalTimeline([
+      ...events,
+      stored(3, { type: "turn_completed", payload: { state: "completed", stopReason: "end_turn", usage: null, changedFiles: [] } }),
+    ]);
+    const settledThinking = settled.rows.find((row) => row.kind === "activity" && row.activityKind === "reasoning");
+
+    expect(settledThinking?.kind === "activity" && timelineActivityShowsLiveStatus(settledThinking, settled.turns[0]?.state)).toBe(false);
   });
 
   it("projects durable checkpoint restores as thread-level notices", () => {

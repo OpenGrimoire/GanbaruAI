@@ -179,6 +179,26 @@ export function timelineActivitySupportsDisclosure(activity: TimelineActivityRow
     && Object.keys(metadata).length > 0;
 }
 
+/**
+ * Returns whether a visible activity represents ongoing work in the timeline.
+ *
+ * Providers may complete a reasoning item before emitting the next real item. The
+ * latest reasoning row remains the transient Thinking placeholder while its turn
+ * is live, so it should retain the same active presentation as pending work.
+ *
+ * @param activity Activity row being presented.
+ * @param turnState Current state of the activity's parent turn when available.
+ * @returns Whether the activity should use the live status presentation.
+ */
+export function timelineActivityShowsLiveStatus(
+  activity: TimelineActivityRow,
+  turnState: ChatTurnState | null | undefined,
+): boolean {
+  if (activity.status === "pending" || activity.status === "active" || activity.status === "waiting") return true;
+  return isTransientThinkingActivity(activity)
+    && (turnState === "pending" || turnState === "dispatching" || turnState === "active");
+}
+
 /** Adds a local user message until the matching durable projection arrives. */
 export function includeOptimisticTimelineMessage(
   rows: readonly TimelineRow[],
