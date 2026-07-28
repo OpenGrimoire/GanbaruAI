@@ -533,8 +533,10 @@
     <div class="chat-process-step disclosure" class:active={activityIsInProgress(activity)} class:failed={activity.status === "failed"}>
       <button type="button" class="chat-process-step-trigger" data-timeline-disclosure-expanded={activityExpanded} aria-expanded={activityExpanded} onclick={() => { expandedActivities = toggle(expandedActivities, activity.id); }}>
         {@render activityIcon(activity)}
-        <span>{activityTitle(activity)}</span>
-        <ChevronRight class={activityExpanded ? "chat-step-chevron expanded" : "chat-step-chevron"} size={14} />
+        <span class="chat-process-step-label">
+          <span>{activityTitle(activity)}</span>
+          <ChevronRight class={activityExpanded ? "chat-step-chevron expanded" : "chat-step-chevron"} size={14} />
+        </span>
       </button>
       <div class="chat-disclosure-region" class:expanded={activityExpanded} aria-hidden={!activityExpanded} inert={!activityExpanded}>
         <div class="chat-disclosure-inner">
@@ -732,10 +734,13 @@
   .chat-process-step { display: grid; width: 100%; min-width: 0; grid-template-columns: 1rem minmax(0, 1fr) 1rem; align-items: start; gap: 0.45rem; color: var(--muted-foreground); padding-block: 0.15rem; font-size: var(--chat-conversation-font-size, 0.933333rem); line-height: var(--chat-conversation-line-height, 1.4rem); }
   .chat-process-step.disclosure { display: block; }
   .chat-process-step.thinking { grid-template-columns: minmax(0, 1fr); }
-  .chat-process-step > span, .chat-process-step-trigger > span { width: fit-content; min-width: 0; max-width: 100%; justify-self: start; overflow-wrap: anywhere; }
-  .chat-process-step-trigger { display: grid; width: 100%; min-width: 0; cursor: pointer; grid-template-columns: 1rem minmax(0, 1fr) 1rem; align-items: start; gap: 0.45rem; text-align: left; }
+  .chat-process-step > span { width: fit-content; min-width: 0; max-width: 100%; justify-self: start; overflow-wrap: anywhere; }
+  .chat-process-step-trigger { display: grid; width: 100%; min-width: 0; cursor: pointer; grid-template-columns: 1rem minmax(0, 1fr); align-items: start; gap: 0.45rem; text-align: left; }
+  .chat-process-step-label { display: inline-flex; width: fit-content; min-width: 0; max-width: 100%; align-items: flex-start; gap: 0.25rem; justify-self: start; }
+  .chat-process-step-label > span { min-width: 0; overflow-wrap: anywhere; }
+  .chat-process-step-label :global(svg) { flex: 0 0 auto; margin-top: calc((var(--chat-conversation-line-height, 1.4rem) - 0.875rem) / 2); }
   .chat-process-step.active, .chat-process-toggle.active { color: color-mix(in srgb, var(--muted-foreground) 78%, var(--foreground)); }
-  .chat-process-step.active > span, .chat-process-step.active .chat-process-step-trigger > span, .chat-process-toggle.active > span {
+  .chat-process-step.active > span, .chat-process-step.active .chat-process-step-label > span, .chat-process-toggle.active > span {
     animation: chat-process-shimmer 6s ease-in-out infinite;
     background: linear-gradient(100deg, var(--muted-foreground) 0%, var(--muted-foreground) 42%, var(--foreground) 50%, var(--muted-foreground) 58%, var(--muted-foreground) 100%);
     background-repeat: no-repeat;
@@ -771,8 +776,8 @@
   @keyframes chat-message-in { from { opacity: 0; transform: translateY(0.2rem); } to { opacity: 1; transform: translateY(0); } }
   @keyframes chat-process-shimmer { 0%, 8% { background-position: 100% 0; } 65%, 100% { background-position: 0% 0; } }
   @media (hover: none) { .chat-message-meta, .chat-plan-actions { opacity: 1; } }
-  @media (prefers-reduced-motion: reduce) { .chat-timeline-row.optimistic, .chat-process-step.active > span, .chat-process-step.active .chat-process-step-trigger > span, .chat-process-toggle.active > span { animation: none; background: none; color: inherit; -webkit-text-fill-color: currentColor; } .chat-process-toggle :global(svg), :global(.chat-step-chevron), .chat-disclosure-region, .chat-disclosure-inner, .chat-message-expandable, .chat-message-expandable::after { transition: none; } }
-  @media (forced-colors: active) { .chat-process-step.active > span, .chat-process-step.active .chat-process-step-trigger > span, .chat-process-toggle.active > span { animation: none; background: none; color: inherit; -webkit-text-fill-color: currentColor; } }
+  @media (prefers-reduced-motion: reduce) { .chat-timeline-row.optimistic, .chat-process-step.active > span, .chat-process-step.active .chat-process-step-label > span, .chat-process-toggle.active > span { animation: none; background: none; color: inherit; -webkit-text-fill-color: currentColor; } .chat-process-toggle :global(svg), :global(.chat-step-chevron), .chat-disclosure-region, .chat-disclosure-inner, .chat-message-expandable, .chat-message-expandable::after { transition: none; } }
+  @media (forced-colors: active) { .chat-process-step.active > span, .chat-process-step.active .chat-process-step-label > span, .chat-process-toggle.active > span { animation: none; background: none; color: inherit; -webkit-text-fill-color: currentColor; } }
   @container chat-shell (max-width: 420px) {
     .chat-timeline-row { --chat-participant-gap: 0.5rem; }
     .chat-participant-header { flex-wrap: wrap; column-gap: 0.35rem; }

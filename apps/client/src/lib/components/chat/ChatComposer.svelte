@@ -538,7 +538,10 @@
     }
     const workingFolderId = chat.composer.workingFolderId;
     const providerId = chat.composer.providerInstanceId;
-    const trusted = workingFolderId && providerId ? await chatApi.hasChatFullAccessTrust(providerId, workingFolderId) : false;
+    const requiresFullAccessTrust = matchesBroadPermissionMode(chat.composer.safetyMode);
+    const trusted = requiresFullAccessTrust && workingFolderId && providerId
+      ? await chatApi.hasChatFullAccessTrust(providerId, workingFolderId)
+      : false;
     const model = chat.composer.modelSelection?.value;
     const modelId = typeof model === "object" && model !== null && !Array.isArray(model) && typeof model.modelId === "string" ? model.modelId : null;
     const providerManagedModel = typeof model === "object" && model !== null && !Array.isArray(model) && model.providerManaged === true;
@@ -560,7 +563,7 @@
       providerManagedModel,
       safetyMode: chat.composer.safetyMode,
       interactionMode,
-      fullAccessTrusted: !matchesBroadPermissionMode(chat.composer.safetyMode) || trusted,
+      fullAccessTrusted: !requiresFullAccessTrust || trusted,
     }, capabilities);
     const modelOptionErrors = provider && modelId
       ? validateModelOptions(provider.modelCatalog?.models.find((entry) => entry.id === modelId)?.options ?? [], readComposerOptions())

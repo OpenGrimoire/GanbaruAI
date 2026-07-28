@@ -353,8 +353,6 @@ class ChatStore {
     const mentions = options.omitComposerContext
       ? []
       : this.composer.mentions.map((mention) => ({ relativePath: mention.relativePath, kind: mention.kind }));
-    await chatApi.validateChatWorkingFolderMentions(workingFolderId, mentions.map((mention) => mention.relativePath));
-    await this.composerController.flush();
     this.sendError = null;
     this.failedSendOptions = null;
     const current = this.selectedThread;
@@ -393,9 +391,15 @@ class ChatStore {
       },
     };
     this.composerController.markSent();
-    await this.composerController.flush();
     let result: Awaited<ReturnType<typeof chatApi.sendChatTurn>>;
     try {
+      if (mentions.length > 0) {
+        await chatApi.validateChatWorkingFolderMentions(
+          workingFolderId,
+          mentions.map((mention) => mention.relativePath),
+        );
+      }
+      await this.composerController.flush();
       result = await chatApi.sendChatTurn({
         command: { clientCommandId: crypto.randomUUID(), expectedThreadRevision: current?.revision ?? null },
         workingFolderId,

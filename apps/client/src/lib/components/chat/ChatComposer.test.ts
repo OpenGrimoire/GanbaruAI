@@ -13,6 +13,7 @@ const api = vi.hoisted(() => ({
   promptCatalog: vi.fn(async () => [] as import("$lib/chat/contracts").ChatPromptCatalogEntry[]),
   compactContext: vi.fn(async () => undefined),
   mcpStatus: vi.fn(async () => ({ servers: [] }) as import("$lib/chat/contracts").McpStatusRead),
+  fullAccessTrust: vi.fn(async () => false),
 }));
 
 class ResizeObserverMock implements ResizeObserver {
@@ -26,7 +27,7 @@ class ResizeObserverMock implements ResizeObserver {
 vi.mock("$lib/api/chat", async (importOriginal) => ({
   ...await importOriginal<typeof import("$lib/api/chat")>(),
   chatAttachmentDataUrl: api.attachmentUrl,
-  hasChatFullAccessTrust: vi.fn(async () => false),
+  hasChatFullAccessTrust: api.fullAccessTrust,
   listChatPromptCatalog: api.promptCatalog,
   compactChatContext: api.compactContext,
   readChatMcpStatus: api.mcpStatus,
@@ -54,6 +55,7 @@ describe("ChatComposer", () => {
     api.promptCatalog.mockClear();
     api.compactContext.mockClear();
     api.mcpStatus.mockClear();
+    api.fullAccessTrust.mockClear();
   });
 
   afterEach(async () => {
@@ -564,6 +566,28 @@ describe("ChatComposer", () => {
     expect(target.querySelector(".attachment-menu summary")?.getAttribute("aria-label")).toBe("Attach images");
     expect(target.querySelector("button.primary-action")?.getAttribute("aria-label")).toBe("Send");
     expect(target.querySelector('[aria-label*="microphone" i]')).toBeNull();
+  });
+
+  it("starts a routine send without waiting for a full-access trust lookup", async () => {
+    const chat = getChat();
+    chat.settings = modelSettings();
+    chat.composer = {
+      ...composer(),
+      providerInstanceId: "codex-local",
+      modelSelection: composerModelSelection("gpt-5.6-sol", false, []),
+      safetyMode: "ask_for_approval",
+      interactionMode: "build",
+    };
+    const sendComposer = vi.spyOn(chat, "sendComposer").mockResolvedValue();
+    const { target } = setup(false);
+    await tick();
+    await Promise.resolve();
+    api.fullAccessTrust.mockClear();
+
+    target.querySelector<HTMLButtonElement>("button.primary-action")?.click();
+
+    expect(sendComposer).toHaveBeenCalledOnce();
+    expect(api.fullAccessTrust).not.toHaveBeenCalled();
   });
 
   it("centers broad permission confirmation at the app root", async () => {
