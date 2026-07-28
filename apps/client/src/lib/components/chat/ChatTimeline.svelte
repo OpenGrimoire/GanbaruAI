@@ -3,7 +3,7 @@
 </script>
 
 <script lang="ts">
-  import { onMount, tick } from "svelte";
+  import { onDestroy, onMount, tick } from "svelte";
   import ArrowDown from "@lucide/svelte/icons/arrow-down";
   import ChevronDown from "@lucide/svelte/icons/chevron-down";
   import ChevronRight from "@lucide/svelte/icons/chevron-right";
@@ -28,6 +28,7 @@
   import { getChat } from "$lib/stores/chat.svelte";
   import { getPreferences } from "$lib/stores/preferences.svelte";
   import { getSettingsLauncher } from "$lib/stores/settingsLauncher.svelte";
+  import { writeTextToClipboard } from "$lib/utils/clipboard";
   import ChatMarkdown from "./ChatMarkdown.svelte";
   import ChatActivityDetail from "./ChatActivityDetail.svelte";
   import ChatChangedFilesSummary from "./ChatChangedFilesSummary.svelte";
@@ -55,6 +56,8 @@
   let previousItemCount = $state(0);
   let restoredThreadId = $state<string | null>(null);
   let reducedMotion = $state(false);
+  let copiedMessageId = $state<string | null>(null);
+  let copiedMessageTimer: ReturnType<typeof setTimeout> | null = null;
   const pageTurns = $derived(chat.timelinePages.flatMap((page) => page.turns));
   const projection = $derived(projectTimelineReadModel(chat.timelineItems, pageTurns));
   const selectedThread = $derived(chat.selectedThread);
@@ -87,6 +90,10 @@
       observer.disconnect();
       motion.removeEventListener("change", updateMotion);
     };
+  });
+
+  onDestroy(() => {
+    if (copiedMessageTimer) clearTimeout(copiedMessageTimer);
   });
 
   $effect(() => {
@@ -193,8 +200,16 @@
     return list.includes(id) ? list.filter((entry) => entry !== id) : [...list, id];
   }
 
-  function copy(value: string): void {
-    void navigator.clipboard.writeText(value).catch(reportError);
+  function copy(value: string, messageId: string | null = null): void {
+    void writeTextToClipboard(value).then(() => {
+      if (!messageId) return;
+      copiedMessageId = messageId;
+      if (copiedMessageTimer) clearTimeout(copiedMessageTimer);
+      copiedMessageTimer = setTimeout(() => {
+        copiedMessageId = null;
+        copiedMessageTimer = null;
+      }, 2_000);
+    }).catch(reportError);
   }
 
   function reportError(error: unknown): void {
@@ -389,10 +404,14 @@
       {#if message.turnId && message.metadata?.changedFiles.length}
         <ChatChangedFilesSummary turnId={message.turnId} files={message.metadata.changedFiles} />
       {/if}
-      <div class="chat-message-meta mt-2 flex flex-wrap items-center gap-2 text-muted-foreground">
-        <button type="button" class="inline-flex items-center gap-1" onclick={() => copy(message.markdown)}><Copy size={11} />{t("chat.timeline.copy")}</button>
-        {#if message.metadata}<span>{durationLabel(message.metadata.durationMs)}</span>{#if message.metadata.changedFiles.length > 0}<span>{t("chat.timeline.changedFiles", formatNumber(localization.locale, message.metadata.changedFiles.length))}</span>{/if}{#if tokenUsageLabel(message)}<span>{tokenUsageLabel(message)}</span>{/if}{/if}
-      </div>
+      {#if message.metadata}
+        <div class="chat-message-meta mt-2 flex flex-wrap items-center gap-2 text-muted-foreground">
+          {#if message.state === "complete"}
+          <button type="button" class="inline-flex items-center gap-1" onclick={() => copy(message.markdown, message.id)}><Copy size={11} />{copiedMessageId === message.id ? t("chat.timeline.copied") : t("chat.timeline.copy")}</button>
+          {/if}
+          <span>{durationLabel(message.metadata.durationMs)}</span>{#if message.metadata.changedFiles.length > 0}<span>{t("chat.timeline.changedFiles", formatNumber(localization.locale, message.metadata.changedFiles.length))}</span>{/if}{#if tokenUsageLabel(message)}<span>{tokenUsageLabel(message)}</span>{/if}
+        </div>
+      {/if}
     </article>
   {:else if row.kind === "activity"}
     {@const activity = row as TimelineActivityRow}
@@ -424,7 +443,7 @@
       <h3><ListChecks size={16} />{t("chat.timeline.plan")}</h3>
       <ChatMarkdown markdown={plan.markdown} onError={reportError} />
       {#if plan.steps.length > 0}<ol>{#each plan.steps as step}<li><span>{step.text}</span><small>{statusLabel(step.status)}</small></li>{/each}</ol>{/if}
-      <div class="chat-plan-actions"><button type="button" onclick={() => copy(plan.markdown)}>{t("chat.timeline.copy")}</button><button type="button" onclick={() => window.dispatchEvent(new CustomEvent("ganbaru-ai:chat-continue-plan", { detail: { planId: plan.id } }))}>{t("chat.timeline.continuePlanning")}</button><button type="button" onclick={() => window.dispatchEvent(new CustomEvent("ganbaru-ai:chat-implement-plan", { detail: { planId: plan.id } }))}>{t("chat.timeline.implementPlan")}</button><button type="button" onclick={() => { dismissedPlans = [...dismissedPlans, plan.id]; }}>{t("chat.timeline.dismiss")}</button></div>
+      <div class="chat-plan-actions"><button type="button" onclick={() => window.dispatchEvent(new CustomEvent("ganbaru-ai:chat-continue-plan", { detail: { planId: plan.id } }))}>{t("chat.timeline.continuePlanning")}</button><button type="button" onclick={() => window.dispatchEvent(new CustomEvent("ganbaru-ai:chat-implement-plan", { detail: { planId: plan.id } }))}>{t("chat.timeline.implementPlan")}</button><button type="button" onclick={() => { dismissedPlans = [...dismissedPlans, plan.id]; }}>{t("chat.timeline.dismiss")}</button></div>
     </article>
   {/if}
 {/snippet}
@@ -453,7 +472,7 @@
                   <article class="chat-user-message">
                     <div class:chat-message-collapsed={message.markdown.length > 1200 && !expandedMessages.includes(message.id)}><p class="wrap-break-word whitespace-pre-wrap">{message.markdown}</p></div>
                     {#if message.userContext}<div class="chat-user-context">{#each message.userContext.attachments as attachment}<button type="button" title={attachment.status ?? t("chat.timeline.attachment")} onclick={() => copy(attachment.displayName)}><FileText size={12} /><span>{attachment.displayName}</span>{#if attachment.byteSize !== null}<small>{formatNumber(localization.locale, attachment.byteSize)} B</small>{/if}</button>{/each}{#each message.userContext.mentions as mention}<button type="button" title={t("chat.timeline.mention")} onclick={() => copy(mention.relativePath)}><span>@</span><span>{mention.relativePath}</span></button>{/each}{#each message.userContext.terminalContext as context}<button type="button" title={t("chat.timeline.terminalContext")} onclick={() => copy(context)}><Terminal size={12} /><span>{context}</span></button>{/each}</div>{/if}
-                    <div class="chat-message-meta mt-2 flex flex-wrap items-center gap-2 text-muted-foreground">{#if message.markdown.length > 1200}<button type="button" onclick={() => { expandedMessages = toggle(expandedMessages, message.id); }}>{expandedMessages.includes(message.id) ? t("chat.timeline.showLess") : t("chat.timeline.showMore")}</button>{/if}{#if message.userContext?.preCheckpointId}<button type="button" class="inline-flex items-center gap-1" onclick={() => window.dispatchEvent(new CustomEvent("ganbaru-ai:chat-revert-message", { detail: { threadId: chat.selectedThreadId, checkpointId: message.userContext?.preCheckpointId, turnId: message.turnId } }))}><RotateCcw size={11} />{t("chat.timeline.revert")}</button>{/if}<button type="button" class="inline-flex items-center gap-1" onclick={() => copy(message.markdown)}><Copy size={11} />{t("chat.timeline.copy")}</button></div>
+                    {#if message.markdown.length > 1200 || message.userContext?.preCheckpointId}<div class="chat-message-meta mt-2 flex flex-wrap items-center gap-2 text-muted-foreground">{#if message.markdown.length > 1200}<button type="button" onclick={() => { expandedMessages = toggle(expandedMessages, message.id); }}>{expandedMessages.includes(message.id) ? t("chat.timeline.showLess") : t("chat.timeline.showMore")}</button>{/if}{#if message.userContext?.preCheckpointId}<button type="button" class="inline-flex items-center gap-1" onclick={() => window.dispatchEvent(new CustomEvent("ganbaru-ai:chat-revert-message", { detail: { threadId: chat.selectedThreadId, checkpointId: message.userContext?.preCheckpointId, turnId: message.turnId } }))}><RotateCcw size={11} />{t("chat.timeline.revert")}</button>{/if}</div>{/if}
                   </article>
                 </div>
               </div>

@@ -334,6 +334,7 @@ export const chat = {
     wrapCode: "Wrap",
     copyCode: "Copy code",
     copy: "Copy",
+    copied: "Copied",
     showMore: "Show more",
     showLess: "Show less",
     durationUnknown: "Duration unavailable",
