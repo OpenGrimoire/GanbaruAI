@@ -36,6 +36,11 @@ import { preferredProjectWorkingFolder } from "$lib/chat/working-folder-selectio
 
 const projects = getProjects();
 
+export interface ChatComposerSendOptions {
+  promptOverride?: string;
+  omitComposerContext?: boolean;
+}
+
 class ChatStore {
   private readonly composerController = new ChatComposerController();
   composer = $state<ChatComposerSnapshot>(this.composerController.snapshot());
@@ -65,6 +70,7 @@ class ChatStore {
   private attachmentRequest = 0;
   private interactionRequest = 0;
   private attachmentKey = "";
+  private failedSendOptions: ChatComposerSendOptions | null = null;
   private readonly queuedDispatches = new Set<string>();
   private readonly nativeChanges = new AsyncFrameCoalescer<string>(
     (threadId) => this.refreshNativeChange(threadId),
@@ -333,7 +339,7 @@ class ChatStore {
     }
   }
 
-  async sendComposer(): Promise<void> {
+  async sendComposer(options: ChatComposerSendOptions = {}): Promise<void> {
     const workingFolderId = this.composer.workingFolderId;
     const providerInstanceId = this.composer.providerInstanceId;
     const safetyMode = this.composer.safetyMode;
@@ -342,12 +348,15 @@ class ChatStore {
     if (!workingFolderId || !providerInstanceId || !safetyMode || !interactionMode) {
       throw new Error("Complete every Chat composer selection before sending");
     }
-    const prompt = this.composer.text;
-    const attachmentIds = [...this.composer.attachmentIds];
-    const mentions = this.composer.mentions.map((mention) => ({ relativePath: mention.relativePath, kind: mention.kind }));
+    const prompt = options.promptOverride ?? this.composer.text;
+    const attachmentIds = options.omitComposerContext ? [] : [...this.composer.attachmentIds];
+    const mentions = options.omitComposerContext
+      ? []
+      : this.composer.mentions.map((mention) => ({ relativePath: mention.relativePath, kind: mention.kind }));
     await chatApi.validateChatWorkingFolderMentions(workingFolderId, mentions.map((mention) => mention.relativePath));
     await this.composerController.flush();
     this.sendError = null;
+    this.failedSendOptions = null;
     const current = this.selectedThread;
     const newThreadId = current ? null : this.ensureDraftThread(workingFolderId);
     const threadId = current?.id ?? newThreadId;
@@ -416,6 +425,7 @@ class ChatStore {
     }
     this.selectThread(result.thread.id);
     this.sendError = result.launchError?.message ?? null;
+    this.failedSendOptions = result.launchError ? { ...options } : null;
     try {
       await this.loadTimeline(result.thread.id);
     } finally {
@@ -435,14 +445,16 @@ class ChatStore {
   }
 
   async retryFailedSend(): Promise<void> {
+    const options = this.failedSendOptions ?? {};
     if (!this.composerController.restoreSentSnapshot()) return;
-    await this.sendComposer();
+    await this.sendComposer(options);
   }
 
   async editFailedSend(): Promise<void> {
     if (!this.composerController.restoreSentSnapshot()) return;
     await this.forkCurrentComposer(null);
     this.sendError = null;
+    this.failedSendOptions = null;
   }
 
   async changeProviderAfterFailure(): Promise<void> {
@@ -452,6 +464,7 @@ class ChatStore {
     this.composerController.setModelSelection(null);
     this.composerController.setModes(null, null);
     this.sendError = null;
+    this.failedSendOptions = null;
   }
 
   async forkComposerWithProvider(providerInstanceId: ProviderInstanceId): Promise<void> {

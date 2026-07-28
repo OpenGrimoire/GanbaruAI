@@ -11,6 +11,7 @@ import type {
   ChatInteractionStateRead,
   ChatUserInputDraftRead,
   ChatPromptCatalogEntry,
+  McpStatusRead,
   ChatQueuedFollowupRead,
   ProjectWorkingFolderPathPage,
   ProjectWorkingFolderDirectoryRead,
@@ -63,6 +64,7 @@ import {
   parseChatInteractionState,
   parseChatUserInputDraft,
   parseChatPromptCatalog,
+  parseMcpStatus,
   parseChatQueuedFollowup,
   parseProjectWorkingFolderPathPage,
   parseProjectWorkingFolderDirectory,
@@ -530,13 +532,35 @@ export async function validateChatWorkingFolderMentions(
   });
 }
 
-export async function listChatPromptCatalog(providerInstanceId: ProviderInstanceId): Promise<ChatPromptCatalogEntry[]> {
-  return parseChatPromptCatalog(await invoke<unknown>("chat_list_prompt_catalog", { providerInstanceId }));
+export async function listChatPromptCatalog(
+  workingFolderId: ProjectWorkingFolderId,
+  providerInstanceId: ProviderInstanceId,
+  threadId: ChatThreadId | null,
+): Promise<ChatPromptCatalogEntry[]> {
+  return parseChatPromptCatalog(await invoke<unknown>("chat_list_prompt_catalog", {
+    dbUrl: await ensureDbUrl(), workingFolderId, providerInstanceId, threadId,
+  }));
 }
 
 export async function readChatInteractionState(threadId: ChatThreadId): Promise<ChatInteractionStateRead> {
   return parseChatInteractionState(await invoke<unknown>("chat_read_interaction_state", {
     dbUrl: await ensureDbUrl(), threadId,
+  }));
+}
+
+export async function compactChatContext(threadId: ChatThreadId): Promise<void> {
+  await invoke("chat_compact_context", {
+    dbUrl: await ensureDbUrl(), threadId, clientCommandId: crypto.randomUUID(),
+  });
+}
+
+export async function readChatMcpStatus(
+  workingFolderId: ProjectWorkingFolderId,
+  providerInstanceId: ProviderInstanceId,
+  threadId: ChatThreadId | null,
+): Promise<McpStatusRead> {
+  return parseMcpStatus(await invoke<unknown>("chat_read_mcp_status", {
+    dbUrl: await ensureDbUrl(), workingFolderId, providerInstanceId, threadId,
   }));
 }
 

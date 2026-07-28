@@ -58,6 +58,34 @@ pub trait ProviderDriver: Send {
         None
     }
 
+    fn prompt_catalog(&self) -> ChatResult<Vec<ChatPromptCatalogEntry>> {
+        Ok(Vec::new())
+    }
+
+    fn compact_context<'a>(
+        &'a mut self,
+        _request: CompactContextRequest,
+        _context: &'a DriverOperationContext,
+    ) -> DriverFuture<'a, DriverOperationReceipt> {
+        Box::pin(async {
+            Err(ChatError::unsupported(
+                "This provider does not expose direct context compaction",
+            ))
+        })
+    }
+
+    fn read_mcp_status<'a>(
+        &'a mut self,
+        _request: McpStatusRequest,
+        _context: &'a DriverOperationContext,
+    ) -> DriverFuture<'a, McpStatusRead> {
+        Box::pin(async {
+            Err(ChatError::unsupported(
+                "This provider does not expose direct MCP status",
+            ))
+        })
+    }
+
     fn probe<'a>(
         &'a mut self,
         context: &'a DriverOperationContext,

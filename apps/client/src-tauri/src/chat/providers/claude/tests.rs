@@ -75,6 +75,65 @@ pub(super) fn context(operation_id: &str) -> DriverOperationContext {
     }
 }
 
+#[test]
+fn initialize_commands_become_bounded_slash_catalog_entries() {
+    let entries = prompt_catalog(&[
+        ClaudeCommand {
+            name: "compact".to_string(),
+            description: Some("Compact context".to_string()),
+            argument_hint: Some("[focus]".to_string()),
+        },
+        ClaudeCommand {
+            name: "/compact".to_string(),
+            description: Some("Duplicate".to_string()),
+            argument_hint: None,
+        },
+    ]);
+    assert_eq!(entries.len(), 1);
+    assert_eq!(entries[0].value, "/compact");
+    assert_eq!(entries[0].argument_hint.as_deref(), Some("[focus]"));
+}
+
+#[test]
+fn slash_command_message_is_bounded_and_uses_sdk_user_input_shape() {
+    let message = build_slash_command_message("/compact").unwrap();
+    assert_eq!(
+        message
+            .pointer("/message/content/0/text")
+            .and_then(Value::as_str),
+        Some("/compact")
+    );
+    assert!(build_slash_command_message("compact").is_err());
+    assert!(build_slash_command_message("/compact\nnext").is_err());
+}
+
+#[test]
+fn compact_boundary_is_a_thread_level_activity() {
+    let normalizer = ClaudeEventNormalizer::new(
+        ProviderInstanceId::new("claude-instance-1".to_string()).unwrap(),
+        ChatThreadId::new("thread-1".to_string()).unwrap(),
+        ProviderSessionId::new("session-1".to_string()).unwrap(),
+    );
+    let mut state = route_state();
+    state.active_chat_turn_id = Some(ChatTurnId::new("turn-1".to_string()).unwrap());
+    let events = normalizer
+        .normalize_message(
+            &mut state,
+            json!({
+                "type": "system",
+                "subtype": "compact_boundary",
+                "compact_metadata": { "trigger": "manual" }
+            }),
+        )
+        .unwrap();
+    assert_eq!(events.len(), 1);
+    assert!(events[0].turn_id.is_none());
+    let CanonicalEvent::ItemCompleted(item) = &events[0].event else {
+        panic!("expected completed compaction item");
+    };
+    assert_eq!(item.kind, CanonicalItemKind::ContextCompaction);
+}
+
 pub(super) fn modes(
     safety_mode: SafetyMode,
     interaction_mode: InteractionMode,

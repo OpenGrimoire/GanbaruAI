@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 import type { ProviderCapabilities } from "./contracts";
 import {
   composerActionState,
+  composerRateLimitWindows,
+  composerModeCommand,
   composerTokenTrigger,
   contextMeter,
   filterPromptCatalog,
@@ -62,6 +64,20 @@ describe("Chat composer model", () => {
     expect(composerTokenTrigger("Inspect @src/cal", 16)).toMatchObject({ kind: "mention", query: "src/cal" });
     expect(composerTokenTrigger("Use $doc", 8)).toMatchObject({ kind: "skill", query: "doc" });
     expect(composerTokenTrigger("/review", 7)).toMatchObject({ kind: "command", query: "review" });
+    expect(composerTokenTrigger("  /review", 9)).toMatchObject({ kind: "command", query: "review", start: 2 });
+    expect(composerTokenTrigger("Run /review", 11)).toBeNull();
+  });
+
+  it("extracts universal mode commands without sending the command prefix to providers", () => {
+    expect(composerModeCommand("/plan inspect the architecture")).toEqual({
+      mode: "plan",
+      prompt: "inspect the architecture",
+    });
+    expect(composerModeCommand(" /BUILD implement it")).toEqual({
+      mode: "build",
+      prompt: "implement it",
+    });
+    expect(composerModeCommand("Explain /plan behavior")).toBeNull();
   });
 
   it("maps the universal plan command to Plan mode and otherwise preserves the current mode", () => {
@@ -73,8 +89,8 @@ describe("Chat composer model", () => {
 
   it("fuzzy-ranks provider menus and workspace paths while preserving stale entries", () => {
     const catalog = [
-      { value: "/review", label: "Review changes", description: null, kind: "command" as const, stale: true },
-      { value: "$docs", label: "Documentation", description: null, kind: "skill" as const, stale: false },
+      { value: "/review", label: "Review changes", description: null, argumentHint: null, kind: "command" as const, source: "provider" as const, stale: true },
+      { value: "$docs", label: "Documentation", description: null, argumentHint: null, kind: "skill" as const, source: "user" as const, stale: false },
     ];
     expect(filterPromptCatalog(catalog, "command", "rvw")).toMatchObject([{ value: "/review", stale: true }]);
     expect(filterPromptCatalog(catalog, "skill", "doc")).toMatchObject([{ value: "$docs" }]);
@@ -115,6 +131,37 @@ describe("Chat composer model", () => {
     expect(contextMeter(90, 100)).toMatchObject({ ratio: 0.9, warning: true });
     expect(contextMeter(120, 100)?.ratio).toBe(1);
     expect(contextMeter(40, null)).toMatchObject({ maximumTokens: null, ratio: null });
+  });
+
+  it("extracts bounded primary and secondary provider rate limit windows", () => {
+    expect(composerRateLimitWindows({
+      limited: false,
+      resetsAt: null,
+      detail: null,
+      providerData: {
+        schemaVersion: 1,
+        value: {
+          limitId: "codex",
+          primary: { usedPercent: 31, windowDurationMins: 300, resetsAt: 1_730_948_100 },
+          secondary: { usedPercent: 108, windowDurationMins: 10_080, resetsAt: 1_731_000_000 },
+        },
+      },
+    })).toEqual([
+      {
+        id: "codex:primary",
+        label: "5h codex",
+        usedPercent: 31,
+        windowDurationMinutes: 300,
+        resetsAtSeconds: 1_730_948_100,
+      },
+      {
+        id: "codex:secondary",
+        label: "7d codex",
+        usedPercent: 100,
+        windowDurationMinutes: 10_080,
+        resetsAtSeconds: 1_731_000_000,
+      },
+    ]);
   });
 
   it("implements send keys and image limits", () => {

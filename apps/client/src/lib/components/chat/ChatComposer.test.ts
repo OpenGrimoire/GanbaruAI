@@ -3,13 +3,16 @@
 import { mount, tick, unmount } from "svelte";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ChatComposerSnapshot } from "$lib/chat/composer-controller";
-import type { ChatAttachmentRead, ChatSettingsRead } from "$lib/chat/contracts";
+import type { ChatAttachmentRead, ChatInteractionStateRead, ChatSettingsRead, ChatThreadShellRead } from "$lib/chat/contracts";
 import { composerModelSelection, readComposerModelSelection } from "$lib/chat/composer-model";
 import { getChat } from "$lib/stores/chat.svelte";
 import ChatComposer from "./ChatComposer.svelte";
 
 const api = vi.hoisted(() => ({
   attachmentUrl: vi.fn(async () => "data:image/png;base64,iVBORw0KGgo="),
+  promptCatalog: vi.fn(async () => [] as import("$lib/chat/contracts").ChatPromptCatalogEntry[]),
+  compactContext: vi.fn(async () => undefined),
+  mcpStatus: vi.fn(async () => ({ servers: [] }) as import("$lib/chat/contracts").McpStatusRead),
 }));
 
 class ResizeObserverMock implements ResizeObserver {
@@ -24,7 +27,9 @@ vi.mock("$lib/api/chat", async (importOriginal) => ({
   ...await importOriginal<typeof import("$lib/api/chat")>(),
   chatAttachmentDataUrl: api.attachmentUrl,
   hasChatFullAccessTrust: vi.fn(async () => false),
-  listChatPromptCatalog: vi.fn(async () => []),
+  listChatPromptCatalog: api.promptCatalog,
+  compactChatContext: api.compactContext,
+  readChatMcpStatus: api.mcpStatus,
   searchChatWorkingFolderPaths: vi.fn(async () => ({ entries: [], nextCursor: null })),
 }));
 
@@ -46,6 +51,9 @@ describe("ChatComposer", () => {
     chat.selectedWorkingFolderId = "workspace-1";
     chat.timelinePages = [];
     api.attachmentUrl.mockClear();
+    api.promptCatalog.mockClear();
+    api.compactContext.mockClear();
+    api.mcpStatus.mockClear();
   });
 
   afterEach(async () => {
@@ -67,6 +75,17 @@ describe("ChatComposer", () => {
     const editor = target.querySelector("div[data-chat-composer]");
     if (!(editor instanceof HTMLDivElement)) throw new Error("Chat composer did not render");
     return { target, editor };
+  }
+
+  async function openSlashMenu(editor: HTMLDivElement): Promise<void> {
+    await tick();
+    const line = editor.querySelector<HTMLElement>("[data-chat-composer-line]");
+    if (!line) throw new Error("Composer line did not render");
+    line.textContent = "/";
+    setEditorSelection(editor, 1, 1);
+    editor.dispatchEvent(new InputEvent("input", { bubbles: true, inputType: "insertText", data: "/" }));
+    await tick();
+    await tick();
   }
 
   it("restores focus and selection when the shared composer changes layout", async () => {
@@ -98,6 +117,358 @@ describe("ChatComposer", () => {
     expect(lines).toHaveLength(2);
     expect(lines[0]?.textContent).toBe("Example");
     expect(lines[1]?.querySelector("[data-chat-composer-sentinel]")).not.toBeNull();
+  });
+
+  it("shows one flat icon command list and exposes Plan as a composer mode", async () => {
+    const chat = getChat();
+    chat.settings = modelSettings();
+    chat.composer = { ...composer(), text: "", providerInstanceId: "codex-local" };
+    api.promptCatalog.mockResolvedValueOnce([{
+      value: "/compact",
+      label: "Compact context",
+      description: "Compact the active context",
+      argumentHint: null,
+      kind: "command",
+      source: "provider",
+      stale: false,
+    }]);
+    const setModes = vi.spyOn(chat, "setComposerModes").mockImplementation((safetyMode, interactionMode) => {
+      chat.composer = { ...chat.composer, safetyMode, interactionMode };
+    });
+    const { target, editor } = setup(false);
+    await tick();
+    const line = editor.querySelector<HTMLElement>("[data-chat-composer-line]");
+    if (!line) throw new Error("Composer line did not render");
+    line.textContent = "/";
+    setEditorSelection(editor, 1, 1);
+    editor.dispatchEvent(new InputEvent("input", { bubbles: true, inputType: "insertText", data: "/" }));
+    await tick();
+    await tick();
+
+    expect(api.promptCatalog).toHaveBeenCalledWith("workspace-1", "codex-local", null);
+    const menu = target.querySelector(".composer-menu");
+    expect(menu?.textContent).not.toContain("Ganbaru AI");
+    expect(menu?.textContent).not.toContain("/plan");
+    expect(menu?.textContent).not.toContain("/compact");
+    expect(menu?.textContent).toContain("Plan");
+    expect(menu?.textContent).toContain("Compact context");
+    expect(menu?.querySelector(".command-group")).toBeNull();
+    const options = [...(menu?.querySelectorAll<HTMLButtonElement>('button[role="option"]') ?? [])];
+    expect(options.every((option) => option.querySelector("svg") !== null)).toBe(true);
+    const plan = [...(menu?.querySelectorAll<HTMLButtonElement>('button[role="option"]') ?? [])]
+      .find((button) => button.querySelector("strong")?.textContent === "Plan");
+    plan?.click();
+    await tick();
+    expect(setModes).toHaveBeenCalledWith("ask_for_approval", "plan");
+    expect(editor.textContent?.replaceAll("\u200b", "")).toBe("");
+    const mode = target.querySelector<HTMLButtonElement>(".composer-mode");
+    expect(mode?.textContent).toContain("Plan");
+    expect(mode?.getAttribute("aria-label")).toBe("Exit Plan mode");
+    mode?.click();
+    await tick();
+    expect(setModes).toHaveBeenLastCalledWith("ask_for_approval", "build");
+  });
+
+  it("prefetches commands and opens the slash palette without waiting for provider I/O", async () => {
+    const chat = getChat();
+    chat.settings = modelSettings();
+    chat.composer = { ...composer(), text: "", providerInstanceId: "codex-local" };
+    let resolveCatalog!: (entries: import("$lib/chat/contracts").ChatPromptCatalogEntry[]) => void;
+    api.promptCatalog.mockImplementationOnce(() => new Promise((resolve) => {
+      resolveCatalog = resolve;
+    }));
+    const { target, editor } = setup(false);
+
+    await vi.waitFor(() => expect(api.promptCatalog).toHaveBeenCalledWith("workspace-1", "codex-local", null));
+    await openSlashMenu(editor);
+
+    const menu = target.querySelector<HTMLElement>(".composer-menu");
+    expect(menu?.textContent).toContain("Plan");
+    expect(menu?.querySelector(".animate-spin")).toBeNull();
+    expect(api.promptCatalog).toHaveBeenCalledTimes(1);
+
+    resolveCatalog([{
+      value: "/compact",
+      label: "Compact",
+      description: "Compact the active context",
+      argumentHint: null,
+      kind: "command",
+      source: "provider",
+      stale: false,
+    }]);
+    await vi.waitFor(() => expect(menu?.textContent).toContain("Compact"));
+  });
+
+  it("runs action commands immediately without placing slash syntax in the editor", async () => {
+    const chat = getChat();
+    chat.settings = modelSettings();
+    chat.composer = {
+      ...composer(),
+      text: "",
+      providerInstanceId: "codex-local",
+      modelSelection: composerModelSelection("gpt-5.6-sol", false, []),
+      safetyMode: "ask_for_approval",
+      interactionMode: "build",
+      threadId: "thread-1",
+    };
+    chat.activeThreads = [threadShell()];
+    chat.selectedThreadId = "thread-1";
+    api.promptCatalog.mockResolvedValueOnce([{
+      value: "/compact",
+      label: "Compact",
+      description: "Compact the active context",
+      argumentHint: null,
+      kind: "command",
+      source: "provider",
+      stale: false,
+    }]);
+    vi.spyOn(chat, "setComposerRichContent").mockImplementation((text, richContent) => {
+      chat.composer = { ...chat.composer, text, richContent };
+    });
+    const sendComposer = vi.spyOn(chat, "sendComposer").mockResolvedValue();
+    vi.spyOn(chat, "refreshInteraction").mockResolvedValue();
+    const { target, editor } = setup(false);
+    await openSlashMenu(editor);
+
+    const compact = [...target.querySelectorAll<HTMLButtonElement>('.composer-menu button[role="option"]')]
+      .find((button) => button.querySelector("strong")?.textContent === "Compact");
+    compact?.click();
+    await tick();
+    await Promise.resolve();
+
+    expect(editor.textContent?.replaceAll("\u200b", "")).toBe("");
+    expect(api.compactContext).toHaveBeenCalledWith("thread-1");
+    expect(sendComposer).not.toHaveBeenCalled();
+    expect(target.querySelector(".composer-mode")).toBeNull();
+  });
+
+  it("runs Claude Compact as a direct control action", async () => {
+    const chat = getChat();
+    chat.settings = claudeModelSettings();
+    chat.composer = {
+      ...composer(),
+      text: "",
+      providerInstanceId: "claude",
+      modelSelection: composerModelSelection("default", false, []),
+      safetyMode: "ask_for_approval",
+      interactionMode: "build",
+      threadId: "thread-1",
+    };
+    chat.activeThreads = [threadShell()];
+    chat.selectedThreadId = "thread-1";
+    api.promptCatalog.mockResolvedValueOnce([{
+      value: "/compact",
+      label: "Compact",
+      description: "Compact conversation history",
+      argumentHint: null,
+      kind: "command",
+      source: "provider",
+      stale: false,
+    }]);
+    vi.spyOn(chat, "setComposerRichContent").mockImplementation((text, richContent) => {
+      chat.composer = { ...chat.composer, text, richContent };
+    });
+    const sendComposer = vi.spyOn(chat, "sendComposer").mockResolvedValue();
+    vi.spyOn(chat, "refreshInteraction").mockResolvedValue();
+    const { target, editor } = setup(false);
+    await openSlashMenu(editor);
+
+    const compact = [...target.querySelectorAll<HTMLButtonElement>('.composer-menu button[role="option"]')]
+      .find((button) => button.querySelector("strong")?.textContent === "Compact");
+    compact?.click();
+    await tick();
+    await Promise.resolve();
+
+    expect(api.compactContext).toHaveBeenCalledWith("thread-1");
+    expect(sendComposer).not.toHaveBeenCalled();
+  });
+
+  it("opens Status and MCP as anchored panels without sending synthetic messages", async () => {
+    const chat = getChat();
+    chat.settings = modelSettings();
+    chat.composer = {
+      ...composer(),
+      text: "",
+      threadId: "thread-1",
+      providerInstanceId: "codex-local",
+      modelSelection: composerModelSelection("gpt-5.6-sol", false, []),
+      safetyMode: "ask_for_approval",
+      interactionMode: "build",
+    };
+    chat.activeThreads = [threadShell()];
+    chat.selectedThreadId = "thread-1";
+    chat.interaction = interactionState();
+    api.promptCatalog.mockResolvedValue([{
+      value: "/mcp",
+      label: "MCP",
+      description: "Show configured MCP servers",
+      argumentHint: null,
+      kind: "command",
+      source: "provider",
+      stale: false,
+    }]);
+    api.mcpStatus.mockResolvedValueOnce({
+      servers: [{ name: "openaiDeveloperDocs", authStatus: "unsupported", enabled: true, runtimeStatus: "ready" }],
+    });
+    vi.spyOn(chat, "setComposerRichContent").mockImplementation((text, richContent) => {
+      chat.composer = { ...chat.composer, text, richContent };
+    });
+    const sendComposer = vi.spyOn(chat, "sendComposer").mockResolvedValue();
+    const { target, editor } = setup(false);
+
+    await openSlashMenu(editor);
+    [...target.querySelectorAll<HTMLButtonElement>('.composer-menu button[role="option"]')]
+      .find((button) => button.querySelector("strong")?.textContent === "Status")?.click();
+    await tick();
+    const statusPanel = target.querySelector<HTMLElement>(".composer-info-panel");
+    expect(statusPanel?.textContent).toContain("session-codex-1");
+    expect(statusPanel?.textContent).toContain("61% left (100,000 used / 258,000)");
+    expect(target.querySelector(".command-notice")).toBeNull();
+    [...statusPanel?.querySelectorAll<HTMLButtonElement>("button") ?? []]
+      .find((button) => button.textContent === "Close")?.click();
+    await tick();
+
+    await openSlashMenu(editor);
+    [...target.querySelectorAll<HTMLButtonElement>('.composer-menu button[role="option"]')]
+      .find((button) => button.querySelector("strong")?.textContent === "MCP")?.click();
+    await vi.waitFor(() => expect(target.querySelector(".mcp-status-table")?.textContent).toContain("openaiDeveloperDocs"));
+    expect(target.querySelector(".mcp-status-table")?.textContent).toContain("Auth Unsupported");
+    expect(target.querySelector(".mcp-status-table")?.textContent).toContain("Enabled");
+    expect(api.mcpStatus).toHaveBeenCalledWith("workspace-1", "codex-local", "thread-1");
+    expect(sendComposer).not.toHaveBeenCalled();
+  });
+
+  it("opens MCP from a new draft without creating a task or sending a message", async () => {
+    const chat = getChat();
+    chat.settings = modelSettings();
+    chat.composer = {
+      ...composer(),
+      text: "",
+      providerInstanceId: "codex-local",
+      modelSelection: composerModelSelection("gpt-5.6-sol", false, []),
+      safetyMode: "ask_for_approval",
+      interactionMode: "build",
+    };
+    api.promptCatalog.mockResolvedValue([{
+      value: "/mcp",
+      label: "MCP",
+      description: "Show configured MCP servers",
+      argumentHint: null,
+      kind: "command",
+      source: "provider",
+      stale: false,
+    }]);
+    api.mcpStatus.mockResolvedValueOnce({
+      servers: [{ name: "openaiDeveloperDocs", authStatus: "unsupported", enabled: true, runtimeStatus: "ready" }],
+    });
+    vi.spyOn(chat, "setComposerRichContent").mockImplementation((text, richContent) => {
+      chat.composer = { ...chat.composer, text, richContent };
+    });
+    const sendComposer = vi.spyOn(chat, "sendComposer").mockResolvedValue();
+    const { target, editor } = setup(true);
+
+    await openSlashMenu(editor);
+    [...target.querySelectorAll<HTMLButtonElement>('.composer-menu button[role="option"]')]
+      .find((button) => button.querySelector("strong")?.textContent === "MCP")?.click();
+
+    await vi.waitFor(() => expect(target.querySelector(".mcp-status-table")?.textContent).toContain("openaiDeveloperDocs"));
+    expect(api.mcpStatus).toHaveBeenCalledWith("workspace-1", "codex-local", null);
+    expect(target.textContent).not.toContain("This command needs an active task.");
+    expect(chat.activeThreads).toHaveLength(0);
+    expect(sendComposer).not.toHaveBeenCalled();
+  });
+
+  it("keeps the keyboard-selected command visible inside the palette", async () => {
+    const chat = getChat();
+    chat.settings = modelSettings();
+    chat.composer = { ...composer(), text: "", providerInstanceId: "codex-local" };
+    const { target, editor } = setup(false);
+    await openSlashMenu(editor);
+    const menu = target.querySelector<HTMLElement>(".composer-menu");
+    if (!menu) throw new Error("Command menu did not render");
+    Object.defineProperties(menu, {
+      clientHeight: { configurable: true, value: 60 },
+      scrollTop: { configurable: true, writable: true, value: 0 },
+    });
+    [...menu.querySelectorAll<HTMLElement>('[data-menu-index]')].forEach((option, index) => {
+      Object.defineProperties(option, {
+        offsetTop: { configurable: true, value: index * 30 },
+        offsetHeight: { configurable: true, value: 30 },
+      });
+    });
+    for (let index = 0; index < 5; index += 1) {
+      editor.dispatchEvent(new KeyboardEvent("keydown", { bubbles: true, cancelable: true, key: "ArrowDown" }));
+      await tick();
+    }
+    await Promise.resolve();
+    expect(menu.scrollTop).toBeGreaterThan(0);
+    expect(menu.querySelector('[aria-selected="true"]')?.getAttribute("data-menu-index")).toBe("5");
+  });
+
+  it("turns commands that need input into a persistent composer mode", async () => {
+    const chat = getChat();
+    chat.settings = modelSettings();
+    chat.composer = {
+      ...composer(),
+      text: "",
+      providerInstanceId: "codex-local",
+      modelSelection: composerModelSelection("gpt-5.6-sol", false, []),
+      safetyMode: "ask_for_approval",
+      interactionMode: "plan",
+    };
+    api.promptCatalog.mockResolvedValueOnce([{
+      value: "/goal",
+      label: "Goal",
+      description: "Set a goal to keep pursuing",
+      argumentHint: "[objective]",
+      kind: "command",
+      source: "provider",
+      stale: false,
+    }]);
+    vi.spyOn(chat, "setComposerRichContent").mockImplementation((text, richContent) => {
+      chat.composer = { ...chat.composer, text, richContent };
+    });
+    const setModes = vi.spyOn(chat, "setComposerModes").mockImplementation((safetyMode, interactionMode) => {
+      chat.composer = { ...chat.composer, safetyMode, interactionMode };
+    });
+    const sendComposer = vi.spyOn(chat, "sendComposer").mockResolvedValue();
+    let { target, editor } = setup(false);
+    await openSlashMenu(editor);
+
+    const goal = [...target.querySelectorAll<HTMLButtonElement>('.composer-menu button[role="option"]')]
+      .find((button) => button.querySelector("strong")?.textContent === "Goal");
+    goal?.click();
+    await tick();
+
+    expect(sendComposer).not.toHaveBeenCalled();
+    expect(setModes).toHaveBeenLastCalledWith("ask_for_approval", "build");
+    expect(target.querySelector(".composer-mode")?.textContent).toContain("Goal");
+    expect(editor.dataset.placeholder).toBe("Describe the goal");
+
+    const firstMount = mounted.pop();
+    if (!firstMount) throw new Error("Goal composer mount was not recorded");
+    await unmount(firstMount.component);
+    firstMount.target.remove();
+    ({ target, editor } = setup(true));
+    await tick();
+    expect(target.querySelector(".composer-mode")?.textContent).toContain("Goal");
+    expect(editor.dataset.placeholder).toBe("Describe the goal");
+
+    const line = editor.querySelector<HTMLElement>("[data-chat-composer-line]");
+    if (!line) throw new Error("Composer line did not render");
+    line.textContent = "Finish the migration";
+    setEditorSelection(editor, 20, 20);
+    editor.dispatchEvent(new InputEvent("input", { bubbles: true, inputType: "insertText", data: "n" }));
+    await tick();
+    target.querySelector<HTMLButtonElement>("button.primary-action")?.click();
+    await tick();
+    await Promise.resolve();
+
+    expect(sendComposer).toHaveBeenCalledWith({
+      promptOverride: "/goal Finish the migration",
+      omitComposerContext: true,
+    });
+    await vi.waitFor(() => expect(target.querySelector(".composer-mode")).toBeNull());
   });
 
   it("accepts ordinary and composed characters after deleting the entire draft", async () => {
@@ -728,6 +1099,63 @@ function availableWorkingFolder() {
     canonicalPath: "/workspace/example",
     lastVerifiedAt: "2026-07-24T12:00:00.000Z",
     currentBranch: "feat/chat",
+  };
+}
+
+function threadShell(): ChatThreadShellRead {
+  return {
+    id: "thread-1",
+    workingFolderId: "workspace-1",
+    projectId: "project-1",
+    title: "Example task",
+    providerFamilyId: "codex",
+    providerInstanceId: "codex-local",
+    providerThreadId: "provider-thread-1",
+    modelId: "gpt-5.6-sol",
+    modelOptions: [],
+    modes: { safetyMode: "ask_for_approval", interactionMode: "build" },
+    state: "idle",
+    latestTurnState: "completed",
+    latestPreview: null,
+    messageCount: 2,
+    revision: 1,
+    lastEventSequence: 4,
+    lastActivityAt: "2026-07-28T12:00:00.000Z",
+    unreadAt: null,
+    archivedAt: null,
+  };
+}
+
+function interactionState(): ChatInteractionStateRead {
+  return {
+    sessionId: "session-codex-1",
+    sessionState: "ready",
+    activeTurnId: null,
+    capabilities: { entries: [] },
+    pendingRequest: null,
+    queuedFollowup: null,
+    usage: {
+      inputTokens: 80_000,
+      outputTokens: 20_000,
+      cachedInputTokens: 10_000,
+      contextTokens: 100_000,
+      contextLimit: 258_000,
+      cost: null,
+    },
+    accountStatus: { accountLabel: "victor@example.com", planLabel: "Plus", usage: null },
+    rateLimitStatus: {
+      limited: false,
+      resetsAt: null,
+      detail: null,
+      providerData: {
+        schemaVersion: 1,
+        value: {
+          limitId: "codex",
+          primary: { usedPercent: 18, windowDurationMins: 10_080, resetsAt: 1_785_200_400 },
+        },
+      },
+    },
+    automaticCompactionReported: false,
   };
 }
 

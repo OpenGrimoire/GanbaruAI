@@ -128,17 +128,21 @@ impl ClaudeEventNormalizer {
                     }),
                 )?])
             }
-            "compact_boundary" => Ok(vec![self.item_event(
-                state,
-                ClaudeItemEvent {
-                    source: "system/compact_boundary",
-                    item_id: self.fallback_item_id("compact"),
-                    kind: CanonicalItemKind::ContextCompaction,
-                    status: ActivityStatus::Completed,
-                    title: Some("Context compacted".to_string()),
-                    safe_metadata: None,
-                },
-            )?]),
+            "compact_boundary" => {
+                let mut event = self.item_event(
+                    state,
+                    ClaudeItemEvent {
+                        source: "system/compact_boundary",
+                        item_id: self.fallback_item_id("compact"),
+                        kind: CanonicalItemKind::ContextCompaction,
+                        status: ActivityStatus::Completed,
+                        title: Some("Context compacted".to_string()),
+                        safe_metadata: None,
+                    },
+                )?;
+                event.turn_id = None;
+                Ok(vec![event])
+            }
             "status" => Ok(vec![self.event(
                 state,
                 "system/status",

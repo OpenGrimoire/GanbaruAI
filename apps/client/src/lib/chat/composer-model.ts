@@ -9,6 +9,7 @@ import type {
   ProviderCapabilities,
   ProviderModel,
   ProviderSessionState,
+  RateLimitStatusEvent,
   SafetyMode,
   UserInputQuestion,
   VersionedJson,
@@ -61,6 +62,65 @@ export interface ContextMeterRead {
   maximumTokens: number | null;
   ratio: number | null;
   warning: boolean;
+}
+
+export interface ComposerRateLimitWindow {
+  id: string;
+  label: string;
+  usedPercent: number;
+  windowDurationMinutes: number | null;
+  resetsAtSeconds: number | null;
+}
+
+export function composerRateLimitWindows(
+  status: RateLimitStatusEvent | null,
+): ComposerRateLimitWindow[] {
+  const root = readJsonRecord(status?.providerData?.value);
+  if (!root) return [];
+  const bucketRecords = readJsonRecord(root.rateLimitsByLimitId);
+  const buckets: [string, unknown][] = bucketRecords
+    ? Object.entries(bucketRecords)
+    : [[readJsonString(root.limitId) ?? "rate-limit", root]];
+  const windows: ComposerRateLimitWindow[] = [];
+  for (const [bucketId, bucketValue] of buckets) {
+    const bucket = readJsonRecord(bucketValue);
+    if (!bucket) continue;
+    const bucketLabel = readJsonString(bucket.limitName) ?? readJsonString(bucket.limitId) ?? bucketId;
+    for (const windowName of ["primary", "secondary"] as const) {
+      const window = readJsonRecord(bucket[windowName]);
+      const usedPercent = readJsonNumber(window?.usedPercent);
+      if (!window || usedPercent === null) continue;
+      const duration = readJsonNumber(window.windowDurationMins);
+      windows.push({
+        id: `${bucketId}:${windowName}`,
+        label: duration === null ? bucketLabel : `${formatWindowDuration(duration)} ${bucketLabel}`,
+        usedPercent: Math.max(0, Math.min(100, usedPercent)),
+        windowDurationMinutes: duration,
+        resetsAtSeconds: readJsonNumber(window.resetsAt),
+      });
+    }
+  }
+  return windows;
+}
+
+function readJsonRecord(value: unknown): Record<string, unknown> | null {
+  return typeof value === "object" && value !== null && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : null;
+}
+
+function readJsonString(value: unknown): string | null {
+  return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+function readJsonNumber(value: unknown): number | null {
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+function formatWindowDuration(minutes: number): string {
+  if (minutes >= 1_440 && minutes % 1_440 === 0) return `${minutes / 1_440}d`;
+  if (minutes >= 60 && minutes % 60 === 0) return `${minutes / 60}h`;
+  return `${minutes}m`;
 }
 
 export interface ApprovalChoiceRead {
@@ -128,14 +188,37 @@ export function validateComposerSelections(
 
 export function composerTokenTrigger(text: string, cursor: number): ComposerTokenTrigger | null {
   const before = text.slice(0, Math.max(0, Math.min(cursor, text.length)));
-  const match = /(^|\s)([@$/])([^\s@$]*)$/.exec(before);
+  const command = /^([ \t]*)\/([^\s/]*)$/.exec(before);
+  if (command) {
+    return {
+      kind: "command",
+      query: command[2],
+      start: command[1].length,
+      end: before.length,
+    };
+  }
+  const match = /(^|\s)([@$])([^\s@$]*)$/.exec(before);
   if (!match) return null;
   const prefix = match[2];
   return {
-    kind: prefix === "@" ? "mention" : prefix === "$" ? "skill" : "command",
+    kind: prefix === "@" ? "mention" : "skill",
     query: match[3],
     start: before.length - match[3].length - 1,
     end: before.length,
+  };
+}
+
+export interface ComposerModeCommand {
+  mode: InteractionMode;
+  prompt: string;
+}
+
+export function composerModeCommand(text: string): ComposerModeCommand | null {
+  const match = /^\s*\/(plan|build)(?:\s+([\s\S]*))?$/i.exec(text);
+  if (!match) return null;
+  return {
+    mode: match[1].toLowerCase() === "plan" ? "plan" : "build",
+    prompt: match[2]?.trimStart() ?? "",
   };
 }
 
@@ -150,7 +233,10 @@ export function filterPromptCatalog(
 ): ChatPromptCatalogEntry[] {
   const normalized = query.trim().toLowerCase();
   return entries
-    .filter((entry) => entry.kind === kind && fuzzyMatch(`${entry.label} ${entry.value}`, normalized))
+    .filter((entry) => entry.kind === kind && fuzzyMatch(
+      `${entry.label} ${entry.value} ${entry.description ?? ""} ${entry.argumentHint ?? ""}`,
+      normalized,
+    ))
     .sort((left, right) => fuzzyRank(left.label, normalized) - fuzzyRank(right.label, normalized)
       || left.label.localeCompare(right.label));
 }

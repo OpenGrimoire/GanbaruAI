@@ -7,7 +7,7 @@ use super::http_client::*;
 use super::local_server::OwnedOpenCodeServer;
 use super::normalizer::{OpenCodeEventNormalizer, OpenCodeRouteState};
 use super::permissions::permission_override;
-use super::protocol::{parse_resume_cursor, resume_cursor};
+use super::protocol::{parse_resume_cursor, resume_cursor, OpenCodeCommand};
 use super::support::*;
 use crate::chat::events::*;
 use crate::chat::models::*;
@@ -31,6 +31,7 @@ pub struct OpenCodeProviderDriver {
     pub(super) password: Option<OpenCodeSecret>,
     pub(super) live: Option<OpenCodeLiveSession>,
     pub(super) cached_models: Option<ProviderModelCatalog>,
+    pub(super) cached_commands: Vec<OpenCodeCommand>,
 }
 
 pub(super) struct OpenCodeLiveSession {
@@ -44,12 +45,16 @@ pub(super) struct OpenCodeLiveSession {
     pub terminal_error: Arc<Mutex<Option<ChatError>>>,
     pub session_id: ProviderSessionId,
     pub provider_thread_id: String,
+    pub command_task: Option<JoinHandle<()>>,
 }
 
 impl Drop for OpenCodeLiveSession {
     fn drop(&mut self) {
         self.expected_shutdown.store(true, Ordering::Release);
         self.event_task.abort();
+        if let Some(task) = self.command_task.as_ref() {
+            task.abort();
+        }
     }
 }
 
@@ -133,6 +138,7 @@ pub(super) struct OpenCodeCatalogSnapshot {
     pub version: Option<String>,
     pub account_label: Option<String>,
     pub models: Vec<ProviderModel>,
+    pub commands: Vec<OpenCodeCommand>,
 }
 
 impl OpenCodeProviderDriver {
@@ -151,6 +157,7 @@ impl OpenCodeProviderDriver {
             password,
             live: None,
             cached_models: None,
+            cached_commands: Vec::new(),
         })
     }
 
@@ -236,16 +243,18 @@ impl OpenCodeProviderDriver {
                 let server_probe = async {
                     let client =
                         OpenCodeHttpClient::new(&server.origin, workspace, self.password.as_ref())?;
-                    client.health().await.map(|_| ())
+                    client.health().await?;
+                    client.commands().await
                 }
                 .await;
                 let stop = server.stop().await;
-                server_probe?;
+                let commands = server_probe?;
                 stop?;
                 Ok(OpenCodeCatalogSnapshot {
                     version: Some(version.to_string()),
                     account_label: None,
                     models: provider_models(&models, &agents)?,
+                    commands,
                 })
             }
             OpenCodeConnectionMode::External { origin, .. } => {
@@ -254,6 +263,7 @@ impl OpenCodeProviderDriver {
                 let health = client.health().await?;
                 let inventory = client.provider_inventory().await?;
                 let agents = client.agents().await?;
+                let commands = client.commands().await?;
                 let models = parse_provider_inventory(&inventory)?;
                 let agents = parse_agent_inventory(&agents)?;
                 Ok(OpenCodeCatalogSnapshot {
@@ -264,6 +274,7 @@ impl OpenCodeProviderDriver {
                         .map(str::to_string),
                     account_label: connected_account_label(&inventory),
                     models: provider_models(&models, &agents)?,
+                    commands,
                 })
             }
         }
@@ -316,6 +327,8 @@ impl OpenCodeProviderDriver {
             .or_else(|| self.settings.server_origin())
             .ok_or_else(driver_state_error)?;
         let client = OpenCodeHttpClient::new(origin, &workspace, self.password.as_ref())?;
+        let commands = client.commands().await?;
+        self.cached_commands = commands;
         let initial_events = match client.subscribe_events().await {
             Ok(response) => response,
             Err(error) => {
@@ -406,6 +419,7 @@ impl OpenCodeProviderDriver {
             terminal_error,
             session_id: local_session_id.clone(),
             provider_thread_id,
+            command_task: None,
         });
         Ok(ProviderSessionSnapshot {
             session_id: local_session_id,

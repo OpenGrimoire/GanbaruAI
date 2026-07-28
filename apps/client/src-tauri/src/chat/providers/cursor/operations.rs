@@ -44,6 +44,26 @@ impl ProviderDriver for CursorProviderDriver {
         self.cached_models.clone()
     }
 
+    fn prompt_catalog(&self) -> ChatResult<Vec<ChatPromptCatalogEntry>> {
+        let Some(live) = self.live.as_ref() else {
+            return Ok(Vec::new());
+        };
+        let state = live.route.lock().map_err(|_| driver_state_error())?;
+        Ok(state
+            .available_commands
+            .iter()
+            .map(|command| ChatPromptCatalogEntry {
+                value: format!("/{}", command.name),
+                label: command.name.clone(),
+                description: Some(command.description.clone()).filter(|value| !value.is_empty()),
+                argument_hint: command.argument_hint.clone(),
+                kind: "command".to_string(),
+                source: "provider".to_string(),
+                stale: false,
+            })
+            .collect())
+    }
+
     fn probe<'a>(
         &'a mut self,
         context: &'a DriverOperationContext,

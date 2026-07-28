@@ -162,6 +162,70 @@ pub struct AcpConfigOption {
     pub options: Vec<Value>,
 }
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct AcpAvailableCommand {
+    pub name: String,
+    pub description: String,
+    pub argument_hint: Option<String>,
+}
+
+pub fn parse_available_commands_update(
+    update: &Map<String, Value>,
+) -> ChatResult<Vec<AcpAvailableCommand>> {
+    let commands = update
+        .get("availableCommands")
+        .and_then(Value::as_array)
+        .ok_or_else(|| protocol_error("available commands update"))?;
+    if commands.len() > 512 {
+        return Err(protocol_error("available commands update"));
+    }
+    let mut seen = BTreeSet::new();
+    commands
+        .iter()
+        .map(|value| {
+            let command = value
+                .as_object()
+                .ok_or_else(|| protocol_error("available command"))?;
+            let name = command
+                .get("name")
+                .and_then(Value::as_str)
+                .map(str::trim)
+                .map(|value| value.trim_start_matches('/'))
+                .filter(|value| {
+                    !value.is_empty()
+                        && value.len() <= 200
+                        && !value.chars().any(char::is_control)
+                        && !value.chars().any(char::is_whitespace)
+                })
+                .ok_or_else(|| protocol_error("available command name"))?;
+            if !seen.insert(name.to_ascii_lowercase()) {
+                return Err(protocol_error("duplicate available command"));
+            }
+            let description = command
+                .get("description")
+                .and_then(Value::as_str)
+                .map(str::trim)
+                .filter(|value| value.len() <= 1_000 && !value.chars().any(char::is_control))
+                .ok_or_else(|| protocol_error("available command description"))?;
+            let argument_hint = command
+                .get("input")
+                .and_then(Value::as_object)
+                .and_then(|input| input.get("hint"))
+                .and_then(Value::as_str)
+                .map(str::trim)
+                .filter(|value| {
+                    !value.is_empty() && value.len() <= 500 && !value.chars().any(char::is_control)
+                })
+                .map(str::to_string);
+            Ok(AcpAvailableCommand {
+                name: name.to_string(),
+                description: description.to_string(),
+                argument_hint,
+            })
+        })
+        .collect()
+}
+
 #[derive(Clone, Debug, Default, Deserialize, PartialEq)]
 #[serde(default)]
 pub struct CursorAvailableModelsResponse {
@@ -433,6 +497,7 @@ pub fn acp_capability_kinds(_flavor: super::driver::AcpProviderFlavor) -> Vec<Pr
         Some(ProviderCapability::ReasoningSummaries),
         Some(ProviderCapability::StructuredPlans),
         Some(ProviderCapability::ProviderDiffs),
+        Some(ProviderCapability::SlashCommands),
     ]
     .into_iter()
     .flatten()
@@ -478,6 +543,7 @@ pub fn negotiated_capabilities_for(
                 | ProviderCapability::StructuredPlans
                 | ProviderCapability::ProviderDiffs
                 | ProviderCapability::ReasoningSummaries => true,
+                ProviderCapability::SlashCommands => true,
                 _ => false,
             };
             ProviderCapabilitySupport {

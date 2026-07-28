@@ -388,6 +388,7 @@ impl CodexEventNormalizer {
             .map(|value| bounded_text(value, MAX_PROVIDER_TEXT_BYTES));
         let chat_turn = state.active_chat_turn_id.clone();
         state.session_state = ProviderSessionState::Ready;
+        state.active_chat_turn_id = None;
         state.active_provider_turn_id = None;
         state.stream_indexes.clear();
         let changed_files = std::mem::take(&mut state.changed_files);
@@ -524,10 +525,15 @@ impl CodexEventNormalizer {
             detail,
             safe_metadata: metadata,
         };
+        let chat_turn_id = if kind == CanonicalItemKind::ContextCompaction {
+            None
+        } else {
+            route_turn(state, Some(object))
+        };
         let mut events = vec![self.event(
             state,
             method,
-            route_turn(state, Some(object)),
+            chat_turn_id,
             provider_turn_from(object),
             Some(item_id.clone()),
             if completed {
@@ -729,7 +735,7 @@ impl CodexEventNormalizer {
         Ok(vec![self.event(
             state,
             "thread/compacted",
-            route_turn(state, Some(object)),
+            None,
             provider_turn_from(object),
             Some(item_id.clone()),
             CanonicalEvent::ItemCompleted(ItemLifecycleEvent {

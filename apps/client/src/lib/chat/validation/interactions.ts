@@ -4,6 +4,8 @@ import type {
   ChatPendingRequestRead,
   ChatPromptCatalogEntry,
   ChatQueuedFollowupRead,
+  McpServerStatusRead,
+  McpStatusRead,
   ProjectWorkingFolderPathPage,
   ProjectWorkingFolderPathRead,
   ChatUserInputDraftRead,
@@ -27,6 +29,7 @@ import {
 const ATTACHMENT_KINDS = ["image", "text_snippet"] as const;
 const PATH_KINDS = ["file", "directory"] as const;
 const CATALOG_KINDS = ["skill", "command"] as const;
+const CATALOG_SOURCES = ["app", "provider", "workspace", "user"] as const;
 const REQUEST_KINDS = ["approval", "user_input"] as const;
 
 export function parseChatAttachmentRead(value: unknown, label = "Chat attachment"): ChatAttachmentRead {
@@ -70,7 +73,9 @@ export function parseChatPromptCatalog(value: unknown): ChatPromptCatalogEntry[]
       value: readString(record.value, `${label}.value`),
       label: readString(record.label, `${label}.label`),
       description: readNullable(record.description, `${label}.description`, readString),
+      argumentHint: readNullable(record.argumentHint, `${label}.argumentHint`, readString),
       kind: readEnum(record.kind, CATALOG_KINDS, `${label}.kind`),
+      source: readEnum(record.source, CATALOG_SOURCES, `${label}.source`),
       stale: readBoolean(record.stale, `${label}.stale`),
     };
   });
@@ -109,6 +114,7 @@ function parseQueuedFollowup(value: unknown, label: string): ChatQueuedFollowupR
 export function parseChatInteractionState(value: unknown): ChatInteractionStateRead {
   const record = readRecord(value, "Chat interaction state");
   return {
+    sessionId: readNullable(record.sessionId, "Chat interaction state.sessionId", readIdentifier),
     sessionState: readEnum(record.sessionState, PROVIDER_SESSION_STATES, "Chat interaction state.sessionState"),
     activeTurnId: readNullable(record.activeTurnId, "Chat interaction state.activeTurnId", readIdentifier),
     capabilities: parseProviderCapabilities(record.capabilities, "Chat interaction state.capabilities"),
@@ -118,6 +124,23 @@ export function parseChatInteractionState(value: unknown): ChatInteractionStateR
     accountStatus: readNullable(record.accountStatus, "Chat interaction state.accountStatus", parseAccountStatus),
     rateLimitStatus: readNullable(record.rateLimitStatus, "Chat interaction state.rateLimitStatus", parseRateLimitStatus),
     automaticCompactionReported: readBoolean(record.automaticCompactionReported, "Chat interaction state.automaticCompactionReported"),
+  };
+}
+
+function parseMcpServerStatus(value: unknown, label: string): McpServerStatusRead {
+  const record = readRecord(value, label);
+  return {
+    name: readString(record.name, `${label}.name`),
+    authStatus: readNullable(record.authStatus, `${label}.authStatus`, readString),
+    enabled: readBoolean(record.enabled, `${label}.enabled`),
+    runtimeStatus: readNullable(record.runtimeStatus, `${label}.runtimeStatus`, readString),
+  };
+}
+
+export function parseMcpStatus(value: unknown): McpStatusRead {
+  const record = readRecord(value, "MCP status");
+  return {
+    servers: readArray(record.servers, "MCP status.servers", parseMcpServerStatus),
   };
 }
 

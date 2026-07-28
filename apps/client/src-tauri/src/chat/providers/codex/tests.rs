@@ -1,5 +1,6 @@
 use super::driver::{
-    confirmed_resume_not_found, validated_app_server_arguments, CodexProviderDriver,
+    codex_native_command, confirmed_resume_not_found, goal_request, parse_mcp_status_page,
+    validated_app_server_arguments, CodexNativeCommand, CodexProviderDriver,
 };
 use super::home::*;
 use super::normalizer::{CodexEventNormalizer, CodexRouteState};
@@ -77,6 +78,64 @@ fn context(operation_id: &str) -> DriverOperationContext {
         deadline: Instant::now() + Duration::from_secs(2),
         cancellation: DriverCancellation::default(),
     }
+}
+
+#[test]
+fn native_slash_commands_only_capture_supported_standalone_requests() {
+    let session_id = ProviderSessionId::new("session-command").unwrap();
+    let mut request = fixture_turn(&session_id, "build");
+    request.developer_instructions = None;
+    request.prompt = "/compact".to_string();
+    assert_eq!(
+        codex_native_command(&request),
+        Some(CodexNativeCommand::Compact)
+    );
+    request.prompt = "/review focus on persistence".to_string();
+    assert_eq!(
+        codex_native_command(&request),
+        Some(CodexNativeCommand::Review(
+            "focus on persistence".to_string()
+        ))
+    );
+    request.prompt = "Explain /compact".to_string();
+    assert_eq!(codex_native_command(&request), None);
+    request.prompt = "/compact".to_string();
+    request.mentions.push(WorkspaceMentionReference {
+        relative_path: "src/lib.rs".to_string(),
+        kind: "file".to_string(),
+    });
+    assert_eq!(codex_native_command(&request), None);
+}
+
+#[test]
+fn goal_commands_validate_objectives_and_map_status_actions() {
+    let (method, params, _) = goal_request("thread-1", "pause").unwrap();
+    assert_eq!(method, "thread/goal/set");
+    assert_eq!(params["status"], "paused");
+    let (method, params, _) = goal_request("thread-1", "Finish the migration").unwrap();
+    assert_eq!(method, "thread/goal/set");
+    assert_eq!(params["objective"], "Finish the migration");
+    assert!(goal_request("thread-1", &"x".repeat(4_001)).is_err());
+}
+
+#[test]
+fn mcp_status_pages_preserve_authentication_and_enabled_state() {
+    let page = parse_mcp_status_page(&json!({
+        "data": [
+            { "name": "node_repl", "authStatus": "unsupported", "enabled": true, "status": "ready" },
+            { "name": "docs", "authStatus": "notAuthenticated", "enabled": false }
+        ],
+        "nextCursor": "page-2"
+    }))
+    .unwrap();
+
+    assert_eq!(page.next_cursor.as_deref(), Some("page-2"));
+    assert_eq!(page.servers.len(), 2);
+    assert_eq!(page.servers[0].name, "node_repl");
+    assert_eq!(page.servers[0].auth_status.as_deref(), Some("unsupported"));
+    assert!(page.servers[0].enabled);
+    assert_eq!(page.servers[0].runtime_status.as_deref(), Some("ready"));
+    assert!(!page.servers[1].enabled);
 }
 
 fn identifier<T>(value: &str, constructor: impl FnOnce(String) -> Result<T, String>) -> T {
@@ -282,6 +341,24 @@ async fn run_app_server_fixture<R, W>(
                                 "defaultServiceTier": null,
                                 "supportsPersonality": false,
                                 "upgrade": null
+                            }],
+                            "nextCursor": null
+                        }
+                    }),
+                )
+                .await;
+            }
+            "mcpServerStatus/list" => {
+                write_fixture_message(
+                    &mut writer,
+                    json!({
+                        "id": id,
+                        "result": {
+                            "data": [{
+                                "name": "openaiDeveloperDocs",
+                                "authStatus": "unsupported",
+                                "enabled": true,
+                                "status": "ready"
                             }],
                             "nextCursor": null
                         }
@@ -1173,6 +1250,45 @@ fn item_lifecycles_preserve_command_message_and_file_change_data() {
 }
 
 #[test]
+fn context_compaction_is_a_thread_level_activity() {
+    let normalizer = CodexEventNormalizer::new(
+        identifier("codex-instance-1", ProviderInstanceId::new),
+        identifier("chat-thread-1", ChatThreadId::new),
+        identifier("session-1", ProviderSessionId::new),
+    );
+    let mut state = CodexRouteState::new(
+        modes(SafetyMode::AskForApproval, InteractionMode::Build),
+        Some(identifier("gpt-5.4", ModelId::new)),
+    );
+    state.active_chat_turn_id = Some(identifier("compact-turn-1", ChatTurnId::new));
+    state.active_provider_turn_id = Some("provider-turn-1".to_string());
+
+    let events = normalizer
+        .normalize_notification(
+            &mut state,
+            "item/completed",
+            json!({
+                "threadId": "provider-thread-1",
+                "turnId": "provider-turn-1",
+                "item": {
+                    "id": "compaction-1",
+                    "type": "contextCompaction",
+                    "status": "completed"
+                }
+            }),
+        )
+        .unwrap();
+
+    assert_eq!(events.len(), 1);
+    assert!(events[0].turn_id.is_none());
+    assert!(matches!(
+        &events[0].event,
+        CanonicalEvent::ItemCompleted(item)
+            if item.kind == CanonicalItemKind::ContextCompaction
+    ));
+}
+
+#[test]
 fn permission_approvals_return_only_requested_subset_and_scope() {
     tauri::async_runtime::block_on(async {
         let (client_reader, _server_writer) = tokio::io::duplex(4096);
@@ -1321,6 +1437,46 @@ fn secret_structured_answers_are_sent_to_codex_but_not_canonicalized() {
 }
 
 #[test]
+fn mcp_status_without_task_uses_standalone_app_server() {
+    tauri::async_runtime::block_on(async {
+        let workspace = TestDirectory::new("mcp-status-draft");
+        let (mut driver, fixture) = fixture_driver(workspace.path(), FixtureScenario::Healthy);
+
+        let status = driver
+            .read_mcp_status(
+                McpStatusRequest {
+                    session_id: None,
+                    working_directory: Some(workspace.path().to_path_buf()),
+                },
+                &context("mcp-status-draft"),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(status.servers.len(), 1);
+        assert_eq!(status.servers[0].name, "openaiDeveloperDocs");
+        assert_eq!(
+            status.servers[0].auth_status.as_deref(),
+            Some("unsupported")
+        );
+        assert!(status.servers[0].enabled);
+        assert_eq!(status.servers[0].runtime_status.as_deref(), Some("ready"));
+        let received = fixture.received();
+        let request = received
+            .iter()
+            .find(|message| message["method"] == "mcpServerStatus/list")
+            .unwrap();
+        assert!(request["params"]["threadId"].is_null());
+        assert!(received.iter().all(|message| {
+            !matches!(
+                message["method"].as_str(),
+                Some("thread/start" | "thread/resume")
+            )
+        }));
+    });
+}
+
+#[test]
 fn driver_fixture_covers_fresh_plan_interrupt_and_shutdown() {
     tauri::async_runtime::block_on(async {
         let workspace = TestDirectory::new("driver-fresh");
@@ -1344,6 +1500,18 @@ fn driver_fixture_covers_fresh_plan_interrupt_and_shutdown() {
             snapshot.resume_cursor.as_ref().unwrap().value["threadId"],
             "fixture-thread-new"
         );
+
+        let mcp_status = driver
+            .read_mcp_status(
+                McpStatusRequest {
+                    session_id: Some(snapshot.session_id.clone()),
+                    working_directory: None,
+                },
+                &context("mcp-status-live"),
+            )
+            .await
+            .unwrap();
+        assert_eq!(mcp_status.servers[0].name, "openaiDeveloperDocs");
 
         let receipt = driver
             .send_turn(fixture_turn(&snapshot.session_id, "plan"), &context("send"))
@@ -1409,6 +1577,11 @@ fn driver_fixture_covers_fresh_plan_interrupt_and_shutdown() {
         assert!(received
             .iter()
             .any(|message| message["method"] == "config/mcpServer/reload"));
+        let mcp_request = received
+            .iter()
+            .find(|message| message["method"] == "mcpServerStatus/list")
+            .unwrap();
+        assert_eq!(mcp_request["params"]["threadId"], "fixture-thread-new");
     });
 }
 

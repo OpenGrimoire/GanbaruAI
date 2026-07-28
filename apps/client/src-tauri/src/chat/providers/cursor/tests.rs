@@ -66,6 +66,27 @@ fn compatibility_matrix_pins_the_native_acp_boundary() {
 }
 
 #[test]
+fn available_command_updates_are_typed_bounded_and_deduplicated() {
+    let update = json!({
+        "availableCommands": [{
+            "name": "review",
+            "description": "Review changes",
+            "input": { "hint": "[scope]" }
+        }]
+    });
+    let commands = parse_available_commands_update(update.as_object().unwrap()).unwrap();
+    assert_eq!(commands[0].name, "review");
+    assert_eq!(commands[0].argument_hint.as_deref(), Some("[scope]"));
+    let duplicate = json!({
+        "availableCommands": [
+            { "name": "review", "description": "One" },
+            { "name": "/REVIEW", "description": "Two" }
+        ]
+    });
+    assert!(parse_available_commands_update(duplicate.as_object().unwrap()).is_err());
+}
+
+#[test]
 fn executable_probe_parses_versions_accounts_and_protected_arguments() {
     let parsed = parse_about(
         br#"{"cliVersion":"2026.04.08","userEmail":"fixture@example.test"}"#,

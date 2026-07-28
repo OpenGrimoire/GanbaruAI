@@ -2,7 +2,9 @@
 
 use super::config::OpenCodeSecret;
 use super::permissions::OpenCodePermissionRule;
-use super::protocol::{protocol_error, validate_identifier, MAX_HTTP_BODY_BYTES};
+use super::protocol::{
+    parse_commands, protocol_error, validate_identifier, OpenCodeCommand, MAX_HTTP_BODY_BYTES,
+};
 use crate::chat::models::{ChatError, ChatErrorCode, ChatResult};
 use base64::{engine::general_purpose::STANDARD, Engine as _};
 use reqwest::{
@@ -148,6 +150,13 @@ impl OpenCodeHttpClient {
             .await
     }
 
+    pub async fn commands(&self) -> ChatResult<Vec<OpenCodeCommand>> {
+        parse_commands(
+            self.json(Method::GET, &["command"], &[], Option::<&Value>::None)
+                .await?,
+        )
+    }
+
     pub async fn subscribe_events(&self) -> ChatResult<reqwest::Response> {
         let mut url = endpoint_url(&self.origin, &["event"])?;
         url.query_pairs_mut()
@@ -250,6 +259,37 @@ impl OpenCodeHttpClient {
             )
             .await?;
         expect_empty_success(response, StatusCode::NO_CONTENT, "asynchronous prompt").await
+    }
+
+    pub async fn execute_command(
+        &self,
+        session_id: &str,
+        command: &str,
+        arguments: &str,
+    ) -> ChatResult<Value> {
+        validate_identifier(session_id, "session ID")?;
+        validate_identifier(command, "command")?;
+        if arguments.len() > MAX_HTTP_BODY_BYTES || arguments.contains('\0') {
+            return Err(ChatError::validation(
+                "arguments",
+                "OpenCode command arguments exceed the supported size",
+            ));
+        }
+        let body = json!({ "command": command, "arguments": arguments });
+        let mut url = endpoint_url(&self.origin, &["session", session_id, "command"])?;
+        url.query_pairs_mut()
+            .append_pair("directory", &self.workspace);
+        let encoded = serde_json::to_vec(&body).map_err(|_| protocol_error("command request"))?;
+        let mut request = self
+            .events_http
+            .post(url)
+            .header(ACCEPT, "application/json")
+            .header(CONTENT_TYPE, "application/json")
+            .body(encoded);
+        if let Some(authorization) = self.authorization.as_ref() {
+            request = request.header(AUTHORIZATION, authorization.clone());
+        }
+        decode_json_response(request.send().await.map_err(transport_error)?, "command").await
     }
 
     pub async fn abort(&self, session_id: &str) -> ChatResult<()> {

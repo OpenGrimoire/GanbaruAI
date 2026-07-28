@@ -1,14 +1,18 @@
 //! Native composer resources, workspace mentions, and interactive request commands.
 
+use super::credentials::{materialize_provider_environment, PlatformCredentialStore};
 use super::device_state::{read_active_device_scope, update_active_device_scope};
 use super::events::{
     AccountStatusEvent, CanonicalEvent, RateLimitStatusEvent, ThreadUsageUpdatedEvent,
 };
 use super::models::{
-    ChatAttachmentId, ChatCommandContext, ChatCommandId, ChatError, ChatErrorCode, ChatResult,
-    ChatThreadId, DriverOperationReceipt, InterruptTurnRequest, ProjectWorkingFolderId,
-    ProviderCapabilities, ProviderInstanceId, ProviderSessionState, UtcTimestamp, VersionedJson,
+    ChatAttachmentId, ChatCommandContext, ChatCommandId, ChatError, ChatErrorCode,
+    ChatPromptCatalogEntry, ChatResult, ChatThreadId, ChatTurnId, CompactContextRequest,
+    DriverOperationReceipt, InterruptTurnRequest, McpStatusRead, McpStatusRequest,
+    ProjectWorkingFolderId, ProviderCapabilities, ProviderInstanceId, ProviderSessionState,
+    UtcTimestamp, VersionedJson,
 };
+use super::providers::{ProviderDriverFactory, ProviderDriverRegistry};
 use super::repository::receipts::{
     claim_command_receipt, complete_command_receipt, CommandReceiptClaim, CommandReceiptRead,
     CommandReceiptState,
@@ -24,7 +28,7 @@ use base64::{engine::general_purpose, Engine as _};
 use chrono::{SecondsFormat, Utc};
 use serde::{Deserialize, Serialize};
 use sqlx::{Row, SqlitePool};
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::io::Read;
 use std::path::{Component, Path, PathBuf};
@@ -80,16 +84,6 @@ pub struct ProjectWorkingFolderPathPage {
     pub next_cursor: Option<String>,
 }
 
-#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ChatPromptCatalogEntry {
-    pub value: String,
-    pub label: String,
-    pub description: Option<String>,
-    pub kind: String,
-    pub stale: bool,
-}
-
 #[derive(Clone, Debug, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ChatPendingRequestRead {
@@ -121,6 +115,7 @@ pub struct ChatQueuedFollowupRead {
 #[derive(Clone, Debug, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ChatInteractionStateRead {
+    pub session_id: Option<String>,
     pub session_state: ProviderSessionState,
     pub active_turn_id: Option<String>,
     pub capabilities: ProviderCapabilities,
@@ -473,48 +468,48 @@ pub async fn chat_validate_working_folder_mentions(
 }
 
 #[tauri::command]
-pub fn chat_list_prompt_catalog(
+pub async fn chat_list_prompt_catalog(
     app: tauri::AppHandle,
+    db_url: String,
+    working_folder_id: ProjectWorkingFolderId,
     provider_instance_id: ProviderInstanceId,
+    thread_id: Option<ChatThreadId>,
 ) -> ChatResult<Vec<ChatPromptCatalogEntry>> {
     let settings = super::settings_commands::read_provider(&app, &provider_instance_id)?;
     let stale = settings
         .last_probe
         .as_ref()
         .is_none_or(|probe| probe.state != super::models::ProbeState::Healthy);
-    let mut entries = Vec::new();
-    if settings.configuration.family_id.as_str() == "codex" {
-        for (value, label, description) in [
-            (
-                "/compact",
-                "Compact context",
-                "Ask Codex to compact the active context",
-            ),
-            (
-                "/review",
-                "Review changes",
-                "Start a provider-native code review",
-            ),
-            (
-                "/status",
-                "Provider status",
-                "Show provider session and account status",
-            ),
-            ("/mcp", "MCP status", "Show configured MCP server status"),
-        ] {
-            entries.push(ChatPromptCatalogEntry {
-                value: value.to_string(),
-                label: label.to_string(),
-                description: Some(description.to_string()),
-                kind: "command".to_string(),
-                stale,
-            });
-        }
-    }
+    let pool = chat_pool(app.clone(), db_url).await?;
+    let workspace = require_workspace(
+        &app,
+        &pool,
+        &working_folder_id,
+        WorkingFolderAuthorizationOperation::FileRead,
+    )
+    .await?;
+    let family = settings.configuration.family_id.as_str();
+    let mut entries = provider_command_fallbacks(family, stale);
+    entries.extend(read_workspace_command_entries(
+        &workspace.canonical_path,
+        family,
+        stale,
+    )?);
     if let Some(home) = provider_skill_home(&settings.configuration) {
-        entries.extend(read_skill_entries(&home, stale)?);
+        if family == "codex" {
+            entries.extend(read_skill_entries(&home, stale).unwrap_or_default());
+        }
+        entries.extend(read_user_command_entries(&home, family, stale));
     }
-    Ok(entries)
+    if let Some(thread_id) = thread_id {
+        let live = app
+            .state::<ChatRuntimeRegistry>()
+            .owner(thread_id)?
+            .prompt_catalog()
+            .await?;
+        entries.extend(live);
+    }
+    Ok(merge_prompt_entries(entries))
 }
 
 #[tauri::command]
@@ -529,6 +524,7 @@ pub async fn chat_read_interaction_state(
         .owner(thread_id.clone())?;
     let snapshot = owner.snapshot()?;
     Ok(ChatInteractionStateRead {
+        session_id: snapshot.session_id.map(|value| value.into_inner()),
         session_state: snapshot.session_state,
         active_turn_id: snapshot.active_turn_id.map(|value| value.into_inner()),
         capabilities: snapshot.capabilities,
@@ -539,6 +535,127 @@ pub async fn chat_read_interaction_state(
         rate_limit_status: read_latest_rate_limit_status(&pool, &thread_id).await?,
         automatic_compaction_reported: automatic_compaction_reported(&pool, &thread_id).await?,
     })
+}
+
+#[tauri::command]
+pub async fn chat_compact_context(
+    app: tauri::AppHandle,
+    db_url: String,
+    thread_id: ChatThreadId,
+    client_command_id: ChatCommandId,
+) -> ChatResult<DriverOperationReceipt> {
+    let pool = chat_pool(app.clone(), db_url).await?;
+    let owner = app
+        .state::<ChatRuntimeRegistry>()
+        .owner(thread_id.clone())?;
+    let session_id = owner.snapshot()?.session_id.ok_or_else(|| {
+        ChatError::new(
+            ChatErrorCode::InvalidStateTransition,
+            "Chat session is not running",
+            true,
+        )
+    })?;
+    match claim_command_receipt(
+        &pool,
+        &client_command_id,
+        &thread_id,
+        "compact_context",
+        None,
+        &now_timestamp()?,
+    )
+    .await?
+    {
+        CommandReceiptClaim::Replay(receipt) => return replay_driver_receipt(receipt),
+        CommandReceiptClaim::Claimed(_) => {}
+    }
+    let turn_id = ChatTurnId::new(format!("compact-{}", client_command_id.as_str()))
+        .map_err(|_| ChatError::new(ChatErrorCode::Internal, "create compact turn ID", false))?;
+    let result = owner
+        .compact_context(
+            CompactContextRequest {
+                session_id,
+                turn_id,
+            },
+            operation_context("ui-compact-context", Duration::from_secs(30)),
+        )
+        .await;
+    complete_driver_operation(&pool, &client_command_id, result).await
+}
+
+#[tauri::command]
+pub async fn chat_read_mcp_status(
+    app: tauri::AppHandle,
+    db_url: String,
+    working_folder_id: ProjectWorkingFolderId,
+    provider_instance_id: ProviderInstanceId,
+    thread_id: Option<ChatThreadId>,
+) -> ChatResult<McpStatusRead> {
+    let pool = chat_pool(app.clone(), db_url).await?;
+    let workspace = require_workspace(
+        &app,
+        &pool,
+        &working_folder_id,
+        WorkingFolderAuthorizationOperation::ProviderStart,
+    )
+    .await?;
+    let provider = super::settings_commands::read_provider(&app, &provider_instance_id)?;
+    let context = operation_context("ui-read-mcp-status", Duration::from_secs(30));
+
+    if let Some(thread_id) = thread_id {
+        let thread = sqlx::query(
+            "SELECT working_folder_id, provider_instance_id FROM chat_threads
+             WHERE id = ? AND archived_at IS NULL",
+        )
+        .bind(thread_id.as_str())
+        .fetch_optional(&pool)
+        .await
+        .map_err(persistence_error)?
+        .ok_or_else(|| {
+            ChatError::new(ChatErrorCode::NotFound, "Chat thread was not found", true)
+        })?;
+        let pinned_working_folder: String = thread
+            .try_get("working_folder_id")
+            .map_err(persistence_error)?;
+        let pinned_provider: String = thread
+            .try_get("provider_instance_id")
+            .map_err(persistence_error)?;
+        if working_folder_id.as_str() != pinned_working_folder
+            || provider_instance_id.as_str() != pinned_provider
+        {
+            return Err(ChatError::new(
+                ChatErrorCode::Conflict,
+                "MCP status task does not match the selected workspace and provider",
+                true,
+            ));
+        }
+        let owner = app.state::<ChatRuntimeRegistry>().owner(thread_id)?;
+        if let Some(session_id) = owner.snapshot()?.session_id {
+            return owner
+                .read_mcp_status(
+                    McpStatusRequest {
+                        session_id: Some(session_id),
+                        working_directory: None,
+                    },
+                    context,
+                )
+                .await;
+        }
+    }
+
+    let configuration = materialize_provider_environment(
+        &provider.configuration,
+        &PlatformCredentialStore::default(),
+    )?;
+    let mut driver = ProviderDriverRegistry.create_driver(configuration)?;
+    driver
+        .read_mcp_status(
+            McpStatusRequest {
+                session_id: None,
+                working_directory: Some(workspace.canonical_path),
+            },
+            &context,
+        )
+        .await
 }
 
 #[tauri::command]
@@ -1264,7 +1381,9 @@ fn read_skill_entries(home: &Path, stale: bool) -> ChatResult<Vec<ChatPromptCata
                     value: format!("${name}"),
                     label: name,
                     description: read_skill_description(&skill_file),
+                    argument_hint: None,
                     kind: "skill".to_string(),
+                    source: "user".to_string(),
                     stale,
                 });
             } else if depth < 3 && entries.len() < 500 {
@@ -1299,11 +1418,28 @@ fn provider_skill_home(configuration: &super::models::ProviderInstanceConfig) ->
     {
         return Some(PathBuf::from(home));
     }
-    if configuration.family_id.as_str() != "codex" {
-        return None;
-    }
-    if let Some(home) = std::env::var_os("CODEX_HOME").filter(|value| !value.is_empty()) {
-        return Some(PathBuf::from(home));
+    match configuration.family_id.as_str() {
+        "codex" => {
+            if let Some(home) = std::env::var_os("CODEX_HOME").filter(|value| !value.is_empty()) {
+                return Some(PathBuf::from(home));
+            }
+        }
+        "claude" => {
+            if let Some(home) =
+                std::env::var_os("CLAUDE_CONFIG_DIR").filter(|value| !value.is_empty())
+            {
+                return Some(PathBuf::from(home));
+            }
+        }
+        "opencode" => {
+            if let Some(home) = std::env::var_os("XDG_CONFIG_HOME")
+                .filter(|value| !value.is_empty())
+                .map(PathBuf::from)
+            {
+                return Some(home.join("opencode"));
+            }
+        }
+        _ => return None,
     }
     #[cfg(windows)]
     let home_names = ["USERPROFILE", "HOME"];
@@ -1313,7 +1449,280 @@ fn provider_skill_home(configuration: &super::models::ProviderInstanceConfig) ->
         .iter()
         .find_map(|name| std::env::var_os(name).filter(|value| !value.is_empty()))
         .map(PathBuf::from)
-        .map(|home| home.join(".codex"))
+        .map(|home| match configuration.family_id.as_str() {
+            "codex" => home.join(".codex"),
+            "claude" => home.join(".claude"),
+            "opencode" => home.join(".config").join("opencode"),
+            _ => home,
+        })
+}
+
+fn provider_command_fallbacks(family: &str, stale: bool) -> Vec<ChatPromptCatalogEntry> {
+    let commands: &[(&str, &str, &str, Option<&str>)] = match family {
+        "codex" => &[
+            (
+                "/compact",
+                "Compact",
+                "Compact the active Codex context",
+                None,
+            ),
+            (
+                "/goal",
+                "Goal",
+                "Show, set, pause, resume, or clear the thread goal",
+                Some("[objective | pause | resume | clear]"),
+            ),
+            (
+                "/mcp",
+                "MCP",
+                "Show configured MCP servers and their status",
+                None,
+            ),
+            (
+                "/review",
+                "Code review",
+                "Start a provider-native code review",
+                Some("[instructions]"),
+            ),
+        ],
+        "claude" => &[
+            (
+                "/clear",
+                "Clear",
+                "Clear conversation history and free context",
+                None,
+            ),
+            (
+                "/compact",
+                "Compact",
+                "Compact conversation history while preserving important context",
+                Some("[focus instructions]"),
+            ),
+            (
+                "/context",
+                "Context",
+                "Show how Claude is using the context window",
+                None,
+            ),
+            (
+                "/usage",
+                "Usage",
+                "Show plan usage limits and rate limit status",
+                None,
+            ),
+        ],
+        _ => &[],
+    };
+    commands
+        .iter()
+        .map(
+            |(value, label, description, argument_hint)| ChatPromptCatalogEntry {
+                value: (*value).to_string(),
+                label: (*label).to_string(),
+                description: Some((*description).to_string()),
+                argument_hint: argument_hint.map(|value| value.to_string()),
+                kind: "command".to_string(),
+                source: "provider".to_string(),
+                stale,
+            },
+        )
+        .collect()
+}
+
+fn read_workspace_command_entries(
+    workspace: &Path,
+    family: &str,
+    stale: bool,
+) -> ChatResult<Vec<ChatPromptCatalogEntry>> {
+    let relative_roots: &[(&str, bool)] = match family {
+        "claude" => &[(".claude/commands", true)],
+        "cursor" => &[(".cursor/commands", false)],
+        "opencode" => &[(".opencode/commands", false), (".opencode/command", false)],
+        _ => &[],
+    };
+    let mut entries = Vec::new();
+    for (relative_root, nested) in relative_roots {
+        if let Ok(found) =
+            read_command_directory(&workspace.join(relative_root), "workspace", stale, *nested)
+        {
+            entries.extend(found);
+        }
+    }
+    Ok(entries)
+}
+
+fn read_user_command_entries(
+    home: &Path,
+    family: &str,
+    stale: bool,
+) -> Vec<ChatPromptCatalogEntry> {
+    let roots: &[(&str, bool)] = match family {
+        "claude" => &[("commands", true)],
+        "opencode" => &[("commands", false), ("command", false)],
+        _ => &[],
+    };
+    let mut entries = Vec::new();
+    for (root, nested) in roots {
+        if let Ok(found) = read_command_directory(&home.join(root), "user", stale, *nested) {
+            entries.extend(found);
+        }
+    }
+    entries
+}
+
+fn read_command_directory(
+    root: &Path,
+    source: &str,
+    stale: bool,
+    nested: bool,
+) -> ChatResult<Vec<ChatPromptCatalogEntry>> {
+    if !root.is_dir() {
+        return Ok(Vec::new());
+    }
+    let mut entries = Vec::new();
+    let mut pending = vec![(root.to_path_buf(), 0_u8)];
+    let mut scanned = 0_usize;
+    while let Some((directory, depth)) = pending.pop() {
+        if scanned >= 2_000 || entries.len() >= 500 {
+            break;
+        }
+        for child in fs::read_dir(&directory)
+            .map_err(workspace_io_error)?
+            .take(2_000_usize.saturating_sub(scanned))
+        {
+            scanned += 1;
+            let child = child.map_err(workspace_io_error)?;
+            let file_type = child.file_type().map_err(workspace_io_error)?;
+            if file_type.is_symlink() {
+                continue;
+            }
+            if file_type.is_dir() && nested && depth < 4 {
+                pending.push((child.path(), depth + 1));
+                continue;
+            }
+            if !file_type.is_file()
+                || child.path().extension().and_then(|value| value.to_str()) != Some("md")
+            {
+                continue;
+            }
+            let child_path = child.path();
+            let relative = child_path.strip_prefix(root).map_err(workspace_io_error)?;
+            let mut segments = relative
+                .components()
+                .filter_map(|component| match component {
+                    Component::Normal(value) => value.to_str(),
+                    _ => None,
+                })
+                .map(str::to_string)
+                .collect::<Vec<_>>();
+            let Some(last) = segments.last_mut() else {
+                continue;
+            };
+            *last = last.trim_end_matches(".md").to_string();
+            let name = if nested {
+                segments.join(":")
+            } else {
+                segments.last().cloned().unwrap_or_default()
+            };
+            if name.is_empty()
+                || name.len() > 200
+                || name.chars().any(char::is_control)
+                || name.chars().any(char::is_whitespace)
+            {
+                continue;
+            }
+            let metadata = read_command_metadata(&child_path);
+            entries.push(ChatPromptCatalogEntry {
+                value: format!("/{name}"),
+                label: name,
+                description: metadata.0,
+                argument_hint: metadata.1,
+                kind: "command".to_string(),
+                source: source.to_string(),
+                stale,
+            });
+        }
+    }
+    Ok(entries)
+}
+
+fn read_command_metadata(path: &Path) -> (Option<String>, Option<String>) {
+    let mut file = match fs::File::open(path) {
+        Ok(file) => file,
+        Err(_) => return (None, None),
+    };
+    let mut bytes = Vec::new();
+    if file
+        .by_ref()
+        .take(16 * 1024)
+        .read_to_end(&mut bytes)
+        .is_err()
+    {
+        return (None, None);
+    }
+    let Ok(text) = String::from_utf8(bytes) else {
+        return (None, None);
+    };
+    let field = |names: &[&str], maximum: usize| {
+        text.lines().take(80).find_map(|line| {
+            let line = line.trim();
+            names.iter().find_map(|name| {
+                line.strip_prefix(name)
+                    .map(str::trim)
+                    .map(|value| value.trim_matches(['\'', '"']))
+                    .filter(|value| {
+                        !value.is_empty()
+                            && value.len() <= maximum
+                            && !value.chars().any(char::is_control)
+                    })
+                    .map(str::to_string)
+            })
+        })
+    };
+    let argument_hint = field(&["argument-hint:", "argument_hint:"], 500)
+        .or_else(|| command_template_uses_arguments(&text).then(|| "[arguments]".to_string()));
+    (field(&["description:"], 1_000), argument_hint)
+}
+
+fn command_template_uses_arguments(template: &str) -> bool {
+    template.contains("$ARGUMENTS")
+        || template
+            .as_bytes()
+            .windows(2)
+            .any(|pair| pair[0] == b'$' && matches!(pair[1], b'1'..=b'9'))
+}
+
+fn merge_prompt_entries(entries: Vec<ChatPromptCatalogEntry>) -> Vec<ChatPromptCatalogEntry> {
+    let mut merged = BTreeMap::new();
+    for entry in entries {
+        let key = format!("{}:{}", entry.kind, entry.value.to_ascii_lowercase());
+        let replace = merged
+            .get(&key)
+            .is_none_or(|existing: &ChatPromptCatalogEntry| {
+                prompt_source_rank(&entry.source) <= prompt_source_rank(&existing.source)
+                    || (existing.stale && !entry.stale)
+            });
+        if replace {
+            merged.insert(key, entry);
+        }
+    }
+    let mut output = merged.into_values().collect::<Vec<_>>();
+    output.sort_by(|left, right| {
+        left.kind
+            .cmp(&right.kind)
+            .then_with(|| prompt_source_rank(&left.source).cmp(&prompt_source_rank(&right.source)))
+            .then_with(|| left.label.to_lowercase().cmp(&right.label.to_lowercase()))
+    });
+    output
+}
+
+fn prompt_source_rank(source: &str) -> u8 {
+    match source {
+        "provider" => 0,
+        "workspace" => 1,
+        "user" => 2,
+        _ => 3,
+    }
 }
 
 fn wire_safety_mode(value: super::models::SafetyMode) -> &'static str {
@@ -1596,6 +2005,44 @@ mod tests {
             entries[0].description.as_deref(),
             Some("A provider-scoped example")
         );
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn workspace_command_catalog_reads_namespaces_metadata_and_source() {
+        let root = std::env::temp_dir().join(format!(
+            "ganbaru-chat-command-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let command = root.join("review/security.md");
+        fs::create_dir_all(command.parent().unwrap()).unwrap();
+        fs::write(
+            &command,
+            "---\ndescription: Review security boundaries\nargument-hint: [scope]\n---\n",
+        )
+        .unwrap();
+        fs::write(
+            root.join("release.md"),
+            "Prepare a release for $ARGUMENTS\n",
+        )
+        .unwrap();
+        let entries = read_command_directory(&root, "workspace", false, true).unwrap();
+        assert_eq!(entries.len(), 2);
+        let review = entries
+            .iter()
+            .find(|entry| entry.value == "/review:security")
+            .unwrap();
+        assert_eq!(review.source, "workspace");
+        assert_eq!(review.argument_hint.as_deref(), Some("[scope]"));
+        let release = entries
+            .iter()
+            .find(|entry| entry.value == "/release")
+            .unwrap();
+        assert_eq!(release.argument_hint.as_deref(), Some("[arguments]"));
         fs::remove_dir_all(root).unwrap();
     }
 }

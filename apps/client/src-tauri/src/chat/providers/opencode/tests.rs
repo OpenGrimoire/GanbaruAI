@@ -8,7 +8,7 @@ use super::local_server::*;
 use super::normalizer::*;
 use super::permissions::*;
 use super::protocol::*;
-use super::support::{capabilities, capability_kinds, prompt};
+use super::support::{capabilities, capability_kinds, prompt, provider_command};
 use crate::chat::events::{CanonicalEvent, CanonicalRuntimeEvent};
 use crate::chat::models::*;
 use serde::Deserialize;
@@ -246,6 +246,19 @@ fn typed_http_reads_history_cursor_and_uses_exact_prompt_endpoint() {
         assert!(request.contains("\"providerId\":\"anthropic\""));
         assert!(request.contains("\"modelId\":\"claude-sonnet\""));
         assert!(request.contains("\"variant\":\"high\""));
+
+        let command = HttpFixture::start(
+            "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: 2\r\nConnection: close\r\n\r\n{}",
+        );
+        let client = OpenCodeHttpClient::new(&command.origin, workspace.path(), None).unwrap();
+        client
+            .execute_command("ses_one", "release", "next")
+            .await
+            .unwrap();
+        let request = command.request();
+        assert!(request.starts_with("POST /session/ses_one/command?directory="));
+        assert!(request.contains("\"command\":\"release\""));
+        assert!(request.contains("\"arguments\":\"next\""));
     });
 }
 
@@ -397,6 +410,42 @@ fn declared_capabilities_include_native_plan_and_plan_selects_the_native_agent()
     })
     .unwrap();
     assert_eq!(value.agent.as_deref(), Some("plan"));
+}
+
+#[test]
+fn server_commands_are_bounded_and_dispatched_only_as_plain_slash_requests() {
+    let commands = parse_commands(json!([{
+        "name": "release",
+        "description": "Prepare a release",
+        "template": "Prepare $ARGUMENTS"
+    }, {
+        "name": "review",
+        "description": "Review a target",
+        "template": "Review $1"
+    }]))
+    .unwrap();
+    assert_eq!(commands[0].name, "release");
+    assert_eq!(commands[0].argument_hint.as_deref(), Some("[arguments]"));
+    assert_eq!(commands[1].argument_hint.as_deref(), Some("[arguments]"));
+    let mut request: SendTurnRequest = serde_json::from_value(json!({
+        "command": { "clientCommandId": "command-release" },
+        "sessionId": "session-release",
+        "turnId": "turn-release",
+        "prompt": "/release next",
+        "attachments": [],
+        "mentions": [],
+        "modelId": null,
+        "modelOptions": [],
+        "modes": { "safetyMode": "ask_for_approval", "interactionMode": "build" },
+        "developerInstructions": null
+    }))
+    .unwrap();
+    assert_eq!(
+        provider_command(&request, &commands),
+        Some(("release".to_string(), "next".to_string()))
+    );
+    request.prompt = "Explain /release".to_string();
+    assert_eq!(provider_command(&request, &commands), None);
 }
 
 #[test]

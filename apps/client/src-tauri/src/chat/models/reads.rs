@@ -6,6 +6,7 @@ use super::{
 };
 use crate::chat::events::{ChangedFileSummary, ThreadUsageUpdatedEvent};
 use serde::{Deserialize, Serialize};
+use std::path::PathBuf;
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -35,6 +36,47 @@ pub struct DriverOperationReceipt {
     pub accepted: bool,
     pub operation_id: String,
     pub detail: Option<String>,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CompactContextRequest {
+    pub session_id: ProviderSessionId,
+    pub turn_id: ChatTurnId,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct McpStatusRequest {
+    pub session_id: Option<ProviderSessionId>,
+    pub working_directory: Option<PathBuf>,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct McpServerStatusRead {
+    pub name: String,
+    pub auth_status: Option<String>,
+    pub enabled: bool,
+    pub runtime_status: Option<String>,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct McpStatusRead {
+    pub servers: Vec<McpServerStatusRead>,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ChatPromptCatalogEntry {
+    pub value: String,
+    pub label: String,
+    pub description: Option<String>,
+    pub argument_hint: Option<String>,
+    pub kind: String,
+    pub source: String,
+    pub stale: bool,
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]

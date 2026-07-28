@@ -63,6 +63,7 @@ const CURSOR_CAPABILITIES: &[ProviderCapability] = &[
     ProviderCapability::StructuredPlans,
     ProviderCapability::ContextUsage,
     ProviderCapability::ProviderDiffs,
+    ProviderCapability::SlashCommands,
 ];
 
 const GROK_CAPABILITIES: &[ProviderCapability] = &[
@@ -75,6 +76,7 @@ const GROK_CAPABILITIES: &[ProviderCapability] = &[
     ProviderCapability::ReasoningSummaries,
     ProviderCapability::StructuredPlans,
     ProviderCapability::ProviderDiffs,
+    ProviderCapability::SlashCommands,
 ];
 
 const OPENCODE_CAPABILITIES: &[ProviderCapability] = &[
@@ -93,6 +95,7 @@ const OPENCODE_CAPABILITIES: &[ProviderCapability] = &[
     ProviderCapability::CostReporting,
     ProviderCapability::McpStatus,
     ProviderCapability::ProviderDiffs,
+    ProviderCapability::SlashCommands,
 ];
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

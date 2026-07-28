@@ -3,10 +3,11 @@
 use crate::chat::events::{CanonicalEvent, CanonicalRuntimeEvent, NotificationEvent};
 use crate::chat::models::{
     ChatCommandContext, ChatCommandId, ChatError, ChatErrorCode, ChatResult, ChatThreadId,
-    ChatTurnId, DriverOperationReceipt, InterruptTurnRequest, ProviderSessionId,
-    ProviderSessionSnapshot, ProviderSessionState, ResolveApprovalRequest, ResolveUserInputRequest,
-    ResumeSessionRequest, RollbackRequest, SendTurnRequest, StartSessionRequest, SteerTurnRequest,
-    StopSessionRequest, TurnDispatchReceipt,
+    ChatTurnId, CompactContextRequest, DriverOperationReceipt, InterruptTurnRequest, McpStatusRead,
+    McpStatusRequest, ProviderSessionId, ProviderSessionSnapshot, ProviderSessionState,
+    ResolveApprovalRequest, ResolveUserInputRequest, ResumeSessionRequest, RollbackRequest,
+    SendTurnRequest, StartSessionRequest, SteerTurnRequest, StopSessionRequest,
+    TurnDispatchReceipt,
 };
 use crate::chat::providers::{
     DriverCancellation, DriverFuture, DriverOperationContext, ProviderDriver, ProviderEventSink,
@@ -31,6 +32,19 @@ pub enum ThreadRuntimeCommand {
     PendingRequest(bool),
     TerminalLinkedOperation(bool),
     Touch,
+    PromptCatalog {
+        response: oneshot::Sender<ChatResult<Vec<crate::chat::models::ChatPromptCatalogEntry>>>,
+    },
+    CompactContext {
+        request: CompactContextRequest,
+        context: DriverOperationContext,
+        response: oneshot::Sender<ChatResult<DriverOperationReceipt>>,
+    },
+    ReadMcpStatus {
+        request: McpStatusRequest,
+        context: DriverOperationContext,
+        response: oneshot::Sender<ChatResult<McpStatusRead>>,
+    },
     StartSession {
         driver: Box<dyn ProviderDriver>,
         request: StartSessionRequest,
@@ -155,6 +169,45 @@ impl ThreadRuntimeOwner {
             driver,
             request,
             event_sink,
+            context,
+            response,
+        })?;
+        receive_response(receiver).await
+    }
+
+    pub async fn prompt_catalog(
+        &self,
+    ) -> ChatResult<Vec<crate::chat::models::ChatPromptCatalogEntry>> {
+        let _guard = self.lock_operation().await;
+        let (response, receiver) = oneshot::channel();
+        self.try_command(ThreadRuntimeCommand::PromptCatalog { response })?;
+        receive_response(receiver).await
+    }
+
+    pub async fn compact_context(
+        &self,
+        request: CompactContextRequest,
+        context: DriverOperationContext,
+    ) -> ChatResult<DriverOperationReceipt> {
+        let _guard = self.lock_operation().await;
+        let (response, receiver) = oneshot::channel();
+        self.try_command(ThreadRuntimeCommand::CompactContext {
+            request,
+            context,
+            response,
+        })?;
+        receive_response(receiver).await
+    }
+
+    pub async fn read_mcp_status(
+        &self,
+        request: McpStatusRequest,
+        context: DriverOperationContext,
+    ) -> ChatResult<McpStatusRead> {
+        let _guard = self.lock_operation().await;
+        let (response, receiver) = oneshot::channel();
+        self.try_command(ThreadRuntimeCommand::ReadMcpStatus {
+            request,
             context,
             response,
         })?;
@@ -502,6 +555,58 @@ impl ChatRuntimeRegistry {
     }
 }
 
+#[cfg(test)]
+mod event_scope_tests {
+    use super::*;
+    use crate::chat::events::{ItemLifecycleEvent, CANONICAL_EVENT_SCHEMA_VERSION};
+    use crate::chat::models::{
+        ActivityStatus, CanonicalItemKind, ChatEventId, ProviderFamilyId, ProviderInstanceId,
+        UtcTimestamp,
+    };
+
+    #[test]
+    fn thread_level_compaction_bypasses_active_turn_correlation() {
+        let active_turn_id = ChatTurnId::new("turn-1".to_string()).unwrap();
+        let snapshot = Arc::new(Mutex::new(ThreadRuntimeSnapshot {
+            session_id: None,
+            session_state: ProviderSessionState::Active,
+            capabilities: crate::chat::models::ProviderCapabilities::default(),
+            active_turn_id: Some(active_turn_id),
+            turn_active: true,
+            pending_request: false,
+            terminal_linked_operation: false,
+            accepting_commands: true,
+            generation: 1,
+            last_activity: Instant::now(),
+        }));
+        let event = CanonicalRuntimeEvent {
+            schema_version: CANONICAL_EVENT_SCHEMA_VERSION,
+            event_id: ChatEventId::new("event-compaction".to_string()).unwrap(),
+            provider_family_id: ProviderFamilyId::new("codex".to_string()).unwrap(),
+            provider_instance_id: ProviderInstanceId::new("codex-local".to_string()).unwrap(),
+            thread_id: ChatThreadId::new("thread-1".to_string()).unwrap(),
+            created_at: UtcTimestamp::new("2026-07-28T00:00:00.000Z".to_string()).unwrap(),
+            turn_id: None,
+            provider_turn_id: None,
+            provider_item_id: None,
+            provider_request_id: None,
+            provider_task_id: None,
+            provider_reference: None,
+            event: CanonicalEvent::ItemCompleted(ItemLifecycleEvent {
+                item_id: "context-compaction".to_string(),
+                kind: CanonicalItemKind::ContextCompaction,
+                status: ActivityStatus::Completed,
+                title: Some("Context compacted".to_string()),
+                detail: None,
+                safe_metadata: None,
+            }),
+            redacted_diagnostic: None,
+        };
+
+        assert!(event_matches_active_turn(&snapshot, &event));
+    }
+}
+
 struct RuntimeWorker {
     thread_id: ChatThreadId,
     driver: Option<Box<dyn ProviderDriver>>,
@@ -546,6 +651,72 @@ impl RuntimeWorker {
                 state.terminal_linked_operation = value;
             }),
             ThreadRuntimeCommand::Touch => {}
+            ThreadRuntimeCommand::PromptCatalog { response } => {
+                let result = self
+                    .driver
+                    .as_ref()
+                    .map_or_else(|| Ok(Vec::new()), |driver| driver.prompt_catalog());
+                let _ = response.send(result);
+            }
+            ThreadRuntimeCommand::CompactContext {
+                request,
+                context,
+                response,
+            } => {
+                if self.session_state() != ProviderSessionState::Ready {
+                    let _ = response.send(Err(runtime_invalid_state(
+                        "Chat provider session must be ready before context compaction",
+                    )));
+                    return false;
+                }
+                let turn_id = request.turn_id.clone();
+                self.update(|state| {
+                    state.session_state = ProviderSessionState::Active;
+                    state.active_turn_id = Some(turn_id);
+                    state.turn_active = true;
+                });
+                let result = match self.driver.as_mut() {
+                    Some(driver) => {
+                        run_driver_operation(&context, driver.compact_context(request, &context))
+                            .await
+                    }
+                    None => Err(runtime_unavailable()),
+                };
+                if result.is_err() {
+                    self.update(|state| {
+                        state.session_state = ProviderSessionState::Ready;
+                        state.active_turn_id = None;
+                        state.turn_active = false;
+                    });
+                }
+                let _ = response.send(result);
+            }
+            ThreadRuntimeCommand::ReadMcpStatus {
+                request,
+                context,
+                response,
+            } => {
+                if matches!(
+                    self.session_state(),
+                    ProviderSessionState::Stopped
+                        | ProviderSessionState::Starting
+                        | ProviderSessionState::Stopping
+                        | ProviderSessionState::Failed
+                ) {
+                    let _ = response.send(Err(runtime_invalid_state(
+                        "Chat provider session is unavailable for MCP status",
+                    )));
+                    return false;
+                }
+                let result = match self.driver.as_mut() {
+                    Some(driver) => {
+                        run_driver_operation(&context, driver.read_mcp_status(request, &context))
+                            .await
+                    }
+                    None => Err(runtime_unavailable()),
+                };
+                let _ = response.send(result);
+            }
             ThreadRuntimeCommand::StartSession {
                 mut driver,
                 request,
@@ -1075,6 +1246,17 @@ fn event_matches_active_turn(
     snapshot: &Arc<Mutex<ThreadRuntimeSnapshot>>,
     event: &CanonicalRuntimeEvent,
 ) -> bool {
+    if event.turn_id.is_none()
+        && matches!(
+            &event.event,
+            CanonicalEvent::ItemStarted(item)
+                | CanonicalEvent::ItemUpdated(item)
+                | CanonicalEvent::ItemCompleted(item)
+                if item.kind == crate::chat::models::CanonicalItemKind::ContextCompaction
+        )
+    {
+        return true;
+    }
     let requires_active_turn = matches!(
         event.event,
         CanonicalEvent::TurnStarted(_)

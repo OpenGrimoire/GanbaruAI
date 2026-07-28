@@ -28,6 +28,22 @@ impl ProviderDriver for OpenCodeProviderDriver {
         self.cached_models.clone()
     }
 
+    fn prompt_catalog(&self) -> ChatResult<Vec<ChatPromptCatalogEntry>> {
+        Ok(self
+            .cached_commands
+            .iter()
+            .map(|command| ChatPromptCatalogEntry {
+                value: format!("/{}", command.name),
+                label: command.name.clone(),
+                description: command.description.clone(),
+                argument_hint: command.argument_hint.clone(),
+                kind: "command".to_string(),
+                source: "provider".to_string(),
+                stale: false,
+            })
+            .collect())
+    }
+
     fn probe<'a>(
         &'a mut self,
         context: &'a DriverOperationContext,
@@ -40,6 +56,7 @@ impl ProviderDriver for OpenCodeProviderDriver {
             let workspace = canonical_current_directory()?;
             match self.catalog_snapshot(&workspace).await {
                 Ok(snapshot) => {
+                    self.cached_commands = snapshot.commands.clone();
                     self.cached_models = Some(ProviderModelCatalog {
                         instance_id: self.configuration.instance_id.clone(),
                         models: snapshot.models,
@@ -81,6 +98,7 @@ impl ProviderDriver for OpenCodeProviderDriver {
             }
             let workspace = canonical_current_directory()?;
             let snapshot = self.catalog_snapshot(&workspace).await?;
+            self.cached_commands = snapshot.commands.clone();
             let catalog = ProviderModelCatalog {
                 instance_id: self.configuration.instance_id.clone(),
                 models: snapshot.models,
@@ -141,7 +159,22 @@ impl ProviderDriver for OpenCodeProviderDriver {
     ) -> DriverFuture<'a, TurnDispatchReceipt> {
         Box::pin(async move {
             let prompt = prompt(&request)?;
+            let provider_command = provider_command(&request, &self.cached_commands);
             let live = self.live_mut(&request.session_id)?;
+            if live
+                .command_task
+                .as_ref()
+                .is_some_and(tokio::task::JoinHandle::is_finished)
+            {
+                live.command_task.take();
+            }
+            if live.command_task.is_some() {
+                return Err(ChatError::new(
+                    ChatErrorCode::Busy,
+                    "OpenCode already has a command request in progress",
+                    true,
+                ));
+            }
             let provider_turn_id =
                 ProviderTurnId::new(format!("opencode-{}", request.turn_id.as_str()))
                     .map_err(|_| super::protocol::protocol_error("turn ID"))?;
@@ -170,7 +203,44 @@ impl ProviderDriver for OpenCodeProviderDriver {
                 )?
             };
             live.sink.emit(started).await?;
-            if let Err(error) = live
+            if let Some((command, arguments)) = provider_command {
+                let client = live.client.clone();
+                let provider_thread_id = live.provider_thread_id.clone();
+                let route = Arc::clone(&live.route);
+                let normalizer = Arc::clone(&live.normalizer);
+                let sink = Arc::clone(&live.sink);
+                live.command_task =
+                    Some(tokio::spawn(async move {
+                        if let Err(error) = client
+                            .execute_command(&provider_thread_id, &command, &arguments)
+                            .await
+                        {
+                            let aborted = route.lock().map_err(|_| driver_state_error()).and_then(
+                                |mut state| {
+                                    if state.active_turn_id.is_none() {
+                                        return Ok(None);
+                                    }
+                                    state.active_turn_id = None;
+                                    state.session_state = ProviderSessionState::Ready;
+                                    normalizer
+                                        .external_event(
+                                            &state,
+                                            "command/failed",
+                                            CanonicalEvent::TurnAborted(TurnAbortedEvent {
+                                                state: ChatTurnState::Failed,
+                                                reason: error.message,
+                                                recoverable: error.recoverable,
+                                            }),
+                                        )
+                                        .map(Some)
+                                },
+                            );
+                            if let Ok(Some(event)) = aborted {
+                                let _ = sink.emit(event).await;
+                            }
+                        }
+                    }));
+            } else if let Err(error) = live
                 .client
                 .prompt_async(&live.provider_thread_id, &prompt)
                 .await
@@ -259,6 +329,9 @@ impl ProviderDriver for OpenCodeProviderDriver {
                 ));
             }
             live.client.abort(&live.provider_thread_id).await?;
+            if let Some(task) = live.command_task.take() {
+                task.abort();
+            }
             let event = {
                 let mut state = live.route.lock().map_err(|_| driver_state_error())?;
                 state.active_turn_id = None;
@@ -419,6 +492,9 @@ impl ProviderDriver for OpenCodeProviderDriver {
             let abort_result = live.client.abort(&live.provider_thread_id).await;
             live.expected_shutdown.store(true, Ordering::Release);
             live.event_task.abort();
+            if let Some(task) = live.command_task.take() {
+                task.abort();
+            }
             let server_result = if let Some(server) = live.owned_server.as_mut() {
                 server.stop().await
             } else {

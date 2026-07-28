@@ -31,6 +31,7 @@ pub struct ClaudeProviderDriver {
     pub(super) settings: ClaudeProviderSettings,
     pub(super) live: Option<ClaudeLiveSession>,
     pub(super) cached_models: Option<ProviderModelCatalog>,
+    pub(super) cached_commands: Vec<ClaudeCommand>,
     #[cfg(test)]
     connection_factory: Option<TestConnectionFactory>,
 }
@@ -82,6 +83,7 @@ impl ClaudeProviderDriver {
             settings,
             live: None,
             cached_models: None,
+            cached_commands: Vec::new(),
             #[cfg(test)]
             connection_factory: None,
         })
@@ -264,6 +266,7 @@ impl ClaudeProviderDriver {
             },
             &self.settings.custom_model_labels,
         )?;
+        self.cached_commands = initialize.commands.clone();
         self.cached_models = Some(ProviderModelCatalog {
             instance_id: self.configuration.instance_id.clone(),
             models,

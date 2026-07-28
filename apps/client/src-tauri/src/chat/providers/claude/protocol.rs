@@ -52,12 +52,54 @@ pub struct ClaudeInitializeResponse {
     pub output_style: String,
 }
 
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct ClaudeCommand {
     pub name: String,
     pub description: Option<String>,
     pub argument_hint: Option<String>,
+}
+
+pub fn prompt_catalog(commands: &[ClaudeCommand]) -> Vec<ChatPromptCatalogEntry> {
+    let mut seen = BTreeSet::new();
+    let mut entries = commands
+        .iter()
+        .take(512)
+        .filter_map(|command| {
+            let name = command.name.trim().trim_start_matches('/');
+            if name.is_empty()
+                || name.len() > 200
+                || name.chars().any(char::is_control)
+                || name.chars().any(char::is_whitespace)
+                || !seen.insert(name.to_ascii_lowercase())
+            {
+                return None;
+            }
+            let description = command
+                .description
+                .as_deref()
+                .map(str::trim)
+                .filter(|value| !value.is_empty() && value.len() <= 1_000)
+                .map(str::to_string);
+            let argument_hint = command
+                .argument_hint
+                .as_deref()
+                .map(str::trim)
+                .filter(|value| !value.is_empty() && value.len() <= 500)
+                .map(str::to_string);
+            Some(ChatPromptCatalogEntry {
+                value: format!("/{name}"),
+                label: name.to_string(),
+                description,
+                argument_hint,
+                kind: "command".to_string(),
+                source: "provider".to_string(),
+                stale: false,
+            })
+        })
+        .collect::<Vec<_>>();
+    entries.sort_by(|left, right| left.label.cmp(&right.label));
+    entries
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -370,6 +412,28 @@ pub fn build_user_message(request: &SendTurnRequest) -> ChatResult<Value> {
     Ok(json!({
         "type": "user",
         "message": { "role": "user", "content": content },
+        "parent_tool_use_id": Value::Null,
+        "session_id": "",
+    }))
+}
+
+pub fn build_slash_command_message(command: &str) -> ChatResult<Value> {
+    if !command.starts_with('/')
+        || command.len() > MAX_PROMPT_BYTES
+        || command.contains('\0')
+        || command.contains('\n')
+    {
+        return Err(ChatError::validation(
+            "command",
+            "Claude slash command is invalid",
+        ));
+    }
+    Ok(json!({
+        "type": "user",
+        "message": {
+            "role": "user",
+            "content": [{ "type": "text", "text": command }],
+        },
         "parent_tool_use_id": Value::Null,
         "session_id": "",
     }))

@@ -1,7 +1,7 @@
 //! OpenCode driver capabilities, identifiers, prompts, and history helpers.
 
 use super::http_client::{OpenCodePrompt, OpenCodePromptModel, OpenCodePromptPart};
-use super::protocol::{protocol_error, validate_identifier};
+use super::protocol::{protocol_error, validate_identifier, OpenCodeCommand};
 use crate::chat::models::*;
 use reqwest::Url;
 use serde_json::Value;
@@ -30,6 +30,7 @@ pub fn capability_kinds() -> Vec<ProviderCapability> {
         ProviderCapability::CostReporting,
         ProviderCapability::McpStatus,
         ProviderCapability::ProviderDiffs,
+        ProviderCapability::SlashCommands,
     ]
 }
 
@@ -44,6 +45,29 @@ pub fn capabilities() -> ProviderCapabilities {
             })
             .collect(),
     }
+}
+
+pub fn provider_command(
+    request: &SendTurnRequest,
+    commands: &[OpenCodeCommand],
+) -> Option<(String, String)> {
+    if !request.attachments.is_empty()
+        || !request.mentions.is_empty()
+        || request.developer_instructions.is_some()
+    {
+        return None;
+    }
+    let prompt = request.prompt.trim();
+    let command_text = prompt.strip_prefix('/')?;
+    let (name, arguments) = command_text
+        .split_once(char::is_whitespace)
+        .map_or((command_text, ""), |(name, arguments)| {
+            (name, arguments.trim())
+        });
+    commands
+        .iter()
+        .find(|command| command.name.eq_ignore_ascii_case(name))
+        .map(|command| (command.name.clone(), arguments.to_string()))
 }
 
 pub fn canonical_workspace(workspace: &VerifiedWorkspaceContext) -> ChatResult<PathBuf> {

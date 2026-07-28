@@ -4,8 +4,9 @@
 mod tools;
 
 use super::protocol::{
-    bounded_text, object, parse_config_options_update, protocol_error, safe_shape,
-    valid_identifier, AcpConfigOption, MAX_PROTOCOL_TEXT_BYTES,
+    bounded_text, object, parse_available_commands_update, parse_config_options_update,
+    protocol_error, safe_shape, valid_identifier, AcpAvailableCommand, AcpConfigOption,
+    MAX_PROTOCOL_TEXT_BYTES,
 };
 use crate::chat::events::*;
 use crate::chat::models::*;
@@ -36,6 +37,7 @@ pub struct CursorRouteState {
     pub modes: TurnModeSnapshot,
     pub model_id: Option<ModelId>,
     pub config_options: Vec<AcpConfigOption>,
+    pub available_commands: Vec<AcpAvailableCommand>,
     pub workspace: PathBuf,
     assistant_item_id: Option<String>,
     reasoning_item_id: Option<String>,
@@ -57,6 +59,7 @@ impl CursorRouteState {
             modes,
             model_id,
             config_options,
+            available_commands: Vec::new(),
             workspace,
             assistant_item_id: None,
             reasoning_item_id: None,
@@ -130,9 +133,11 @@ impl CursorEventNormalizer {
             "plan" => self.plan_update(state, update, "session/update"),
             "current_mode_update" => self.mode_update(state, update),
             "config_options_update" => self.config_update(state, update),
-            "user_message_chunk" | "available_commands_update" | "session_info_update" => {
+            "available_commands_update" => {
+                state.available_commands = parse_available_commands_update(update)?;
                 Ok(Vec::new())
             }
+            "user_message_chunk" | "session_info_update" => Ok(Vec::new()),
             unknown => Ok(vec![self.event(
                 state,
                 "session/update",

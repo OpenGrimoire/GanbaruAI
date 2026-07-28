@@ -3,6 +3,7 @@
 use crate::chat::models::{ChatError, ChatErrorCode, ChatResult, VersionedJson};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use std::collections::BTreeSet;
 
 pub const OPENCODE_RESUME_SCHEMA_VERSION: u32 = 1;
 pub const MAX_HTTP_BODY_BYTES: usize = 4 * 1024 * 1024;
@@ -20,6 +21,74 @@ pub struct OpenCodeRollbackCursor {
     pub message_id: String,
     #[serde(default)]
     pub part_id: Option<String>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct OpenCodeCommand {
+    pub name: String,
+    pub description: Option<String>,
+    pub argument_hint: Option<String>,
+}
+
+pub fn parse_commands(value: Value) -> ChatResult<Vec<OpenCodeCommand>> {
+    let values = value
+        .as_array()
+        .ok_or_else(|| protocol_error("command catalog"))?;
+    if values.len() > 512 {
+        return Err(protocol_error("command catalog"));
+    }
+    let mut seen = BTreeSet::new();
+    values
+        .iter()
+        .map(|value| {
+            let object = value
+                .as_object()
+                .ok_or_else(|| protocol_error("command catalog entry"))?;
+            let name = object
+                .get("name")
+                .and_then(Value::as_str)
+                .map(str::trim)
+                .map(|value| value.trim_start_matches('/'))
+                .filter(|value| {
+                    !value.is_empty()
+                        && value.len() <= 200
+                        && !value.chars().any(char::is_control)
+                        && !value.chars().any(char::is_whitespace)
+                })
+                .ok_or_else(|| protocol_error("command name"))?;
+            if !seen.insert(name.to_ascii_lowercase()) {
+                return Err(protocol_error("duplicate command name"));
+            }
+            let description = object
+                .get("description")
+                .and_then(Value::as_str)
+                .map(str::trim)
+                .filter(|value| {
+                    !value.is_empty()
+                        && value.len() <= 1_000
+                        && !value.chars().any(char::is_control)
+                })
+                .map(str::to_string);
+            let argument_hint = object
+                .get("template")
+                .and_then(Value::as_str)
+                .filter(|template| template_uses_arguments(template))
+                .map(|_| "[arguments]".to_string());
+            Ok(OpenCodeCommand {
+                name: name.to_string(),
+                description,
+                argument_hint,
+            })
+        })
+        .collect()
+}
+
+fn template_uses_arguments(template: &str) -> bool {
+    template.contains("$ARGUMENTS")
+        || template
+            .as_bytes()
+            .windows(2)
+            .any(|pair| pair[0] == b'$' && matches!(pair[1], b'1'..=b'9'))
 }
 
 pub fn resume_cursor(session_id: &str) -> ChatResult<VersionedJson> {

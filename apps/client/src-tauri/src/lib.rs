@@ -839,6 +839,8 @@ pub fn run() {
             chat::interaction_commands::chat_validate_working_folder_mentions,
             chat::interaction_commands::chat_list_prompt_catalog,
             chat::interaction_commands::chat_read_interaction_state,
+            chat::interaction_commands::chat_compact_context,
+            chat::interaction_commands::chat_read_mcp_status,
             chat::interaction_commands::chat_set_full_access_trust,
             chat::interaction_commands::chat_has_full_access_trust,
             chat::interaction_commands::chat_save_queued_followup,

@@ -170,6 +170,11 @@ fn route_response(method: &str, path: &str, state: &OpenCodeServerState) -> Stri
             "healthy": true,
             "version": "1.14.19"
         })),
+        ("GET", "/command") => json_response(json!([{
+            "name": "release",
+            "description": "Prepare a release",
+            "template": "Prepare $ARGUMENTS"
+        }])),
         ("POST", "/session") => session_response("ses_new", &state.workspace),
         ("GET", "/session/ses_resume") => session_response(
             "ses_resume",
@@ -284,6 +289,14 @@ fn external_session_lifecycle_never_stops_the_external_server() {
             )
             .await
             .unwrap();
+        let commands = driver.prompt_catalog().unwrap();
+        assert_eq!(commands.len(), 1);
+        assert_eq!(commands[0].value, "/release");
+        assert_eq!(
+            commands[0].description.as_deref(),
+            Some("Prepare a release")
+        );
+        assert_eq!(commands[0].argument_hint.as_deref(), Some("[arguments]"));
         assert_eq!(
             snapshot
                 .provider_thread_id

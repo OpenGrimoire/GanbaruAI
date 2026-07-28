@@ -38,7 +38,9 @@ export interface ChatPromptCatalogEntry {
   value: string;
   label: string;
   description: string | null;
+  argumentHint: string | null;
   kind: "skill" | "command";
+  source: "app" | "provider" | "workspace" | "user";
   stale: boolean;
 }
 
@@ -67,6 +69,7 @@ export interface ChatQueuedFollowupRead {
 }
 
 export interface ChatInteractionStateRead {
+  sessionId: string | null;
   sessionState: ProviderSessionState;
   activeTurnId: string | null;
   capabilities: ProviderCapabilities;
@@ -76,6 +79,17 @@ export interface ChatInteractionStateRead {
   accountStatus: AccountStatusEvent | null;
   rateLimitStatus: RateLimitStatusEvent | null;
   automaticCompactionReported: boolean;
+}
+
+export interface McpServerStatusRead {
+  name: string;
+  authStatus: string | null;
+  enabled: boolean;
+  runtimeStatus: string | null;
+}
+
+export interface McpStatusRead {
+  servers: McpServerStatusRead[];
 }
 
 export interface ChatUserInputDraftRead {

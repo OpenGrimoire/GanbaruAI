@@ -6,8 +6,9 @@ use super::protocol::*;
 use super::session::*;
 use super::transport::{CodexRpcConnection, CodexRpcFailure};
 use crate::chat::events::{
-    CanonicalEvent, NotificationEvent, SessionConfiguredEvent, SessionExitedEvent,
-    SessionStartedEvent,
+    CanonicalEvent, ContentDeltaEvent, ItemLifecycleEvent, NotificationEvent,
+    SessionConfiguredEvent, SessionExitedEvent, SessionStartedEvent, TurnCompletedEvent,
+    TurnStartedEvent,
 };
 use crate::chat::models::*;
 use crate::chat::process::{spawn_provider_process, ProviderProcessConfig};
@@ -32,6 +33,8 @@ const PROVIDER_THREAD_NOTIFICATION_TIMEOUT: Duration = Duration::from_secs(2);
 const MAX_MODEL_PAGES: usize = 64;
 const MAX_MODELS: usize = 2_048;
 const MAX_HISTORY_ITEMS: usize = 100;
+const MAX_MCP_STATUS_PAGES: usize = 32;
+const MAX_MCP_SERVERS: usize = 3_200;
 static NEXT_SESSION_ID: AtomicU64 = AtomicU64::new(1);
 
 pub struct CodexProviderDriver {
@@ -224,6 +227,94 @@ impl CodexProviderDriver {
             }
         }
         Ok(models)
+    }
+
+    async fn fetch_mcp_status(
+        client: &super::transport::CodexRpcClient,
+        thread_id: Option<&str>,
+        context: &DriverOperationContext,
+    ) -> ChatResult<McpStatusRead> {
+        let mut cursor: Option<String> = None;
+        let mut servers = Vec::new();
+        for _ in 0..MAX_MCP_STATUS_PAGES {
+            let response = client
+                .request(
+                    "mcpServerStatus/list",
+                    json!({
+                        "threadId": thread_id,
+                        "cursor": cursor,
+                        "limit": 100,
+                        "detail": "toolsAndAuthOnly",
+                    }),
+                    context,
+                )
+                .await
+                .map_err(|error| error.to_chat_error("MCP status"))?;
+            let page = parse_mcp_status_page(&response)?;
+            servers.extend(page.servers);
+            if servers.len() > MAX_MCP_SERVERS {
+                return Err(ChatError::new(
+                    ChatErrorCode::Protocol,
+                    "Codex returned too many MCP server status entries",
+                    false,
+                ));
+            }
+            let Some(next_cursor) = page.next_cursor else {
+                return Ok(McpStatusRead { servers });
+            };
+            cursor = Some(next_cursor);
+        }
+        Err(ChatError::new(
+            ChatErrorCode::Protocol,
+            "Codex MCP status pagination did not terminate",
+            false,
+        ))
+    }
+
+    async fn read_standalone_mcp_status(
+        &self,
+        working_directory: &Path,
+        context: &DriverOperationContext,
+    ) -> ChatResult<McpStatusRead> {
+        if !working_directory.is_absolute() || !working_directory.is_dir() {
+            return Err(ChatError::validation(
+                "workingDirectory",
+                "Codex MCP status working directory is invalid",
+            ));
+        }
+        let working_directory = std::fs::canonicalize(working_directory).map_err(|_| {
+            ChatError::validation(
+                "workingDirectory",
+                "Codex MCP status working directory could not be canonicalized",
+            )
+        })?;
+        let (mut connection, layout) = self.open_connection(&working_directory)?;
+        let client = connection.client();
+        let result = async {
+            let initialize = client
+                .request("initialize", initialize_params(), context)
+                .await
+                .map_err(|error| error.to_chat_error("initialize"))?;
+            let initialize: InitializeResponse = decode_response(initialize, "initialize response")
+                .map_err(|error| error.to_chat_error("initialize"))?;
+            verify_reported_home(&layout, &initialize.codex_home)?;
+            client
+                .notify("initialized", json!({}))
+                .await
+                .map_err(|error| error.to_chat_error("initialized notification"))?;
+            Self::fetch_mcp_status(&client, None, context).await
+        }
+        .await;
+        let stop_result = connection
+            .stop(SESSION_GRACEFUL_STOP, SESSION_FORCE_STOP)
+            .await;
+        match result {
+            Ok(status) => {
+                stop_result?;
+                Ok(status)
+            }
+            Err(error) => Err(error),
+        }
     }
 
     fn open_connection(
@@ -519,6 +610,128 @@ impl ProviderDriver for CodexProviderDriver {
         self.cached_models.clone()
     }
 
+    fn prompt_catalog(&self) -> ChatResult<Vec<ChatPromptCatalogEntry>> {
+        Ok([
+            (
+                "/compact",
+                "Compact",
+                "Compact the active Codex context",
+                None,
+            ),
+            (
+                "/goal",
+                "Goal",
+                "Show, set, pause, resume, or clear the thread goal",
+                Some("[objective | pause | resume | clear]"),
+            ),
+            (
+                "/mcp",
+                "MCP",
+                "Show configured MCP servers and their status",
+                None,
+            ),
+            (
+                "/review",
+                "Code review",
+                "Start a provider-native code review",
+                Some("[instructions]"),
+            ),
+        ]
+        .into_iter()
+        .map(
+            |(value, label, description, argument_hint)| ChatPromptCatalogEntry {
+                value: value.to_string(),
+                label: label.to_string(),
+                description: Some(description.to_string()),
+                argument_hint: argument_hint.map(str::to_string),
+                kind: "command".to_string(),
+                source: "provider".to_string(),
+                stale: false,
+            },
+        )
+        .collect())
+    }
+
+    fn compact_context<'a>(
+        &'a mut self,
+        request: CompactContextRequest,
+        context: &'a DriverOperationContext,
+    ) -> DriverFuture<'a, DriverOperationReceipt> {
+        Box::pin(async move {
+            let live = self.live_mut(&request.session_id)?;
+            let provider_thread_id = live
+                .route
+                .lock()
+                .map_err(|_| driver_state_error())?
+                .provider_thread_id
+                .clone()
+                .ok_or_else(|| protocol_identifier_error("provider thread"))?;
+            {
+                let mut state = live.route.lock().map_err(|_| driver_state_error())?;
+                if state.active_chat_turn_id.is_some() {
+                    return Err(ChatError::new(
+                        ChatErrorCode::Busy,
+                        "Codex already has an active turn",
+                        true,
+                    ));
+                }
+                state.active_chat_turn_id = Some(request.turn_id);
+                state.active_provider_turn_id = None;
+                state.session_state = ProviderSessionState::Active;
+            }
+            if let Err(error) = live
+                .connection
+                .client()
+                .request(
+                    "thread/compact/start",
+                    json!({ "threadId": provider_thread_id }),
+                    context,
+                )
+                .await
+            {
+                clear_codex_command_route(live);
+                return Err(error.to_chat_error("context compaction"));
+            }
+            Ok(operation_receipt(
+                context,
+                "Codex context compaction started",
+            ))
+        })
+    }
+
+    fn read_mcp_status<'a>(
+        &'a mut self,
+        request: McpStatusRequest,
+        context: &'a DriverOperationContext,
+    ) -> DriverFuture<'a, McpStatusRead> {
+        Box::pin(async move {
+            if let Some(session_id) = request.session_id.as_ref() {
+                let live = self.live_mut(session_id)?;
+                let provider_thread_id = live
+                    .route
+                    .lock()
+                    .map_err(|_| driver_state_error())?
+                    .provider_thread_id
+                    .clone()
+                    .ok_or_else(|| protocol_identifier_error("provider thread"))?;
+                return Self::fetch_mcp_status(
+                    &live.connection.client(),
+                    Some(&provider_thread_id),
+                    context,
+                )
+                .await;
+            }
+            let working_directory = request.working_directory.as_deref().ok_or_else(|| {
+                ChatError::validation(
+                    "workingDirectory",
+                    "Codex MCP status requires a working directory without a live session",
+                )
+            })?;
+            self.read_standalone_mcp_status(working_directory, context)
+                .await
+        })
+    }
+
     fn probe<'a>(
         &'a mut self,
         context: &'a DriverOperationContext,
@@ -655,6 +868,9 @@ impl ProviderDriver for CodexProviderDriver {
         Box::pin(async move {
             let live = self.live_mut(&request.session_id)?;
             let client = live.connection.client();
+            if let Some(command) = codex_native_command(&request) {
+                return dispatch_codex_command(live, request, command, context).await;
+            }
             if live.refresh_mcp_before_turn {
                 client
                     .request("config/mcpServer/reload", json!({}), context)
@@ -946,6 +1162,466 @@ impl ProviderDriver for CodexProviderDriver {
             Ok(operation_receipt(context, "Codex session stopped"))
         })
     }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(super) enum CodexNativeCommand {
+    Compact,
+    Goal(String),
+    Mcp,
+    Review(String),
+}
+
+pub(super) fn codex_native_command(request: &SendTurnRequest) -> Option<CodexNativeCommand> {
+    if !request.attachments.is_empty()
+        || !request.mentions.is_empty()
+        || request.developer_instructions.is_some()
+    {
+        return None;
+    }
+    let prompt = request.prompt.trim();
+    let (name, arguments) = prompt
+        .strip_prefix('/')?
+        .split_once(char::is_whitespace)
+        .map_or((prompt.trim_start_matches('/'), ""), |(name, arguments)| {
+            (name, arguments.trim())
+        });
+    match name.to_ascii_lowercase().as_str() {
+        "compact" if arguments.is_empty() => Some(CodexNativeCommand::Compact),
+        "goal" => Some(CodexNativeCommand::Goal(arguments.to_string())),
+        "mcp" if arguments.is_empty() => Some(CodexNativeCommand::Mcp),
+        "review" => Some(CodexNativeCommand::Review(arguments.to_string())),
+        _ => None,
+    }
+}
+
+async fn dispatch_codex_command(
+    live: &mut CodexLiveSession,
+    request: SendTurnRequest,
+    command: CodexNativeCommand,
+    context: &DriverOperationContext,
+) -> ChatResult<TurnDispatchReceipt> {
+    let provider_thread_id = live
+        .route
+        .lock()
+        .map_err(|_| driver_state_error())?
+        .provider_thread_id
+        .clone()
+        .ok_or_else(|| protocol_identifier_error("provider thread"))?;
+    match command {
+        CodexNativeCommand::Compact => {
+            prepare_codex_command_route(live, &request)?;
+            if let Err(error) = live
+                .connection
+                .client()
+                .request(
+                    "thread/compact/start",
+                    json!({ "threadId": provider_thread_id }),
+                    context,
+                )
+                .await
+            {
+                clear_codex_command_route(live);
+                return Err(error.to_chat_error("context compaction"));
+            }
+            Ok(TurnDispatchReceipt {
+                turn_id: request.turn_id,
+                state: ChatTurnState::Active,
+                provider_turn_id: None,
+                accepted_at: now_utc()?,
+            })
+        }
+        CodexNativeCommand::Review(instructions) => {
+            prepare_codex_command_route(live, &request)?;
+            let target = if instructions.is_empty() {
+                json!({ "type": "uncommittedChanges" })
+            } else {
+                json!({ "type": "custom", "instructions": instructions })
+            };
+            let response = match live
+                .connection
+                .client()
+                .request(
+                    "review/start",
+                    json!({
+                        "threadId": provider_thread_id,
+                        "delivery": "inline",
+                        "target": target,
+                    }),
+                    context,
+                )
+                .await
+            {
+                Ok(response) => response,
+                Err(error) => {
+                    clear_codex_command_route(live);
+                    return Err(error.to_chat_error("review start"));
+                }
+            };
+            let response: TurnStartResponse =
+                match decode_response(response, "review start response") {
+                    Ok(response) => response,
+                    Err(error) => {
+                        clear_codex_command_route(live);
+                        return Err(error.to_chat_error("review start"));
+                    }
+                };
+            let provider_turn_id = match ProviderTurnId::new(response.turn.id) {
+                Ok(provider_turn_id) => provider_turn_id,
+                Err(_) => {
+                    clear_codex_command_route(live);
+                    return Err(protocol_identifier_error("review turn"));
+                }
+            };
+            if response.turn.status != "inProgress" {
+                clear_codex_command_route(live);
+                return Err(ChatError::new(
+                    ChatErrorCode::Protocol,
+                    "Codex did not accept the review as in progress",
+                    true,
+                ));
+            }
+            let mut state = live.route.lock().map_err(|_| driver_state_error())?;
+            state.active_provider_turn_id = Some(provider_turn_id.as_str().to_string());
+            state.session_state = ProviderSessionState::Active;
+            drop(state);
+            Ok(TurnDispatchReceipt {
+                turn_id: request.turn_id,
+                state: ChatTurnState::Active,
+                provider_turn_id: Some(provider_turn_id),
+                accepted_at: now_utc()?,
+            })
+        }
+        CodexNativeCommand::Goal(arguments) => {
+            let (method, params, response_text) = goal_request(&provider_thread_id, &arguments)?;
+            let response = live
+                .connection
+                .client()
+                .request(method, params, context)
+                .await
+                .map_err(|error| error.to_chat_error("goal command"))?;
+            let text = response_text.unwrap_or_else(|| format_goal_response(&response));
+            emit_codex_command_result(live, &request, "Goal", text).await
+        }
+        CodexNativeCommand::Mcp => {
+            let response = live
+                .connection
+                .client()
+                .request(
+                    "mcpServerStatus/list",
+                    json!({
+                        "cursor": null,
+                        "limit": 100,
+                        "detail": "toolsAndAuthOnly",
+                    }),
+                    context,
+                )
+                .await
+                .map_err(|error| error.to_chat_error("MCP status"))?;
+            emit_codex_command_result(live, &request, "MCP status", format_mcp_response(&response))
+                .await
+        }
+    }
+}
+
+fn prepare_codex_command_route(
+    live: &CodexLiveSession,
+    request: &SendTurnRequest,
+) -> ChatResult<()> {
+    let mut state = live.route.lock().map_err(|_| driver_state_error())?;
+    if state.active_chat_turn_id.is_some() {
+        return Err(ChatError::new(
+            ChatErrorCode::Busy,
+            "Codex already has an active turn",
+            true,
+        ));
+    }
+    state.active_chat_turn_id = Some(request.turn_id.clone());
+    state.active_provider_turn_id = None;
+    state.modes = request.modes;
+    state.session_state = ProviderSessionState::Active;
+    Ok(())
+}
+
+fn clear_codex_command_route(live: &CodexLiveSession) {
+    if let Ok(mut state) = live.route.lock() {
+        state.active_chat_turn_id = None;
+        state.active_provider_turn_id = None;
+        state.session_state = ProviderSessionState::Ready;
+    }
+}
+
+pub(super) fn goal_request(
+    thread_id: &str,
+    arguments: &str,
+) -> ChatResult<(&'static str, Value, Option<String>)> {
+    let normalized = arguments.trim();
+    if normalized.is_empty() {
+        return Ok(("thread/goal/get", json!({ "threadId": thread_id }), None));
+    }
+    if normalized.eq_ignore_ascii_case("clear") {
+        return Ok((
+            "thread/goal/clear",
+            json!({ "threadId": thread_id }),
+            Some("The thread goal was cleared.".to_string()),
+        ));
+    }
+    let status = if normalized.eq_ignore_ascii_case("pause") {
+        Some("paused")
+    } else if normalized.eq_ignore_ascii_case("resume") {
+        Some("active")
+    } else {
+        None
+    };
+    if let Some(status) = status {
+        return Ok((
+            "thread/goal/set",
+            json!({ "threadId": thread_id, "status": status }),
+            None,
+        ));
+    }
+    let objective = normalized.strip_prefix("set ").unwrap_or(normalized).trim();
+    if objective.is_empty() || objective.len() > 4_000 || objective.contains('\0') {
+        return Err(ChatError::validation(
+            "prompt",
+            "Codex goal objectives must contain 1 to 4,000 characters",
+        ));
+    }
+    Ok((
+        "thread/goal/set",
+        json!({
+            "threadId": thread_id,
+            "objective": objective,
+            "status": "active",
+        }),
+        None,
+    ))
+}
+
+fn format_goal_response(response: &Value) -> String {
+    let Some(goal) = response.get("goal").and_then(Value::as_object) else {
+        return "There is no active thread goal.".to_string();
+    };
+    let objective = goal
+        .get("objective")
+        .and_then(Value::as_str)
+        .unwrap_or("Untitled goal");
+    let status = goal
+        .get("status")
+        .and_then(Value::as_str)
+        .unwrap_or("unknown");
+    let tokens_used = goal.get("tokensUsed").and_then(Value::as_u64);
+    let token_budget = goal.get("tokenBudget").and_then(Value::as_u64);
+    let mut lines = vec![format!("Goal: {objective}"), format!("Status: {status}")];
+    if let Some(tokens_used) = tokens_used {
+        lines.push(match token_budget {
+            Some(token_budget) => format!("Tokens: {tokens_used} of {token_budget}"),
+            None => format!("Tokens used: {tokens_used}"),
+        });
+    }
+    lines.join("\n")
+}
+
+fn format_mcp_response(response: &Value) -> String {
+    let Some(servers) = response.get("data").and_then(Value::as_array) else {
+        return "Codex returned no MCP server status entries.".to_string();
+    };
+    if servers.is_empty() {
+        return "No MCP servers are configured.".to_string();
+    }
+    let mut lines = vec![format!("MCP servers: {}", servers.len())];
+    for server in servers.iter().take(100) {
+        let name = server
+            .get("name")
+            .and_then(Value::as_str)
+            .unwrap_or("Unknown server");
+        let status = server
+            .get("status")
+            .and_then(Value::as_str)
+            .or_else(|| server.get("authStatus").and_then(Value::as_str))
+            .unwrap_or("configured");
+        lines.push(format!("• {name}: {status}"));
+    }
+    lines.join("\n")
+}
+
+pub(super) struct McpStatusPage {
+    pub(super) servers: Vec<McpServerStatusRead>,
+    pub(super) next_cursor: Option<String>,
+}
+
+pub(super) fn parse_mcp_status_page(response: &Value) -> ChatResult<McpStatusPage> {
+    let data = response
+        .get("data")
+        .and_then(Value::as_array)
+        .ok_or_else(|| mcp_status_protocol_error("page"))?;
+    if data.len() > 100 {
+        return Err(mcp_status_protocol_error("page size"));
+    }
+    let servers = data
+        .iter()
+        .map(|value| {
+            let server = value
+                .as_object()
+                .ok_or_else(|| mcp_status_protocol_error("entry"))?;
+            let name = server
+                .get("name")
+                .and_then(Value::as_str)
+                .map(str::trim)
+                .filter(|value| {
+                    !value.is_empty()
+                        && value.len() <= 1_000
+                        && !value.chars().any(char::is_control)
+                })
+                .ok_or_else(|| mcp_status_protocol_error("server name"))?;
+            let bounded_status = |field: &str| {
+                server
+                    .get(field)
+                    .and_then(Value::as_str)
+                    .map(str::trim)
+                    .filter(|value| {
+                        !value.is_empty()
+                            && value.len() <= 200
+                            && !value.chars().any(char::is_control)
+                    })
+                    .map(str::to_string)
+            };
+            Ok(McpServerStatusRead {
+                name: name.to_string(),
+                auth_status: bounded_status("authStatus"),
+                enabled: server
+                    .get("enabled")
+                    .and_then(Value::as_bool)
+                    .unwrap_or(true),
+                runtime_status: bounded_status("status"),
+            })
+        })
+        .collect::<ChatResult<Vec<_>>>()?;
+    let next_cursor = response
+        .get("nextCursor")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| {
+            !value.is_empty() && value.len() <= 4_000 && !value.chars().any(char::is_control)
+        })
+        .map(str::to_string);
+    Ok(McpStatusPage {
+        servers,
+        next_cursor,
+    })
+}
+
+fn mcp_status_protocol_error(detail: &str) -> ChatError {
+    ChatError::new(
+        ChatErrorCode::Protocol,
+        format!("Codex returned an invalid MCP server status {detail}"),
+        false,
+    )
+}
+
+async fn emit_codex_command_result(
+    live: &CodexLiveSession,
+    request: &SendTurnRequest,
+    title: &str,
+    text: String,
+) -> ChatResult<TurnDispatchReceipt> {
+    prepare_codex_command_route(live, request)?;
+    let provider_turn_id =
+        ProviderTurnId::new(format!("codex-command-{}", request.turn_id.as_str()))
+            .map_err(|_| protocol_identifier_error("command turn"))?;
+    let item_id = format!("codex-command-item-{}", request.turn_id.as_str());
+    let provider_item_id = ProviderItemId::new(item_id.clone())
+        .map_err(|_| protocol_identifier_error("command item"))?;
+    let events = {
+        let mut state = live.route.lock().map_err(|_| driver_state_error())?;
+        state.active_provider_turn_id = Some(provider_turn_id.as_str().to_string());
+        let turn_id = Some(request.turn_id.clone());
+        let provider_turn = Some(provider_turn_id.clone());
+        let provider_item = Some(provider_item_id.clone());
+        let mut events = vec![live.normalizer.event(
+            &state,
+            "command/started",
+            turn_id.clone(),
+            provider_turn.clone(),
+            None,
+            CanonicalEvent::TurnStarted(TurnStartedEvent {
+                provider_turn_id: provider_turn.clone(),
+                state: ChatTurnState::Active,
+                modes: request.modes,
+                model_id: request.model_id.clone(),
+                model_options: request.model_options.clone(),
+            }),
+        )?];
+        events.push(live.normalizer.event(
+            &state,
+            "command/item/started",
+            turn_id.clone(),
+            provider_turn.clone(),
+            provider_item.clone(),
+            CanonicalEvent::ItemStarted(ItemLifecycleEvent {
+                item_id: item_id.clone(),
+                kind: CanonicalItemKind::AssistantMessage,
+                status: ActivityStatus::Active,
+                title: Some(title.to_string()),
+                detail: None,
+                safe_metadata: None,
+            }),
+        )?);
+        events.push(live.normalizer.event(
+            &state,
+            "command/item/delta",
+            turn_id.clone(),
+            provider_turn.clone(),
+            provider_item.clone(),
+            CanonicalEvent::ContentDelta(ContentDeltaEvent {
+                item_id: item_id.clone(),
+                stream_kind: ContentStreamKind::AssistantText,
+                content_index: 0,
+                delta: text,
+            }),
+        )?);
+        events.push(live.normalizer.event(
+            &state,
+            "command/item/completed",
+            turn_id.clone(),
+            provider_turn.clone(),
+            provider_item,
+            CanonicalEvent::ItemCompleted(ItemLifecycleEvent {
+                item_id,
+                kind: CanonicalItemKind::AssistantMessage,
+                status: ActivityStatus::Completed,
+                title: Some(title.to_string()),
+                detail: None,
+                safe_metadata: None,
+            }),
+        )?);
+        state.active_chat_turn_id = None;
+        state.active_provider_turn_id = None;
+        state.session_state = ProviderSessionState::Ready;
+        events.push(live.normalizer.event(
+            &state,
+            "command/completed",
+            turn_id,
+            provider_turn,
+            None,
+            CanonicalEvent::TurnCompleted(TurnCompletedEvent {
+                state: ChatTurnState::Completed,
+                stop_reason: Some("command".to_string()),
+                usage: None,
+                changed_files: Vec::new(),
+            }),
+        )?);
+        events
+    };
+    for event in events {
+        live.sink.emit(event).await?;
+    }
+    Ok(TurnDispatchReceipt {
+        turn_id: request.turn_id.clone(),
+        state: ChatTurnState::Completed,
+        provider_turn_id: Some(provider_turn_id),
+        accepted_at: now_utc()?,
+    })
 }
 
 enum SessionOpenInput {

@@ -31,6 +31,10 @@ impl ProviderDriver for ClaudeProviderDriver {
         self.cached_models.clone()
     }
 
+    fn prompt_catalog(&self) -> ChatResult<Vec<ChatPromptCatalogEntry>> {
+        Ok(super::protocol::prompt_catalog(&self.cached_commands))
+    }
+
     fn probe<'a>(
         &'a mut self,
         context: &'a DriverOperationContext,
@@ -39,6 +43,7 @@ impl ProviderDriver for ClaudeProviderDriver {
             let checked_at = now_utc()?;
             match self.probe_snapshot(context).await {
                 Ok(snapshot) => {
+                    self.cached_commands = snapshot.initialize.commands.clone();
                     let authenticated = snapshot.initialize.account.is_some()
                         || self
                             .configuration
@@ -91,6 +96,7 @@ impl ProviderDriver for ClaudeProviderDriver {
     ) -> DriverFuture<'a, ProviderModelCatalog> {
         Box::pin(async move {
             let snapshot = self.probe_snapshot(context).await?;
+            self.cached_commands = snapshot.initialize.commands.clone();
             let catalog = ProviderModelCatalog {
                 instance_id: self.configuration.instance_id.clone(),
                 models: snapshot.models,
@@ -233,6 +239,62 @@ impl ProviderDriver for ClaudeProviderDriver {
                 provider_turn_id: Some(provider_turn_id),
                 accepted_at: now_utc()?,
             })
+        })
+    }
+
+    fn compact_context<'a>(
+        &'a mut self,
+        request: CompactContextRequest,
+        context: &'a DriverOperationContext,
+    ) -> DriverFuture<'a, DriverOperationReceipt> {
+        Box::pin(async move {
+            let message = build_slash_command_message("/compact")?;
+            let live = self.live_mut(&request.session_id)?;
+            let provider_turn_id =
+                ProviderTurnId::new(format!("claude-{}", request.turn_id.as_str()))
+                    .map_err(|_| protocol_identifier_error("turn"))?;
+            let started = {
+                let mut state = live.route.lock().map_err(|_| driver_state_error())?;
+                if state.active_chat_turn_id.is_some() {
+                    return Err(ChatError::new(
+                        ChatErrorCode::Busy,
+                        "Claude already has an active turn",
+                        true,
+                    ));
+                }
+                state.active_chat_turn_id = Some(request.turn_id);
+                state.session_state = ProviderSessionState::Active;
+                live.normalizer.external_event(
+                    &state,
+                    "turn/started",
+                    None,
+                    CanonicalEvent::TurnStarted(TurnStartedEvent {
+                        provider_turn_id: Some(provider_turn_id),
+                        state: ChatTurnState::Active,
+                        modes: state.modes,
+                        model_id: state.model_id.clone(),
+                        model_options: Vec::new(),
+                    }),
+                )?
+            };
+            if let Err(error) = live.sink.emit(started).await {
+                if let Ok(mut state) = live.route.lock() {
+                    state.active_chat_turn_id = None;
+                    state.session_state = ProviderSessionState::Ready;
+                }
+                return Err(error);
+            }
+            if let Err(error) = live.connection.client().send(message).await {
+                if let Ok(mut state) = live.route.lock() {
+                    state.active_chat_turn_id = None;
+                    state.session_state = ProviderSessionState::Ready;
+                }
+                return Err(error.to_chat_error("context compaction"));
+            }
+            Ok(operation_receipt(
+                &context.operation_id,
+                "Claude context compaction started",
+            ))
         })
     }
 
