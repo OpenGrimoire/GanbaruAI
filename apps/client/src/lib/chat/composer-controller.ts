@@ -23,6 +23,7 @@ export interface ChatComposerSnapshot {
   workingFolderId: ProjectWorkingFolderId | null;
   threadId: ChatThreadId | null;
   text: string;
+  richContent: VersionedJson | null;
   attachmentIds: ChatAttachmentId[];
   mentions: ChatDraftMention[];
   providerInstanceId: ProviderInstanceId | null;
@@ -101,7 +102,11 @@ export class ChatComposerController {
   }
 
   public setText(text: string): void {
-    this.change({ text });
+    this.change({ text, richContent: null });
+  }
+
+  public setRichContent(text: string, richContent: VersionedJson): void {
+    this.change({ text, richContent });
   }
 
   public setAttachments(attachmentIds: ChatAttachmentId[]): void {
@@ -145,11 +150,15 @@ export class ChatComposerController {
       schemaVersion: DRAFT_SCHEMA_VERSION,
       value: {
         text: this.state.text,
+        richContent: this.state.richContent ? {
+          schemaVersion: this.state.richContent.schemaVersion,
+          value: this.state.richContent.value,
+        } : null,
         attachmentIds: [...this.state.attachmentIds],
         mentions: this.state.mentions.map((mention) => ({ ...mention })),
       },
     };
-    this.change({ text: "", attachmentIds: [], mentions: [], sentSnapshot });
+    this.change({ text: "", richContent: null, attachmentIds: [], mentions: [], sentSnapshot });
   }
 
   public restoreSentSnapshot(): boolean {
@@ -157,6 +166,7 @@ export class ChatComposerController {
     if (sent === null) return false;
     this.change({
       text: sent.text,
+      richContent: sent.richContent,
       attachmentIds: sent.attachmentIds,
       mentions: sent.mentions,
     });
@@ -216,6 +226,7 @@ export class ChatComposerController {
       workingFolderId,
       threadId,
       text: this.state.text,
+      richContent: this.state.richContent,
       attachmentIds: [...this.state.attachmentIds],
       mentions: {
         schemaVersion: DRAFT_SCHEMA_VERSION,
@@ -254,6 +265,7 @@ function emptySnapshot(): ChatComposerSnapshot {
     workingFolderId: null,
     threadId: null,
     text: "",
+    richContent: null,
     attachmentIds: [],
     mentions: [],
     providerInstanceId: null,
@@ -274,6 +286,7 @@ function snapshotFromDraft(draft: ChatDraftRead): ChatComposerSnapshot {
     workingFolderId: draft.workingFolderId,
     threadId: draft.threadId,
     text: draft.text,
+    richContent: draft.richContent,
     attachmentIds: [...draft.attachmentIds],
     mentions: parseDraftMentions(draft.mentions),
     providerInstanceId: draft.providerInstanceId,
@@ -302,18 +315,31 @@ export function parseDraftMentions(value: VersionedJson): ChatDraftMention[] {
 
 function parseSentSnapshot(value: VersionedJson | null): {
   text: string;
+  richContent: VersionedJson | null;
   attachmentIds: ChatAttachmentId[];
   mentions: ChatDraftMention[];
 } | null {
   if (!value || typeof value.value !== "object" || value.value === null || Array.isArray(value.value)) return null;
-  const { text, attachmentIds, mentions } = value.value;
+  const { text, richContent, attachmentIds, mentions } = value.value;
   if (typeof text !== "string" || !Array.isArray(attachmentIds) || !Array.isArray(mentions)) return null;
+  const parsedRichContent = richContent === null || richContent === undefined
+    ? null
+    : parseVersionedJsonValue(richContent);
+  if (richContent !== null && richContent !== undefined && parsedRichContent === null) return null;
   const parsedAttachmentIds = attachmentIds.filter((entry): entry is string => typeof entry === "string");
   return {
     text,
+    richContent: parsedRichContent,
     attachmentIds: parsedAttachmentIds,
     mentions: parseDraftMentions({ schemaVersion: value.schemaVersion, value: mentions }),
   };
+}
+
+function parseVersionedJsonValue(value: unknown): VersionedJson | null {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return null;
+  const schemaVersion = Reflect.get(value, "schemaVersion");
+  if (!Number.isInteger(schemaVersion) || typeof schemaVersion !== "number" || schemaVersion < 1) return null;
+  return { schemaVersion, value: Reflect.get(value, "value") };
 }
 
 function errorMessage(error: unknown): string {

@@ -20,6 +20,7 @@ export function parseChatDraftRead(value: unknown): ChatDraftRead {
     workingFolderId: readIdentifier(record.workingFolderId, "Chat draft.workingFolderId"),
     threadId: readNullable(record.threadId, "Chat draft.threadId", readIdentifier),
     text: readString(record.text, "Chat draft.text"),
+    richContent: readNullable(record.richContent, "Chat draft.richContent", readVersionedJson),
     attachmentIds: readArray(record.attachmentIds, "Chat draft.attachmentIds", readIdentifier),
     mentions,
     providerInstanceId: readNullable(record.providerInstanceId, "Chat draft.providerInstanceId", readIdentifier),

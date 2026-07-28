@@ -5,10 +5,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ChatComposerSnapshot } from "$lib/chat/composer-controller";
 import type { ChatAttachmentRead, ChatSettingsRead } from "$lib/chat/contracts";
 import { composerModelSelection, readComposerModelSelection } from "$lib/chat/composer-model";
-import {
-  notesTextSelectionFromEditableRoot,
-  restoreNotesEditableSelection,
-} from "$lib/notes/editor-selection";
 import { getChat } from "$lib/stores/chat.svelte";
 import ChatComposer from "./ChatComposer.svelte";
 
@@ -63,13 +59,13 @@ describe("ChatComposer", () => {
     vi.unstubAllGlobals();
   });
 
-  function setup(hero = false): { target: HTMLDivElement; editor: HTMLElement } {
+  function setup(hero = false): { target: HTMLDivElement; editor: HTMLDivElement } {
     const target = document.createElement("div");
     document.body.append(target);
     const component = mount(ChatComposer, { target, props: { hero } });
     mounted.push({ target, component });
-    const editor = target.querySelector("[data-chat-composer]");
-    if (!(editor instanceof HTMLElement)) throw new Error("Chat composer did not render");
+    const editor = target.querySelector("div[data-chat-composer]");
+    if (!(editor instanceof HTMLDivElement)) throw new Error("Chat composer did not render");
     return { target, editor };
   }
 
@@ -77,8 +73,9 @@ describe("ChatComposer", () => {
     const first = setup(true);
     await tick();
     first.editor.focus();
-    restoreNotesEditableSelection(first.editor, { start: 3, end: 7 });
-    first.editor.dispatchEvent(new KeyboardEvent("keyup", { bubbles: true, key: "ArrowRight" }));
+    setEditorSelection(first.editor, 3, 7);
+    expect(document.getSelection()?.toString()).toBe("iew ");
+    document.dispatchEvent(new Event("selectionchange"));
     const firstMount = mounted.pop();
     if (!firstMount) throw new Error("First composer mount was not recorded");
     await unmount(firstMount.component);
@@ -88,45 +85,99 @@ describe("ChatComposer", () => {
     await tick();
     await tick();
     expect(document.activeElement).toBe(second.editor);
-    expect(notesTextSelectionFromEditableRoot(second.editor)).toEqual({ start: 3, end: 7 });
+    expect(document.getSelection()?.toString()).toBe("iew ");
   });
 
-  it("renders a text-backed empty line after a soft break", async () => {
+  it("preserves a trailing soft break as a fixed editor line", async () => {
     const chat = getChat();
     chat.composer = { ...composer(), text: "Example\n" };
     const { editor } = setup(false);
     await tick();
 
-    const lines = editor.querySelectorAll('[data-notes-editor-line="true"]');
+    const lines = editor.querySelectorAll(":scope > [data-chat-composer-line]");
     expect(lines).toHaveLength(2);
     expect(lines[0]?.textContent).toBe("Example");
-    expect(lines[1]?.querySelector('[data-notes-editor-sentinel="empty-line"]')?.textContent).toBe("\u200b");
-    expect(editor.textContent?.replace(/\u200b/gu, "")).toBe("Example");
+    expect(lines[1]?.querySelector("[data-chat-composer-sentinel]")).not.toBeNull();
   });
 
-  it("inserts Shift+Enter as a controlled soft break", async () => {
+  it("accepts ordinary and composed characters after deleting the entire draft", async () => {
     const chat = getChat();
     chat.composer = { ...composer(), text: "Example" };
-    vi.spyOn(chat, "setComposerText").mockImplementation((text) => {
-      chat.composer = { ...chat.composer, text };
+    vi.spyOn(chat, "setComposerRichContent").mockImplementation((text, richContent) => {
+      chat.composer = { ...chat.composer, text, richContent };
     });
     const { editor } = setup(false);
     await tick();
     editor.focus();
-    restoreNotesEditableSelection(editor, { start: 7, end: 7 });
-
-    editor.dispatchEvent(new InputEvent("beforeinput", {
-      bubbles: true,
-      cancelable: true,
-      inputType: "insertLineBreak",
-    }));
-    await tick();
+    editor.replaceChildren();
+    setEditorSelection(editor, 0, 0);
+    editor.dispatchEvent(new InputEvent("input", { bubbles: true, inputType: "deleteContentForward" }));
     await tick();
 
+    const emptyLine = editor.querySelector<HTMLElement>("[data-chat-composer-line]");
+    if (!emptyLine) throw new Error("Empty editor line did not render");
+    emptyLine.textContent = "abc";
+    setEditorSelection(editor, 3, 3);
+    editor.dispatchEvent(new InputEvent("input", { bubbles: true, data: "c", inputType: "insertText" }));
+    editor.dispatchEvent(new CompositionEvent("compositionstart", { bubbles: true }));
+    const composingLine = editor.querySelector<HTMLElement>("[data-chat-composer-line]");
+    if (!composingLine) throw new Error("Composing editor line did not render");
+    composingLine.textContent = "abcñ";
+    setEditorSelection(editor, 4, 4);
+    editor.dispatchEvent(new InputEvent("input", { bubbles: true, data: "ñ", inputType: "insertCompositionText", isComposing: true }));
+    editor.dispatchEvent(new CompositionEvent("compositionend", { bubbles: true, data: "ñ" }));
+    await tick();
+    await Promise.resolve();
+
+    expect(chat.composer.text).toBe("abcñ");
+    expect(editor.textContent).toBe("abcñ");
+    expect(editor.querySelectorAll(":scope > [data-chat-composer-line]")).toHaveLength(1);
+  });
+
+  it("creates a normal editor line for Shift+Enter", async () => {
+    const chat = getChat();
+    chat.composer = { ...composer(), text: "Example" };
+    vi.spyOn(chat, "setComposerRichContent").mockImplementation((text, richContent) => {
+      chat.composer = { ...chat.composer, text, richContent };
+    });
+    const { editor } = setup(false);
+    await tick();
+    editor.focus();
+    setEditorSelection(editor, 7, 7);
+    expect(document.getSelection()?.anchorOffset).toBe(7);
+    const softBreak = new KeyboardEvent("keydown", { bubbles: true, cancelable: true, key: "Enter", shiftKey: true });
+    editor.dispatchEvent(softBreak);
+    await tick();
+
+    expect(softBreak.defaultPrevented).toBe(true);
     expect(chat.composer.text).toBe("Example\n");
-    expect(editor.querySelectorAll('[data-notes-editor-line="true"]')).toHaveLength(2);
-    expect(editor.querySelector('[data-notes-editor-sentinel="empty-line"]')?.textContent).toBe("\u200b");
-    expect(notesTextSelectionFromEditableRoot(editor)).toEqual({ start: 8, end: 8 });
+    const lines = editor.querySelectorAll(":scope > [data-chat-composer-line]");
+    expect(lines).toHaveLength(2);
+    expect(lines[0]?.textContent).toBe("Example");
+    expect(lines[1]?.querySelector("[data-chat-composer-sentinel]")).not.toBeNull();
+  });
+
+  it("formats a visible selection and serializes it as Markdown", async () => {
+    const chat = getChat();
+    vi.spyOn(chat, "setComposerRichContent").mockImplementation((text, richContent) => {
+      chat.composer = { ...chat.composer, text, richContent };
+    });
+    const { target, editor } = setup(false);
+    await tick();
+    editor.focus();
+    setEditorSelection(editor, 11, 19);
+    expect(document.getSelection()?.toString()).toBe("calendar");
+    document.dispatchEvent(new Event("selectionchange"));
+    const bold = target.querySelector<HTMLButtonElement>('button[aria-label="Bold"]');
+    expect(bold).not.toBeNull();
+    bold?.dispatchEvent(new MouseEvent("pointerdown", { bubbles: true, cancelable: true }));
+    bold?.click();
+    await tick();
+
+    expect(chat.composer.text).toBe("Review the **calendar** implementation");
+    expect(editor.querySelector("strong")?.textContent).toBe("calendar");
+    expect(bold?.getAttribute("aria-pressed")).toBe("true");
+    expect(target.querySelector('button[aria-label="Italic"]')).not.toBeNull();
   });
 
   it("keeps the simplified composer actions directly discoverable", () => {
@@ -686,6 +737,7 @@ function composer(): ChatComposerSnapshot {
     workingFolderId: "workspace-1",
     threadId: null,
     text: "Review the calendar implementation",
+    richContent: null,
     attachmentIds: [],
     mentions: [],
     providerInstanceId: null,
@@ -698,6 +750,31 @@ function composer(): ChatComposerSnapshot {
     dirty: false,
     error: null,
   };
+}
+
+function setEditorSelection(editor: HTMLDivElement, start: number, end: number): void {
+  const selection = document.getSelection();
+  if (!selection) throw new Error("Document selection is unavailable");
+  const range = document.createRange();
+  const startPoint = editorTextPoint(editor, start);
+  const endPoint = editorTextPoint(editor, end);
+  range.setStart(startPoint.node, startPoint.offset);
+  range.setEnd(endPoint.node, endPoint.offset);
+  selection.removeAllRanges();
+  selection.addRange(range);
+}
+
+function editorTextPoint(editor: HTMLDivElement, offset: number): { node: Node; offset: number } {
+  const walker = document.createTreeWalker(editor, NodeFilter.SHOW_TEXT);
+  let remaining = offset;
+  let last: Text | null = null;
+  for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+    if (!(node instanceof Text)) continue;
+    last = node;
+    if (remaining <= node.data.length) return { node, offset: remaining };
+    remaining -= node.data.length;
+  }
+  return last ? { node: last, offset: last.data.length } : { node: editor, offset: 0 };
 }
 
 function pointerEvent(type: string, clientX: number, clientY = 0): PointerEvent {

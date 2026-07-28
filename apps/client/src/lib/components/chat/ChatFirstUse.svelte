@@ -82,7 +82,7 @@
   .first-use-content.pending-send { height: 100%; align-items: stretch; padding-bottom: 0; }
   .hero-composer-shell.pending-send { position: relative; display: flex; width: 100%; max-width: none; min-height: 0; flex: 1; flex-direction: column; overflow: hidden; }
   .pending-composer-dock { pointer-events: none; position: absolute; inset-inline: 0; bottom: 0; z-index: 2; padding: 0.5rem 0.75rem 0.75rem; }
-  .pending-composer-dock::before { position: absolute; inset: -1.5rem 0 -2rem; z-index: -1; background: linear-gradient(to bottom, transparent, color-mix(in srgb, var(--cal-bg) 72%, transparent) 35%, var(--cal-bg) 74%); content: ""; backdrop-filter: blur(10px); -webkit-mask-image: linear-gradient(to bottom, transparent, black 35%); mask-image: linear-gradient(to bottom, transparent, black 35%); }
+  .pending-composer-dock::before { position: absolute; inset: -1.5rem 0 -2rem; z-index: -1; background: linear-gradient(to bottom, transparent, color-mix(in srgb, var(--cal-bg) 72%, transparent) 35%, var(--cal-bg) 74%); content: ""; -webkit-mask-image: linear-gradient(to bottom, transparent, black 35%); mask-image: linear-gradient(to bottom, transparent, black 35%); }
   .pending-composer-dock :global(.chat-composer) { pointer-events: auto; }
   .working-folder-context { display: flex; min-width: 0; min-height: 3.15rem; align-items: center; gap: 1.2rem; margin-inline: 1.35rem; border-radius: 1.2rem 1.2rem 0 0; background: color-mix(in srgb, var(--muted) 72%, transparent); padding: 0.45rem 1.1rem 0.7rem; color: var(--foreground); font-size: 0.8rem; }
   .working-folder-context > button, .working-folder-context > span { display: flex; min-width: 0; align-items: center; gap: 0.45rem; }

@@ -643,6 +643,12 @@ fn durable_draft_preserves_unknown_json_and_attachment_references() {
             working_folder_id: ProjectWorkingFolderId::new("workspace-1").unwrap(),
             thread_id: Some(ChatThreadId::new("thread-1").unwrap()),
             text: "Keep this".to_string(),
+            rich_content: Some(VersionedJson {
+                schema_version: 1,
+                value: serde_json::json!({
+                    "lines": [{ "runs": [{ "text": "Keep this", "marks": ["bold"] }] }]
+                }),
+            }),
             attachment_ids: vec![attachment_id],
             mentions: VersionedJson {
                 schema_version: 88,

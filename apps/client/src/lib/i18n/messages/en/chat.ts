@@ -127,6 +127,8 @@ export const chat = {
   composer: {
     placeholder: "Ask anything, @tag files or folders, $use skills, or / for commands",
     placeholderWorking: "Add a follow-up, steer the current turn, or queue next",
+    bold: "Bold",
+    italic: "Italic",
     send: "Send",
     steer: "Steer current turn",
     queue: "Queue next",

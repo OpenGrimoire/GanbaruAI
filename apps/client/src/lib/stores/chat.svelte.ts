@@ -302,6 +302,9 @@ class ChatStore {
   }
 
   setComposerText(text: string): void { this.composerController.setText(text); }
+  setComposerRichContent(text: string, richContent: VersionedJson): void {
+    this.composerController.setRichContent(text, richContent);
+  }
   setComposerAttachments(attachmentIds: string[]): void { this.composerController.setAttachments(attachmentIds); }
   setComposerMentions(mentions: ChatDraftMention[]): void { this.composerController.setMentions(mentions); }
   setComposerProvider(instanceId: ProviderInstanceId | null): void { this.composerController.setProvider(instanceId); }

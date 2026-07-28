@@ -10,6 +10,7 @@ function draft(overrides: Partial<ChatDraftRead> = {}): ChatDraftRead {
     workingFolderId: "workspace-1",
     threadId: null,
     text: "Saved prompt",
+    richContent: null,
     attachmentIds: [],
     mentions: { schemaVersion: 1, value: [] },
     providerInstanceId: "codex-personal",
@@ -68,7 +69,11 @@ describe("ChatComposerController", () => {
     const api = fakeApi();
     const controller = new ChatComposerController(api);
     await controller.bind("workspace-1", null);
-    controller.setText("Please update the calendar");
+    const richContent = {
+      schemaVersion: 1,
+      value: { lines: [{ runs: [{ text: "Please", marks: ["bold"] }] }] },
+    };
+    controller.setRichContent("**Please** update the calendar", richContent);
     controller.setAttachments(["attachment-1"]);
     controller.setMentions([{ relativePath: "src/calendar.ts", kind: "file", ignored: false }]);
 
@@ -78,13 +83,15 @@ describe("ChatComposerController", () => {
     const saved = vi.mocked(api.save).mock.calls.at(-1)?.[0];
     expect(saved).toMatchObject({ text: "", mentions: { value: [] } });
     expect(saved?.sentSnapshot?.value).toMatchObject({
-      text: "Please update the calendar",
+      text: "**Please** update the calendar",
+      richContent,
       attachmentIds: ["attachment-1"],
       mentions: [{ relativePath: "src/calendar.ts", kind: "file", ignored: false }],
     });
     expect(controller.restoreSentSnapshot()).toBe(true);
     expect(controller.snapshot()).toMatchObject({
-      text: "Please update the calendar",
+      text: "**Please** update the calendar",
+      richContent,
       attachmentIds: ["attachment-1"],
       mentions: [{ relativePath: "src/calendar.ts" }],
     });

@@ -34,6 +34,7 @@ export interface ChatDraftRead {
   workingFolderId: ProjectWorkingFolderId;
   threadId: ChatThreadId | null;
   text: string;
+  richContent: VersionedJson | null;
   attachmentIds: ChatAttachmentId[];
   mentions: VersionedJson;
   providerInstanceId: ProviderInstanceId | null;

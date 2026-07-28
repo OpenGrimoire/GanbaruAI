@@ -12,6 +12,7 @@ pub struct ChatDraftWrite {
     pub working_folder_id: ProjectWorkingFolderId,
     pub thread_id: Option<ChatThreadId>,
     pub text: String,
+    pub rich_content: Option<VersionedJson>,
     pub attachment_ids: Vec<ChatAttachmentId>,
     pub mentions: VersionedJson,
     pub provider_instance_id: Option<ProviderInstanceId>,
@@ -27,20 +28,25 @@ pub type ChatDraftRead = ChatDraftWrite;
 pub async fn save_draft(pool: &SqlitePool, draft: &ChatDraftWrite) -> ChatResult<ChatDraftRead> {
     validate_draft(draft)?;
     let mentions = json_text(&draft.mentions.value)?;
+    let rich_content = versioned_parts(draft.rich_content.as_ref())?;
     let model = versioned_parts(draft.model_selection.as_ref())?;
     let sent = versioned_parts(draft.sent_snapshot.as_ref())?;
     let mut transaction = pool.begin().await.map_err(persistence_error)?;
     validate_draft_owner(&mut transaction, draft).await?;
     sqlx::query(
         "INSERT INTO chat_drafts
-            (id, working_folder_id, thread_id, text, mentions_schema_version, mentions_data,
+            (id, working_folder_id, thread_id, text, rich_content_schema_version,
+             rich_content_data, mentions_schema_version, mentions_data,
              provider_instance_id, model_selection_schema_version, model_selection_data,
              safety_mode, interaction_mode, sent_snapshot_schema_version,
              sent_snapshot_data, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT(id) DO UPDATE SET
              working_folder_id = excluded.working_folder_id, thread_id = excluded.thread_id,
-             text = excluded.text, mentions_schema_version = excluded.mentions_schema_version,
+             text = excluded.text,
+             rich_content_schema_version = excluded.rich_content_schema_version,
+             rich_content_data = excluded.rich_content_data,
+             mentions_schema_version = excluded.mentions_schema_version,
              mentions_data = excluded.mentions_data,
              provider_instance_id = excluded.provider_instance_id,
              model_selection_schema_version = excluded.model_selection_schema_version,
@@ -53,6 +59,8 @@ pub async fn save_draft(pool: &SqlitePool, draft: &ChatDraftWrite) -> ChatResult
     .bind(draft.working_folder_id.as_str())
     .bind(draft.thread_id.as_ref().map(ChatThreadId::as_str))
     .bind(&draft.text)
+    .bind(rich_content.0)
+    .bind(rich_content.1)
     .bind(i64::from(draft.mentions.schema_version))
     .bind(mentions)
     .bind(
@@ -108,7 +116,8 @@ pub async fn save_draft(pool: &SqlitePool, draft: &ChatDraftWrite) -> ChatResult
 
 pub async fn read_draft(pool: &SqlitePool, id: &str) -> ChatResult<Option<ChatDraftRead>> {
     let row = sqlx::query(
-        "SELECT id, working_folder_id, thread_id, text, mentions_schema_version, mentions_data,
+        "SELECT id, working_folder_id, thread_id, text, rich_content_schema_version,
+                rich_content_data, mentions_schema_version, mentions_data,
                 provider_instance_id, model_selection_schema_version, model_selection_data,
                 safety_mode, interaction_mode, sent_snapshot_schema_version,
                 sent_snapshot_data, updated_at
@@ -141,6 +150,7 @@ pub async fn read_draft(pool: &SqlitePool, id: &str) -> ChatResult<Option<ChatDr
             .transpose()
             .map_err(|_| corrupt_data())?,
         text: row.try_get("text").map_err(persistence_error)?,
+        rich_content: read_versioned(&row, "rich_content_schema_version", "rich_content_data")?,
         attachment_ids: attachment_rows
             .into_iter()
             .map(|row| {
@@ -252,6 +262,14 @@ fn validate_draft(draft: &ChatDraftWrite) -> ChatResult<()> {
         return Err(ChatError::validation(
             "draft",
             "Chat draft exceeds supported limits",
+        ));
+    }
+    if draft.rich_content.as_ref().is_some_and(|content| {
+        !content.value.is_object() || content.value.to_string().len() > 67_108_864
+    }) {
+        return Err(ChatError::validation(
+            "richContent",
+            "Chat draft rich content is invalid or exceeds supported limits",
         ));
     }
     if !draft.mentions.value.is_array() {

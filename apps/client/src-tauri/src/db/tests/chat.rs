@@ -2,6 +2,8 @@ use super::helpers::migrated_memory_pool;
 use sqlx::Row;
 
 const NOW: &str = "2026-07-20T12:00:00Z";
+const ADD_CHAT_DRAFT_RICH_CONTENT: &str =
+    include_str!("../../../migrations/20260728032141_add_chat_draft_rich_content.sql");
 
 async fn insert_project(pool: &sqlx::SqlitePool) {
     sqlx::query("INSERT INTO project_groups (id, name) VALUES ('group-1', 'Engineering')")
@@ -170,6 +172,45 @@ fn schema_creates_chat_tables_indexes_and_no_device_paths() {
                     || column.contains("secret")
             }));
         }
+    });
+}
+
+#[test]
+fn chat_draft_rich_content_migration_preserves_existing_plain_text() {
+    tauri::async_runtime::block_on(async {
+        let pool = sqlx::SqlitePool::connect("sqlite::memory:").await.unwrap();
+        sqlx::query(
+            "CREATE TABLE chat_drafts (
+                id TEXT PRIMARY KEY NOT NULL,
+                text TEXT NOT NULL DEFAULT ''
+            ) STRICT",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query("INSERT INTO chat_drafts (id, text) VALUES ('draft-1', 'Keep this')")
+            .execute(&pool)
+            .await
+            .unwrap();
+
+        sqlx::raw_sql(ADD_CHAT_DRAFT_RICH_CONTENT)
+            .execute(&pool)
+            .await
+            .unwrap();
+
+        let row = sqlx::query(
+            "SELECT text, rich_content_schema_version, rich_content_data
+             FROM chat_drafts WHERE id = 'draft-1'",
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(row.get::<String, _>("text"), "Keep this");
+        assert_eq!(
+            row.get::<Option<i64>, _>("rich_content_schema_version"),
+            None
+        );
+        assert_eq!(row.get::<Option<String>, _>("rich_content_data"), None);
     });
 }
 

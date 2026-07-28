@@ -130,6 +130,8 @@ export const chat = {
   composer: {
     placeholder: "Pregunta lo que quieras, etiqueta con @, usa habilidades con $ o comandos con /",
     placeholderWorking: "Agrega un seguimiento, redirige el turno actual o pon el siguiente en cola",
+    bold: "Negrita",
+    italic: "Cursiva",
     send: "Enviar",
     steer: "Redirigir turno actual",
     queue: "Poner en cola",

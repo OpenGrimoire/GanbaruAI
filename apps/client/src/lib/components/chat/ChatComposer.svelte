@@ -8,7 +8,9 @@
   import { onMount, tick } from "svelte";
   import ArrowUp from "@lucide/svelte/icons/arrow-up";
   import AtSign from "@lucide/svelte/icons/at-sign";
+  import Bold from "@lucide/svelte/icons/bold";
   import ImagePlus from "@lucide/svelte/icons/image-plus";
+  import Italic from "@lucide/svelte/icons/italic";
   import LoaderCircle from "@lucide/svelte/icons/loader-circle";
   import Paperclip from "@lucide/svelte/icons/paperclip";
   import Plus from "@lucide/svelte/icons/plus";
@@ -16,13 +18,14 @@
   import X from "@lucide/svelte/icons/x";
   import * as chatApi from "$lib/api/chat";
   import type { ChatPromptCatalogEntry, ProjectWorkingFolderPathRead, ProviderCapabilities, SafetyMode } from "$lib/chat/contracts";
+  import { ChatComposerEditor, type ChatComposerEditorChange } from "$lib/chat/composer-editor";
+  import { parseChatComposerDocument, type ChatComposerMark, type ChatComposerSelection } from "$lib/chat/composer-rich-text";
   import {
     composerActionState,
     composerTokenTrigger,
     contextMeter,
     filterPromptCatalog,
     interactionModeForPrompt,
-    replaceComposerToken,
     shouldSendComposerKey,
     validateComposerSelections,
     validateImageFiles,
@@ -31,13 +34,6 @@
   import { providerPermissionFileName } from "$lib/chat/permission-modes";
   import { formatNumber } from "$lib/i18n/formatters";
   import { getLocalization } from "$lib/i18n/translator.svelte";
-  import {
-    notesPlainTextFromEditableRoot,
-    notesTextSelectionFromEditableRoot,
-    restoreNotesEditableSelection,
-    type NotesTextSelection,
-  } from "$lib/notes/editor-selection";
-  import { planNotesControlledTextEdit } from "$lib/notes/controlled-text-input";
   import { getChat } from "$lib/stores/chat.svelte";
   import { getProjects } from "$lib/stores/projects.svelte";
   import ChatAccessControl from "./ChatAccessControl.svelte";
@@ -49,9 +45,11 @@
   const { t } = localization;
   const chat = getChat();
   const projects = getProjects();
-  let editor: HTMLDivElement | undefined = $state();
+  let editorRoot: HTMLDivElement | undefined = $state();
+  let editorController: ChatComposerEditor | undefined;
   let editorFocused = false;
-  let compositionActive = false;
+  let boldActive = $state(false);
+  let italicActive = $state(false);
   let fileInput: HTMLInputElement | undefined = $state();
   let attachmentMenu: HTMLDetailsElement | undefined = $state();
   let menuEntries = $state<(ProjectWorkingFolderPathRead | ChatPromptCatalogEntry)[]>([]);
@@ -90,7 +88,6 @@
   );
   const sendingBlocked = $derived(projectArchived || workingFolderUnavailable);
   const composerDisabled = $derived(sendingBlocked || (chat.selectedThread?.archivedAt !== null && chat.selectedThread !== null));
-  const composerLines = $derived(chat.composer.text.length > 0 ? chat.composer.text.split("\n") : []);
 
   onMount(() => {
     const stop = () => void stopTurn();
@@ -99,22 +96,29 @@
     window.addEventListener("ganbaru-ai:chat-stop-requested", stop);
     window.addEventListener("ganbaru-ai:chat-continue-plan", continuePlan);
     window.addEventListener("ganbaru-ai:chat-implement-plan", implementPlan);
+    if (editorRoot) {
+      editorController = new ChatComposerEditor(
+        editorRoot,
+        parseChatComposerDocument(chat.composer.richContent, chat.composer.text),
+        {
+          onChange: handleEditorChange,
+          onSelectionChange: handleEditorSelectionChange,
+        },
+      );
+    }
+    const selectionChanged = () => {
+      if (document.activeElement === editorRoot) editorController?.handleSelectionChange();
+    };
+    document.addEventListener("selectionchange", selectionChanged);
     if (restoreComposerFocus) {
       void tick().then(() => {
-        editor?.focus();
-        if (editor) restoreNotesEditableSelection(editor, {
-          start: restoreSelectionStart,
-          end: restoreSelectionEnd,
-        });
+        editorController?.focus({ start: restoreSelectionStart, end: restoreSelectionEnd });
       });
     }
     return () => {
       restoreComposerFocus = editorFocused;
-      const selection = editor ? notesTextSelectionFromEditableRoot(editor) : null;
-      if (selection) {
-        restoreSelectionStart = selection.start;
-        restoreSelectionEnd = selection.end;
-      }
+      document.removeEventListener("selectionchange", selectionChanged);
+      editorController = undefined;
       window.removeEventListener("ganbaru-ai:chat-stop-requested", stop);
       window.removeEventListener("ganbaru-ai:chat-continue-plan", continuePlan);
       window.removeEventListener("ganbaru-ai:chat-implement-plan", implementPlan);
@@ -127,21 +131,17 @@
     const action = mode === "plan"
       ? t("chat.inspector.continuePlanningPrompt")
       : t("chat.inspector.implementPlanPrompt");
-    const existing = chat.composer.text.trim();
-    chat.setComposerText(existing ? `${existing}\n\n${action}` : action);
+    const existing = editorController?.plainText().trim() ?? chat.composer.text.trim();
+    if (editorController) editorController.appendPlainText(existing ? `\n\n${action}` : action);
+    else chat.setComposerText(existing ? `${existing}\n\n${action}` : action);
     chat.setComposerModes(chat.composer.safetyMode, mode);
-    queueMicrotask(() => editor?.focus());
+    queueMicrotask(() => editorController?.focus());
   }
 
   $effect(() => {
-    chat.composer.text;
-    void tick().then(() => {
-      if (!editor || document.activeElement !== editor) return;
-      restoreNotesEditableSelection(editor, {
-        start: restoreSelectionStart,
-        end: restoreSelectionEnd,
-      });
-    });
+    const text = chat.composer.text;
+    const richContent = chat.composer.richContent;
+    editorController?.setDocument(parseChatComposerDocument(richContent, text));
   });
 
   $effect(() => {
@@ -157,66 +157,24 @@
     if (chat.interaction?.sessionState !== "stopping") forceStopAvailable = false;
   });
 
-  function handleInput(event: Event): void {
-    if (!(event.currentTarget instanceof HTMLElement)) return;
-    if (compositionActive || (event instanceof InputEvent && event.isComposing)) return;
-    commitEditorValue(event.currentTarget);
+  function handleEditorChange(change: ChatComposerEditorChange): void {
+    chat.setComposerRichContent(change.markdown, change.richContent);
+    void updateMenu(change.plainText, editorController?.selection().start ?? change.plainText.length);
   }
 
-  function commitEditorValue(target: HTMLElement): void {
-    const selection = notesTextSelectionFromEditableRoot(target);
-    const value = notesPlainTextFromEditableRoot(target);
-    rememberSelection(selection);
-    chat.setComposerText(value);
-    void updateMenu(value, selection?.start ?? value.length);
-  }
-
-  function rememberSelection(selection = editor ? notesTextSelectionFromEditableRoot(editor) : null): void {
-    if (!selection) return;
+  function handleEditorSelectionChange(selection: ChatComposerSelection, activeMarks: ChatComposerMark[]): void {
     restoreSelectionStart = selection.start;
     restoreSelectionEnd = selection.end;
+    boldActive = activeMarks.includes("bold");
+    italicActive = activeMarks.includes("italic");
   }
 
-  function editorSelection(): NotesTextSelection {
-    return editor ? notesTextSelectionFromEditableRoot(editor) ?? {
-      start: chat.composer.text.length,
-      end: chat.composer.text.length,
-    } : {
-      start: chat.composer.text.length,
-      end: chat.composer.text.length,
-    };
-  }
-
-  function restoreEditorSelection(selection: NotesTextSelection): void {
-    restoreSelectionStart = selection.start;
-    restoreSelectionEnd = selection.end;
-    void tick().then(() => {
-      if (!editor) return;
-      editor.focus();
-      restoreNotesEditableSelection(editor, selection);
-    });
-  }
-
-  function handleCompositionEnd(event: CompositionEvent): void {
-    compositionActive = false;
-    if (event.currentTarget instanceof HTMLElement) commitEditorValue(event.currentTarget);
+  function handleInput(): void {
+    editorController?.handleInput();
   }
 
   function handleBeforeInput(event: InputEvent): void {
-    if (event.isComposing || compositionActive) return;
-    const selection = editorSelection();
-    const edit = planNotesControlledTextEdit({
-      inputType: event.inputType,
-      data: event.data,
-      text: chat.composer.text,
-      selectionStart: selection.start,
-      selectionEnd: selection.end,
-    });
-    if (!edit) return;
-    event.preventDefault();
-    chat.setComposerText(edit.text);
-    restoreEditorSelection(edit.selection);
-    void updateMenu(edit.text, edit.selection.start);
+    editorController?.handleBeforeInput(event);
   }
 
   async function updateMenu(text: string, cursor: number): Promise<void> {
@@ -252,9 +210,9 @@
   }
 
   async function loadMoreMentions(): Promise<void> {
-    if (!menuCursor || !chat.composer.workingFolderId || !editor) return;
-    const value = notesPlainTextFromEditableRoot(editor);
-    const trigger = composerTokenTrigger(value, editorSelection().start);
+    if (!menuCursor || !chat.composer.workingFolderId || !editorController) return;
+    const selection = editorController.selection();
+    const trigger = composerTokenTrigger(editorController.plainText(), selection.start);
     if (!trigger) return;
     const page = await chatApi.searchChatWorkingFolderPaths(chat.composer.workingFolderId, trigger.query, includeIgnored, menuCursor);
     menuEntries = [...menuEntries, ...page.entries];
@@ -263,33 +221,32 @@
 
   function chooseMenuEntry(index: number): void {
     const entry = menuEntries[index];
-    if (!entry || !editor) return;
-    const trigger = composerTokenTrigger(chat.composer.text, editorSelection().start);
+    if (!entry || !editorController) return;
+    const trigger = composerTokenTrigger(editorController.plainText(), editorController.selection().start);
     if (!trigger) return;
-    let value: string;
     let cursor: number;
     if (menuKind === "mention" && "relativePath" in entry) {
       if (!chat.composer.mentions.some((mention) => mention.relativePath === entry.relativePath)) {
         chat.setComposerMentions([...chat.composer.mentions, { relativePath: entry.relativePath, kind: entry.kind, ignored: entry.ignored }]);
       }
-      value = `${chat.composer.text.slice(0, trigger.start)}${chat.composer.text.slice(trigger.end)}`;
       cursor = trigger.start;
+      editorController.replaceRange(trigger.start, trigger.end, "");
     } else if ("value" in entry) {
-      value = replaceComposerToken(chat.composer.text, trigger, entry.value);
       cursor = trigger.start + entry.value.length + 1;
+      editorController.replaceRange(trigger.start, trigger.end, `${entry.value} `);
     } else return;
-    chat.setComposerText(value);
     closeMenu();
-    restoreEditorSelection({ start: cursor, end: cursor });
+    editorController.focus({ start: cursor, end: cursor });
   }
 
   function insertMentionTrigger(): void {
     attachmentMenu?.removeAttribute("open");
-    const start = editorSelection().start;
-    const value = `${chat.composer.text.slice(0, start)}@${chat.composer.text.slice(start)}`;
-    chat.setComposerText(value);
-    restoreEditorSelection({ start: start + 1, end: start + 1 });
-    void updateMenu(value, start + 1);
+    if (!editorController) return;
+    const selection = editorController.selection();
+    editorController.replaceRange(selection.start, selection.end, "@");
+    const cursor = selection.start + 1;
+    editorController.focus({ start: cursor, end: cursor });
+    void updateMenu(editorController.plainText(), cursor);
   }
 
   function closeMenu(): void {
@@ -301,6 +258,7 @@
   }
 
   function handleKeydown(event: KeyboardEvent): void {
+    if (editorController?.isComposing || event.isComposing || event.keyCode === 229) return;
     if (menuKind) {
       if (event.key === "ArrowDown" || event.key === "ArrowUp") {
         event.preventDefault();
@@ -319,6 +277,7 @@
         return;
       }
     }
+    if (editorController?.handleKeydown(event)) return;
     const sendKey = chat.settings?.configuration.behavior.sendKey ?? "enter";
     if (shouldSendComposerKey(event, sendKey)) {
       event.preventDefault();
@@ -383,7 +342,7 @@
         ? document.querySelector<HTMLElement>("[data-chat-model-trigger]")
         : targetField
           ? document.querySelector<HTMLElement>(`[data-chat-field="${targetField}"]`)
-          : editor;
+          : editorRoot;
       target?.focus();
       return;
     }
@@ -449,21 +408,18 @@
   function handlePaste(event: ClipboardEvent): void {
     const files = [...(event.clipboardData?.files ?? [])].filter((file) => file.type.startsWith("image/"));
     if (files.length > 0) { event.preventDefault(); void importFiles(files); return; }
-    const pastedText = event.clipboardData?.getData("text/plain");
-    if (pastedText === undefined) return;
+    const text = event.clipboardData?.getData("text/plain");
+    if (text === undefined) return;
     event.preventDefault();
-    const selection = editorSelection();
-    const normalizedText = pastedText.replace(/\r\n?/gu, "\n");
-    const value = `${chat.composer.text.slice(0, selection.start)}${normalizedText}${chat.composer.text.slice(selection.end)}`;
-    const cursor = selection.start + normalizedText.length;
-    chat.setComposerText(value);
-    restoreEditorSelection({ start: cursor, end: cursor });
+    editorController?.insertPlainText(text);
   }
 
   function handleDrop(event: DragEvent): void {
     event.preventDefault();
     const files = [...(event.dataTransfer?.files ?? [])].filter((file) => file.type.startsWith("image/"));
-    if (files.length > 0) void importFiles(files);
+    if (files.length > 0) { void importFiles(files); return; }
+    const text = event.dataTransfer?.getData("text/plain");
+    if (text) editorController?.insertPlainText(text);
   }
 
   async function openPreview(attachmentId: string): Promise<void> {
@@ -530,7 +486,7 @@
   {#if chat.composer.mentions.length > 0}<div class="mention-chips">{#each chat.composer.mentions as mention}<span title={mention.relativePath}><AtSign size={11} />{mention.relativePath}{#if mention.ignored}<small>{t("chat.composer.ignored")}</small>{/if}<button type="button" aria-label={t("chat.composer.removeAttachment", mention.relativePath)} onclick={() => chat.setComposerMentions(chat.composer.mentions.filter((entry) => entry.relativePath !== mention.relativePath))}><X size={10} /></button></span>{/each}</div>{/if}
   <div class="editor-shell">
     <div
-      bind:this={editor}
+      bind:this={editorRoot}
       class="composer-editor"
       data-chat-composer
       contenteditable={composerDisabled ? "false" : "true"}
@@ -541,18 +497,16 @@
       data-placeholder={action.primary === "stop" ? t("chat.composer.placeholderWorking") : t("chat.composer.placeholder")}
       spellcheck="true"
       tabindex="0"
-      onfocus={() => { editorFocused = true; restoreComposerFocus = true; }}
+      onfocus={() => { editorFocused = true; restoreComposerFocus = true; editorController?.handleSelectionChange(); }}
       onblur={(event) => { const target = event.currentTarget; queueMicrotask(() => { if (target.isConnected) { editorFocused = false; restoreComposerFocus = false; } }); }}
-      onkeyup={() => rememberSelection()}
-      onpointerup={() => rememberSelection()}
       oninput={handleInput}
       onbeforeinput={handleBeforeInput}
       onkeydown={handleKeydown}
       onpaste={handlePaste}
-      oncompositionstart={() => { compositionActive = true; }}
-      oncompositionend={handleCompositionEnd}
-    >{#each composerLines as line}<div class="composer-editor-line" data-notes-editor-line="true">{#if line.length > 0}<span>{line}</span>{:else}<span class="composer-empty-line" data-notes-editor-sentinel="empty-line">{"\u200b"}</span>{/if}</div>{/each}</div>
-    {#if menuKind}<div class="composer-menu" role="listbox" aria-label={menuKind === "mention" ? t("chat.composer.mentionFiles") : menuKind === "skill" ? "$ skills" : "/ commands"}>{#if menuKind === "mention"}<label><input type="checkbox" bind:checked={includeIgnored} onchange={() => editor && void updateMenu(notesPlainTextFromEditableRoot(editor), editorSelection().start)} />{t("chat.composer.showIgnored")}</label>{/if}{#if menuLoading}<p><LoaderCircle size={13} class="animate-spin" />{t("common.loading")}</p>{:else if menuEntries.length === 0}<p>{t("chat.composer.noMatches")}</p>{:else}{#each menuEntries as entry, index}<button type="button" class:selected={index === menuIndex} role="option" aria-selected={index === menuIndex} onclick={() => chooseMenuEntry(index)}>{#if "relativePath" in entry}<strong>{entry.displayName}</strong><small>{entry.relativePath}{#if entry.ignored} · {t("chat.composer.ignored")}{/if}</small>{:else}<strong>{entry.value} · {entry.label}</strong>{#if entry.description}<small>{entry.description}</small>{/if}{#if entry.stale}<small>{t("chat.composer.staleEntry")}</small>{/if}{/if}</button>{/each}{#if menuCursor}<button type="button" onclick={() => void loadMoreMentions()}>{t("chat.composer.loadMore")}</button>{/if}{/if}</div>{/if}
+      oncompositionstart={() => editorController?.handleCompositionStart()}
+      oncompositionend={() => editorController?.handleCompositionEnd()}
+    ></div>
+    {#if menuKind}<div class="composer-menu" role="listbox" aria-label={menuKind === "mention" ? t("chat.composer.mentionFiles") : menuKind === "skill" ? "$ skills" : "/ commands"}>{#if menuKind === "mention"}<label><input type="checkbox" bind:checked={includeIgnored} onchange={() => { if (editorController) void updateMenu(editorController.plainText(), editorController.selection().start); }} />{t("chat.composer.showIgnored")}</label>{/if}{#if menuLoading}<p><LoaderCircle size={13} class="animate-spin" />{t("common.loading")}</p>{:else if menuEntries.length === 0}<p>{t("chat.composer.noMatches")}</p>{:else}{#each menuEntries as entry, index}<button type="button" class:selected={index === menuIndex} role="option" aria-selected={index === menuIndex} onclick={() => chooseMenuEntry(index)}>{#if "relativePath" in entry}<strong>{entry.displayName}</strong><small>{entry.relativePath}{#if entry.ignored} · {t("chat.composer.ignored")}{/if}</small>{:else}<strong>{entry.value} · {entry.label}</strong>{#if entry.description}<small>{entry.description}</small>{/if}{#if entry.stale}<small>{t("chat.composer.staleEntry")}</small>{/if}{/if}</button>{/each}{#if menuCursor}<button type="button" onclick={() => void loadMoreMentions()}>{t("chat.composer.loadMore")}</button>{/if}{/if}</div>{/if}
     <div class="composer-toolbar">
       <div class="toolbar-left">
         <input bind:this={fileInput} class="sr-only" type="file" accept="image/png,image/jpeg,image/gif,image/webp" multiple onchange={(event) => void importFiles([...(event.currentTarget.files ?? [])])} />
@@ -564,6 +518,8 @@
             <button type="button" onclick={insertMentionTrigger}><AtSign size={14} />{t("chat.composer.mentionFiles")}</button>
           </div>
         </details>
+        <button type="button" class="format-action" class:active={boldActive} aria-label={t("chat.composer.bold")} aria-pressed={boldActive} title={`${t("chat.composer.bold")} (Ctrl+B)`} disabled={composerDisabled} onpointerdown={(event) => event.preventDefault()} onclick={() => editorController?.toggleMark("bold")}><Bold size={14} /></button>
+        <button type="button" class="format-action" class:active={italicActive} aria-label={t("chat.composer.italic")} aria-pressed={italicActive} title={`${t("chat.composer.italic")} (Ctrl+I)`} disabled={composerDisabled} onpointerdown={(event) => event.preventDefault()} onclick={() => editorController?.toggleMark("italic")}><Italic size={14} /></button>
         <ChatAccessControl />
       </div>
       <div class="toolbar-right">
@@ -586,24 +542,24 @@
 {#if previewAttachment && previewUrl}<div class="fixed inset-0 z-60 grid place-items-center bg-black/50 p-4"><button type="button" class="absolute inset-0" aria-label={t("chat.cancel")} onclick={closePreview}></button><div bind:this={previewDialog} class="relative flex max-h-full max-w-full flex-col rounded-lg border border-border bg-background p-3 shadow-2xl" role="dialog" aria-modal="true" aria-label={t("chat.composer.previewAttachment", previewAttachment.originalDisplayName)} tabindex="-1" onkeydown={handlePreviewKeydown}><header class="mb-2 flex items-center gap-2"><strong class="min-w-0 flex-1 truncate text-sm">{previewAttachment.originalDisplayName}</strong><span class="text-xs text-muted-foreground">{formatNumber(localization.locale, previewAttachment.byteSize)} B</span><button type="button" aria-label={t("chat.cancel")} onclick={closePreview}><X size={14} /></button></header><img class="min-h-0 max-h-[75vh] max-w-[85vw] object-contain" src={previewUrl} alt={previewAttachment.originalDisplayName} /></div></div>{/if}
 
 <style>
-  .chat-composer { container-type: inline-size; container-name: chat-composer; position: relative; display: grid; width: min(100%, 54rem); margin: 0 auto; overflow: visible; border: 1px solid color-mix(in srgb, var(--border) 88%, transparent); border-radius: 1.3rem; background: color-mix(in srgb, var(--card) 90%, transparent); box-shadow: 0 8px 22px -18px rgb(0 0 0 / 0.24), 0 1px 4px -3px rgb(0 0 0 / 0.16); backdrop-filter: blur(16px); }
+  .chat-composer { container-type: inline-size; container-name: chat-composer; position: relative; display: grid; width: min(100%, 54rem); margin: 0 auto; overflow: visible; border: 1px solid color-mix(in srgb, var(--border) 88%, transparent); border-radius: 1.3rem; background: var(--card); box-shadow: 0 8px 22px -18px rgb(0 0 0 / 0.24), 0 1px 4px -3px rgb(0 0 0 / 0.16); }
   .chat-composer.hero { width: min(100%, 54rem); text-align: left; }
   .chat-composer > :not(.editor-shell) { margin-inline: 0.75rem; }
   .editor-shell { position: relative; }
   .active-turn-modes { margin-top: 0.6rem; color: var(--muted-foreground); font-size: 0.666667rem; }
-  .composer-editor { display: block; width: 100%; min-height: 4.15rem; max-height: 15.35rem; overflow-y: auto; background: transparent; padding: 1rem 1.25rem 0.35rem; color: var(--foreground); caret-color: var(--foreground); font-size: var(--chat-conversation-font-size, 0.933333rem); line-height: var(--chat-conversation-line-height, 1.4rem); outline: none; white-space: pre-wrap; overflow-wrap: anywhere; }
-  .composer-editor:empty::before { color: color-mix(in srgb, var(--muted-foreground) 52%, transparent); content: attr(data-placeholder); pointer-events: none; }
-  .composer-editor-line { display: block; min-height: var(--chat-conversation-line-height, 1.4rem); line-height: inherit; }
-  .composer-empty-line { color: transparent; }
+  .composer-editor { position: relative; display: block; width: 100%; min-height: 4.15rem; max-height: 15.35rem; overflow-y: auto; background: transparent; padding: 1rem 1.25rem 0.35rem; color: var(--foreground); caret-color: var(--foreground); font-size: var(--chat-conversation-font-size, 0.933333rem); line-height: var(--chat-conversation-line-height, 1.4rem); outline: none; overflow-wrap: anywhere; white-space: pre-wrap; }
+  .composer-editor:global([data-empty="true"])::before { position: absolute; color: color-mix(in srgb, var(--muted-foreground) 52%, transparent); content: attr(data-placeholder); pointer-events: none; }
+  .composer-editor :global([data-chat-composer-line]) { display: block; min-height: var(--chat-conversation-line-height, 1.4rem); line-height: inherit; }
   .composer-toolbar { display: grid; min-height: 3rem; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 0.5rem; padding: 0.3rem 0.75rem 0.65rem; }
   .toolbar-left, .toolbar-right { display: flex; min-width: 0; align-items: center; gap: 0.3rem; }
   .toolbar-left { overflow: hidden; }
   .toolbar-left:has(.attachment-menu[open]) { overflow: visible; }
   .toolbar-right { flex: 0 1 auto; justify-content: flex-end; }
   .attachment-menu { position: relative; flex: 0 0 auto; }
-  .attachment-menu summary, .round-action { display: inline-flex; width: 1.9rem; height: 1.9rem; cursor: pointer; list-style: none; align-items: center; justify-content: center; border-radius: 0.5rem; color: var(--muted-foreground); }
+  .attachment-menu summary, .round-action, .format-action { display: inline-flex; width: 1.9rem; height: 1.9rem; cursor: pointer; list-style: none; align-items: center; justify-content: center; border-radius: 0.5rem; color: var(--muted-foreground); }
   .attachment-menu summary::-webkit-details-marker { display: none; }
-  .attachment-menu summary:hover, .round-action:hover { background: var(--accent); color: var(--foreground); }
+  .attachment-menu summary:hover, .round-action:hover, .format-action:hover, .format-action.active { background: var(--accent); color: var(--foreground); }
+  .format-action:disabled { cursor: default; opacity: 0.45; }
   .attachment-menu > div { position: absolute; left: 0; bottom: calc(100% + 0.5rem); z-index: 35; display: grid; min-width: 13rem; gap: 0.15rem; border: 1px solid var(--border); border-radius: 0.7rem; background: var(--popover); padding: 0.35rem; box-shadow: 0 14px 36px rgb(0 0 0 / 0.2); }
   .attachment-menu > div button { display: flex; min-height: 2rem; align-items: center; gap: 0.55rem; border-radius: 0.4rem; padding: 0.35rem 0.5rem; color: var(--foreground); font-size: 0.733333rem; text-align: left; }
   .attachment-menu > div button:hover { background: var(--accent); }
@@ -649,5 +605,4 @@
   @container chat-composer (max-width: 390px) { .toolbar-left { gap: 0.1rem; } .context-ring { display: none; } }
   @container chat-composer (max-width: 300px) { .composer-editor { padding-inline: 0.8rem; } .composer-toolbar { padding-inline: 0.4rem; } .attachment-grid { grid-template-columns: 1fr; } }
   @media (prefers-reduced-motion: reduce) { .chat-composer { scroll-behavior: auto; } }
-  @supports not ((backdrop-filter: blur(1px))) { .chat-composer { background: var(--card); } }
 </style>
