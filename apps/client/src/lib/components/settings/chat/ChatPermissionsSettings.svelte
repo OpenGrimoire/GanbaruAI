@@ -7,7 +7,7 @@
   import { readChatProviderFiles, saveChatProviderFile } from "$lib/api/chat";
   import { getLocalization } from "$lib/i18n/translator.svelte";
   import { getChat } from "$lib/stores/chat.svelte";
-  import ChatProviderIcon from "$lib/components/chat/ChatProviderIcon.svelte";
+  import ChatModelAvatar from "$lib/components/chat/ChatModelAvatar.svelte";
   import { cn } from "$lib/utils";
 
   const { t } = getLocalization();
@@ -144,7 +144,7 @@
           )}
           onclick={() => chooseProvider(provider.configuration.instanceId)}
         >
-          <ChatProviderIcon familyId={provider.configuration.familyId} label={provider.configuration.label} size={15} />
+          <ChatModelAvatar familyId={provider.configuration.familyId} label={provider.configuration.label} size={22} />
           <span>{provider.configuration.label}</span>
         </button>
       {/each}

@@ -9,7 +9,7 @@
   import Trash2 from "@lucide/svelte/icons/trash-2";
   import TriangleAlert from "@lucide/svelte/icons/triangle-alert";
   import type { ProviderInstanceRead } from "$lib/chat/contracts";
-  import ChatProviderIcon from "$lib/components/chat/ChatProviderIcon.svelte";
+  import ChatModelAvatar from "$lib/components/chat/ChatModelAvatar.svelte";
   import { formatDateTime } from "$lib/i18n/formatters";
   import { getLocalization } from "$lib/i18n/translator.svelte";
 
@@ -46,14 +46,7 @@
 </script>
 
 <article class="flex min-w-0 flex-wrap items-start gap-3 px-3 py-3.5">
-  <div class="mt-0.5 grid size-8 shrink-0 place-items-center rounded-md border border-border bg-background">
-    <ChatProviderIcon
-      familyId={provider.configuration.familyId}
-      label={provider.configuration.label}
-      accentColor={provider.configuration.accentColor}
-      size={16}
-    />
-  </div>
+  <span class="mt-0.5"><ChatModelAvatar familyId={provider.configuration.familyId} label={provider.configuration.label} size={32} /></span>
   <div class="min-w-40 flex-1">
     <div class="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
       <h3 class="truncate text-[0.866667rem] font-semibold text-foreground">{provider.configuration.label}</h3>

@@ -11,7 +11,7 @@
   import X from "@lucide/svelte/icons/x";
   import * as chatApi from "$lib/api/chat";
   import type { JsonValue, ProviderInstanceConfig, ProviderSetupTestRead } from "$lib/chat/contracts";
-  import ChatProviderIcon from "$lib/components/chat/ChatProviderIcon.svelte";
+  import ChatModelAvatar from "$lib/components/chat/ChatModelAvatar.svelte";
   import {
     createProviderSetupDraft,
     PROVIDER_ACCENT_COLORS,
@@ -378,7 +378,7 @@
         <div class="grid gap-3 sm:grid-cols-2">
           {#each chat.settings?.providerFamilies ?? [] as providerFamily}
             <button type="button" class="rounded-lg border border-border bg-card p-4 text-left hover:bg-accent/50" onclick={() => selectFamily(providerFamily.familyId, providerFamily.defaultExecutableCandidates[0] ?? "")}>
-              <span class="flex items-center gap-2 font-semibold text-foreground"><ChatProviderIcon familyId={providerFamily.familyId} label={providerFamily.displayName} size={16} /><span>{providerFamily.displayName}</span></span>
+              <span class="flex items-center gap-2 font-semibold text-foreground"><ChatModelAvatar familyId={providerFamily.familyId} label={providerFamily.displayName} size={24} /><span>{providerFamily.displayName}</span></span>
               <span class="mt-2 block text-[0.8rem] text-muted-foreground">{familyDescription(providerFamily.familyId)}</span>
               {#if providerFamily.implementationStatus !== "available"}<span class="mt-2 block text-[0.733333rem] text-status-tentative">{providerFamily.unavailableReason}</span>{/if}
             </button>

@@ -3,11 +3,17 @@
     familyId,
     label,
     accentColor = null,
+    monochromeColor = null,
+    colorOverride = null,
+    monochrome = false,
     size = 15,
   }: {
     familyId: string;
     label: string;
     accentColor?: string | null;
+    monochromeColor?: string | null;
+    colorOverride?: string | null;
+    monochrome?: boolean;
     size?: number;
   } = $props();
 
@@ -23,9 +29,12 @@
   class:deepseek={familyId === "deepseek"}
   class:alibaba={familyId === "alibaba"}
   class:minimax={familyId === "minimax"}
+  class:monochrome
   style:width={`${size}px`}
   style:height={`${size}px`}
   style:--provider-accent={accentColor ?? "currentColor"}
+  style:--provider-monochrome={monochromeColor ?? "var(--foreground)"}
+  style:color={colorOverride ?? undefined}
   aria-hidden="true"
 >
   {#if familyId === "codex"}
@@ -70,14 +79,14 @@
 </span>
 
 <style>
-  .provider-icon { display: inline-grid; flex: 0 0 auto; place-items: center; color: var(--foreground); }
-  .provider-icon.claude { color: #d97757; }
-  .provider-icon.google { color: #4285f4; }
-  .provider-icon.meta { color: #0866ff; }
-  .provider-icon.mistral { color: #f59e0b; }
-  .provider-icon.deepseek { color: #4d6bfe; }
-  .provider-icon.alibaba { color: #ff6a00; }
-  .provider-icon.minimax { color: #f05252; }
+  .provider-icon { display: inline-grid; flex: 0 0 auto; place-items: center; color: var(--provider-monochrome); }
+  .provider-icon.claude:not(.monochrome) { color: #d97757; }
+  .provider-icon.google:not(.monochrome) { color: #4285f4; }
+  .provider-icon.meta:not(.monochrome) { color: #0866ff; }
+  .provider-icon.mistral:not(.monochrome) { color: #f59e0b; }
+  .provider-icon.deepseek:not(.monochrome) { color: #4d6bfe; }
+  .provider-icon.alibaba:not(.monochrome) { color: #ff6a00; }
+  .provider-icon.minimax:not(.monochrome) { color: #f05252; }
   .provider-icon svg { display: block; width: 100%; height: 100%; fill: currentColor; }
   .provider-initials { color: var(--provider-accent); font-size: 0.6em; font-weight: 700; line-height: 1; }
 </style>

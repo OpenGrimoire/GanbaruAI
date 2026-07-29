@@ -1034,7 +1034,7 @@
                             {@const company = modelCompany(favorite.provider.configuration.familyId, favorite.model)}
                             <div class="model-row">
                               <button type="button" class="model-choice" disabled={!providerAvailable(favorite.provider) || favorite.model.availability === "unavailable"} title={favorite.model.availability === "available" ? undefined : metadata.join(" · ")} onclick={() => chooseModel(favorite.provider, favorite.model.id, false)}>
-                                <span class="favorite-model-label"><ChatProviderIcon familyId={company.iconFamilyId} label={company.name} size={14} /><strong>{favorite.model.displayName}</strong></span>
+                                <span class="favorite-model-label"><ChatProviderIcon familyId={company.iconFamilyId} label={company.name} monochrome size={14} /><strong>{favorite.model.displayName}</strong></span>
                                 {#if favorite.provider.configuration.instanceId === provider?.configuration.instanceId && selection.modelId === favorite.model.id}<Check size={15} />{/if}
                               </button>
                               <button type="button" class="model-favorite active" aria-label={`${t("chat.composer.favorite")}: ${favorite.model.displayName}`} aria-pressed="true" onclick={() => void toggleModelFavorite(favorite.provider, favorite.model.id)}><Star size={16} fill="currentColor" /></button>
@@ -1048,7 +1048,7 @@
                     {#each modelCompanySections as section (section.company.id)}
                       {@const sectionCollapsed = modelSectionCollapsed(section.company.id)}
                       <section class="model-company-section" data-model-company={section.company.id} aria-labelledby={`model-company-${section.company.id}`}>
-                        <button id={`model-company-${section.company.id}`} type="button" class="model-company-heading" aria-expanded={!sectionCollapsed} aria-controls={`model-company-${section.company.id}-content`} onclick={() => toggleModelSection(section.company.id)}><ChatProviderIcon familyId={section.company.iconFamilyId} label={section.company.name} size={14} /><span>{section.company.name}</span><ChevronDown size={13} class={sectionCollapsed ? "collapsed" : undefined} /></button>
+                        <button id={`model-company-${section.company.id}`} type="button" class="model-company-heading" aria-expanded={!sectionCollapsed} aria-controls={`model-company-${section.company.id}-content`} onclick={() => toggleModelSection(section.company.id)}><ChatProviderIcon familyId={section.company.iconFamilyId} label={section.company.name} monochrome size={14} /><span>{section.company.name}</span><ChevronDown size={13} class={sectionCollapsed ? "collapsed" : undefined} /></button>
                         <div id={`model-company-${section.company.id}-content`} class="model-company-content" class:collapsed={sectionCollapsed} inert={sectionCollapsed} aria-hidden={sectionCollapsed}>
                           <div class="model-company-content-inner">
                             {#each section.managedProviders as managedProvider (managedProvider.configuration.instanceId)}
