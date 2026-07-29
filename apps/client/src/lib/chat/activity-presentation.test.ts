@@ -1,7 +1,10 @@
 import { describe, expect, it } from "vitest";
 import type { TimelineActivityRow } from "./timeline-model";
 import {
+  activityFilePath,
   commandActivityPresentation,
+  fileReadActivityPresentation,
+  fileSearchActivityPresentation,
   fileChangePresentation,
   summarizeActivityKinds,
   transientActivitySummary,
@@ -68,6 +71,17 @@ describe("file change presentation", () => {
       deletions: 1,
     }]);
   });
+
+  it("uses provider input metadata when a structured diff is not available", () => {
+    expect(activityFilePath(activity({
+      activityKind: "file_change",
+      title: "Edit",
+      metadata: {
+        schemaVersion: 1,
+        value: { toolInput: { file_path: "src/provider.ts" } },
+      },
+    }))).toBe("src/provider.ts");
+  });
 });
 
 describe("activity summaries", () => {
@@ -93,6 +107,81 @@ describe("activity summaries", () => {
       { kind: "web_searches", count: 1 },
       { kind: "image_views", count: 1 },
       { kind: "tools", count: 1 },
+    ]);
+  });
+
+  it("classifies local shell search and read commands by their user-visible action", () => {
+    const search = activity({
+      id: "search",
+      title: "rg -n 'Worked for|Ran commands' apps/client/src/lib/components/chat",
+    });
+    const read = activity({
+      id: "read",
+      title: "/usr/bin/bash -lc \"sed -n '1,220p' apps/client/src/lib/components/chat/ChatTimeline.svelte\"",
+    });
+
+    expect(fileSearchActivityPresentation(search)).toEqual({
+      query: "Worked for|Ran commands",
+      scope: "apps/client/src/lib/components/chat",
+    });
+    expect(fileReadActivityPresentation(read)).toEqual({
+      path: "apps/client/src/lib/components/chat/ChatTimeline.svelte",
+    });
+    expect(summarizeActivityKinds([search, read])).toEqual([
+      { kind: "file_searches", count: 1 },
+      { kind: "file_reads", count: 1 },
+    ]);
+  });
+
+  it("recognizes provider tool names and input metadata across canonical tool kinds", () => {
+    const claudeRead = activity({
+      id: "claude-read",
+      activityKind: "dynamic_tool_call",
+      title: "Read",
+      metadata: {
+        schemaVersion: 1,
+        value: { toolInput: { file_path: "src/claude.ts" } },
+      },
+    });
+    const openCodeSearch = activity({
+      id: "opencode-search",
+      activityKind: "dynamic_tool_call",
+      title: "Grep",
+      metadata: {
+        schemaVersion: 1,
+        value: { state: { input: { pattern: "timeline", path: "src/chat" } } },
+      },
+    });
+
+    expect(fileReadActivityPresentation(claudeRead)).toEqual({ path: "src/claude.ts" });
+    expect(fileSearchActivityPresentation(openCodeSearch)).toEqual({
+      query: "timeline",
+      scope: "src/chat",
+    });
+  });
+
+  it("distinguishes ACP workspace search from external fetch metadata", () => {
+    const cursorSearch = activity({
+      id: "cursor-search",
+      activityKind: "web_search",
+      title: "Search workspace",
+      metadata: {
+        schemaVersion: 1,
+        value: { toolKind: "search", locations: [{ relativePath: "src" }] },
+      },
+    });
+    const cursorFetch = activity({
+      id: "cursor-fetch",
+      activityKind: "web_search",
+      title: "Fetch documentation",
+      metadata: { schemaVersion: 1, value: { toolKind: "fetch" } },
+    });
+
+    expect(fileSearchActivityPresentation(cursorSearch)).toEqual({ query: null, scope: "src" });
+    expect(fileSearchActivityPresentation(cursorFetch)).toBeNull();
+    expect(summarizeActivityKinds([cursorSearch, cursorFetch])).toEqual([
+      { kind: "file_searches", count: 1 },
+      { kind: "web_searches", count: 1 },
     ]);
   });
 

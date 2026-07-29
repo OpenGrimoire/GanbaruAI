@@ -614,9 +614,25 @@ impl OpenCodeEventNormalizer {
             .and_then(Value::as_str)
             .or_else(|| text(state_value, "error"))
             .map(|detail| bounded(detail, MAX_TEXT_BYTES));
-        Ok(vec![
-            self.item_event(state, id, kind, status, title, detail)?
-        ])
+        let input = state_value.get("input").map(safe_shape);
+        Ok(vec![self.item_lifecycle_event(
+            state,
+            id,
+            ItemLifecycleEvent {
+                item_id: id.to_string(),
+                kind,
+                status,
+                title,
+                detail,
+                safe_metadata: Some(VersionedJson {
+                    schema_version: 1,
+                    value: json!({
+                        "tool": bounded(tool, 256),
+                        "input": input.map(|value| value.value),
+                    }),
+                }),
+            },
+        )?])
     }
 
     fn file_part(
@@ -1120,7 +1136,6 @@ impl OpenCodeEventNormalizer {
         title: Option<String>,
         detail: Option<String>,
     ) -> ChatResult<CanonicalRuntimeEvent> {
-        validate_identifier(id, "item ID")?;
         let item = ItemLifecycleEvent {
             item_id: id.to_string(),
             kind,
@@ -1129,6 +1144,17 @@ impl OpenCodeEventNormalizer {
             detail,
             safe_metadata: None,
         };
+        self.item_lifecycle_event(state, id, item)
+    }
+
+    fn item_lifecycle_event(
+        &self,
+        state: &OpenCodeRouteState,
+        id: &str,
+        item: ItemLifecycleEvent,
+    ) -> ChatResult<CanonicalRuntimeEvent> {
+        validate_identifier(id, "item ID")?;
+        let status = item.status;
         let event = match status {
             ActivityStatus::Pending | ActivityStatus::Active => CanonicalEvent::ItemStarted(item),
             ActivityStatus::Completed | ActivityStatus::Failed | ActivityStatus::Interrupted => {

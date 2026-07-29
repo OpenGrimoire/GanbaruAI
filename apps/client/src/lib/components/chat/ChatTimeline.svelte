@@ -14,12 +14,13 @@
   import LoaderCircle from "@lucide/svelte/icons/loader-circle";
   import ListChecks from "@lucide/svelte/icons/list-checks";
   import MessageSquare from "@lucide/svelte/icons/message-square";
+  import Search from "@lucide/svelte/icons/search";
   import Settings from "@lucide/svelte/icons/settings";
   import Terminal from "@lucide/svelte/icons/terminal";
   import Wrench from "@lucide/svelte/icons/wrench";
   import RotateCcw from "@lucide/svelte/icons/rotate-ccw";
   import { chatScrollBehavior } from "$lib/chat/responsive-layout";
-  import { fileChangePresentation, isFileReadActivity, isImageViewActivity, summarizeActivityKinds, transientActivitySummary, type ActivitySummaryCount } from "$lib/chat/activity-presentation";
+  import { activityFilePath, fileChangePresentation, fileReadActivityPresentation, fileSearchActivityPresentation, isFileReadActivity, isFileSearchActivity, isImageViewActivity, summarizeActivityKinds, transientActivitySummary, type ActivitySummaryCount } from "$lib/chat/activity-presentation";
   import { chatModelParticipant, type ChatModelParticipant } from "$lib/chat/participant-identity";
   import { buildTimelineDisplayRows, includeOptimisticTimelineMessage, projectTimelineReadModel, timelineActivityShowsLiveStatus, timelineActivitySupportsDisclosure, timelineModelGroupStartIds, type TimelineActivityGroupRow, type TimelineActivityRow, type TimelineDisplayRow, type TimelineMessageRow, type TimelinePlanRow, type TimelineTurnFoldRow } from "$lib/chat/timeline-model";
   import { computeTimelineVirtualWindow, nextTimelineUnreadCount, scrollTopForPreservedAnchor, timelineMinimapRows, timelineScrollbarThumbGeometry, timelineScrollIntent, type TimelineScrollbarThumbGeometry, type TimelineScrollIntent } from "$lib/chat/timeline-virtualization";
@@ -368,21 +369,17 @@
   }
 
   function foldLabel(row: TimelineTurnFoldRow): string {
-    const summary = activitySummaryTitle(foldActivities(row));
-    if (summary) return summary;
     if (row.state === "interrupted") return t("chat.timeline.stoppedAfter", durationLabel(row.durationMs));
     if (row.state === "failed") return t("chat.timeline.failedAfter", durationLabel(row.durationMs));
     return t("chat.timeline.workedFor", durationLabel(row.durationMs));
   }
 
   function foldActivities(row: TimelineTurnFoldRow): TimelineActivityRow[] {
-    return row.hiddenRows.filter((hiddenRow): hiddenRow is TimelineActivityRow => hiddenRow.kind === "activity");
-  }
-
-  function foldStatusLabel(row: TimelineTurnFoldRow): string | null {
-    if (row.state === "interrupted") return t("chat.timeline.stoppedAfter", durationLabel(row.durationMs));
-    if (row.state === "failed") return t("chat.timeline.failedAfter", durationLabel(row.durationMs));
-    return null;
+    return row.hiddenRows.flatMap((hiddenRow) => {
+      if (hiddenRow.kind === "activity") return [hiddenRow];
+      if (hiddenRow.kind === "activity_group") return [...hiddenRow.earlierRows, hiddenRow.latest];
+      return [];
+    });
   }
 
   function timestampLabel(value: string): string {
@@ -425,19 +422,27 @@
     if (activityIsThinking(activity)) return transientActivitySummary(activity) ?? t("chat.timeline.thinking");
     if (activity.title === "thread_reverted") return t("chat.timeline.threadRestored");
     const active = activity.status === "pending" || activity.status === "active" || activity.status === "waiting";
-    if (activity.activityKind === "command_execution" || activity.activityKind === "command_output") {
-      const command = activity.title.trim().replace(/^(?:run|running|ran)\s+/i, "");
-      if (!command || command === "command execution" || command === "command output") {
-        return active ? t("chat.timeline.runningCommands") : t("chat.timeline.ranCommands");
-      }
-      return active
-        ? t("chat.timeline.runningCommand", command)
-        : t("chat.timeline.ranCommand", command);
-    }
     if (activity.activityKind === "file_change" || activity.activityKind === "file_change_output") {
-      const changes = fileChangePresentation(activity);
-      if (!active && changes.length === 1 && changes[0]) return t("chat.timeline.editedPath", changes[0].path);
+      const path = activityFilePath(activity);
+      if (path) return active ? t("chat.timeline.editingPath", path) : t("chat.timeline.editedPath", path);
       return active ? t("chat.timeline.editingFile") : t("chat.timeline.editedFile");
+    }
+    if (isImageViewActivity(activity)) {
+      return active ? t("chat.timeline.viewingImage") : t("chat.timeline.viewedImage");
+    }
+    const search = fileSearchActivityPresentation(activity);
+    if (search) {
+      if (search.query && search.scope) {
+        return active
+          ? t("chat.timeline.searchingForIn", search.query, search.scope)
+          : t("chat.timeline.searchedForIn", search.query, search.scope);
+      }
+      if (search.query) {
+        return active
+          ? t("chat.timeline.searchingFor", search.query)
+          : t("chat.timeline.searchedFor", search.query);
+      }
+      return active ? t("chat.timeline.searchingFiles") : t("chat.timeline.searchedFiles");
     }
     if (activity.activityKind === "web_search") {
       const query = activity.title.trim();
@@ -448,11 +453,19 @@
           ? t("chat.timeline.searchedWeb")
           : t("chat.timeline.searchedFor", query);
     }
-    if (isImageViewActivity(activity)) {
-      return active ? t("chat.timeline.viewingImage") : t("chat.timeline.viewedImage");
-    }
     if (isFileReadActivity(activity)) {
-      return active ? t("chat.timeline.readingFiles") : t("chat.timeline.readFiles");
+      const path = fileReadActivityPresentation(activity)?.path;
+      if (path) return active ? t("chat.timeline.readingPath", path) : t("chat.timeline.readPath", path);
+      return active ? t("chat.timeline.readingFile") : t("chat.timeline.readFile");
+    }
+    if (activity.activityKind === "command_execution" || activity.activityKind === "command_output") {
+      const command = activity.title.trim().replace(/^(?:run|running|ran)\s+/i, "");
+      if (!command || command === "command execution" || command === "command output") {
+        return active ? t("chat.timeline.runningCommands") : t("chat.timeline.ranCommands");
+      }
+      return active
+        ? t("chat.timeline.runningCommand", command)
+        : t("chat.timeline.ranCommand", command);
     }
     if (activity.activityKind === "mcp_tool_call" || activity.activityKind === "dynamic_tool_call") {
       return active
@@ -476,8 +489,16 @@
     const active = activities.some((activity) => (
       activity.status === "pending" || activity.status === "active" || activity.status === "waiting"
     ));
-    const labels = summarizeActivityKinds(activities).map((summary) => activitySummaryLabel(summary, active));
+    const labels = summarizeActivityKinds(activities).map((summary, index) => {
+      const label = activitySummaryLabel(summary, active);
+      return index === 0 ? label : lowercaseInitial(label);
+    });
     return formatList(localization.locale, labels);
+  }
+
+  function lowercaseInitial(value: string): string {
+    const [first = "", ...rest] = [...value];
+    return `${first.toLocaleLowerCase(localization.locale)}${rest.join("")}`;
   }
 
   function activitySummaryLabel(summary: ActivitySummaryCount, active: boolean): string {
@@ -496,6 +517,7 @@
         return active
           ? multiple ? t("chat.timeline.readingFiles") : t("chat.timeline.readingFile")
           : multiple ? t("chat.timeline.readFiles") : t("chat.timeline.readFile");
+      case "file_searches": return active ? t("chat.timeline.searchingFiles") : t("chat.timeline.searchedFiles");
       case "web_searches": return active ? t("chat.timeline.searchingWeb") : t("chat.timeline.searchedWeb");
       case "image_views":
         return active
@@ -524,6 +546,27 @@
     return timelineActivityShowsLiveStatus(activity, turnState);
   }
 
+  function activityGroupCurrent(activities: readonly TimelineActivityRow[]): TimelineActivityRow | null {
+    return [...activities].reverse().find(activityIsInProgress) ?? null;
+  }
+
+  function activityGroupTitle(activities: readonly TimelineActivityRow[]): string {
+    const current = activityGroupCurrent(activities);
+    return current ? activityTitle(current) : activitySummaryTitle(activities);
+  }
+
+  function fileChangeLineCounts(activity: TimelineActivityRow): { additions: number; deletions: number } | null {
+    const changes = fileChangePresentation(activity);
+    if (changes.length === 0) return null;
+    return changes.reduce(
+      (total, change) => ({
+        additions: total.additions + change.additions,
+        deletions: total.deletions + change.deletions,
+      }),
+      { additions: 0, deletions: 0 },
+    );
+  }
+
   function activityDetail(activity: TimelineActivityRow): string | null {
     if (activity.title !== "thread_reverted") return activity.detail;
     const value = activity.metadata?.value;
@@ -543,8 +586,8 @@
       return `${role}, ${timestampLabel(row.createdAt)}`;
     }
     if (row.kind === "activity") return `${activitySummaryTitle([row])}, ${statusLabel(row.status)}`;
-    if (row.kind === "activity_group") return `${activitySummaryTitle([...row.earlierRows, row.latest])}, ${statusLabel(row.latest.status)}`;
-    if (row.kind === "turn_fold") return [foldLabel(row), foldStatusLabel(row)].filter(Boolean).join(", ");
+    if (row.kind === "activity_group") return `${activityGroupTitle([...row.earlierRows, row.latest])}, ${statusLabel(row.latest.status)}`;
+    if (row.kind === "turn_fold") return foldLabel(row);
     return t("chat.timeline.plan");
   }
 
@@ -583,7 +626,11 @@
 </script>
 
 {#snippet activityIcon(activity: TimelineActivityRow)}
-  {#if activity.activityKind === "command_execution" || activity.activityKind === "command_output"}
+  {#if isFileSearchActivity(activity)}
+    <Search size={15} />
+  {:else if isFileReadActivity(activity)}
+    <FileText size={15} />
+  {:else if activity.activityKind === "command_execution" || activity.activityKind === "command_output"}
     <Terminal size={15} />
   {:else if activity.activityKind === "file_change" || activity.activityKind === "file_change_output" || isFileReadActivity(activity)}
     <FileText size={15} />
@@ -597,6 +644,7 @@
 {/snippet}
 
 {#snippet activityHistoryRow(activity: TimelineActivityRow, simplified: boolean)}
+  {@const changeCounts = simplified ? null : fileChangeLineCounts(activity)}
   {#if timelineActivitySupportsDisclosure(activity)}
     {@const activityExpanded = expandedActivities.includes(activity.id)}
     <div class="chat-process-step disclosure" class:active={activityIsInProgress(activity)} class:failed={activity.status === "failed"}>
@@ -604,6 +652,7 @@
         {@render activityIcon(activity)}
         <span class="chat-process-step-label">
           <span>{simplified ? activitySummaryTitle([activity]) : activityTitle(activity)}</span>
+          {#if changeCounts && (changeCounts.additions > 0 || changeCounts.deletions > 0)}<small class="chat-file-change-counts">{#if changeCounts.additions > 0}<span class="additions">+{formatNumber(localization.locale, changeCounts.additions)}</span>{/if}{#if changeCounts.deletions > 0}<span class="deletions">−{formatNumber(localization.locale, changeCounts.deletions)}</span>{/if}</small>{/if}
           <ChevronRight class={activityExpanded ? "chat-step-chevron expanded" : "chat-step-chevron"} size={14} />
         </span>
       </button>
@@ -619,6 +668,7 @@
     <div class="chat-process-step" class:active={activityIsInProgress(activity)} class:failed={activity.status === "failed"} class:thinking={activityIsThinking(activity)}>
       {#if !activityIsThinking(activity)}{@render activityIcon(activity)}{/if}
       <span>{simplified ? activitySummaryTitle([activity]) : activityTitle(activity)}</span>
+      {#if changeCounts && (changeCounts.additions > 0 || changeCounts.deletions > 0)}<small class="chat-file-change-counts">{#if changeCounts.additions > 0}<span class="additions">+{formatNumber(localization.locale, changeCounts.additions)}</span>{/if}{#if changeCounts.deletions > 0}<span class="deletions">−{formatNumber(localization.locale, changeCounts.deletions)}</span>{/if}</small>{/if}
     </div>
   {/if}
 {/snippet}
@@ -636,7 +686,7 @@
           {#if message.state === "complete"}
           <button type="button" class="inline-flex items-center gap-1" onclick={() => copy(message.markdown, message.id)}><Copy size={11} />{copiedMessageId === message.id ? t("chat.timeline.copied") : t("chat.timeline.copy")}</button>
           {/if}
-          <span>{durationLabel(message.metadata.durationMs)}</span>{#if message.metadata.changedFiles.length > 0}<span>{t("chat.timeline.changedFiles", formatNumber(localization.locale, message.metadata.changedFiles.length))}</span>{/if}{#if tokenUsageLabel(message)}<span>{tokenUsageLabel(message)}</span>{/if}
+          {#if message.metadata.changedFiles.length > 0}<span>{t("chat.timeline.changedFiles", formatNumber(localization.locale, message.metadata.changedFiles.length))}</span>{/if}{#if tokenUsageLabel(message)}<span>{tokenUsageLabel(message)}</span>{/if}
         </div>
       {/if}
     </article>
@@ -646,10 +696,12 @@
   {:else if row.kind === "activity_group"}
     {@const group = row as TimelineActivityGroupRow}
     {@const activities = [...group.earlierRows, group.latest]}
-    <button type="button" class="chat-process-toggle" class:active={activityIsInProgress(group.latest)} data-timeline-disclosure-expanded={group.expanded} aria-expanded={group.expanded} onclick={() => { expandedGroups = toggle(expandedGroups, group.id); }}>
-      {@render activityIcon(activities[0] ?? group.latest)}
+    {@const currentActivity = activityGroupCurrent(activities)}
+    {@const representativeActivity = currentActivity ?? activities[0] ?? group.latest}
+    <button type="button" class="chat-process-toggle" class:active={currentActivity !== null} data-timeline-disclosure-expanded={group.expanded} aria-expanded={group.expanded} onclick={() => { expandedGroups = toggle(expandedGroups, group.id); }}>
+      {@render activityIcon(representativeActivity)}
       <span class="chat-process-toggle-label">
-        <span>{activitySummaryTitle(activities)}</span>
+        <span>{activityGroupTitle(activities)}</span>
         <ChevronRight class={group.expanded ? "chat-step-chevron expanded" : "chat-step-chevron"} size={14} />
       </span>
     </button>
@@ -661,7 +713,6 @@
   {:else if row.kind === "turn_fold"}
     {@const fold = row as TimelineTurnFoldRow}
     {@const activities = foldActivities(fold)}
-    {@const foldStatus = foldStatusLabel(fold)}
     {#if fold.hiddenRows.length > 0}
       <button type="button" class="chat-process-toggle" class:failed={fold.state === "failed"} data-timeline-disclosure-expanded={fold.expanded} aria-expanded={fold.expanded} onclick={() => { expandedTurns = toggle(expandedTurns, fold.turnId); }}>
         {#if activities[0]}{@render activityIcon(activities[0])}{/if}
@@ -669,7 +720,6 @@
           <span>{foldLabel(fold)}</span>
           <ChevronRight class={fold.expanded ? "chat-step-chevron expanded" : "chat-step-chevron"} size={14} />
         </span>
-        {#if foldStatus}<small>{foldStatus}</small>{/if}
       </button>
     {:else}
       <div class="chat-process-toggle chat-process-summary" class:failed={fold.state === "failed"}>
@@ -718,7 +768,7 @@
                     <div use:measureExpandableHeight class="chat-message-expandable" class:collapsed={message.markdown.length > 1200 && !messageExpanded} class:expanded={messageExpanded}><div><p class="wrap-break-word whitespace-pre-wrap">{message.markdown}</p></div></div>
                     {#if messageImages(message).length > 0}<ChatImageGallery images={messageImages(message)} />{/if}
                     {#if message.userContext && hasMessageContextChips(message)}<div class="chat-user-context">{#each message.userContext.attachments.filter((attachment) => attachment.kind !== "image" || !attachment.id) as attachment}<button type="button" title={attachment.status ?? t("chat.timeline.attachment")} onclick={() => copy(attachment.displayName)}><FileText size={12} /><span>{attachment.displayName}</span>{#if attachment.byteSize !== null}<small>{formatNumber(localization.locale, attachment.byteSize)} B</small>{/if}</button>{/each}{#each message.userContext.mentions as mention}<button type="button" title={t("chat.timeline.mention")} onclick={() => copy(mention.relativePath)}><span>@</span><span>{mention.relativePath}</span></button>{/each}{#each message.userContext.terminalContext as context}<button type="button" title={t("chat.timeline.terminalContext")} onclick={() => copy(context)}><Terminal size={12} /><span>{context}</span></button>{/each}</div>{/if}
-                    {#if message.markdown.length > 1200 || message.userContext?.preCheckpointId}<div class="chat-message-meta mt-2 flex flex-wrap items-center gap-2 text-muted-foreground">{#if message.markdown.length > 1200}<button type="button" data-timeline-disclosure-expanded={messageExpanded} aria-expanded={messageExpanded} onclick={() => { expandedMessages = toggle(expandedMessages, message.id); }}>{messageExpanded ? t("chat.timeline.showLess") : t("chat.timeline.showMore")}</button>{/if}{#if message.userContext?.preCheckpointId}<button type="button" class="inline-flex items-center gap-1" onclick={() => window.dispatchEvent(new CustomEvent("ganbaru-ai:chat-revert-message", { detail: { threadId: chat.selectedThreadId, checkpointId: message.userContext?.preCheckpointId, turnId: message.turnId } }))}><RotateCcw size={11} />{t("chat.timeline.revert")}</button>{/if}</div>{/if}
+                    <div class="chat-message-meta mt-2 flex flex-wrap items-center gap-2 text-muted-foreground"><button type="button" class="inline-flex items-center gap-1" onclick={() => copy(message.markdown, message.id)}><Copy size={11} />{copiedMessageId === message.id ? t("chat.timeline.copied") : t("chat.timeline.copy")}</button>{#if message.markdown.length > 1200}<button type="button" data-timeline-disclosure-expanded={messageExpanded} aria-expanded={messageExpanded} onclick={() => { expandedMessages = toggle(expandedMessages, message.id); }}>{messageExpanded ? t("chat.timeline.showLess") : t("chat.timeline.showMore")}</button>{/if}{#if message.userContext?.preCheckpointId}<button type="button" class="inline-flex items-center gap-1" onclick={() => window.dispatchEvent(new CustomEvent("ganbaru-ai:chat-revert-message", { detail: { threadId: chat.selectedThreadId, checkpointId: message.userContext?.preCheckpointId, turnId: message.turnId } }))}><RotateCcw size={11} />{t("chat.timeline.revert")}</button>{/if}</div>
                   </article>
                 </div>
               </div>
@@ -808,7 +858,6 @@
   .chat-process-toggle { display: flex; width: 100%; min-height: var(--chat-conversation-line-height, 1.4rem); align-items: center; gap: 0.4rem; color: var(--muted-foreground); font-size: var(--chat-conversation-font-size, 0.933333rem); line-height: var(--chat-conversation-line-height, 1.4rem); text-align: left; }
   .chat-process-toggle-label { display: inline-flex; width: fit-content; min-width: 0; max-width: 100%; align-items: center; gap: 0.25rem; }
   .chat-process-toggle-label > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .chat-process-toggle > small { margin-left: auto; font-size: 0.7rem; }
   .chat-process-toggle :global(svg) { flex: 0 0 auto; transition: color 120ms ease; }
   .chat-process-toggle:hover { color: var(--foreground); }
   .chat-process-toggle:focus-visible { border-radius: 0.25rem; outline: 2px solid var(--ring); outline-offset: 2px; }
@@ -822,6 +871,9 @@
   .chat-process-step-trigger { display: grid; width: 100%; min-width: 0; cursor: pointer; grid-template-columns: 1rem minmax(0, 1fr); align-items: start; gap: 0.45rem; text-align: left; }
   .chat-process-step-label { display: inline-flex; width: fit-content; min-width: 0; max-width: 100%; align-items: flex-start; gap: 0.25rem; justify-self: start; }
   .chat-process-step-label > span { min-width: 0; overflow-wrap: anywhere; }
+  .chat-file-change-counts { display: inline-flex; flex: 0 0 auto; gap: 0.25rem; font-size: 0.7rem; }
+  .chat-file-change-counts .additions { color: var(--action-confirm); }
+  .chat-file-change-counts .deletions { color: var(--destructive); }
   .chat-process-step-label :global(svg) { flex: 0 0 auto; margin-top: calc((var(--chat-conversation-line-height, 1.4rem) - 0.875rem) / 2); }
   .chat-process-step.active, .chat-process-toggle.active { color: color-mix(in srgb, var(--muted-foreground) 78%, var(--foreground)); }
   .chat-process-step.active > span, .chat-process-step.active .chat-process-step-label > span, .chat-process-toggle.active .chat-process-toggle-label > span {

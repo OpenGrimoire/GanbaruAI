@@ -186,7 +186,7 @@ describe("canonical timeline projection", () => {
 
     const folded = buildTimelineDisplayRows(projection.rows, projection.turns);
     expect(folded).toMatchObject([
-      { id: "turn-fold:turn-1", state: "interrupted", durationMs: 5_000, hiddenRows: [{ id: "activity:command" }, { id: "message:commentary", kind: "message" }, { id: "activity:file" }] },
+      { id: "turn-fold:turn-1", state: "interrupted", durationMs: 5_000, hiddenRows: [{ id: "activity-group:activity:command", latest: { id: "activity:command" } }, { id: "message:commentary", kind: "message" }, { id: "activity-group:activity:file", latest: { id: "activity:file" } }] },
       { id: "message:answer", state: "interrupted", markdown: "Finished" },
     ]);
 
@@ -195,7 +195,7 @@ describe("canonical timeline projection", () => {
       "turn-fold:turn-1",
       "message:answer",
     ]);
-    expect(expanded[0]).toMatchObject({ expanded: true, hiddenRows: [{ id: "activity:command" }, { id: "message:commentary", markdown: "I checked the tests." }, { id: "activity:file" }] });
+    expect(expanded[0]).toMatchObject({ expanded: true, hiddenRows: [{ id: "activity-group:activity:command", latest: { id: "activity:command" } }, { id: "message:commentary", markdown: "I checked the tests." }, { id: "activity-group:activity:file", latest: { id: "activity:file" } }] });
   });
 
   it("uses the provider final-answer phase instead of chronological position", () => {
@@ -214,7 +214,7 @@ describe("canonical timeline projection", () => {
         hiddenRows: [
           { id: "message:commentary-one" },
           { id: "message:commentary-two" },
-          { id: "activity:command" },
+          { id: "activity-group:activity:command", latest: { id: "activity:command" } },
         ],
       },
       { id: "message:answer", markdown: "The final answer.", metadata: { durationMs: 5_000 } },
@@ -242,7 +242,7 @@ describe("canonical timeline projection", () => {
     ]);
     expect(buildTimelineDisplayRows(projectCanonicalTimeline(events).rows, projectCanonicalTimeline(events).turns)).toMatchObject([
       { id: "message:commentary", kind: "message" },
-      { id: "activity:command", kind: "activity", status: "active" },
+      { id: "activity-group:activity:command", kind: "activity_group", latest: { id: "activity:command", status: "active" } },
     ]);
     expect(buildTimelineDisplayRows(projectCanonicalTimeline(events).rows, projectCanonicalTimeline(events).turns).some((row) => row.kind === "turn_fold")).toBe(false);
 
@@ -259,7 +259,7 @@ describe("canonical timeline projection", () => {
         state: "completed",
         hiddenRows: [
           { id: "message:commentary" },
-          { id: "activity:command" },
+          { id: "activity-group:activity:command", latest: { id: "activity:command" } },
         ],
       },
       { id: "message:answer", markdown: "All checks passed." },
@@ -293,7 +293,7 @@ describe("canonical timeline projection", () => {
         id: "turn-fold:turn-1",
         hiddenRows: [
           { id: "message:commentary" },
-          { id: "activity:command" },
+          { id: "activity-group:activity:command", latest: { id: "activity:command" } },
         ],
       },
     ]);
@@ -330,14 +330,63 @@ describe("canonical timeline projection", () => {
     const projection = projectCanonicalTimeline(events);
     expect(buildTimelineDisplayRows(projection.rows, projection.turns)).toMatchObject([
       {
-        id: "activity-group:activity:one:activity:two",
+        id: "activity-group:activity:one",
         latest: { id: "activity:two" },
         earlierRows: [{ id: "activity:one" }],
       },
     ]);
-    const groupId = "activity-group:activity:one:activity:two";
+    const groupId = "activity-group:activity:one";
     expect(buildTimelineDisplayRows(projection.rows, projection.turns, new Set(), new Set([groupId]))).toMatchObject([
       { id: groupId, expanded: true, earlierRows: [{ id: "activity:one" }], latest: { id: "activity:two" } },
+    ]);
+  });
+
+  it("keeps completed and active consecutive tools in one expandable live group", () => {
+    const events = [
+      stored(1, { type: "turn_started", payload: { providerTurnId: "provider-turn-1", state: "active", modes: { safetyMode: "ask_for_approval", interactionMode: "build" }, modelId: "gpt-5", modelOptions: [] } }),
+      stored(2, { type: "item_completed", payload: { itemId: "command-one", kind: "command_execution", status: "completed", title: "pnpm check", detail: "Passed", safeMetadata: null } }),
+      stored(3, { type: "item_started", payload: { itemId: "read", kind: "dynamic_tool_call", status: "active", title: "Read", detail: null, safeMetadata: { schemaVersion: 1, value: { toolInput: { file_path: "src/chat.ts" } } } } }),
+    ];
+    const live = projectCanonicalTimeline(events);
+    const groupId = "activity-group:activity:command-one";
+
+    expect(buildTimelineDisplayRows(live.rows, live.turns, new Set(), new Set([groupId]))).toMatchObject([{
+      id: groupId,
+      kind: "activity_group",
+      earlierRows: [{ id: "activity:command-one", status: "completed" }],
+      latest: { id: "activity:read", status: "active" },
+      expanded: true,
+    }]);
+
+    const continued = projectCanonicalTimeline([
+      ...events,
+      stored(4, { type: "item_completed", payload: { itemId: "read", kind: "dynamic_tool_call", status: "completed", title: "Read", detail: null, safeMetadata: { schemaVersion: 1, value: { toolInput: { file_path: "src/chat.ts" } } } } }),
+      stored(5, { type: "item_started", payload: { itemId: "command-two", kind: "command_execution", status: "active", title: "pnpm test", detail: null, safeMetadata: null } }),
+    ]);
+
+    expect(buildTimelineDisplayRows(continued.rows, continued.turns, new Set(), new Set([groupId]))).toMatchObject([{
+      id: groupId,
+      earlierRows: [
+        { id: "activity:command-one", status: "completed" },
+        { id: "activity:read", status: "completed" },
+      ],
+      latest: { id: "activity:command-two", status: "active" },
+      expanded: true,
+    }]);
+  });
+
+  it("starts a new tool group after assistant commentary", () => {
+    const projection = projectCanonicalTimeline([
+      stored(1, { type: "turn_started", payload: { providerTurnId: "provider-turn-1", state: "active", modes: { safetyMode: "ask_for_approval", interactionMode: "build" }, modelId: "gpt-5", modelOptions: [] } }),
+      stored(2, { type: "item_completed", payload: { itemId: "command", kind: "command_execution", status: "completed", title: "pnpm check", detail: "Passed", safeMetadata: null } }),
+      stored(3, { type: "item_completed", payload: { itemId: "commentary", kind: "assistant_message", status: "completed", title: null, detail: "Now I will edit the file.", safeMetadata: { schemaVersion: 1, value: { phase: "commentary" } } } }),
+      stored(4, { type: "item_started", payload: { itemId: "edit", kind: "file_change", status: "active", title: "Edit file", detail: null, safeMetadata: null } }),
+    ]);
+
+    expect(buildTimelineDisplayRows(projection.rows, projection.turns)).toMatchObject([
+      { id: "activity-group:activity:command", latest: { id: "activity:command" } },
+      { id: "message:commentary", kind: "message" },
+      { id: "activity-group:activity:edit", latest: { id: "activity:edit", status: "active" } },
     ]);
   });
 
@@ -347,7 +396,7 @@ describe("canonical timeline projection", () => {
     ]);
 
     expect(buildTimelineDisplayRows(projection.rows, projection.turns)).toMatchObject([{
-      id: "activity-group:activity:command:activity:command",
+      id: "activity-group:activity:command",
       kind: "activity_group",
       earlierRows: [],
       latest: { id: "activity:command", title: "pnpm test" },
@@ -452,7 +501,7 @@ describe("canonical timeline projection", () => {
         id: "turn-fold:turn-1",
         hiddenRows: [
           { id: "commentary", kind: "message", markdown: "A normal **paragraph**." },
-          { id: "command", kind: "activity" },
+          { id: "activity-group:command", kind: "activity_group", latest: { id: "command" } },
         ],
       },
       { id: "answer", kind: "message", markdown: "Final answer" },

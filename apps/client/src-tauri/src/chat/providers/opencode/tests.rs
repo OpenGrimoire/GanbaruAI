@@ -659,6 +659,66 @@ fn event_fixture_normalizes_core_activity_and_deduplicates_replay() {
 }
 
 #[test]
+fn tool_activity_preserves_safe_identity_and_input_for_shared_presentation() {
+    let normalizer = OpenCodeEventNormalizer::new(
+        ProviderInstanceId::new("opencode-instance").unwrap(),
+        ChatThreadId::new("thread-fixture").unwrap(),
+        ProviderSessionId::new("local-session-fixture").unwrap(),
+    );
+    let mut state = OpenCodeRouteState::new(
+        "ses_fixture".to_string(),
+        TurnModeSnapshot {
+            safety_mode: SafetyMode::AskForApproval,
+            interaction_mode: InteractionMode::Build,
+        },
+    );
+    state.active_turn_id = Some(ChatTurnId::new("turn-fixture").unwrap());
+
+    let events = normalizer
+        .normalize(
+            &mut state,
+            json!({
+                "type": "message.part.updated",
+                "properties": {
+                    "sessionID": "ses_fixture",
+                    "part": {
+                        "id": "part_read",
+                        "sessionID": "ses_fixture",
+                        "messageID": "msg_assistant",
+                        "type": "tool",
+                        "callID": "call_read",
+                        "tool": "read",
+                        "state": {
+                            "status": "running",
+                            "input": {
+                                "file_path": "src/chat.ts",
+                                "authorization": "must-redact"
+                            },
+                            "title": "Read file"
+                        }
+                    }
+                }
+            }),
+        )
+        .unwrap();
+    let item = events
+        .iter()
+        .find_map(|event| match &event.event {
+            CanonicalEvent::ItemStarted(item) => Some(item),
+            _ => None,
+        })
+        .unwrap();
+
+    assert_eq!(item.kind, CanonicalItemKind::DynamicToolCall);
+    assert_eq!(item.safe_metadata.as_ref().unwrap().value["tool"], "read");
+    assert_eq!(
+        item.safe_metadata.as_ref().unwrap().value["input"]["file_path"],
+        "src/chat.ts"
+    );
+    assert!(!serde_json::to_string(item).unwrap().contains("must-redact"));
+}
+
+#[test]
 fn malformed_and_cross_session_events_are_bounded() {
     let normalizer = OpenCodeEventNormalizer::new(
         ProviderInstanceId::new("opencode-instance").unwrap(),

@@ -135,18 +135,6 @@ export interface TimelineProjection {
   ignoredDuplicateEventIds: string[];
 }
 
-export interface TimelineTurnFoldRow {
-  id: string;
-  kind: "turn_fold";
-  turnId: ChatTurnId;
-  sequence: number;
-  createdAt: UtcTimestamp;
-  state: "completed" | "interrupted" | "failed";
-  durationMs: number | null;
-  hiddenRows: (TimelineActivityRow | TimelineMessageRow)[];
-  expanded: boolean;
-}
-
 export interface TimelineActivityGroupRow {
   id: string;
   kind: "activity_group";
@@ -155,6 +143,18 @@ export interface TimelineActivityGroupRow {
   createdAt: UtcTimestamp;
   latest: TimelineActivityRow;
   earlierRows: TimelineActivityRow[];
+  expanded: boolean;
+}
+
+export interface TimelineTurnFoldRow {
+  id: string;
+  kind: "turn_fold";
+  turnId: ChatTurnId;
+  sequence: number;
+  createdAt: UtcTimestamp;
+  state: "completed" | "interrupted" | "failed";
+  durationMs: number | null;
+  hiddenRows: (TimelineActivityRow | TimelineMessageRow | TimelineActivityGroupRow)[];
   expanded: boolean;
 }
 
@@ -660,7 +660,7 @@ export function buildTimelineDisplayRows(
         createdAt: processRows[0]?.createdAt ?? row.createdAt,
         state: turn.state,
         durationMs: turn.durationMs,
-        hiddenRows,
+        hiddenRows: groupConsecutiveActivities(hiddenRows, expandedGroupIds),
         expanded: hiddenRows.length > 0 && expandedTurnIds.has(row.turnId),
       });
       emittedFolds.add(row.turnId);
@@ -668,7 +668,7 @@ export function buildTimelineDisplayRows(
     if (row.id === finalAssistant?.id) displayRows.push(finalAssistant);
   }
 
-  return groupSettledActivities(displayRows, expandedGroupIds);
+  return groupConsecutiveActivities(displayRows, expandedGroupIds);
 }
 
 function isTransientThinkingActivity(row: TimelineActivityRow): boolean {
@@ -996,16 +996,19 @@ function parseTerminalContext(value: VersionedJson["value"] | undefined): string
   return context;
 }
 
-function groupSettledActivities(
+function groupConsecutiveActivities(
+  rows: readonly (TimelineActivityRow | TimelineMessageRow)[],
+  expandedGroupIds: ReadonlySet<string>,
+): (TimelineActivityRow | TimelineMessageRow | TimelineActivityGroupRow)[];
+function groupConsecutiveActivities(
+  rows: readonly TimelineDisplayRow[],
+  expandedGroupIds: ReadonlySet<string>,
+): TimelineDisplayRow[];
+function groupConsecutiveActivities(
   rows: readonly TimelineDisplayRow[],
   expandedGroupIds: ReadonlySet<string>,
 ): TimelineDisplayRow[] {
   const result: TimelineDisplayRow[] = [];
-  const expandedFoldTurnIds = new Set(
-    rows
-      .filter((row): row is TimelineTurnFoldRow => row.kind === "turn_fold" && row.expanded)
-      .map((row) => row.turnId),
-  );
   let run: TimelineActivityRow[] = [];
   const flush = (): void => {
     if (run.length === 0) {
@@ -1018,7 +1021,7 @@ function groupSettledActivities(
       run = [];
       return;
     }
-    const id = `activity-group:${first.id}:${latest.id}`;
+    const id = `activity-group:${first.id}`;
     result.push({
       id,
       kind: "activity_group",
@@ -1035,11 +1038,7 @@ function groupSettledActivities(
   for (const row of rows) {
     if (row.kind === "activity"
       && !isTransientThinkingActivity(row)
-      && row.title !== "thread_reverted"
-      && !expandedFoldTurnIds.has(row.turnId ?? "")
-      && row.status !== "active"
-      && row.status !== "pending"
-      && row.status !== "waiting") {
+      && row.title !== "thread_reverted") {
       if (run.length === 0 || run[0]?.turnId === row.turnId) run.push(row);
       else {
         flush();
