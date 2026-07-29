@@ -377,6 +377,53 @@ export function validateImageFiles(
   return null;
 }
 
+/** Reports whether the selected provider and model can receive an image prompt. */
+export function supportsImagePrompt(
+  providerFamilyId: string | null,
+  model: ProviderModel | null,
+  capabilities: ProviderCapabilities,
+): boolean {
+  if (model?.capabilities.includes("images")) return true;
+  if (providerFamilyId === "codex" && model && !model.custom) return false;
+  return supports(capabilities, "images");
+}
+
+/** Returns deduplicated clipboard images from both file and item representations. */
+export function clipboardImageFiles(
+  clipboard: Pick<DataTransfer, "files" | "items"> | null,
+): File[] {
+  if (!clipboard) return [];
+  const images: File[] = [];
+  const add = (file: File | null, advertisedType?: string): void => {
+    if (!file) return;
+    const mimeType = file.type || advertisedType || "";
+    if (!mimeType.startsWith("image/")) return;
+    if (file.name.trim()) {
+      images.push(file);
+      return;
+    }
+    const extension = imageExtension(mimeType);
+    images.push(new File([file], `pasted-image.${extension}`, {
+      type: mimeType,
+      lastModified: file.lastModified,
+    }));
+  };
+  for (const file of Array.from(clipboard.files)) add(file);
+  if (images.length === 0) {
+    for (const item of Array.from(clipboard.items)) {
+      if (item.kind === "file") add(item.getAsFile(), item.type);
+    }
+  }
+  return images;
+}
+
+function imageExtension(mimeType: string): "png" | "jpg" | "gif" | "webp" {
+  if (mimeType === "image/jpeg") return "jpg";
+  if (mimeType === "image/gif") return "gif";
+  if (mimeType === "image/webp") return "webp";
+  return "png";
+}
+
 export function validateUserInputAnswers(
   questions: UserInputQuestion[],
   answers: import("$lib/chat/contracts").UserInputAnswer[],

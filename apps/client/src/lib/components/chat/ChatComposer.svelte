@@ -40,6 +40,7 @@
   import { parseChatComposerDocument, type ChatComposerMark, type ChatComposerSelection } from "$lib/chat/composer-rich-text";
   import {
     composerActionState,
+    clipboardImageFiles,
     composerRateLimitWindows,
     composerModeCommand,
     composerTokenTrigger,
@@ -47,15 +48,18 @@
     filterPromptCatalog,
     interactionModeForPrompt,
     shouldSendComposerKey,
+    supportsImagePrompt,
     validateComposerSelections,
     validateImageFiles,
     validateModelOptions,
   } from "$lib/chat/composer-model";
+  import { chatErrorMessage } from "$lib/chat/error-presentation";
   import { formatDateTime, formatNumber } from "$lib/i18n/formatters";
   import { getLocalization } from "$lib/i18n/translator.svelte";
   import { getChat } from "$lib/stores/chat.svelte";
   import { getProjects } from "$lib/stores/projects.svelte";
   import ChatAccessControl from "./ChatAccessControl.svelte";
+  import ChatImageGallery from "./ChatImageGallery.svelte";
   import ChatModelControls from "./ChatModelControls.svelte";
   import ChatRequestPanel from "./ChatRequestPanel.svelte";
 
@@ -90,11 +94,6 @@
   let activeProviderCommand = $state<ActiveProviderCommand | null>(null);
   let sending = $state(false);
   let importing = $state(false);
-  let previewAttachmentId = $state<string | null>(null);
-  let previewUrl = $state<string | null>(null);
-  let previewDialog: HTMLDivElement | undefined = $state();
-  let previewReturnFocus: HTMLElement | null = null;
-  let thumbnailUrls = $state<Record<string, string>>({});
   let forceStopAvailable = $state(false);
   let stopTimer: ReturnType<typeof setTimeout> | null = null;
   const provider = $derived(chat.settings?.providerInstances.find((entry) => entry.configuration.instanceId === chat.composer.providerInstanceId) ?? null);
@@ -110,7 +109,6 @@
   const latestUsage = $derived(chat.interaction?.usage ?? chat.timelinePages.flatMap((page) => page.turns).at(-1)?.usage ?? null);
   const meter = $derived(contextMeter(latestUsage?.contextTokens ?? null, latestUsage?.contextLimit ?? null));
   const rateLimitWindows = $derived(composerRateLimitWindows(chat.interaction?.rateLimitStatus ?? null));
-  const previewAttachment = $derived(chat.composerAttachments.find((attachment) => attachment.id === previewAttachmentId) ?? null);
   const projectArchived = $derived(projects.selectedProject?.status === "archived");
   const workingFolderUnavailable = $derived(
     chat.selectedWorkingFolder === null
@@ -118,7 +116,7 @@
       || chat.selectedWorkingFolder.bindingStatus !== "available",
   );
   const sendingBlocked = $derived(projectArchived || workingFolderUnavailable);
-  const composerDisabled = $derived(sendingBlocked || (chat.selectedThread?.archivedAt !== null && chat.selectedThread !== null));
+  const composerDisabled = $derived(chat.composer.loading || sendingBlocked || (chat.selectedThread?.archivedAt !== null && chat.selectedThread !== null));
 
   onMount(() => {
     const stop = () => void stopTurn();
@@ -178,15 +176,6 @@
     const text = chat.composer.text;
     const richContent = chat.composer.richContent;
     editorController?.setDocument(parseChatComposerDocument(richContent, text));
-  });
-
-  $effect(() => {
-    for (const attachment of chat.composerAttachments) {
-      if (thumbnailUrls[attachment.id]) continue;
-      void chatApi.chatAttachmentDataUrl(attachment.id).then((url) => {
-        thumbnailUrls = { ...thumbnailUrls, [attachment.id]: url };
-      }).catch(() => undefined);
-    }
   });
 
   $effect(() => {
@@ -296,7 +285,7 @@
         menuCursor = null;
       }
     } catch (cause: unknown) {
-      if (request === menuRequest) operationError = cause instanceof Error ? cause.message : String(cause);
+      if (request === menuRequest) operationError = chatErrorMessage(cause);
     } finally {
       if (request === menuRequest) menuLoading = false;
     }
@@ -437,7 +426,7 @@
     try {
       mcpStatus = await chatApi.readChatMcpStatus(workingFolderId, providerInstanceId, threadId);
     } catch (cause: unknown) {
-      panelError = cause instanceof Error ? cause.message : String(cause);
+      panelError = chatErrorMessage(cause);
     } finally {
       panelLoading = false;
     }
@@ -568,6 +557,19 @@
     const modelOptionErrors = provider && modelId
       ? validateModelOptions(provider.modelCatalog?.models.find((entry) => entry.id === modelId)?.options ?? [], readComposerOptions())
       : [];
+    const selectedModel = provider?.modelCatalog?.models.find((entry) => entry.id === modelId) ?? null;
+    if (chat.composerAttachments.length > 0 && !supportsImagePrompt(
+      provider?.configuration.familyId ?? null,
+      selectedModel,
+      capabilities,
+    )) {
+      operationError = t(
+        "chat.composer.imageModelUnsupported",
+        selectedModel?.displayName ?? provider?.configuration.label ?? t("chat.composer.statusProviderManaged"),
+      );
+      document.querySelector<HTMLElement>("[data-chat-model-trigger]")?.focus();
+      return;
+    }
     const commandPrompt = selectedCommand
       ? `${selectedCommand.value}${chat.composer.text.trim() ? ` ${chat.composer.text.trim()}` : ""}`
       : null;
@@ -863,7 +865,7 @@
         forceStopAvailable = chat.interaction?.sessionState === "stopping";
       }, 10_000);
     } catch (cause: unknown) {
-      operationError = cause instanceof Error ? cause.message : String(cause);
+      operationError = chatErrorMessage(cause);
     }
   }
 
@@ -874,7 +876,7 @@
       await operation();
       return true;
     } catch (cause: unknown) {
-      operationError = cause instanceof Error ? cause.message : String(cause);
+      operationError = chatErrorMessage(cause);
       return false;
     } finally {
       sending = false;
@@ -891,17 +893,39 @@
     importing = true;
     operationError = null;
     try { await chat.importComposerImages(files); }
-    catch (cause: unknown) { operationError = cause instanceof Error ? cause.message : String(cause); }
+    catch (cause: unknown) { operationError = chatErrorMessage(cause); }
     finally { importing = false; }
   }
 
   function handlePaste(event: ClipboardEvent): void {
-    const files = [...(event.clipboardData?.files ?? [])].filter((file) => file.type.startsWith("image/"));
+    const files = clipboardImageFiles(event.clipboardData);
     if (files.length > 0) { event.preventDefault(); void importFiles(files); return; }
-    const text = event.clipboardData?.getData("text/plain");
-    if (text === undefined) return;
+    const types = [...(event.clipboardData?.types ?? [])];
+    if (types.includes("text/plain")) {
+      event.preventDefault();
+      editorController?.insertPlainText(event.clipboardData?.getData("text/plain") ?? "");
+      return;
+    }
     event.preventDefault();
-    editorController?.insertPlainText(text);
+    void importClipboardImages();
+  }
+
+  async function importClipboardImages(): Promise<void> {
+    try {
+      if (typeof navigator.clipboard?.read !== "function") return;
+      const items = await navigator.clipboard.read();
+      const files: File[] = [];
+      for (const [index, item] of items.entries()) {
+        const mimeType = item.types.find((type) => type.startsWith("image/"));
+        if (!mimeType) continue;
+        const blob = await item.getType(mimeType);
+        const extension = mimeType === "image/jpeg" ? "jpg" : mimeType.split("/")[1] ?? "png";
+        files.push(new File([blob], `pasted-image-${index + 1}.${extension}`, { type: mimeType }));
+      }
+      if (files.length > 0) await importFiles(files);
+    } catch (cause: unknown) {
+      operationError = chatErrorMessage(cause, t("chat.composer.clipboardImageUnavailable"));
+    }
   }
 
   function handleDrop(event: DragEvent): void {
@@ -910,34 +934,6 @@
     if (files.length > 0) { void importFiles(files); return; }
     const text = event.dataTransfer?.getData("text/plain");
     if (text) editorController?.insertPlainText(text);
-  }
-
-  async function openPreview(attachmentId: string): Promise<void> {
-    previewReturnFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
-    previewAttachmentId = attachmentId;
-    previewUrl = thumbnailUrls[attachmentId] ?? await chatApi.chatAttachmentDataUrl(attachmentId);
-    await tick();
-    previewDialog?.querySelector<HTMLElement>("button")?.focus();
-  }
-
-  function closePreview(): void {
-    previewAttachmentId = null;
-    previewUrl = null;
-    const target = previewReturnFocus;
-    queueMicrotask(() => target?.isConnected && target.focus());
-  }
-
-  function handlePreviewKeydown(event: KeyboardEvent): void {
-    if (event.key === "Escape") {
-      event.preventDefault();
-      event.stopPropagation();
-      closePreview();
-      return;
-    }
-    if (event.key === "Tab") {
-      event.preventDefault();
-      previewDialog?.querySelector<HTMLElement>("button")?.focus();
-    }
   }
 
   function contextLabel(): string | null {
@@ -1011,7 +1007,7 @@
       {/if}
     </div>
   {/if}
-  {#if chat.composerAttachments.length > 0}<div class="attachment-grid">{#each chat.composerAttachments as attachment}<article><button type="button" class="attachment-preview" aria-label={t("chat.composer.previewAttachment", attachment.originalDisplayName)} onclick={() => void openPreview(attachment.id)}>{#if thumbnailUrls[attachment.id]}<img src={thumbnailUrls[attachment.id]} alt={attachment.originalDisplayName} />{:else}<LoaderCircle size={16} class="animate-spin" />{/if}</button><span title={attachment.originalDisplayName}>{attachment.originalDisplayName}</span><button type="button" aria-label={t("chat.composer.removeAttachment", attachment.originalDisplayName)} onclick={() => chat.removeComposerAttachment(attachment.id)}><X size={12} /></button></article>{/each}</div>{/if}
+  {#if chat.composerAttachments.length > 0}<ChatImageGallery images={chat.composerAttachments.map((attachment) => ({ id: attachment.id, displayName: attachment.originalDisplayName, byteSize: attachment.byteSize }))} variant="composer" onRemove={(id) => chat.removeComposerAttachment(id)} />{/if}
   {#if chat.composer.mentions.length > 0}<div class="mention-chips">{#each chat.composer.mentions as mention}<span title={mention.relativePath}><AtSign size={11} />{mention.relativePath}{#if mention.ignored}<small>{t("chat.composer.ignored")}</small>{/if}<button type="button" aria-label={t("chat.composer.removeAttachment", mention.relativePath)} onclick={() => chat.setComposerMentions(chat.composer.mentions.filter((entry) => entry.relativePath !== mention.relativePath))}><X size={10} /></button></span>{/each}</div>{/if}
   <div class="editor-shell">
     <div
@@ -1097,15 +1093,13 @@
         </span>
         <ChatModelControls />
         {#if forceStopAvailable}<button type="button" class="force-stop" title={t("chat.composer.forceStopDescription")} onclick={() => void run(() => chat.stop(true))}>{t("chat.composer.forceStop")}</button>{/if}
-        {#if action.primary !== "resolve_request"}<button type="button" class="primary-action" disabled={sendingBlocked || sending || action.primary === "stopping" || (action.primary === "send" && !action.sendEnabled)} aria-label={action.primary === "stop" ? t("chat.composer.stop") : t("chat.composer.send")} title={action.primary === "stop" ? t("chat.composer.stop") : t("chat.composer.send")} onclick={() => void performPrimaryAction()}>{#if sending}<LoaderCircle size={15} class="animate-spin" />{:else if action.primary === "stop"}<Square size={13} />{:else if action.primary === "stopping"}<LoaderCircle size={15} class="animate-spin" />{:else}<ArrowUp size={16} />{/if}</button>{/if}
+        {#if action.primary !== "resolve_request"}<button type="button" class="primary-action" disabled={chat.composer.loading || sendingBlocked || sending || action.primary === "stopping" || (action.primary === "send" && !action.sendEnabled)} aria-label={action.primary === "stop" ? t("chat.composer.stop") : t("chat.composer.send")} title={action.primary === "stop" ? t("chat.composer.stop") : t("chat.composer.send")} onclick={() => void performPrimaryAction()}>{#if sending}<LoaderCircle size={15} class="animate-spin" />{:else if action.primary === "stop"}<Square size={13} />{:else if action.primary === "stopping"}<LoaderCircle size={15} class="animate-spin" />{:else}<ArrowUp size={16} />{/if}</button>{/if}
       </div>
     </div>
   </div>
   {#if pending}<div class="request-panel-shell"><ChatRequestPanel {pending} /></div>{/if}
   {#if operationError || chat.composer.error}<p role="alert" class="composer-error">{operationError ?? chat.composer.error}</p>{/if}
 </section>
-
-{#if previewAttachment && previewUrl}<div class="fixed inset-0 z-60 grid place-items-center bg-black/50 p-4"><button type="button" class="absolute inset-0" aria-label={t("chat.cancel")} onclick={closePreview}></button><div bind:this={previewDialog} class="relative flex max-h-full max-w-full flex-col rounded-lg border border-border bg-background p-3 shadow-2xl" role="dialog" aria-modal="true" aria-label={t("chat.composer.previewAttachment", previewAttachment.originalDisplayName)} tabindex="-1" onkeydown={handlePreviewKeydown}><header class="mb-2 flex items-center gap-2"><strong class="min-w-0 flex-1 truncate text-sm">{previewAttachment.originalDisplayName}</strong><span class="text-xs text-muted-foreground">{formatNumber(localization.locale, previewAttachment.byteSize)} B</span><button type="button" aria-label={t("chat.cancel")} onclick={closePreview}><X size={14} /></button></header><img class="min-h-0 max-h-[75vh] max-w-[85vw] object-contain" src={previewUrl} alt={previewAttachment.originalDisplayName} /></div></div>{/if}
 
 <style>
   .chat-composer { container-type: inline-size; container-name: chat-composer; position: relative; display: grid; width: min(100%, 54rem); margin: 0 auto; overflow: visible; border: 1px solid color-mix(in srgb, var(--border) 88%, transparent); border-radius: 1.3rem; background: var(--card); box-shadow: 0 8px 22px -18px rgb(0 0 0 / 0.24), 0 1px 4px -3px rgb(0 0 0 / 0.16); }
@@ -1149,11 +1143,6 @@
   .primary-action:hover:not(:disabled) { filter: brightness(1.04); transform: scale(1.04); }
   .primary-action:disabled { opacity: 0.5; }
   .force-stop { color: var(--destructive); }
-  .attachment-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(7rem, 1fr)); gap: 0.4rem; margin-top: 0.65rem; }
-  .attachment-grid article { position: relative; display: grid; grid-template-columns: 2.5rem minmax(0, 1fr) auto; align-items: center; gap: 0.35rem; border: 1px solid var(--border); border-radius: 0.45rem; padding: 0.3rem; }
-  .attachment-grid article > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 0.666667rem; }
-  .attachment-preview { display: grid; width: 2.5rem; height: 2.5rem; place-items: center; overflow: hidden; border-radius: 0.3rem; background: var(--muted); }
-  .attachment-preview img { width: 100%; height: 100%; object-fit: cover; }
   .mention-chips { display: flex; flex-wrap: wrap; gap: 0.3rem; margin-top: 0.65rem; }
   .mention-chips > span { display: inline-flex; max-width: 100%; align-items: center; gap: 0.2rem; border: 1px solid var(--border); border-radius: 999px; padding: 0.2rem 0.4rem; font-size: 0.666667rem; }
   .mention-chips small { color: var(--status-tentative); }
@@ -1207,6 +1196,6 @@
   @container chat-composer (max-width: 640px) { .toolbar-right small { max-width: 8rem; } }
   @container chat-composer (max-width: 460px) { .format-action { display: none; } }
   @container chat-composer (max-width: 390px) { .toolbar-left { gap: 0.1rem; } .context-ring { display: none; } .prompt-option-copy small { display: none; } .status-panel-grid > div { grid-template-columns: 5rem minmax(0, 1fr); } .mcp-status-table > div { grid-template-columns: minmax(0, 1fr) auto; gap: 0.65rem; } .mcp-status-table span:nth-child(2) { grid-column: 1 / -1; grid-row: 2; } }
-  @container chat-composer (max-width: 300px) { .composer-editor { padding-inline: 0.8rem; } .composer-toolbar { padding-inline: 0.4rem; } .attachment-grid { grid-template-columns: 1fr; } }
+  @container chat-composer (max-width: 300px) { .composer-editor { padding-inline: 0.8rem; } .composer-toolbar { padding-inline: 0.4rem; } }
   @media (prefers-reduced-motion: reduce) { .chat-composer { scroll-behavior: auto; } }
 </style>

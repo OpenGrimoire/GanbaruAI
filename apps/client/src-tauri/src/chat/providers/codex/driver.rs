@@ -418,7 +418,8 @@ impl CodexProviderDriver {
             requested_model,
             developer_instructions,
         )?;
-        let (response, resumed) = match input.resume_provider_thread_id() {
+        let requested_provider_thread_id = input.resume_provider_thread_id().map(str::to_owned);
+        let (response, resumed) = match requested_provider_thread_id.as_deref() {
             Some(provider_thread_id) => {
                 let params = thread_open_params(
                     Some(provider_thread_id),
@@ -471,18 +472,20 @@ impl CodexProviderDriver {
         verify_effective_safety(input.modes().safety_mode, &response)?;
         let provider_thread_id = ProviderThreadId::new(response.thread.id.clone())
             .map_err(|_| protocol_identifier_error("provider thread"))?;
-        let observed_provider_thread = wait_for_provider_thread(
-            provider_thread_receiver.clone(),
-            provider_thread_id.as_str(),
-            context,
-        )
-        .await?;
-        if observed_provider_thread != provider_thread_id.as_str() {
+        if resumed && requested_provider_thread_id.as_deref() != Some(provider_thread_id.as_str()) {
             return Err(ChatError::new(
                 ChatErrorCode::Protocol,
-                "Codex thread notification did not match the open response",
+                "Codex resumed a different provider thread",
                 false,
             ));
+        }
+        if !resumed {
+            wait_for_provider_thread(
+                provider_thread_receiver.clone(),
+                provider_thread_id.as_str(),
+                context,
+            )
+            .await?;
         }
         let effective_model = ModelId::new(response.model.clone())
             .map_err(|_| protocol_identifier_error("effective model"))?;

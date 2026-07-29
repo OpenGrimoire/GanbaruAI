@@ -8,6 +8,7 @@ import {
   nextTimelineUnreadCount,
   scrollTopForPreservedAnchor,
   timelineMinimapRows,
+  timelineScrollOverflowState,
   timelineScrollbarThumbGeometry,
   timelineScrollIntent,
 } from "./timeline-virtualization";
@@ -52,6 +53,29 @@ describe("timeline virtualization", () => {
     expect(expanded?.size).toBeCloseTo(800 / 3);
     expect(timelineScrollbarThumbGeometry(10_000, 100, 20_000)).toEqual({ offset: 76, size: 24 });
     expect(timelineScrollbarThumbGeometry(800, 800, 0)).toBeNull();
+  });
+
+  it("shows disclosure fades only toward remaining scrollable content", () => {
+    expect(timelineScrollOverflowState(0, 600, 300)).toEqual({
+      scrollable: true,
+      canScrollUp: false,
+      canScrollDown: true,
+    });
+    expect(timelineScrollOverflowState(150, 600, 300)).toEqual({
+      scrollable: true,
+      canScrollUp: true,
+      canScrollDown: true,
+    });
+    expect(timelineScrollOverflowState(300, 600, 300)).toEqual({
+      scrollable: true,
+      canScrollUp: true,
+      canScrollDown: false,
+    });
+    expect(timelineScrollOverflowState(0, 300, 300)).toEqual({
+      scrollable: false,
+      canScrollUp: false,
+      canScrollDown: false,
+    });
   });
 
   it("deduplicates page rows and retains the selected page during eviction", () => {

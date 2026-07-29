@@ -741,13 +741,25 @@ async fn upsert_activity_detail(
     item_kind: &str,
     delta: &str,
 ) -> ChatResult<()> {
+    let detail = if item_kind == "reasoning_text" {
+        None
+    } else {
+        Some(delta)
+    };
     sqlx::query(
         "INSERT INTO chat_activities
             (id, thread_id, turn_id, sequence_anchor, item_kind, status, title,
              detail, provider_item_id, source_event_type, created_at, updated_at)
          VALUES (?, ?, ?, ?, ?, 'active', '', ?, ?, 'content_delta', ?, ?)
          ON CONFLICT(id) DO UPDATE SET
-            detail = COALESCE(chat_activities.detail, '') || excluded.detail,
+            item_kind = CASE
+                WHEN excluded.item_kind = 'reasoning_summary' THEN excluded.item_kind
+                ELSE chat_activities.item_kind
+            END,
+            detail = CASE
+                WHEN excluded.item_kind = 'reasoning_text' THEN chat_activities.detail
+                ELSE COALESCE(chat_activities.detail, '') || COALESCE(excluded.detail, '')
+            END,
             updated_at = excluded.updated_at",
     )
     .bind(item_id)
@@ -755,7 +767,7 @@ async fn upsert_activity_detail(
     .bind(runtime.turn_id.as_ref().map(|value| value.as_str()))
     .bind(sequence)
     .bind(item_kind)
-    .bind(delta)
+    .bind(detail)
     .bind(item_id)
     .bind(runtime.created_at.as_str())
     .bind(runtime.created_at.as_str())

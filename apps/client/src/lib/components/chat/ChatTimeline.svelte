@@ -5,7 +5,6 @@
 <script lang="ts">
   import { onDestroy, onMount, tick } from "svelte";
   import ArrowDown from "@lucide/svelte/icons/arrow-down";
-  import ChevronDown from "@lucide/svelte/icons/chevron-down";
   import ChevronRight from "@lucide/svelte/icons/chevron-right";
   import CircleAlert from "@lucide/svelte/icons/circle-alert";
   import Copy from "@lucide/svelte/icons/copy";
@@ -20,10 +19,11 @@
   import Wrench from "@lucide/svelte/icons/wrench";
   import RotateCcw from "@lucide/svelte/icons/rotate-ccw";
   import { chatScrollBehavior } from "$lib/chat/responsive-layout";
+  import { fileChangePresentation, isFileReadActivity, isImageViewActivity, summarizeActivityKinds, transientActivitySummary, type ActivitySummaryCount } from "$lib/chat/activity-presentation";
   import { chatModelParticipant, type ChatModelParticipant } from "$lib/chat/participant-identity";
   import { buildTimelineDisplayRows, includeOptimisticTimelineMessage, projectTimelineReadModel, timelineActivityShowsLiveStatus, timelineActivitySupportsDisclosure, timelineModelGroupStartIds, type TimelineActivityGroupRow, type TimelineActivityRow, type TimelineDisplayRow, type TimelineMessageRow, type TimelinePlanRow, type TimelineTurnFoldRow } from "$lib/chat/timeline-model";
-  import { computeTimelineVirtualWindow, nextTimelineUnreadCount, scrollTopForPreservedAnchor, timelineMinimapRows, timelineScrollbarThumbGeometry, timelineScrollIntent, type TimelineScrollbarThumbGeometry, type TimelineScrollIntent } from "$lib/chat/timeline-virtualization";
-  import { formatDateTime, formatNumber } from "$lib/i18n/formatters";
+  import { computeTimelineVirtualWindow, nextTimelineUnreadCount, scrollTopForPreservedAnchor, timelineMinimapRows, timelineScrollbarThumbGeometry, timelineScrollIntent, timelineScrollOverflowState, type TimelineScrollbarThumbGeometry, type TimelineScrollIntent, type TimelineScrollOverflowState } from "$lib/chat/timeline-virtualization";
+  import { formatDateTime, formatList, formatNumber } from "$lib/i18n/formatters";
   import { getLocalization } from "$lib/i18n/translator.svelte";
   import { getChat } from "$lib/stores/chat.svelte";
   import { getPreferences } from "$lib/stores/preferences.svelte";
@@ -32,6 +32,7 @@
   import ChatMarkdown from "./ChatMarkdown.svelte";
   import ChatActivityDetail from "./ChatActivityDetail.svelte";
   import ChatChangedFilesSummary from "./ChatChangedFilesSummary.svelte";
+  import ChatImageGallery from "./ChatImageGallery.svelte";
   import ChatModelAvatar from "./ChatModelAvatar.svelte";
   import ProfileAvatar from "$lib/components/profile/ProfileAvatar.svelte";
 
@@ -65,6 +66,7 @@
   let copiedMessageTimer: ReturnType<typeof setTimeout> | null = null;
   let disclosureMeasureFrame: number | null = null;
   let pendingDisclosureAnchor: { rowId: string; viewportOffset: number } | null = null;
+  let processHistoryScrollStates = $state<Record<string, TimelineScrollOverflowState>>({});
   let scrollbarGeometry = $state<TimelineScrollbarThumbGeometry | null>(null);
   let scrollbarTrackTop = $state(0);
   let scrollbarTrackHeight = $state(0);
@@ -315,6 +317,43 @@
     updateTimelineScrollbar();
   }
 
+  function trackProcessHistoryScroll(
+    node: HTMLElement,
+    disclosureId: string,
+  ): { update(nextDisclosureId: string): void; destroy(): void } {
+    let currentId = disclosureId;
+    let frame: number | null = null;
+    const refresh = (): void => {
+      frame = null;
+      const next = timelineScrollOverflowState(node.scrollTop, node.scrollHeight, node.clientHeight);
+      const current = processHistoryScrollStates[currentId];
+      if (current?.scrollable === next.scrollable
+        && current.canScrollUp === next.canScrollUp
+        && current.canScrollDown === next.canScrollDown) return;
+      processHistoryScrollStates = { ...processHistoryScrollStates, [currentId]: next };
+    };
+    const scheduleRefresh = (): void => {
+      if (frame !== null) cancelAnimationFrame(frame);
+      frame = requestAnimationFrame(refresh);
+    };
+    const observer = new ResizeObserver(scheduleRefresh);
+    observer.observe(node);
+    if (node.firstElementChild) observer.observe(node.firstElementChild);
+    node.addEventListener("scroll", refresh, { passive: true });
+    scheduleRefresh();
+    return {
+      update(nextDisclosureId: string): void {
+        currentId = nextDisclosureId;
+        scheduleRefresh();
+      },
+      destroy(): void {
+        if (frame !== null) cancelAnimationFrame(frame);
+        observer.disconnect();
+        node.removeEventListener("scroll", refresh);
+      },
+    };
+  }
+
   function measureExpandableHeight(node: HTMLElement): { destroy(): void } {
     const content = node.firstElementChild;
     const update = () => {
@@ -367,9 +406,21 @@
   }
 
   function foldLabel(row: TimelineTurnFoldRow): string {
+    const summary = activitySummaryTitle(foldActivities(row));
+    if (summary) return summary;
     if (row.state === "interrupted") return t("chat.timeline.stoppedAfter", durationLabel(row.durationMs));
     if (row.state === "failed") return t("chat.timeline.failedAfter", durationLabel(row.durationMs));
     return t("chat.timeline.workedFor", durationLabel(row.durationMs));
+  }
+
+  function foldActivities(row: TimelineTurnFoldRow): TimelineActivityRow[] {
+    return row.hiddenRows.filter((hiddenRow): hiddenRow is TimelineActivityRow => hiddenRow.kind === "activity");
+  }
+
+  function foldStatusLabel(row: TimelineTurnFoldRow): string | null {
+    if (row.state === "interrupted") return t("chat.timeline.stoppedAfter", durationLabel(row.durationMs));
+    if (row.state === "failed") return t("chat.timeline.failedAfter", durationLabel(row.durationMs));
+    return null;
   }
 
   function timestampLabel(value: string): string {
@@ -409,7 +460,7 @@
   }
 
   function activityTitle(activity: TimelineActivityRow): string {
-    if (activityIsThinking(activity)) return t("chat.timeline.thinking");
+    if (activityIsThinking(activity)) return transientActivitySummary(activity) ?? t("chat.timeline.thinking");
     if (activity.title === "thread_reverted") return t("chat.timeline.threadRestored");
     const active = activity.status === "pending" || activity.status === "active" || activity.status === "waiting";
     if (activity.activityKind === "command_execution" || activity.activityKind === "command_output") {
@@ -422,15 +473,23 @@
         : t("chat.timeline.ranCommand", command);
     }
     if (activity.activityKind === "file_change" || activity.activityKind === "file_change_output") {
+      const changes = fileChangePresentation(activity);
+      if (!active && changes.length === 1 && changes[0]) return t("chat.timeline.editedPath", changes[0].path);
       return active ? t("chat.timeline.editingFile") : t("chat.timeline.editedFile");
     }
     if (activity.activityKind === "web_search") {
-      return active ? t("chat.timeline.searchingWeb") : t("chat.timeline.searchedWeb");
+      const query = activity.title.trim();
+      const generic = ["web search", "web search result", "web_search"].includes(query.toLowerCase());
+      return active
+        ? t("chat.timeline.searchingWeb")
+        : generic || !query
+          ? t("chat.timeline.searchedWeb")
+          : t("chat.timeline.searchedFor", query);
     }
-    if (activity.activityKind === "image_view" || isImageTool(activity.title)) {
+    if (isImageViewActivity(activity)) {
       return active ? t("chat.timeline.viewingImage") : t("chat.timeline.viewedImage");
     }
-    if (isFileReadTool(activity.title)) {
+    if (isFileReadActivity(activity)) {
       return active ? t("chat.timeline.readingFiles") : t("chat.timeline.readFiles");
     }
     if (activity.activityKind === "mcp_tool_call" || activity.activityKind === "dynamic_tool_call") {
@@ -447,6 +506,50 @@
     return activity.title;
   }
 
+  function activitySummaryTitle(activities: readonly TimelineActivityRow[]): string {
+    if (activities.length === 0) return "";
+    if (activities.length === 1 && activities[0] && activityIsThinking(activities[0])) {
+      return activityTitle(activities[0]);
+    }
+    const active = activities.some((activity) => (
+      activity.status === "pending" || activity.status === "active" || activity.status === "waiting"
+    ));
+    const labels = summarizeActivityKinds(activities).map((summary) => activitySummaryLabel(summary, active));
+    return formatList(localization.locale, labels);
+  }
+
+  function activitySummaryLabel(summary: ActivitySummaryCount, active: boolean): string {
+    const multiple = summary.count > 1;
+    switch (summary.kind) {
+      case "thinking": return t("chat.timeline.thinking");
+      case "commands":
+        return active
+          ? multiple ? t("chat.timeline.runningCommands") : t("chat.timeline.runningCommandSummary")
+          : multiple ? t("chat.timeline.ranCommands") : t("chat.timeline.ranCommandSummary");
+      case "file_changes":
+        return active
+          ? multiple ? t("chat.timeline.editingFiles") : t("chat.timeline.editingFile")
+          : multiple ? t("chat.timeline.editedFiles") : t("chat.timeline.editedFile");
+      case "file_reads":
+        return active
+          ? multiple ? t("chat.timeline.readingFiles") : t("chat.timeline.readingFile")
+          : multiple ? t("chat.timeline.readFiles") : t("chat.timeline.readFile");
+      case "web_searches": return active ? t("chat.timeline.searchingWeb") : t("chat.timeline.searchedWeb");
+      case "image_views":
+        return active
+          ? multiple ? t("chat.timeline.viewingImages") : t("chat.timeline.viewingImage")
+          : multiple ? t("chat.timeline.viewedImages") : t("chat.timeline.viewedImage");
+      case "tools":
+        return active
+          ? multiple ? t("chat.timeline.usingTools") : t("chat.timeline.usingToolSummary")
+          : multiple ? t("chat.timeline.usedTools") : t("chat.timeline.usedToolSummary");
+      case "collaboration": return active ? t("chat.timeline.delegatingWork") : t("chat.timeline.delegatedWork");
+      case "review": return active ? t("chat.timeline.reviewingChanges") : t("chat.timeline.reviewedChanges");
+      case "compaction": return active ? t("chat.timeline.compactingContext") : t("chat.timeline.compactedContext");
+      case "errors": return multiple ? t("chat.timeline.encounteredErrors") : t("chat.timeline.encounteredError");
+    }
+  }
+
   function activityIsThinking(activity: TimelineActivityRow): boolean {
     return activity.id.startsWith("turn-pending:")
       || activity.activityKind === "reasoning"
@@ -457,20 +560,6 @@
   function activityIsInProgress(activity: TimelineActivityRow): boolean {
     const turnState = activity.turnId ? turnsById.get(activity.turnId)?.state : null;
     return timelineActivityShowsLiveStatus(activity, turnState);
-  }
-
-  function normalizedToolName(title: string): string {
-    return title.trim().toLowerCase().replaceAll(/[^a-z0-9]+/g, "_");
-  }
-
-  function isFileReadTool(title: string): boolean {
-    const tool = normalizedToolName(title);
-    return ["read", "read_file", "read_files", "open_file", "read_mcp_resource"].some((name) => tool === name || tool.endsWith(`_${name}`));
-  }
-
-  function isImageTool(title: string): boolean {
-    const tool = normalizedToolName(title);
-    return ["view_image", "image_view"].some((name) => tool === name || tool.endsWith(`_${name}`));
   }
 
   function activityDetail(activity: TimelineActivityRow): string | null {
@@ -491,10 +580,28 @@
       const role = row.role === "user" ? t("chat.timeline.userMessage") : t("chat.timeline.assistantMessage");
       return `${role}, ${timestampLabel(row.createdAt)}`;
     }
-    if (row.kind === "activity") return `${activityTitle(row)}, ${statusLabel(row.status)}`;
-    if (row.kind === "activity_group") return `${activityTitle(row.latest)}, ${statusLabel(row.latest.status)}`;
-    if (row.kind === "turn_fold") return foldLabel(row);
+    if (row.kind === "activity") return `${activitySummaryTitle([row])}, ${statusLabel(row.status)}`;
+    if (row.kind === "activity_group") return `${activitySummaryTitle([...row.earlierRows, row.latest])}, ${statusLabel(row.latest.status)}`;
+    if (row.kind === "turn_fold") return [foldLabel(row), foldStatusLabel(row)].filter(Boolean).join(", ");
     return t("chat.timeline.plan");
+  }
+
+  function messageImages(message: TimelineMessageRow): { id: string; displayName: string; byteSize: number | null }[] {
+    const images: { id: string; displayName: string; byteSize: number | null }[] = [];
+    for (const attachment of message.userContext?.attachments ?? []) {
+      if (attachment.kind !== "image" || !attachment.id) continue;
+      images.push({ id: attachment.id, displayName: attachment.displayName, byteSize: attachment.byteSize });
+    }
+    return images;
+  }
+
+  function hasMessageContextChips(message: TimelineMessageRow): boolean {
+    const context = message.userContext;
+    return Boolean(context && (
+      context.attachments.some((attachment) => attachment.kind !== "image" || !attachment.id)
+      || context.mentions.length > 0
+      || context.terminalContext.length > 0
+    ));
   }
 
   function isModelOwnedRow(row: TimelineDisplayRow): boolean {
@@ -516,25 +623,25 @@
 {#snippet activityIcon(activity: TimelineActivityRow)}
   {#if activity.activityKind === "command_execution" || activity.activityKind === "command_output"}
     <Terminal size={15} />
-  {:else if activity.activityKind === "file_change" || activity.activityKind === "file_change_output" || isFileReadTool(activity.title)}
+  {:else if activity.activityKind === "file_change" || activity.activityKind === "file_change_output" || isFileReadActivity(activity)}
     <FileText size={15} />
   {:else if activity.activityKind === "web_search"}
     <Globe size={15} />
-  {:else if activity.activityKind === "image_view" || isImageTool(activity.title)}
+  {:else if isImageViewActivity(activity)}
     <ImageIcon size={15} />
   {:else}
     <Wrench size={15} />
   {/if}
 {/snippet}
 
-{#snippet activityHistoryRow(activity: TimelineActivityRow)}
+{#snippet activityHistoryRow(activity: TimelineActivityRow, simplified: boolean)}
   {#if timelineActivitySupportsDisclosure(activity)}
     {@const activityExpanded = expandedActivities.includes(activity.id)}
     <div class="chat-process-step disclosure" class:active={activityIsInProgress(activity)} class:failed={activity.status === "failed"}>
       <button type="button" class="chat-process-step-trigger" data-timeline-disclosure-expanded={activityExpanded} aria-expanded={activityExpanded} onclick={() => { expandedActivities = toggle(expandedActivities, activity.id); }}>
         {@render activityIcon(activity)}
         <span class="chat-process-step-label">
-          <span>{activityTitle(activity)}</span>
+          <span>{simplified ? activitySummaryTitle([activity]) : activityTitle(activity)}</span>
           <ChevronRight class={activityExpanded ? "chat-step-chevron expanded" : "chat-step-chevron"} size={14} />
         </span>
       </button>
@@ -549,7 +656,7 @@
   {:else}
     <div class="chat-process-step" class:active={activityIsInProgress(activity)} class:failed={activity.status === "failed"} class:thinking={activityIsThinking(activity)}>
       {#if !activityIsThinking(activity)}{@render activityIcon(activity)}{/if}
-      <span>{activityTitle(activity)}</span>
+      <span>{simplified ? activitySummaryTitle([activity]) : activityTitle(activity)}</span>
     </div>
   {/if}
 {/snippet}
@@ -573,23 +680,42 @@
     </article>
   {:else if row.kind === "activity"}
     {@const activity = row as TimelineActivityRow}
-    {@render activityHistoryRow(activity)}
+    {@render activityHistoryRow(activity, true)}
   {:else if row.kind === "activity_group"}
     {@const group = row as TimelineActivityGroupRow}
+    {@const activities = [...group.earlierRows, group.latest]}
+    {@const scrollState = processHistoryScrollStates[group.id]}
     <button type="button" class="chat-process-toggle" class:active={activityIsInProgress(group.latest)} data-timeline-disclosure-expanded={group.expanded} aria-expanded={group.expanded} onclick={() => { expandedGroups = toggle(expandedGroups, group.id); }}>
-      {#if group.expanded}<ChevronDown size={15} />{:else}<ChevronRight size={15} />{/if}
-      <span>{activityTitle(group.latest)}</span>
-      <small>{t("chat.timeline.earlierSteps", formatNumber(localization.locale, group.earlierRows.length))}</small>
+      {@render activityIcon(activities[0] ?? group.latest)}
+      <span class="chat-process-toggle-label">
+        <span>{activitySummaryTitle(activities)}</span>
+        <ChevronRight class={group.expanded ? "chat-step-chevron expanded" : "chat-step-chevron"} size={14} />
+      </span>
     </button>
     <div class="chat-disclosure-region" class:expanded={group.expanded} aria-hidden={!group.expanded} inert={!group.expanded}>
-      <div class="chat-disclosure-inner"><div class="chat-process-history">{#each [...group.earlierRows, group.latest] as activity}{@render activityHistoryRow(activity)}{/each}</div></div>
+      <div class="chat-disclosure-inner">
+        <div
+          class="chat-process-history-scroll"
+          class:scroll-top={scrollState?.scrollable && scrollState.canScrollUp && !scrollState.canScrollDown}
+          class:scroll-bottom={scrollState?.scrollable && !scrollState.canScrollUp && scrollState.canScrollDown}
+          class:scroll-both={scrollState?.scrollable && scrollState.canScrollUp && scrollState.canScrollDown}
+          use:trackProcessHistoryScroll={group.id}
+        ><div class="chat-process-history">{#each activities as activity}{@render activityHistoryRow(activity, false)}{/each}</div></div>
+      </div>
     </div>
   {:else if row.kind === "turn_fold"}
     {@const fold = row as TimelineTurnFoldRow}
+    {@const activities = foldActivities(fold)}
+    {@const foldStatus = foldStatusLabel(fold)}
+    {@const scrollState = processHistoryScrollStates[fold.id]}
     {#if fold.hiddenRows.length > 0}
       <button type="button" class="chat-process-toggle" class:failed={fold.state === "failed"} data-timeline-disclosure-expanded={fold.expanded} aria-expanded={fold.expanded} onclick={() => { expandedTurns = toggle(expandedTurns, fold.turnId); }}>
-        {#if fold.expanded}<ChevronDown size={15} />{:else}<ChevronRight size={15} />{/if}
-        <span>{foldLabel(fold)}</span>
+        {#if activities[0]}{@render activityIcon(activities[0])}{/if}
+        <span class="chat-process-toggle-label">
+          <span>{foldLabel(fold)}</span>
+          <ChevronRight class={fold.expanded ? "chat-step-chevron expanded" : "chat-step-chevron"} size={14} />
+        </span>
+        {#if foldStatus}<small>{foldStatus}</small>{/if}
       </button>
     {:else}
       <div class="chat-process-toggle chat-process-summary" class:failed={fold.state === "failed"}>
@@ -597,7 +723,15 @@
       </div>
     {/if}
     <div class="chat-disclosure-region" class:expanded={fold.expanded} aria-hidden={!fold.expanded} inert={!fold.expanded}>
-      <div class="chat-disclosure-inner"><div class="chat-process-history">{#each fold.hiddenRows as hiddenRow}{@render modelRowContent(hiddenRow)}{/each}</div></div>
+      <div class="chat-disclosure-inner">
+        <div
+          class="chat-process-history-scroll"
+          class:scroll-top={scrollState?.scrollable && scrollState.canScrollUp && !scrollState.canScrollDown}
+          class:scroll-bottom={scrollState?.scrollable && !scrollState.canScrollUp && scrollState.canScrollDown}
+          class:scroll-both={scrollState?.scrollable && scrollState.canScrollUp && scrollState.canScrollDown}
+          use:trackProcessHistoryScroll={fold.id}
+        ><div class="chat-process-history">{#each fold.hiddenRows as hiddenRow}{#if hiddenRow.kind === "activity"}{@render activityHistoryRow(hiddenRow, false)}{:else}{@render modelRowContent(hiddenRow)}{/if}{/each}</div></div>
+      </div>
     </div>
   {:else if row.kind === "plan"}
     {@const plan = row as TimelinePlanRow}
@@ -634,7 +768,8 @@
                   <div class="chat-participant-header"><strong>{userDisplayName}</strong><span title={t("chat.timeline.timestamp")}>{timestampLabel(message.createdAt)}</span></div>
                   <article class="chat-user-message">
                     <div use:measureExpandableHeight class="chat-message-expandable" class:collapsed={message.markdown.length > 1200 && !messageExpanded} class:expanded={messageExpanded}><div><p class="wrap-break-word whitespace-pre-wrap">{message.markdown}</p></div></div>
-                    {#if message.userContext}<div class="chat-user-context">{#each message.userContext.attachments as attachment}<button type="button" title={attachment.status ?? t("chat.timeline.attachment")} onclick={() => copy(attachment.displayName)}><FileText size={12} /><span>{attachment.displayName}</span>{#if attachment.byteSize !== null}<small>{formatNumber(localization.locale, attachment.byteSize)} B</small>{/if}</button>{/each}{#each message.userContext.mentions as mention}<button type="button" title={t("chat.timeline.mention")} onclick={() => copy(mention.relativePath)}><span>@</span><span>{mention.relativePath}</span></button>{/each}{#each message.userContext.terminalContext as context}<button type="button" title={t("chat.timeline.terminalContext")} onclick={() => copy(context)}><Terminal size={12} /><span>{context}</span></button>{/each}</div>{/if}
+                    {#if messageImages(message).length > 0}<ChatImageGallery images={messageImages(message)} />{/if}
+                    {#if message.userContext && hasMessageContextChips(message)}<div class="chat-user-context">{#each message.userContext.attachments.filter((attachment) => attachment.kind !== "image" || !attachment.id) as attachment}<button type="button" title={attachment.status ?? t("chat.timeline.attachment")} onclick={() => copy(attachment.displayName)}><FileText size={12} /><span>{attachment.displayName}</span>{#if attachment.byteSize !== null}<small>{formatNumber(localization.locale, attachment.byteSize)} B</small>{/if}</button>{/each}{#each message.userContext.mentions as mention}<button type="button" title={t("chat.timeline.mention")} onclick={() => copy(mention.relativePath)}><span>@</span><span>{mention.relativePath}</span></button>{/each}{#each message.userContext.terminalContext as context}<button type="button" title={t("chat.timeline.terminalContext")} onclick={() => copy(context)}><Terminal size={12} /><span>{context}</span></button>{/each}</div>{/if}
                     {#if message.markdown.length > 1200 || message.userContext?.preCheckpointId}<div class="chat-message-meta mt-2 flex flex-wrap items-center gap-2 text-muted-foreground">{#if message.markdown.length > 1200}<button type="button" data-timeline-disclosure-expanded={messageExpanded} aria-expanded={messageExpanded} onclick={() => { expandedMessages = toggle(expandedMessages, message.id); }}>{messageExpanded ? t("chat.timeline.showLess") : t("chat.timeline.showMore")}</button>{/if}{#if message.userContext?.preCheckpointId}<button type="button" class="inline-flex items-center gap-1" onclick={() => window.dispatchEvent(new CustomEvent("ganbaru-ai:chat-revert-message", { detail: { threadId: chat.selectedThreadId, checkpointId: message.userContext?.preCheckpointId, turnId: message.turnId } }))}><RotateCcw size={11} />{t("chat.timeline.revert")}</button>{/if}</div>{/if}
                   </article>
                 </div>
@@ -723,14 +858,23 @@
   .chat-message-expandable::after { position: absolute; inset: auto 0 0; height: 3rem; background: linear-gradient(transparent, var(--cal-bg)); content: ""; opacity: 0; pointer-events: none; transition: opacity 220ms ease; }
   .chat-message-expandable.collapsed::after { opacity: 1; }
   .chat-process-toggle { display: flex; width: 100%; min-height: var(--chat-conversation-line-height, 1.4rem); align-items: center; gap: 0.4rem; color: var(--muted-foreground); font-size: var(--chat-conversation-font-size, 0.933333rem); line-height: var(--chat-conversation-line-height, 1.4rem); text-align: left; }
-  .chat-process-toggle > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .chat-process-toggle-label { display: inline-flex; width: fit-content; min-width: 0; max-width: 100%; align-items: center; gap: 0.25rem; }
+  .chat-process-toggle-label > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .chat-process-toggle > small { margin-left: auto; font-size: 0.7rem; }
   .chat-process-toggle :global(svg) { flex: 0 0 auto; transition: color 120ms ease; }
   .chat-process-toggle:hover { color: var(--foreground); }
   .chat-process-toggle:focus-visible { border-radius: 0.25rem; outline: 2px solid var(--ring); outline-offset: 2px; }
   .chat-process-toggle.failed, .chat-process-step.failed { color: var(--destructive); }
-  .chat-process-summary { padding-left: 1.4rem; }
+  .chat-process-summary { padding-left: 0; }
   .chat-process-history { display: grid; min-width: 0; gap: 0.1rem; margin-block: 0.35rem 0.55rem; color: var(--muted-foreground); }
+  .chat-process-history-scroll { --chat-process-scroll-fade-size: 1.6rem; max-height: min(20rem, 45svh); overflow-y: auto; overscroll-behavior: contain; padding-right: 0.25rem; scrollbar-color: var(--app-scrollbar-thumb) transparent; scrollbar-width: thin; transition: -webkit-mask-image 120ms ease, mask-image 120ms ease; }
+  .chat-process-history-scroll::-webkit-scrollbar { width: 8px; }
+  .chat-process-history-scroll::-webkit-scrollbar-track { background: transparent; }
+  .chat-process-history-scroll::-webkit-scrollbar-thumb { border: 2px solid transparent; border-radius: 9999px; background: var(--app-scrollbar-thumb); background-clip: content-box; }
+  .chat-process-history-scroll::-webkit-scrollbar-thumb:hover { background-color: var(--app-scrollbar-thumb-hover); }
+  .chat-process-history-scroll.scroll-top { -webkit-mask-image: linear-gradient(to bottom, transparent, black var(--chat-process-scroll-fade-size), black); mask-image: linear-gradient(to bottom, transparent, black var(--chat-process-scroll-fade-size), black); }
+  .chat-process-history-scroll.scroll-bottom { -webkit-mask-image: linear-gradient(to bottom, black, black calc(100% - var(--chat-process-scroll-fade-size)), transparent); mask-image: linear-gradient(to bottom, black, black calc(100% - var(--chat-process-scroll-fade-size)), transparent); }
+  .chat-process-history-scroll.scroll-both { -webkit-mask-image: linear-gradient(to bottom, transparent, black var(--chat-process-scroll-fade-size), black calc(100% - var(--chat-process-scroll-fade-size)), transparent); mask-image: linear-gradient(to bottom, transparent, black var(--chat-process-scroll-fade-size), black calc(100% - var(--chat-process-scroll-fade-size)), transparent); }
   .chat-process-step { display: grid; width: 100%; min-width: 0; grid-template-columns: 1rem minmax(0, 1fr) 1rem; align-items: start; gap: 0.45rem; color: var(--muted-foreground); padding-block: 0.15rem; font-size: var(--chat-conversation-font-size, 0.933333rem); line-height: var(--chat-conversation-line-height, 1.4rem); }
   .chat-process-step.disclosure { display: block; }
   .chat-process-step.thinking { grid-template-columns: minmax(0, 1fr); }
@@ -740,7 +884,7 @@
   .chat-process-step-label > span { min-width: 0; overflow-wrap: anywhere; }
   .chat-process-step-label :global(svg) { flex: 0 0 auto; margin-top: calc((var(--chat-conversation-line-height, 1.4rem) - 0.875rem) / 2); }
   .chat-process-step.active, .chat-process-toggle.active { color: color-mix(in srgb, var(--muted-foreground) 78%, var(--foreground)); }
-  .chat-process-step.active > span, .chat-process-step.active .chat-process-step-label > span, .chat-process-toggle.active > span {
+  .chat-process-step.active > span, .chat-process-step.active .chat-process-step-label > span, .chat-process-toggle.active .chat-process-toggle-label > span {
     animation: chat-process-shimmer 6s ease-in-out infinite;
     background: linear-gradient(100deg, var(--muted-foreground) 0%, var(--muted-foreground) 42%, var(--foreground) 50%, var(--muted-foreground) 58%, var(--muted-foreground) 100%);
     background-repeat: no-repeat;
@@ -776,8 +920,8 @@
   @keyframes chat-message-in { from { opacity: 0; transform: translateY(0.2rem); } to { opacity: 1; transform: translateY(0); } }
   @keyframes chat-process-shimmer { 0%, 8% { background-position: 100% 0; } 65%, 100% { background-position: 0% 0; } }
   @media (hover: none) { .chat-message-meta, .chat-plan-actions { opacity: 1; } }
-  @media (prefers-reduced-motion: reduce) { .chat-timeline-row.optimistic, .chat-process-step.active > span, .chat-process-step.active .chat-process-step-label > span, .chat-process-toggle.active > span { animation: none; background: none; color: inherit; -webkit-text-fill-color: currentColor; } .chat-process-toggle :global(svg), :global(.chat-step-chevron), .chat-disclosure-region, .chat-disclosure-inner, .chat-message-expandable, .chat-message-expandable::after { transition: none; } }
-  @media (forced-colors: active) { .chat-process-step.active > span, .chat-process-step.active .chat-process-step-label > span, .chat-process-toggle.active > span { animation: none; background: none; color: inherit; -webkit-text-fill-color: currentColor; } }
+  @media (prefers-reduced-motion: reduce) { .chat-timeline-row.optimistic, .chat-process-step.active > span, .chat-process-step.active .chat-process-step-label > span, .chat-process-toggle.active .chat-process-toggle-label > span { animation: none; background: none; color: inherit; -webkit-text-fill-color: currentColor; } .chat-process-toggle :global(svg), :global(.chat-step-chevron), .chat-disclosure-region, .chat-disclosure-inner, .chat-message-expandable, .chat-message-expandable::after, .chat-process-history-scroll { transition: none; } }
+  @media (forced-colors: active) { .chat-process-step.active > span, .chat-process-step.active .chat-process-step-label > span, .chat-process-toggle.active .chat-process-toggle-label > span { animation: none; background: none; color: inherit; -webkit-text-fill-color: currentColor; } }
   @container chat-shell (max-width: 420px) {
     .chat-timeline-row { --chat-participant-gap: 0.5rem; }
     .chat-participant-header { flex-wrap: wrap; column-gap: 0.35rem; }

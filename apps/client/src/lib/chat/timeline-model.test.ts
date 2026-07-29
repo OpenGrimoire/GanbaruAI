@@ -57,6 +57,22 @@ describe("canonical timeline projection", () => {
     expect(settledThinking?.kind === "activity" && timelineActivityShowsLiveStatus(settledThinking, settled.turns[0]?.state)).toBe(false);
   });
 
+  it("projects public reasoning summaries without retaining raw reasoning text in the activity detail", () => {
+    const projection = projectCanonicalTimeline([
+      stored(1, { type: "item_started", payload: { itemId: "thinking", kind: "reasoning", status: "active", title: "Reasoning", detail: null, safeMetadata: null } }),
+      stored(2, { type: "content_delta", payload: { itemId: "thinking", streamKind: "reasoning_text", contentIndex: 0, delta: "Private provider reasoning" } }),
+      stored(3, { type: "content_delta", payload: { itemId: "thinking", streamKind: "reasoning_summary", contentIndex: 0, delta: "Checking attachment rendering" } }),
+      stored(4, { type: "item_completed", payload: { itemId: "thinking", kind: "reasoning", status: "completed", title: "Reasoning", detail: null, safeMetadata: null } }),
+    ]);
+    const thinking = projection.rows.find((row) => row.id === "activity:thinking");
+
+    expect(thinking).toMatchObject({
+      kind: "activity",
+      activityKind: "reasoning_summary",
+      detail: "Checking attachment rendering",
+    });
+  });
+
   it("projects durable checkpoint restores as thread-level notices", () => {
     const projection = projectCanonicalTimeline([
       stored(1, {
@@ -250,6 +266,20 @@ describe("canonical timeline projection", () => {
     ]);
   });
 
+  it("omits a completed process disclosure when the provider only reports private reasoning", () => {
+    const projection = projectCanonicalTimeline([
+      stored(1, { type: "turn_started", payload: { providerTurnId: "provider-turn-1", state: "active", modes: { safetyMode: "ask_for_approval", interactionMode: "build" }, modelId: "gpt-5", modelOptions: [] } }),
+      stored(2, { type: "item_started", payload: { itemId: "thinking", kind: "reasoning", status: "active", title: "Reasoning", detail: null, safeMetadata: null } }),
+      stored(3, { type: "item_completed", payload: { itemId: "thinking", kind: "reasoning", status: "completed", title: "Reasoning", detail: null, safeMetadata: null } }),
+      stored(4, { type: "item_completed", payload: { itemId: "answer", kind: "assistant_message", status: "completed", title: null, detail: "Hi.", safeMetadata: { schemaVersion: 1, value: { phase: "final_answer" } } } }),
+      stored(5, { type: "turn_completed", payload: { state: "completed", stopReason: "end_turn", usage: null, changedFiles: [] } }),
+    ]);
+    const displayRows = buildTimelineDisplayRows(projection.rows, projection.turns);
+
+    expect(displayRows).toMatchObject([{ id: "message:answer", kind: "message", markdown: "Hi." }]);
+    expect([...timelineModelGroupStartIds(displayRows)]).toEqual(["message:answer"]);
+  });
+
   it("does not promote earlier commentary to a final answer when work ends with an action", () => {
     const projection = projectCanonicalTimeline([
       stored(1, { type: "turn_started", payload: { providerTurnId: "provider-turn-1", state: "active", modes: { safetyMode: "ask_for_approval", interactionMode: "build" }, modelId: "gpt-5", modelOptions: [] } }),
@@ -309,6 +339,20 @@ describe("canonical timeline projection", () => {
     expect(buildTimelineDisplayRows(projection.rows, projection.turns, new Set(), new Set([groupId]))).toMatchObject([
       { id: groupId, expanded: true, earlierRows: [{ id: "activity:one" }], latest: { id: "activity:two" } },
     ]);
+  });
+
+  it("wraps a single settled action so its provider detail stays inside a semantic disclosure", () => {
+    const projection = projectCanonicalTimeline([
+      stored(1, { type: "item_completed", payload: { itemId: "command", kind: "command_execution", status: "completed", title: "pnpm test", detail: "Passed", safeMetadata: null } }, { turnId: null }),
+    ]);
+
+    expect(buildTimelineDisplayRows(projection.rows, projection.turns)).toMatchObject([{
+      id: "activity-group:activity:command:activity:command",
+      kind: "activity_group",
+      earlierRows: [],
+      latest: { id: "activity:command", title: "pnpm test" },
+      expanded: false,
+    }]);
   });
 
   it("keeps a matching late assistant event visible after turn settlement", () => {
@@ -430,14 +474,21 @@ describe("canonical timeline projection", () => {
 
   it("bounds and validates durable user context metadata", () => {
     const context = parseTimelineUserContext({
-      attachments: [{ attachmentId: "attachment-1", displayName: "diagram.png", kind: "image", byteSize: 1024, status: "persisted" }, { filename: 42 }],
+      attachments: [
+        { attachmentId: "attachment-1", displayName: "diagram.png", kind: "image", byteSize: 1024, status: "persisted" },
+        { id: "legacy-image", displayName: "screenshot.png", mimeType: "image/png", byteSize: 2048, status: "managed" },
+        { filename: 42 },
+      ],
       mentions: [{ relativePath: "src/main.ts", kind: "file" }, { relativePath: null }],
       terminalContext: ["pnpm test", { label: "Focused terminal selection" }, { label: 7 }],
       preCheckpointId: "checkpoint-1",
     });
 
     expect(context).toEqual({
-      attachments: [{ id: "attachment-1", displayName: "diagram.png", kind: "image", byteSize: 1024, status: "persisted" }],
+      attachments: [
+        { id: "attachment-1", displayName: "diagram.png", kind: "image", byteSize: 1024, status: "persisted" },
+        { id: "legacy-image", displayName: "screenshot.png", kind: "image", byteSize: 2048, status: "managed" },
+      ],
       mentions: [{ relativePath: "src/main.ts", kind: "file" }],
       terminalContext: ["pnpm test", "Focused terminal selection"],
       preCheckpointId: "checkpoint-1",

@@ -1233,6 +1233,78 @@ fn ingestion_bounds_command_output_with_a_visible_notice() {
 }
 
 #[test]
+fn activity_projection_keeps_public_reasoning_summary_separate_from_raw_reasoning() {
+    tauri::async_runtime::block_on(async {
+        let pool = pool_with_thread().await;
+        append_canonical_event(
+            &pool,
+            canonical_request(
+                "event-reasoning-start",
+                None,
+                CanonicalEvent::ItemStarted(ItemLifecycleEvent {
+                    item_id: "reasoning-1".to_string(),
+                    kind: CanonicalItemKind::Reasoning,
+                    status: ActivityStatus::Active,
+                    title: Some("Reasoning".to_string()),
+                    detail: None,
+                    safe_metadata: None,
+                }),
+            ),
+        )
+        .await
+        .unwrap();
+        for (event_id, stream_kind, delta) in [
+            (
+                "event-reasoning-private",
+                ContentStreamKind::ReasoningText,
+                "Private provider reasoning",
+            ),
+            (
+                "event-reasoning-summary",
+                ContentStreamKind::ReasoningSummary,
+                "Checking attachment rendering",
+            ),
+        ] {
+            let mut request = content_event(event_id, delta);
+            let CanonicalEvent::ContentDelta(content) = &mut request.runtime.event else {
+                unreachable!()
+            };
+            content.item_id = "reasoning-1".to_string();
+            content.stream_kind = stream_kind;
+            append_canonical_event(&pool, request).await.unwrap();
+        }
+        append_canonical_event(
+            &pool,
+            canonical_request(
+                "event-reasoning-complete",
+                None,
+                CanonicalEvent::ItemCompleted(ItemLifecycleEvent {
+                    item_id: "reasoning-1".to_string(),
+                    kind: CanonicalItemKind::Reasoning,
+                    status: ActivityStatus::Completed,
+                    title: Some("Reasoning".to_string()),
+                    detail: None,
+                    safe_metadata: None,
+                }),
+            ),
+        )
+        .await
+        .unwrap();
+
+        let row =
+            sqlx::query("SELECT item_kind, detail FROM chat_activities WHERE id = 'reasoning-1'")
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        assert_eq!(row.get::<String, _>("item_kind"), "reasoning_summary");
+        assert_eq!(
+            row.get::<String, _>("detail"),
+            "Checking attachment rendering"
+        );
+    });
+}
+
+#[test]
 fn ingestion_retains_a_pending_batch_after_append_failure() {
     tauri::async_runtime::block_on(async {
         let pool = pool_with_thread().await;

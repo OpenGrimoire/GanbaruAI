@@ -650,7 +650,8 @@ export function buildTimelineDisplayRows(
       && !(processRow.kind === "message" && processRow.markdown.trim().length === 0)
       && !(processRow.kind === "activity" && isTransientThinkingActivity(processRow))
     ));
-    if (!emittedFolds.has(row.turnId)) {
+    const foldRequired = hiddenRows.length > 0 || turn.state !== "completed";
+    if (foldRequired && !emittedFolds.has(row.turnId)) {
       displayRows.push({
         id: `turn-fold:${row.turnId}`,
         kind: "turn_fold",
@@ -708,6 +709,23 @@ function appendContentDelta(
 ): void {
   const assistant = payload.streamKind === "assistant_text";
   const id = assistant ? `message:${payload.itemId}` : `activity:${payload.itemId}`;
+  if (payload.streamKind === "reasoning_text") {
+    if (!rows.has(id)) {
+      rows.set(id, {
+        id,
+        kind: "activity",
+        turnId: event.turnId,
+        sequence: event.sequence,
+        createdAt: event.createdAt,
+        activityKind: "reasoning_text",
+        status: "active",
+        title: activityTitle(payload.streamKind),
+        detail: null,
+        metadata: null,
+      });
+    }
+    return;
+  }
   let stream = streams.get(id);
   if (!stream) {
     const row: TimelineMessageRow | TimelineActivityRow = assistant
@@ -720,7 +738,10 @@ function appendContentDelta(
   stream.parts.set(payload.contentIndex, `${stream.parts.get(payload.contentIndex) ?? ""}${payload.delta}`);
   const content = [...stream.parts.entries()].sort(([left], [right]) => left - right).map(([, value]) => value).join("");
   if (stream.row.kind === "message") stream.row.markdown = content;
-  else if (stream.row.kind === "activity") stream.row.detail = content;
+  else if (stream.row.kind === "activity") {
+    stream.row.activityKind = payload.streamKind;
+    stream.row.detail = content;
+  }
 }
 
 function appendPlanDelta(
@@ -781,13 +802,18 @@ function upsertActivity(
   metadata: VersionedJson | null,
 ): void {
   const current = rows.get(id);
+  const resolvedActivityKind = activityKind === "reasoning"
+    && current?.kind === "activity"
+    && (current.activityKind === "reasoning_summary" || current.activityKind === "reasoning_text")
+    ? current.activityKind
+    : activityKind;
   rows.set(id, {
     id,
     kind: "activity",
     turnId: event.turnId,
     sequence: current?.sequence ?? event.sequence,
     createdAt: current?.createdAt ?? event.createdAt,
-    activityKind,
+    activityKind: resolvedActivityKind,
     status,
     title,
     detail: detail && detail.length > 0
@@ -931,10 +957,11 @@ function parseUserAttachments(value: VersionedJson["value"] | undefined): Timeli
     const byteSize = typeof record.byteSize === "number" && Number.isFinite(record.byteSize) && record.byteSize >= 0
       ? record.byteSize
       : null;
+    const mimeType = jsonString(record.mimeType);
     attachments.push({
       id: jsonString(record.attachmentId) ?? jsonString(record.id),
       displayName,
-      kind: jsonString(record.kind),
+      kind: jsonString(record.kind) ?? (mimeType?.startsWith("image/") ? "image" : null),
       byteSize,
       status: jsonString(record.status),
     });
@@ -981,8 +1008,7 @@ function groupSettledActivities(
   );
   let run: TimelineActivityRow[] = [];
   const flush = (): void => {
-    if (run.length < 2) {
-      result.push(...run);
+    if (run.length === 0) {
       run = [];
       return;
     }
@@ -1007,7 +1033,13 @@ function groupSettledActivities(
   };
 
   for (const row of rows) {
-    if (row.kind === "activity" && !expandedFoldTurnIds.has(row.turnId ?? "") && row.status !== "active" && row.status !== "pending" && row.status !== "waiting") {
+    if (row.kind === "activity"
+      && !isTransientThinkingActivity(row)
+      && row.title !== "thread_reverted"
+      && !expandedFoldTurnIds.has(row.turnId ?? "")
+      && row.status !== "active"
+      && row.status !== "pending"
+      && row.status !== "waiting") {
       if (run.length === 0 || run[0]?.turnId === row.turnId) run.push(row);
       else {
         flush();

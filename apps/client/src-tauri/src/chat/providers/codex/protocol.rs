@@ -6,11 +6,16 @@ use crate::chat::models::{
     ModelOptionDefinition, ModelOptionSelection, ModelOptionValue, ProviderCapability,
     ProviderModel, SafetyMode, SendTurnRequest, TurnModeSnapshot,
 };
+use base64::{engine::general_purpose, Engine as _};
 use serde::Deserialize;
 use serde_json::{json, Map, Value};
-use std::path::{Path, PathBuf};
+use std::{
+    fs,
+    path::{Path, PathBuf},
+};
 
 const MAX_PROMPT_BYTES: usize = 4 * 1024 * 1024;
+const MAX_IMAGE_BYTES: u64 = 10 * 1024 * 1024;
 const MAX_DEVELOPER_INSTRUCTIONS_BYTES: usize = 64 * 1024;
 const MAX_MODEL_ID_BYTES: usize = 256;
 const MAX_MODEL_OPTIONS: usize = 32;
@@ -364,15 +369,36 @@ pub fn turn_start_params(
                     ChatError::validation("attachments", "Codex image attachment is unavailable")
                 })?;
                 let path = Path::new(path);
-                if !path.is_absolute() || !path.is_file() {
+                let metadata = fs::metadata(path).map_err(|_| {
+                    ChatError::validation("attachments", "Codex image attachment is unavailable")
+                })?;
+                if !path.is_absolute() || !metadata.is_file() || metadata.len() > MAX_IMAGE_BYTES {
                     return Err(ChatError::validation(
                         "attachments",
-                        "Codex image attachment is unavailable",
+                        "Codex image attachment is invalid or oversized",
                     ));
                 }
+                let mime = attachment
+                    .mime_type
+                    .as_deref()
+                    .filter(|value| {
+                        matches!(
+                            *value,
+                            "image/png" | "image/jpeg" | "image/gif" | "image/webp"
+                        )
+                    })
+                    .ok_or_else(|| {
+                        ChatError::validation("attachments", "Codex image type is unsupported")
+                    })?;
+                let bytes = fs::read(path).map_err(|_| {
+                    ChatError::validation("attachments", "Codex image attachment could not be read")
+                })?;
                 input.push(json!({
-                    "type": "localImage",
-                    "path": path.to_string_lossy(),
+                    "type": "image",
+                    "url": format!(
+                        "data:{mime};base64,{}",
+                        general_purpose::STANDARD.encode(bytes),
+                    ),
                 }));
             }
             "text_snippet" => {

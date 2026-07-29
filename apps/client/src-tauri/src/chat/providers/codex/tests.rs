@@ -192,6 +192,7 @@ fn modes(safety_mode: SafetyMode, interaction_mode: InteractionMode) -> TurnMode
 enum FixtureScenario {
     Healthy,
     ResumeMissing,
+    ResumeWithoutStarted,
     AuthenticationRequired,
     MalformedInitialize,
     CommandApproval,
@@ -421,14 +422,16 @@ async fn run_app_server_fixture<R, W>(
                     }),
                 )
                 .await;
-                write_fixture_message(
-                    &mut writer,
-                    json!({
-                        "method": "thread/started",
-                        "params": { "thread": { "id": thread_id, "name": "Fixture provider title" } }
-                    }),
-                )
-                .await;
+                if method != "thread/resume" || scenario != FixtureScenario::ResumeWithoutStarted {
+                    write_fixture_message(
+                        &mut writer,
+                        json!({
+                            "method": "thread/started",
+                            "params": { "thread": { "id": thread_id, "name": "Fixture provider title" } }
+                        }),
+                    )
+                    .await;
+                }
             }
             "config/mcpServer/reload" => {
                 write_fixture_message(&mut writer, json!({ "id": id, "result": {} })).await;
@@ -681,7 +684,11 @@ fn turn_builder_preserves_model_traits_modes_and_verified_images() {
         "Use the repository conventions."
     );
     assert_eq!(params["input"][0]["type"], "text");
-    assert_eq!(params["input"][1]["type"], "localImage");
+    assert_eq!(params["input"][1]["type"], "image");
+    assert_eq!(
+        params["input"][1]["url"],
+        "data:image/png;base64,cmVkYWN0ZWQgaW1hZ2U="
+    );
 
     let mut standard_request = request.clone();
     standard_request.model_options[1].value = ModelOptionValue::Choice("standard".to_string());
@@ -694,10 +701,7 @@ fn turn_builder_preserves_model_traits_modes_and_verified_images() {
     )
     .unwrap();
     assert!(standard_params.get("serviceTier").is_none());
-    assert!(params["input"][1]["path"]
-        .as_str()
-        .unwrap()
-        .starts_with(workspace.path().to_str().unwrap()));
+    assert!(params["input"][1].get("path").is_none());
 
     let mut custom_request = request.clone();
     custom_request.modes.safety_mode = SafetyMode::Custom;
@@ -1590,6 +1594,11 @@ fn driver_fixture_covers_native_resume_and_confirmed_missing_fallback() {
     tauri::async_runtime::block_on(async {
         for (scenario, expected_thread, expects_fallback) in [
             (FixtureScenario::Healthy, "provider-thread-existing", false),
+            (
+                FixtureScenario::ResumeWithoutStarted,
+                "provider-thread-existing",
+                false,
+            ),
             (FixtureScenario::ResumeMissing, "fixture-thread-new", true),
         ] {
             let workspace = TestDirectory::new("driver-resume");

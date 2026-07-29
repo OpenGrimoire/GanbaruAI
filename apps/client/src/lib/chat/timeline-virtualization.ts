@@ -22,6 +22,12 @@ export interface TimelineScrollbarThumbGeometry {
   size: number;
 }
 
+export interface TimelineScrollOverflowState {
+  scrollable: boolean;
+  canScrollUp: boolean;
+  canScrollDown: boolean;
+}
+
 export type TimelineScrollIntent = "following" | "near_end" | "anchored";
 export type TimelineMinimapRow = TimelineMessageRow | TimelineActivityRow;
 
@@ -125,6 +131,22 @@ export function timelineScrollbarThumbGeometry(
   return {
     offset: maximumScroll > 0 ? maximumOffset * boundedScrollTop / maximumScroll : 0,
     size,
+  };
+}
+
+/** Determines which directional fades a bounded timeline disclosure needs. */
+export function timelineScrollOverflowState(
+  scrollTop: number,
+  scrollHeight: number,
+  clientHeight: number,
+  tolerance = 1,
+): TimelineScrollOverflowState {
+  const maximumScrollTop = Math.max(0, scrollHeight - clientHeight);
+  const edgeTolerance = Math.max(0, tolerance);
+  return {
+    scrollable: maximumScrollTop > edgeTolerance,
+    canScrollUp: scrollTop > edgeTolerance,
+    canScrollDown: scrollTop < maximumScrollTop - edgeTolerance,
   };
 }
 

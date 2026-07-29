@@ -516,14 +516,14 @@ async fn ensure_session(context: EnsureSessionContext<'_>) -> ChatResult<Provide
         request,
     } = context;
     let snapshot = owner.snapshot()?;
-    if let Some(session_id) = snapshot.session_id {
-        if snapshot.session_state != ProviderSessionState::Ready {
-            return Err(ChatError::new(
+    if reuse_existing_session(snapshot.session_id.is_some(), snapshot.session_state)? {
+        let session_id = snapshot.session_id.ok_or_else(|| {
+            ChatError::new(
                 ChatErrorCode::InvalidStateTransition,
-                "Chat provider session is not ready",
+                "Chat provider session identity is unavailable",
                 true,
-            ));
-        }
+            )
+        })?;
         validate_modes(&snapshot.capabilities, request.modes)?;
         return Ok(ProviderSessionSnapshot {
             session_id,
@@ -603,6 +603,33 @@ async fn ensure_session(context: EnsureSessionContext<'_>) -> ChatResult<Provide
             operation_context("start-session", PROVIDER_START_TIMEOUT),
         )
         .await
+}
+
+fn reuse_existing_session(
+    has_session_id: bool,
+    session_state: ProviderSessionState,
+) -> ChatResult<bool> {
+    if session_state == ProviderSessionState::Ready {
+        if has_session_id {
+            return Ok(true);
+        }
+        return Err(ChatError::new(
+            ChatErrorCode::InvalidStateTransition,
+            "Chat provider session identity is unavailable",
+            true,
+        ));
+    }
+    if matches!(
+        session_state,
+        ProviderSessionState::Stopped | ProviderSessionState::Failed
+    ) {
+        return Ok(false);
+    }
+    Err(ChatError::new(
+        ChatErrorCode::InvalidStateTransition,
+        "Chat provider session is not ready",
+        true,
+    ))
 }
 
 struct DurableChatEventSink {
@@ -1026,6 +1053,7 @@ async fn persist_user_turn(context: PersistUserTurnContext<'_>) -> ChatResult<()
         "attachments": attachments.iter().map(|attachment| json!({
             "id": attachment.attachment_id,
             "displayName": attachment.display_name,
+            "kind": attachment.kind,
             "mimeType": attachment.mime_type,
             "byteSize": attachment.byte_size,
             "status": "managed",
@@ -1780,6 +1808,14 @@ mod tests {
     use super::*;
     use crate::chat::tests::repository::pool_with_thread;
 
+    #[test]
+    fn stopped_and_failed_sessions_restart_even_if_a_stale_identity_remains() {
+        assert!(!reuse_existing_session(true, ProviderSessionState::Stopped).unwrap());
+        assert!(!reuse_existing_session(true, ProviderSessionState::Failed).unwrap());
+        assert!(reuse_existing_session(true, ProviderSessionState::Ready).unwrap());
+        assert!(reuse_existing_session(true, ProviderSessionState::Stopping).is_err());
+    }
+
     #[cfg(unix)]
     struct TestDirectory(std::path::PathBuf);
 
@@ -1811,6 +1847,21 @@ mod tests {
             let pool = pool_with_thread().await;
             let thread_id = ChatThreadId::new("thread-1").unwrap();
             let working_folder_id = ProjectWorkingFolderId::new("workspace-1").unwrap();
+            let attachment_id = ChatAttachmentId::new("attachment-before-dispatch").unwrap();
+            sqlx::query(
+                "INSERT INTO chat_attachments
+                    (id, working_folder_id, kind, original_display_name, mime_type, byte_size,
+                     sha256, managed_relative_path, signature_kind, created_at)
+                 VALUES (?, ?, 'image', 'prompt.png', 'image/png', 14, ?, ?, 'png', ?)",
+            )
+            .bind(attachment_id.as_str())
+            .bind(working_folder_id.as_str())
+            .bind("0".repeat(64))
+            .bind("assets/chat/attachments/prompt.png")
+            .bind("2026-07-21T12:00:00Z")
+            .execute(&pool)
+            .await
+            .unwrap();
             let workspace = workspaces::read_workspace(&pool, &working_folder_id)
                 .await
                 .unwrap();
@@ -1834,9 +1885,19 @@ mod tests {
                     interaction_mode: InteractionMode::Build,
                 },
                 prompt: "  Preserve this exact prompt\n".to_string(),
-                attachment_ids: Vec::new(),
+                attachment_ids: vec![attachment_id.clone()],
                 mentions: Vec::new(),
             };
+            let attachments = [PromptAttachmentReference {
+                attachment_id,
+                kind: "image".to_string(),
+                display_name: "prompt.png".to_string(),
+                managed_relative_path: "assets/chat/attachments/prompt.png".to_string(),
+                mime_type: Some("image/png".to_string()),
+                byte_size: 14,
+                local_path: Some("/vault/assets/chat/attachments/prompt.png".to_string()),
+                text_content: None,
+            }];
             let family_id = ProviderFamilyId::new("codex").unwrap();
             let persisted_at = UtcTimestamp::new("2026-07-21T12:00:00Z").unwrap();
             persist_user_turn(PersistUserTurnContext {
@@ -1847,7 +1908,7 @@ mod tests {
                 continuation_group_id: &existing.continuation_group_id,
                 provider_family_id: &family_id,
                 request: &request,
-                attachments: &[],
+                attachments: &attachments,
                 now: &persisted_at,
             })
             .await
@@ -1855,6 +1916,13 @@ mod tests {
 
             let stored: String = sqlx::query_scalar(
                 "SELECT normalized_markdown FROM chat_messages WHERE id = 'message-before-dispatch'",
+            )
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+            let context: String = sqlx::query_scalar(
+                "SELECT content_metadata_data FROM chat_messages
+                 WHERE id = 'message-before-dispatch'",
             )
             .fetch_one(&pool)
             .await
@@ -1872,6 +1940,11 @@ mod tests {
             .await
             .unwrap();
             assert_eq!(stored, "  Preserve this exact prompt\n");
+            assert_eq!(
+                serde_json::from_str::<serde_json::Value>(&context).unwrap()["attachments"][0]
+                    ["kind"],
+                "image"
+            );
             assert_eq!(receipt_state, "accepted");
             assert_eq!(turn_state, "pending");
         });

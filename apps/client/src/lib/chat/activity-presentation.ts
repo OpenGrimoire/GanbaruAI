@@ -17,6 +17,26 @@ export interface FileChangePresentation {
   deletions: number;
 }
 
+export type ActivitySummaryKind =
+  | "thinking"
+  | "commands"
+  | "file_changes"
+  | "file_reads"
+  | "web_searches"
+  | "image_views"
+  | "tools"
+  | "collaboration"
+  | "review"
+  | "compaction"
+  | "errors";
+
+export interface ActivitySummaryCount {
+  kind: ActivitySummaryKind;
+  count: number;
+}
+
+const MAX_TRANSIENT_SUMMARY_CHARACTERS = 160;
+
 /** Returns whether a timeline activity represents a shell command lifecycle. */
 export function isCommandActivity(activity: TimelineActivityRow): boolean {
   return activity.activityKind === "command_execution" || activity.activityKind === "command_output";
@@ -25,6 +45,46 @@ export function isCommandActivity(activity: TimelineActivityRow): boolean {
 /** Returns whether a timeline activity represents a provider file edit lifecycle. */
 export function isFileChangeActivity(activity: TimelineActivityRow): boolean {
   return activity.activityKind === "file_change" || activity.activityKind === "file_change_output";
+}
+
+/** Returns whether an activity is a provider-neutral file read action. */
+export function isFileReadActivity(activity: TimelineActivityRow): boolean {
+  const tool = normalizedToolName(activity.title);
+  return ["read", "read_file", "read_files", "open_file", "read_mcp_resource"]
+    .some((name) => tool === name || tool.endsWith(`_${name}`));
+}
+
+/** Returns whether an activity is a provider-neutral image inspection action. */
+export function isImageViewActivity(activity: TimelineActivityRow): boolean {
+  if (activity.activityKind === "image_view") return true;
+  const tool = normalizedToolName(activity.title);
+  return ["view_image", "image_view"]
+    .some((name) => tool === name || tool.endsWith(`_${name}`));
+}
+
+/** Summarizes consecutive actions by semantic kind while preserving first occurrence order. */
+export function summarizeActivityKinds(
+  activities: readonly TimelineActivityRow[],
+): ActivitySummaryCount[] {
+  const counts = new Map<ActivitySummaryKind, number>();
+  for (const activity of activities) {
+    const kind = activitySummaryKind(activity);
+    counts.set(kind, (counts.get(kind) ?? 0) + 1);
+  }
+  return [...counts].map(([kind, count]) => ({ kind, count }));
+}
+
+/** Returns a bounded provider-designated summary suitable for a temporary live status row. */
+export function transientActivitySummary(activity: TimelineActivityRow): string | null {
+  if (activity.activityKind !== "reasoning_summary") return null;
+  const lines = activity.detail
+    ?.split(/\r?\n/u)
+    .map((line) => line.trim().replace(/^(?:#{1,6}|>|\*|-)\s+/u, ""))
+    .filter(Boolean);
+  const summary = lines?.at(-1)?.replaceAll(/\s+/gu, " ").trim();
+  if (!summary) return null;
+  if (summary.length <= MAX_TRANSIENT_SUMMARY_CHARACTERS) return summary;
+  return `${summary.slice(0, MAX_TRANSIENT_SUMMARY_CHARACTERS - 1).trimEnd()}…`;
 }
 
 /** Converts validated timeline data into the command card view model. */
@@ -100,4 +160,25 @@ function integerValue(value: unknown): number | null {
 
 function nonNegativeNumber(value: unknown): number | null {
   return typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : null;
+}
+
+function activitySummaryKind(activity: TimelineActivityRow): ActivitySummaryKind {
+  if (activity.id.startsWith("turn-pending:")
+    || activity.activityKind === "reasoning"
+    || activity.activityKind === "reasoning_text"
+    || activity.activityKind === "reasoning_summary") return "thinking";
+  if (isCommandActivity(activity)) return "commands";
+  if (isFileChangeActivity(activity)) return "file_changes";
+  if (isFileReadActivity(activity)) return "file_reads";
+  if (activity.activityKind === "web_search") return "web_searches";
+  if (isImageViewActivity(activity)) return "image_views";
+  if (activity.activityKind === "collaboration_task") return "collaboration";
+  if (activity.activityKind === "review_transition") return "review";
+  if (activity.activityKind === "context_compaction") return "compaction";
+  if (activity.activityKind === "error" || activity.status === "failed") return "errors";
+  return "tools";
+}
+
+function normalizedToolName(title: string): string {
+  return title.trim().toLowerCase().replaceAll(/[^a-z0-9]+/g, "_");
 }

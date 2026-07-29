@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { ProviderCapabilities } from "./contracts";
 import {
+  clipboardImageFiles,
   composerActionState,
   composerRateLimitWindows,
   composerModeCommand,
@@ -14,6 +15,7 @@ import {
   queuedFollowupDispatchReady,
   rankedModels,
   shouldSendComposerKey,
+  supportsImagePrompt,
   validateComposerSelections,
   validateImageFiles,
   validateModelOptions,
@@ -169,5 +171,41 @@ describe("Chat composer model", () => {
     expect(shouldSendComposerKey({ key: "Enter", shiftKey: true, ctrlKey: false, metaKey: false, isComposing: false }, "enter")).toBe(false);
     expect(validateImageFiles(Array.from({ length: 2 }, (_, index) => ({ name: `${index}.png`, size: 10, type: "image/png" })) as File[], 7)).toContain("8 images");
     expect(validateImageFiles([{ name: "large.png", size: 2 * 1024 * 1024, type: "image/png" }] as File[], 1, 49 * 1024 * 1024)).toContain("50 MiB");
+  });
+
+  it("respects model-specific Codex image input support", () => {
+    const spark = {
+      id: "gpt-5.3-codex-spark",
+      displayName: "GPT-5.3-Codex-Spark",
+      description: null,
+      contextLimit: null,
+      availability: "available" as const,
+      capabilities: [],
+      options: [],
+      custom: false,
+    };
+    const sol = { ...spark, id: "gpt-5.6-sol", capabilities: ["images" as const] };
+
+    expect(supportsImagePrompt("codex", spark, capabilities("images"))).toBe(false);
+    expect(supportsImagePrompt("codex", sol, capabilities())).toBe(true);
+    expect(supportsImagePrompt("cursor", spark, capabilities("images"))).toBe(true);
+    expect(supportsImagePrompt("codex", { ...spark, custom: true }, capabilities("images"))).toBe(true);
+  });
+
+  it("reads screenshot images exposed only as clipboard items", () => {
+    const screenshot = new File([new Uint8Array([1, 2, 3])], "", { type: "image/png" });
+    const clipboard = {
+      files: [] as unknown as FileList,
+      items: [{
+        kind: "file",
+        type: "image/png",
+        getAsFile: () => screenshot,
+      }] as unknown as DataTransferItemList,
+    };
+
+    const images = clipboardImageFiles(clipboard);
+    expect(images).toHaveLength(1);
+    expect(images[0]?.name).toBe("pasted-image.png");
+    expect(images[0]?.type).toBe("image/png");
   });
 });

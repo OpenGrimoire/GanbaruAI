@@ -193,7 +193,7 @@
 
   $effect(() => {
     const workingFolderId = chat.composer.workingFolderId;
-    if (!workingFolderId || chat.composer.providerInstanceId) return;
+    if (!workingFolderId || chat.composer.loading || chat.composer.providerInstanceId) return;
     const preferred = chat.settings?.configuration.workingFolderProviderPreferences[workingFolderId];
     const preferredProvider = preferred
       ? healthyProviders.find((entry) => entry.configuration.instanceId === preferred)
@@ -206,7 +206,7 @@
     const workingFolderId = chat.composer.workingFolderId;
     const providerId = chat.composer.providerInstanceId;
     if (!workingFolderId || !providerId || chat.composer.loading) return;
-    const key = `${workingFolderId}:${providerId}`;
+    const key = `${chat.composer.draftId ?? ""}:${providerId}`;
     if (restoredKey === key) return;
     const remembered = chat.settings?.configuration.rememberedSelections.find((entry) => entry.workingFolderId === workingFolderId && entry.providerInstanceId === providerId);
     restoredKey = key;
@@ -226,7 +226,7 @@
     if (chat.composer.loading || chat.composer.safetyMode) return;
     const workingFolderId = chat.composer.workingFolderId;
     const providerId = chat.composer.providerInstanceId;
-    if (workingFolderId && providerId && restoredKey !== `${workingFolderId}:${providerId}`) return;
+    if (workingFolderId && providerId && restoredKey !== `${chat.composer.draftId ?? ""}:${providerId}`) return;
     chat.setComposerModes("ask_for_approval", chat.composer.interactionMode);
   });
 
@@ -964,7 +964,7 @@
 </script>
 
 <div bind:this={pickerRoot} class="model-control" class:measured={modelControlWidth !== null} style:width={modelControlWidth === null ? undefined : `${modelControlWidth}px`}>
-  <button bind:this={pickerTrigger} type="button" class="model-trigger" data-chat-model-trigger aria-expanded={pickerOpen} onclick={togglePicker}>
+  <button bind:this={pickerTrigger} type="button" class="model-trigger" data-chat-model-trigger aria-expanded={pickerOpen} disabled={chat.composer.loading} onclick={togglePicker}>
     <span bind:this={pickerTriggerContent} class="model-trigger-content">
       <span class="fast-indicator" class:active={isFastSelected()} aria-hidden="true"><Zap size={13} fill="currentColor" /></span>
       <span class="model-name">{selection.providerManaged ? provider?.configuration.label ?? t("chat.composer.providerManagedModel") : displayModelName(selectedModel)}</span>

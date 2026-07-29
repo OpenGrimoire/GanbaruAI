@@ -590,6 +590,42 @@ describe("ChatComposer", () => {
     expect(api.fullAccessTrust).not.toHaveBeenCalled();
   });
 
+  it("keeps images from being sent to a text-only Codex model", async () => {
+    const chat = getChat();
+    const settings = modelSettings();
+    const provider = settings.providerInstances[0];
+    const template = provider?.modelCatalog?.models[0];
+    if (!provider?.modelCatalog || !template) throw new Error("Model settings require a discovered model");
+    provider.modelCatalog.models.push({
+      ...template,
+      id: "gpt-5.3-codex-spark",
+      displayName: "GPT-5.3-Codex-Spark",
+      capabilities: [],
+    });
+    const attachment = imageAttachment();
+    chat.settings = settings;
+    chat.composer = {
+      ...composer(),
+      attachmentIds: [attachment.id],
+      providerInstanceId: "codex-local",
+      modelSelection: composerModelSelection("gpt-5.3-codex-spark", false, []),
+      safetyMode: "ask_for_approval",
+      interactionMode: "build",
+    };
+    chat.composerAttachments = [attachment];
+    const sendComposer = vi.spyOn(chat, "sendComposer").mockResolvedValue();
+    const { target } = setup(false);
+    await tick();
+
+    target.querySelector<HTMLButtonElement>("button.primary-action")?.click();
+    await tick();
+
+    expect(sendComposer).not.toHaveBeenCalled();
+    expect(target.querySelector('[role="alert"]')?.textContent).toContain(
+      "GPT-5.3-Codex-Spark does not support image input",
+    );
+  });
+
   it("centers broad permission confirmation at the app root", async () => {
     const chat = getChat();
     chat.settings = modelSettings();
@@ -668,10 +704,14 @@ describe("ChatComposer", () => {
     await tick();
     await Promise.resolve();
     await tick();
-    const previewDialog = target.querySelector<HTMLElement>('[role="dialog"]');
+    const previewDialog = document.body.querySelector<HTMLElement>('.chat-image-dialog[role="dialog"]');
     expect(previewDialog?.textContent).toContain("diagram.png");
     expect(previewDialog?.contains(document.activeElement)).toBe(true);
-    previewDialog?.querySelector<HTMLButtonElement>("header button")?.click();
+    const zoomIn = previewDialog?.querySelector<HTMLButtonElement>('button[aria-label="Zoom in"]');
+    zoomIn?.click();
+    await tick();
+    expect(previewDialog?.textContent).toContain("125%");
+    previewDialog?.querySelector<HTMLButtonElement>('button[aria-label="Cancel"]')?.click();
     await tick();
     await Promise.resolve();
     expect(document.activeElement).toBe(previewTrigger);
@@ -1331,7 +1371,7 @@ function modelSettings(): ChatSettingsRead {
           description: null,
           contextLimit: 258_000,
           availability: "available",
-          capabilities: [],
+          capabilities: ["images"],
           custom: false,
           options: [{
             kind: "choice",

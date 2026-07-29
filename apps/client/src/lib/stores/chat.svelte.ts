@@ -27,8 +27,9 @@ import type {
   VersionedJson,
 } from "$lib/chat/contracts";
 import { evictTimelinePages, mergeTimelineItems } from "$lib/chat/timeline-virtualization";
-import { ChatComposerController, parseDraftMentions, type ChatComposerSnapshot } from "$lib/chat/composer-controller";
-import { queuedFollowupDispatchReady, readComposerModelSelection } from "$lib/chat/composer-model";
+import { ChatComposerController, parseDraftMentions, type ChatComposerSeed, type ChatComposerSnapshot } from "$lib/chat/composer-controller";
+import { composerModelSelection, queuedFollowupDispatchReady, readComposerModelSelection } from "$lib/chat/composer-model";
+import { chatErrorMessage } from "$lib/chat/error-presentation";
 import { AsyncFrameCoalescer } from "$lib/chat/frame-coalescer";
 import type { TimelineMessageRow } from "$lib/chat/timeline-model";
 import { getProjects } from "$lib/stores/projects.svelte";
@@ -121,11 +122,15 @@ class ChatStore {
       await projects.ensureLoaded();
       await this.restoreSelection(settings);
       const workingFolderId = this.selectedWorkingFolderId;
-      if (workingFolderId) await this.composerController.bind(workingFolderId, this.selectedThreadId);
+      if (workingFolderId) await this.composerController.bind(
+        workingFolderId,
+        this.selectedThreadId,
+        this.composerSeed(this.selectedThread),
+      );
       this.loaded = true;
     } catch (error: unknown) {
       if (request !== this.loadRequest) return;
-      this.error = errorMessage(error);
+      this.error = chatErrorMessage(error, "Chat could not be loaded");
       throw error;
     } finally {
       if (request === this.loadRequest) this.loading = false;
@@ -281,7 +286,11 @@ class ChatStore {
       void workingFolderApi.rememberProjectWorkingFolder(thread.projectId, thread.workingFolderId);
     }
     if (this.selectedWorkingFolderId) {
-      void this.composerController.bind(this.selectedWorkingFolderId, threadId).catch(() => undefined);
+      void this.composerController.bind(
+        this.selectedWorkingFolderId,
+        threadId,
+        this.composerSeed(thread),
+      ).catch(() => undefined);
     }
     void chatApi.setLastSelectedChatThread(threadId).catch((error) => {
       console.error("Failed to persist selected Chat thread", error);
@@ -330,7 +339,7 @@ class ChatStore {
         const latestTurnState = this.selectedThread?.latestTurnState ?? null;
         if (queuedFollowupDispatchReady(interaction.sessionState, latestTurnState) && interaction.queuedFollowup) {
           void this.dispatchQueuedFollowup(interaction.queuedFollowup).catch((error: unknown) => {
-            this.sendError = errorMessage(error);
+            this.sendError = chatErrorMessage(error);
           });
         }
       }
@@ -695,7 +704,7 @@ class ChatStore {
     } catch (error: unknown) {
       if (request === this.attachmentRequest) {
         this.composerAttachments = [];
-        this.sendError = errorMessage(error);
+        this.sendError = chatErrorMessage(error);
       }
     }
   }
@@ -762,6 +771,16 @@ class ChatStore {
     await chatApi.setLastSelectedChatThread(null);
   }
 
+  private composerSeed(thread: ChatThreadShellRead | null): ChatComposerSeed | null {
+    if (!thread) return null;
+    return {
+      providerInstanceId: thread.providerInstanceId,
+      modelSelection: composerModelSelection(thread.modelId, thread.modelId === null, thread.modelOptions),
+      safetyMode: thread.modes.safetyMode,
+      interactionMode: thread.modes.interactionMode,
+    };
+  }
+
   private workingFolder(workingFolderId: ProjectWorkingFolderId): ProjectWorkingFolderRead {
     const workingFolder = this.workingFolders.find((entry) => entry.workingFolder.id === workingFolderId);
     if (!workingFolder) throw new Error("Project working folder was not found");
@@ -807,17 +826,12 @@ class ChatStore {
       this.timelineItems = mergeTimelineItems([], pages.flatMap((entry) => entry.items));
     } catch (error: unknown) {
       if (request !== this.timelineRequest) return;
-      this.timelineError = errorMessage(error);
+      this.timelineError = chatErrorMessage(error, "Chat could not be loaded");
       throw error;
     } finally {
       if (request === this.timelineRequest) this.timelineLoading = false;
     }
   }
-}
-
-function errorMessage(error: unknown): string {
-  if (error instanceof Error) return error.message;
-  return typeof error === "string" ? error : "Chat could not be loaded";
 }
 
 let store: ChatStore | null = null;

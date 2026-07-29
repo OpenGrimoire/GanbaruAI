@@ -11,6 +11,7 @@ import type {
   SaveChatDraftRequest,
   VersionedJson,
 } from "$lib/chat/contracts";
+import { chatErrorMessage } from "$lib/chat/error-presentation";
 
 export interface ChatDraftApi {
   read(draftId: string): Promise<ChatDraftRead | null>;
@@ -35,6 +36,13 @@ export interface ChatComposerSnapshot {
   saving: boolean;
   dirty: boolean;
   error: string | null;
+}
+
+export interface ChatComposerSeed {
+  providerInstanceId: ProviderInstanceId | null;
+  modelSelection: VersionedJson | null;
+  safetyMode: SafetyMode | null;
+  interactionMode: InteractionMode | null;
 }
 
 const DRAFT_SCHEMA_VERSION = 1;
@@ -73,8 +81,12 @@ export class ChatComposerController {
     return () => this.listeners.delete(listener);
   }
 
-  public async bind(workingFolderId: ProjectWorkingFolderId, threadId: ChatThreadId | null): Promise<void> {
-    await this.flush();
+  public async bind(
+    workingFolderId: ProjectWorkingFolderId,
+    threadId: ChatThreadId | null,
+    seed: ChatComposerSeed | null = null,
+  ): Promise<void> {
+    const pendingFlush = this.flush();
     const generation = ++this.generation;
     const draftId = chatDraftId(workingFolderId, threadId);
     this.state = {
@@ -82,10 +94,16 @@ export class ChatComposerController {
       draftId,
       workingFolderId,
       threadId,
+      providerInstanceId: seed?.providerInstanceId ?? null,
+      modelSelection: seed?.modelSelection ?? null,
+      safetyMode: seed?.safetyMode ?? null,
+      interactionMode: seed?.interactionMode ?? null,
       loading: true,
     };
     this.notify();
     try {
+      await pendingFlush;
+      if (generation !== this.generation) return;
       const stored = await this.api.read(draftId);
       if (generation !== this.generation) return;
       this.state = stored === null
@@ -95,7 +113,7 @@ export class ChatComposerController {
       this.notify();
     } catch (error: unknown) {
       if (generation !== this.generation) return;
-      this.state = { ...this.state, loading: false, error: errorMessage(error) };
+      this.state = { ...this.state, loading: false, error: chatErrorMessage(error, "Chat draft could not be loaded") };
       this.notify();
       throw error;
     }
@@ -193,7 +211,7 @@ export class ChatComposerController {
         }
       } catch (error: unknown) {
         if (this.state.draftId === payload.id) {
-          this.state = { ...this.state, saving: false, error: errorMessage(error) };
+          this.state = { ...this.state, saving: false, error: chatErrorMessage(error, "Chat draft could not be saved") };
           this.notify();
         }
         throw error;
@@ -340,10 +358,4 @@ function parseVersionedJsonValue(value: unknown): VersionedJson | null {
   const schemaVersion = Reflect.get(value, "schemaVersion");
   if (!Number.isInteger(schemaVersion) || typeof schemaVersion !== "number" || schemaVersion < 1) return null;
   return { schemaVersion, value: Reflect.get(value, "value") };
-}
-
-function errorMessage(error: unknown): string {
-  if (error instanceof Error) return error.message;
-  if (typeof error === "string") return error;
-  return "Chat draft could not be saved";
 }

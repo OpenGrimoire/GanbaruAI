@@ -46,6 +46,37 @@ describe("ChatComposerController", () => {
     });
   });
 
+  it("uses the current thread selection while an empty thread draft loads", async () => {
+    let resolveRead: ((value: ChatDraftRead | null) => void) | undefined;
+    const api = fakeApi({
+      read: vi.fn(() => new Promise<ChatDraftRead | null>((resolve) => { resolveRead = resolve; })),
+    });
+    const controller = new ChatComposerController(api);
+    const modelSelection = { schemaVersion: 1, value: { modelId: "gpt-5.3-codex-spark" } };
+
+    const binding = controller.bind("workspace-1", "thread-1", {
+      providerInstanceId: "codex-personal",
+      modelSelection,
+      safetyMode: "ask_for_approval",
+      interactionMode: "build",
+    });
+    await vi.waitFor(() => expect(api.read).toHaveBeenCalledWith(chatDraftId("workspace-1", "thread-1")));
+
+    expect(controller.snapshot()).toMatchObject({
+      threadId: "thread-1",
+      providerInstanceId: "codex-personal",
+      modelSelection,
+      loading: true,
+    });
+    resolveRead?.(null);
+    await binding;
+    expect(controller.snapshot()).toMatchObject({
+      providerInstanceId: "codex-personal",
+      modelSelection,
+      loading: false,
+    });
+  });
+
   it("debounces edits and flushes before changing conversations", async () => {
     vi.useFakeTimers();
     const api = fakeApi();
@@ -108,11 +139,39 @@ describe("ChatComposerController", () => {
     const controller = new ChatComposerController(api);
 
     const stale = controller.bind("workspace-1", null);
+    await vi.waitFor(() => expect(api.read).toHaveBeenCalledWith(chatDraftId("workspace-1", null)));
     const current = controller.bind("workspace-2", null);
     await current;
     resolveFirst?.(draft({ text: "Stale" }));
     await stale;
 
     expect(controller.snapshot()).toMatchObject({ workingFolderId: "workspace-2", text: "New" });
+  });
+
+  it("supersedes a bind that is still flushing the previous draft", async () => {
+    let resolveSave: ((value: ChatDraftRead) => void) | undefined;
+    const api = fakeApi({
+      save: vi.fn((value) => new Promise<ChatDraftRead>((resolve) => {
+        resolveSave = resolve;
+      })),
+      read: vi.fn(async (id) => draft({
+        id,
+        workingFolderId: id.includes("workspace-2") ? "workspace-2" : "workspace-1",
+        threadId: id.endsWith(":new") ? null : "thread-2",
+        text: id.includes("workspace-2") ? "Current" : "Stale",
+      })),
+    });
+    const controller = new ChatComposerController(api);
+    await controller.bind("workspace-1", null);
+    controller.setText("Unsaved");
+
+    const stale = controller.bind("workspace-1", "thread-2");
+    const current = controller.bind("workspace-2", null);
+    await Promise.resolve();
+    resolveSave?.(draft({ text: "Unsaved" }));
+    await Promise.all([stale, current]);
+
+    expect(controller.snapshot()).toMatchObject({ workingFolderId: "workspace-2", text: "Current" });
+    expect(api.read).toHaveBeenLastCalledWith(chatDraftId("workspace-2", null));
   });
 });
