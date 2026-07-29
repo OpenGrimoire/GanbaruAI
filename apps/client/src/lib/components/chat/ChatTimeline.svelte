@@ -22,7 +22,7 @@
   import { fileChangePresentation, isFileReadActivity, isImageViewActivity, summarizeActivityKinds, transientActivitySummary, type ActivitySummaryCount } from "$lib/chat/activity-presentation";
   import { chatModelParticipant, type ChatModelParticipant } from "$lib/chat/participant-identity";
   import { buildTimelineDisplayRows, includeOptimisticTimelineMessage, projectTimelineReadModel, timelineActivityShowsLiveStatus, timelineActivitySupportsDisclosure, timelineModelGroupStartIds, type TimelineActivityGroupRow, type TimelineActivityRow, type TimelineDisplayRow, type TimelineMessageRow, type TimelinePlanRow, type TimelineTurnFoldRow } from "$lib/chat/timeline-model";
-  import { computeTimelineVirtualWindow, nextTimelineUnreadCount, scrollTopForPreservedAnchor, timelineMinimapRows, timelineScrollbarThumbGeometry, timelineScrollIntent, timelineScrollOverflowState, type TimelineScrollbarThumbGeometry, type TimelineScrollIntent, type TimelineScrollOverflowState } from "$lib/chat/timeline-virtualization";
+  import { computeTimelineVirtualWindow, nextTimelineUnreadCount, scrollTopForPreservedAnchor, timelineMinimapRows, timelineScrollbarThumbGeometry, timelineScrollIntent, type TimelineScrollbarThumbGeometry, type TimelineScrollIntent } from "$lib/chat/timeline-virtualization";
   import { formatDateTime, formatList, formatNumber } from "$lib/i18n/formatters";
   import { getLocalization } from "$lib/i18n/translator.svelte";
   import { getChat } from "$lib/stores/chat.svelte";
@@ -66,7 +66,6 @@
   let copiedMessageTimer: ReturnType<typeof setTimeout> | null = null;
   let disclosureMeasureFrame: number | null = null;
   let pendingDisclosureAnchor: { rowId: string; viewportOffset: number } | null = null;
-  let processHistoryScrollStates = $state<Record<string, TimelineScrollOverflowState>>({});
   let scrollbarGeometry = $state<TimelineScrollbarThumbGeometry | null>(null);
   let scrollbarTrackTop = $state(0);
   let scrollbarTrackHeight = $state(0);
@@ -315,43 +314,6 @@
     event.preventDefault();
     scroller.scrollTop += event.deltaY;
     updateTimelineScrollbar();
-  }
-
-  function trackProcessHistoryScroll(
-    node: HTMLElement,
-    disclosureId: string,
-  ): { update(nextDisclosureId: string): void; destroy(): void } {
-    let currentId = disclosureId;
-    let frame: number | null = null;
-    const refresh = (): void => {
-      frame = null;
-      const next = timelineScrollOverflowState(node.scrollTop, node.scrollHeight, node.clientHeight);
-      const current = processHistoryScrollStates[currentId];
-      if (current?.scrollable === next.scrollable
-        && current.canScrollUp === next.canScrollUp
-        && current.canScrollDown === next.canScrollDown) return;
-      processHistoryScrollStates = { ...processHistoryScrollStates, [currentId]: next };
-    };
-    const scheduleRefresh = (): void => {
-      if (frame !== null) cancelAnimationFrame(frame);
-      frame = requestAnimationFrame(refresh);
-    };
-    const observer = new ResizeObserver(scheduleRefresh);
-    observer.observe(node);
-    if (node.firstElementChild) observer.observe(node.firstElementChild);
-    node.addEventListener("scroll", refresh, { passive: true });
-    scheduleRefresh();
-    return {
-      update(nextDisclosureId: string): void {
-        currentId = nextDisclosureId;
-        scheduleRefresh();
-      },
-      destroy(): void {
-        if (frame !== null) cancelAnimationFrame(frame);
-        observer.disconnect();
-        node.removeEventListener("scroll", refresh);
-      },
-    };
   }
 
   function measureExpandableHeight(node: HTMLElement): { destroy(): void } {
@@ -684,7 +646,6 @@
   {:else if row.kind === "activity_group"}
     {@const group = row as TimelineActivityGroupRow}
     {@const activities = [...group.earlierRows, group.latest]}
-    {@const scrollState = processHistoryScrollStates[group.id]}
     <button type="button" class="chat-process-toggle" class:active={activityIsInProgress(group.latest)} data-timeline-disclosure-expanded={group.expanded} aria-expanded={group.expanded} onclick={() => { expandedGroups = toggle(expandedGroups, group.id); }}>
       {@render activityIcon(activities[0] ?? group.latest)}
       <span class="chat-process-toggle-label">
@@ -694,20 +655,13 @@
     </button>
     <div class="chat-disclosure-region" class:expanded={group.expanded} aria-hidden={!group.expanded} inert={!group.expanded}>
       <div class="chat-disclosure-inner">
-        <div
-          class="chat-process-history-scroll"
-          class:scroll-top={scrollState?.scrollable && scrollState.canScrollUp && !scrollState.canScrollDown}
-          class:scroll-bottom={scrollState?.scrollable && !scrollState.canScrollUp && scrollState.canScrollDown}
-          class:scroll-both={scrollState?.scrollable && scrollState.canScrollUp && scrollState.canScrollDown}
-          use:trackProcessHistoryScroll={group.id}
-        ><div class="chat-process-history">{#each activities as activity}{@render activityHistoryRow(activity, false)}{/each}</div></div>
+        <div class="chat-process-history">{#each activities as activity}{@render activityHistoryRow(activity, false)}{/each}</div>
       </div>
     </div>
   {:else if row.kind === "turn_fold"}
     {@const fold = row as TimelineTurnFoldRow}
     {@const activities = foldActivities(fold)}
     {@const foldStatus = foldStatusLabel(fold)}
-    {@const scrollState = processHistoryScrollStates[fold.id]}
     {#if fold.hiddenRows.length > 0}
       <button type="button" class="chat-process-toggle" class:failed={fold.state === "failed"} data-timeline-disclosure-expanded={fold.expanded} aria-expanded={fold.expanded} onclick={() => { expandedTurns = toggle(expandedTurns, fold.turnId); }}>
         {#if activities[0]}{@render activityIcon(activities[0])}{/if}
@@ -724,13 +678,7 @@
     {/if}
     <div class="chat-disclosure-region" class:expanded={fold.expanded} aria-hidden={!fold.expanded} inert={!fold.expanded}>
       <div class="chat-disclosure-inner">
-        <div
-          class="chat-process-history-scroll"
-          class:scroll-top={scrollState?.scrollable && scrollState.canScrollUp && !scrollState.canScrollDown}
-          class:scroll-bottom={scrollState?.scrollable && !scrollState.canScrollUp && scrollState.canScrollDown}
-          class:scroll-both={scrollState?.scrollable && scrollState.canScrollUp && scrollState.canScrollDown}
-          use:trackProcessHistoryScroll={fold.id}
-        ><div class="chat-process-history">{#each fold.hiddenRows as hiddenRow}{#if hiddenRow.kind === "activity"}{@render activityHistoryRow(hiddenRow, false)}{:else}{@render modelRowContent(hiddenRow)}{/if}{/each}</div></div>
+        <div class="chat-process-history">{#each fold.hiddenRows as hiddenRow}{#if hiddenRow.kind === "activity"}{@render activityHistoryRow(hiddenRow, false)}{:else}{@render modelRowContent(hiddenRow)}{/if}{/each}</div>
       </div>
     </div>
   {:else if row.kind === "plan"}
@@ -750,7 +698,7 @@
   {#if selectedProvider && (!selectedProvider.configuration.enabled || selectedProvider.lastProbe?.state !== "healthy")}<div class="chat-timeline-banner text-status-tentative"><CircleAlert size={14} /><span>{selectedProvider.lastProbe?.detail ?? t("chat.status.providerUnavailable")}</span><button type="button" onclick={() => void chat.probeProvider(selectedProvider.configuration.instanceId).catch(reportError)}>{t("chat.timeline.retry")}</button><button type="button" onclick={() => settings.open("chat", { chatSubsection: "providers" })}><Settings size={13} />{t("chat.timeline.openSettings")}</button></div>{/if}
   {#if selectedThread?.state === "error"}<div class="chat-timeline-banner text-destructive"><CircleAlert size={14} /><span>{t("chat.timeline.threadError")}</span><button type="button" onclick={() => chat.newDraft(selectedThread.workingFolderId)}><MessageSquare size={13} />{t("chat.timeline.startNewThread")}</button></div>{/if}
   {#if operationError || chat.timelineError}<div role="alert" class="chat-timeline-banner text-destructive"><span>{operationError ?? chat.timelineError}</span>{#if selectedThread}<button type="button" onclick={() => { operationError = null; chat.selectThread(selectedThread.id); }}>{t("chat.timeline.retry")}</button>{/if}</div>{/if}
-  <div bind:this={scroller} class="chat-timeline-scroller h-full overflow-y-scroll" role="feed" aria-busy={chat.timelineLoading || undefined} aria-label={t("chat.title")} onscroll={handleScroll}>
+  <div bind:this={scroller} class="chat-timeline-scroller h-full overflow-y-auto" role="feed" aria-busy={chat.timelineLoading || undefined} aria-label={t("chat.title")} onscroll={handleScroll}>
     <div bind:this={timelineContent} class="chat-timeline-content mx-auto flex min-h-full flex-col justify-end py-4" style={`padding-top:${virtualWindow.paddingTop + TIMELINE_EDGE_PADDING_PX}px;padding-bottom:${bottomPadding}px`}>
       {#if loadingOlder}<div class="mb-3 flex justify-center text-xs text-muted-foreground"><LoaderCircle size={14} class="animate-spin" />{t("chat.timeline.loadingOlder")}</div>{/if}
       {#if chat.timelineLoading && displayRows.length === 0}<div class="py-12 text-center text-sm text-muted-foreground">{t("common.loading")}</div>{/if}
@@ -828,11 +776,11 @@
 
 <style>
   .chat-timeline-content { width: calc(100% - 1.5rem); max-width: 54rem; }
-  .chat-timeline-scroller { overflow-anchor: none; scrollbar-color: transparent transparent; scrollbar-gutter: stable; }
-  .chat-timeline-scroller::-webkit-scrollbar-thumb, .chat-timeline-scroller::-webkit-scrollbar-thumb:hover, .chat-timeline-scroller::-webkit-scrollbar-thumb:active { background-color: transparent; }
+  .chat-timeline-scroller { overflow-anchor: none; scrollbar-width: none; }
+  .chat-timeline-scroller::-webkit-scrollbar { display: none; width: 0; height: 0; }
   .chat-timeline-scrollbar { pointer-events: none; position: absolute; right: 0; z-index: 30; width: 8px; contain: strict; opacity: 0; touch-action: none; }
   .chat-timeline-scrollbar.visible { pointer-events: auto; opacity: 1; }
-  .chat-timeline-scrollbar-thumb { box-sizing: border-box; width: 8px; contain: strict; border: 2px solid transparent; border-radius: 9999px; background-color: var(--app-scrollbar-thumb); background-clip: content-box; cursor: default; will-change: transform; }
+  .chat-timeline-scrollbar-thumb { position: absolute; left: 2px; width: 4px; contain: strict; border-radius: 9999px; background-color: var(--app-scrollbar-thumb); cursor: default; will-change: height, transform; }
   .chat-timeline-scrollbar-thumb:hover, .chat-timeline-scrollbar-thumb.dragging { background-color: var(--app-scrollbar-thumb-hover); }
   .chat-timeline-row { --chat-participant-gap: 0.75rem; margin-bottom: 0.25rem; border-radius: 0.4rem; padding-block: 0.2rem; }
   .chat-timeline-row.optimistic { animation: chat-message-in 140ms ease-out; }
@@ -867,14 +815,6 @@
   .chat-process-toggle.failed, .chat-process-step.failed { color: var(--destructive); }
   .chat-process-summary { padding-left: 0; }
   .chat-process-history { display: grid; min-width: 0; gap: 0.1rem; margin-block: 0.35rem 0.55rem; color: var(--muted-foreground); }
-  .chat-process-history-scroll { --chat-process-scroll-fade-size: 1.6rem; max-height: min(20rem, 45svh); overflow-y: auto; overscroll-behavior: contain; padding-right: 0.25rem; scrollbar-color: var(--app-scrollbar-thumb) transparent; scrollbar-width: thin; transition: -webkit-mask-image 120ms ease, mask-image 120ms ease; }
-  .chat-process-history-scroll::-webkit-scrollbar { width: 8px; }
-  .chat-process-history-scroll::-webkit-scrollbar-track { background: transparent; }
-  .chat-process-history-scroll::-webkit-scrollbar-thumb { border: 2px solid transparent; border-radius: 9999px; background: var(--app-scrollbar-thumb); background-clip: content-box; }
-  .chat-process-history-scroll::-webkit-scrollbar-thumb:hover { background-color: var(--app-scrollbar-thumb-hover); }
-  .chat-process-history-scroll.scroll-top { -webkit-mask-image: linear-gradient(to bottom, transparent, black var(--chat-process-scroll-fade-size), black); mask-image: linear-gradient(to bottom, transparent, black var(--chat-process-scroll-fade-size), black); }
-  .chat-process-history-scroll.scroll-bottom { -webkit-mask-image: linear-gradient(to bottom, black, black calc(100% - var(--chat-process-scroll-fade-size)), transparent); mask-image: linear-gradient(to bottom, black, black calc(100% - var(--chat-process-scroll-fade-size)), transparent); }
-  .chat-process-history-scroll.scroll-both { -webkit-mask-image: linear-gradient(to bottom, transparent, black var(--chat-process-scroll-fade-size), black calc(100% - var(--chat-process-scroll-fade-size)), transparent); mask-image: linear-gradient(to bottom, transparent, black var(--chat-process-scroll-fade-size), black calc(100% - var(--chat-process-scroll-fade-size)), transparent); }
   .chat-process-step { display: grid; width: 100%; min-width: 0; grid-template-columns: 1rem minmax(0, 1fr) 1rem; align-items: start; gap: 0.45rem; color: var(--muted-foreground); padding-block: 0.15rem; font-size: var(--chat-conversation-font-size, 0.933333rem); line-height: var(--chat-conversation-line-height, 1.4rem); }
   .chat-process-step.disclosure { display: block; }
   .chat-process-step.thinking { grid-template-columns: minmax(0, 1fr); }
@@ -920,7 +860,7 @@
   @keyframes chat-message-in { from { opacity: 0; transform: translateY(0.2rem); } to { opacity: 1; transform: translateY(0); } }
   @keyframes chat-process-shimmer { 0%, 8% { background-position: 100% 0; } 65%, 100% { background-position: 0% 0; } }
   @media (hover: none) { .chat-message-meta, .chat-plan-actions { opacity: 1; } }
-  @media (prefers-reduced-motion: reduce) { .chat-timeline-row.optimistic, .chat-process-step.active > span, .chat-process-step.active .chat-process-step-label > span, .chat-process-toggle.active .chat-process-toggle-label > span { animation: none; background: none; color: inherit; -webkit-text-fill-color: currentColor; } .chat-process-toggle :global(svg), :global(.chat-step-chevron), .chat-disclosure-region, .chat-disclosure-inner, .chat-message-expandable, .chat-message-expandable::after, .chat-process-history-scroll { transition: none; } }
+  @media (prefers-reduced-motion: reduce) { .chat-timeline-row.optimistic, .chat-process-step.active > span, .chat-process-step.active .chat-process-step-label > span, .chat-process-toggle.active .chat-process-toggle-label > span { animation: none; background: none; color: inherit; -webkit-text-fill-color: currentColor; } .chat-process-toggle :global(svg), :global(.chat-step-chevron), .chat-disclosure-region, .chat-disclosure-inner, .chat-message-expandable, .chat-message-expandable::after { transition: none; } }
   @media (forced-colors: active) { .chat-process-step.active > span, .chat-process-step.active .chat-process-step-label > span, .chat-process-toggle.active .chat-process-toggle-label > span { animation: none; background: none; color: inherit; -webkit-text-fill-color: currentColor; } }
   @container chat-shell (max-width: 420px) {
     .chat-timeline-row { --chat-participant-gap: 0.5rem; }
