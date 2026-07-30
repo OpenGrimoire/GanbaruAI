@@ -339,6 +339,7 @@ fn default_provider_configuration(
             schema_version: metadata.configuration_schema_version,
             value: serde_json::json!({}),
         },
+        internal_mcp: None,
         unknown_fields: BTreeMap::new(),
     })
 }
@@ -927,6 +928,7 @@ fn provider_instance_read(
             visible_model_ids: portable.visible_model_ids.clone(),
             favorite_model_ids: portable.favorite_model_ids.clone(),
             provider_config: portable.provider_config.clone(),
+            internal_mcp: None,
             unknown_fields: portable.unknown_fields.clone(),
         },
         last_probe: device.and_then(|entry| entry.last_probe.clone()),

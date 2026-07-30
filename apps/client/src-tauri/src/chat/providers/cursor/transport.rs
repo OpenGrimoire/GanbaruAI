@@ -61,7 +61,7 @@ impl AcpRpcFailure {
         };
         let mut error = ChatError::new(code, message, recoverable);
         if let Self::Remote { code, .. } = self {
-            error.details = Some(json!({ "providerCode": code }));
+            error.details = Some(Box::new(json!({ "providerCode": code })));
         }
         error
     }

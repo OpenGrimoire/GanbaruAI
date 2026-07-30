@@ -278,9 +278,9 @@ pub(super) fn resume_not_found(diagnostic: &str) -> ChatError {
         "Claude continuation was not found; fork the thread to start a fresh native session",
         true,
     );
-    error.details = Some(json!({
+    error.details = Some(Box::new(json!({
         "diagnosticAvailable": !diagnostic.trim().is_empty(),
-    }));
+    })));
     error
 }
 

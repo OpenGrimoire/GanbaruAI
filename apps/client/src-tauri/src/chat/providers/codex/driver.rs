@@ -116,6 +116,8 @@ impl CodexProviderDriver {
             minimum_tested_cli_version: None,
             default_executable_candidates: vec!["codex".to_string()],
             implementation_status: ProviderImplementationStatus::Available,
+            maturity: ProviderMaturity::Stable,
+            protocol_name: "codex-app-server".to_string(),
             potential_capabilities: codex_capability_kinds(),
             unavailable_reason: None,
         }
@@ -229,6 +231,45 @@ impl CodexProviderDriver {
         Ok(models)
     }
 
+    async fn execute_thread_request(
+        &self,
+        working_directory: &Path,
+        method: &str,
+        params: Value,
+        context: &DriverOperationContext,
+    ) -> ChatResult<Value> {
+        let (mut connection, layout) = self.open_connection(working_directory)?;
+        let client = connection.client();
+        let result = async {
+            let initialize = client
+                .request("initialize", initialize_params(), context)
+                .await
+                .map_err(|error| error.to_chat_error("initialize"))?;
+            let initialize: InitializeResponse = decode_response(initialize, "initialize response")
+                .map_err(|error| error.to_chat_error("initialize"))?;
+            verify_reported_home(&layout, &initialize.codex_home)?;
+            client
+                .notify("initialized", json!({}))
+                .await
+                .map_err(|error| error.to_chat_error("initialized notification"))?;
+            client
+                .request(method, params, context)
+                .await
+                .map_err(|error| error.to_chat_error(method))
+        }
+        .await;
+        let stop_result = connection
+            .stop(SESSION_GRACEFUL_STOP, SESSION_FORCE_STOP)
+            .await;
+        match result {
+            Ok(response) => {
+                stop_result?;
+                Ok(response)
+            }
+            Err(error) => Err(error),
+        }
+    }
+
     async fn fetch_mcp_status(
         client: &super::transport::CodexRpcClient,
         thread_id: Option<&str>,
@@ -328,13 +369,38 @@ impl CodexProviderDriver {
         let mut layout = resolve_codex_home_layout(&self.configuration, &self.settings)?;
         materialize_codex_shadow_home(&mut layout)?;
         verify_codex_shadow_home(&layout)?;
-        let environment = codex_process_environment(&self.configuration, &layout)?;
+        let mut environment = codex_process_environment(&self.configuration, &layout)?;
         let executable = resolve_codex_executable(&self.configuration.executable, &environment)?;
         let mut arguments = executable.prefix_arguments;
         arguments.push("app-server".to_string());
         arguments.extend(validated_app_server_arguments(
             &self.configuration.launch_arguments,
         )?);
+        if let Some(server) = &self.configuration.internal_mcp {
+            const TOKEN_ENVIRONMENT: &str = "GANBARU_CHAT_MCP_TOKEN";
+            environment.insert(TOKEN_ENVIRONMENT.to_string(), server.bearer_token.clone());
+            arguments.extend([
+                "-c".to_string(),
+                format!(
+                    "mcp_servers.{}.url={}",
+                    server.name,
+                    serde_json::to_string(&server.url).map_err(|_| {
+                        ChatError::validation("internalMcp", "Internal MCP URL is invalid")
+                    })?
+                ),
+                "-c".to_string(),
+                format!(
+                    "mcp_servers.{}.bearer_token_env_var={}",
+                    server.name,
+                    serde_json::to_string(TOKEN_ENVIRONMENT).map_err(|_| {
+                        ChatError::validation(
+                            "internalMcp",
+                            "Internal MCP token reference is invalid",
+                        )
+                    })?
+                ),
+            ]);
+        }
         let process = spawn_provider_process(ProviderProcessConfig {
             executable: executable.executable,
             arguments,
@@ -551,6 +617,7 @@ impl CodexProviderDriver {
             workspace,
             effective_model: effective_model.as_str().to_string(),
             refresh_mcp_before_turn: self.settings.refresh_mcp_before_turn
+                || self.configuration.internal_mcp.is_some()
                 || self
                     .configuration
                     .launch_arguments
@@ -653,6 +720,105 @@ impl ProviderDriver for CodexProviderDriver {
             },
         )
         .collect())
+    }
+
+    fn fork_thread<'a>(
+        &'a mut self,
+        request: ProviderForkThreadRequest,
+        context: &'a DriverOperationContext,
+    ) -> DriverFuture<'a, ProviderThreadId> {
+        Box::pin(async move {
+            let workspace = canonical_verified_workspace(&request.workspace)?;
+            let response = self
+                .execute_thread_request(
+                    &workspace,
+                    "thread/fork",
+                    json!({
+                        "threadId": request.provider_thread_id.as_str(),
+                        "lastTurnId": request.last_provider_turn_id,
+                    }),
+                    context,
+                )
+                .await?;
+            let thread_id = response
+                .get("thread")
+                .and_then(|thread| thread.get("id"))
+                .and_then(Value::as_str)
+                .ok_or_else(|| protocol_identifier_error("forked provider thread"))?;
+            ProviderThreadId::new(thread_id.to_string())
+                .map_err(|_| protocol_identifier_error("forked provider thread"))
+        })
+    }
+
+    fn rename_thread<'a>(
+        &'a mut self,
+        request: ProviderThreadLifecycleRequest,
+        context: &'a DriverOperationContext,
+    ) -> DriverFuture<'a, DriverOperationReceipt> {
+        Box::pin(async move {
+            let title = request.title.as_deref().ok_or_else(|| {
+                ChatError::validation("title", "A provider thread title is required")
+            })?;
+            self.execute_thread_request(
+                &canonical_current_directory()?,
+                "thread/name/set",
+                json!({ "threadId": request.provider_thread_id.as_str(), "name": title }),
+                context,
+            )
+            .await?;
+            Ok(operation_receipt(context, "Codex thread renamed"))
+        })
+    }
+
+    fn archive_thread<'a>(
+        &'a mut self,
+        request: ProviderThreadLifecycleRequest,
+        context: &'a DriverOperationContext,
+    ) -> DriverFuture<'a, DriverOperationReceipt> {
+        Box::pin(async move {
+            self.execute_thread_request(
+                &canonical_current_directory()?,
+                "thread/archive",
+                json!({ "threadId": request.provider_thread_id.as_str() }),
+                context,
+            )
+            .await?;
+            Ok(operation_receipt(context, "Codex thread archived"))
+        })
+    }
+
+    fn delete_thread<'a>(
+        &'a mut self,
+        request: ProviderThreadLifecycleRequest,
+        context: &'a DriverOperationContext,
+    ) -> DriverFuture<'a, DriverOperationReceipt> {
+        Box::pin(async move {
+            self.execute_thread_request(
+                &canonical_current_directory()?,
+                "thread/delete",
+                json!({ "threadId": request.provider_thread_id.as_str() }),
+                context,
+            )
+            .await?;
+            Ok(operation_receipt(context, "Codex thread deleted"))
+        })
+    }
+
+    fn unsubscribe_thread<'a>(
+        &'a mut self,
+        request: ProviderThreadLifecycleRequest,
+        context: &'a DriverOperationContext,
+    ) -> DriverFuture<'a, DriverOperationReceipt> {
+        Box::pin(async move {
+            self.execute_thread_request(
+                &canonical_current_directory()?,
+                "thread/unsubscribe",
+                json!({ "threadId": request.provider_thread_id.as_str() }),
+                context,
+            )
+            .await?;
+            Ok(operation_receipt(context, "Codex thread unsubscribed"))
+        })
     }
 
     fn compact_context<'a>(
@@ -767,6 +933,7 @@ impl ProviderDriver for CodexProviderDriver {
                         instance_id: self.configuration.instance_id.clone(),
                         state,
                         version: parse_user_agent_version(&snapshot.initialize.user_agent),
+                        negotiated_protocol_version: Some("2".to_string()),
                         account_label,
                         capabilities: codex_capabilities(),
                         checked_at,
@@ -779,6 +946,7 @@ impl ProviderDriver for CodexProviderDriver {
                     instance_id: self.configuration.instance_id.clone(),
                     state: probe_state_for_error(error.code),
                     version: None,
+                    negotiated_protocol_version: None,
                     account_label: None,
                     capabilities: codex_capabilities(),
                     checked_at,

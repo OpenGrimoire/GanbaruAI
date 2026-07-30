@@ -45,6 +45,16 @@ struct CompatibilityCases {
     revert: bool,
 }
 
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct OpenApiCompatibilityArtifact {
+    open_code_version: String,
+    source_commit: String,
+    open_api_version: String,
+    document_sha256: String,
+    operations: Vec<String>,
+}
+
 #[test]
 fn compatibility_matrix_pins_the_supported_http_boundary() {
     let matrix: CompatibilityMatrix =
@@ -64,6 +74,29 @@ fn compatibility_matrix_pins_the_supported_http_boundary() {
     assert!(matrix.required_cases.event_reconnect);
     assert!(matrix.required_cases.abort);
     assert!(matrix.required_cases.revert);
+}
+
+#[test]
+fn openapi_artifact_covers_the_stable_provider_surface() {
+    let artifact: OpenApiCompatibilityArtifact =
+        serde_json::from_str(include_str!("compat/openapi-1.14.19.json")).unwrap();
+    assert_eq!(artifact.open_code_version, MINIMUM_OPENCODE_VERSION);
+    assert_eq!(artifact.source_commit.len(), 40);
+    assert_eq!(artifact.open_api_version, "3.1.1");
+    assert_eq!(artifact.document_sha256.len(), 64);
+    for operation in [
+        "/agent get",
+        "/command get",
+        "/formatter get",
+        "/lsp get",
+        "/mcp post",
+        "/permission/{requestID}/reply post",
+        "/question/{requestID}/reply post",
+        "/session/{sessionID}/fork post",
+        "/session/{sessionID}/revert post",
+    ] {
+        assert!(artifact.operations.iter().any(|entry| entry == operation));
+    }
 }
 
 #[test]
@@ -259,6 +292,23 @@ fn typed_http_reads_history_cursor_and_uses_exact_prompt_endpoint() {
         assert!(request.starts_with("POST /session/ses_one/command?directory="));
         assert!(request.contains("\"command\":\"release\""));
         assert!(request.contains("\"arguments\":\"next\""));
+
+        let lsp = HttpFixture::start(
+            "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: 15\r\nConnection: close\r\n\r\n[{\"id\":\"rust\"}]",
+        );
+        let client = OpenCodeHttpClient::new(&lsp.origin, workspace.path(), None).unwrap();
+        assert_eq!(
+            client.lsp_status().await.unwrap().as_array().unwrap().len(),
+            1
+        );
+        assert!(lsp.request().starts_with("GET /lsp?directory="));
+
+        let formatter = HttpFixture::start(
+            "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: 2\r\nConnection: close\r\n\r\n{}",
+        );
+        let client = OpenCodeHttpClient::new(&formatter.origin, workspace.path(), None).unwrap();
+        assert!(client.formatter_status().await.unwrap().is_object());
+        assert!(formatter.request().starts_with("GET /formatter?directory="));
     });
 }
 
@@ -805,6 +855,7 @@ pub(super) fn configuration(provider_config: serde_json::Value) -> ProviderInsta
             schema_version: 1,
             value: provider_config,
         },
+        internal_mcp: None,
         unknown_fields: BTreeMap::new(),
     }
 }

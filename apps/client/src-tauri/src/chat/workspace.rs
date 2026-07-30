@@ -34,17 +34,19 @@ pub enum WorkingFolderAuthorizationOperation {
     FileWrite,
     MentionResolution,
     TerminalStart,
+    Git,
     Diff,
     Restore,
 }
 
 impl WorkingFolderAuthorizationOperation {
-    pub const ALL: [Self; 7] = [
+    pub const ALL: [Self; 8] = [
         Self::ProviderStart,
         Self::FileRead,
         Self::FileWrite,
         Self::MentionResolution,
         Self::TerminalStart,
+        Self::Git,
         Self::Diff,
         Self::Restore,
     ];

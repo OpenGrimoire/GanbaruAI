@@ -88,6 +88,9 @@ impl ProviderDriver for CursorProviderDriver {
                         instance_id: self.configuration.instance_id.clone(),
                         state: ProbeState::Healthy,
                         version: Some(about.version),
+                        negotiated_protocol_version: Some(
+                            started.initialize.protocol_version.to_string(),
+                        ),
                         account_label: about.account_label,
                         capabilities,
                         checked_at,
@@ -99,6 +102,7 @@ impl ProviderDriver for CursorProviderDriver {
                     instance_id: self.configuration.instance_id.clone(),
                     state: probe_state(error.code),
                     version: None,
+                    negotiated_protocol_version: None,
                     account_label: None,
                     capabilities: potential_capabilities_for(self.flavor),
                     checked_at,

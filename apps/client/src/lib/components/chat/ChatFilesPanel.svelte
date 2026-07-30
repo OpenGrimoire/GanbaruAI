@@ -7,7 +7,9 @@
   import PanelLeftOpen from "@lucide/svelte/icons/panel-left-open";
   import Paperclip from "@lucide/svelte/icons/paperclip";
   import RefreshCw from "@lucide/svelte/icons/refresh-cw";
+  import Save from "@lucide/svelte/icons/save";
   import Search from "@lucide/svelte/icons/search";
+  import MessageSquarePlus from "@lucide/svelte/icons/message-square-plus";
   import TextSelect from "@lucide/svelte/icons/text-select";
   import * as chatApi from "$lib/api/chat";
   import type {
@@ -23,6 +25,7 @@
   import { getLocalization } from "$lib/i18n/translator.svelte";
   import { getChat } from "$lib/stores/chat.svelte";
   import ChatCodePreview from "./ChatCodePreview.svelte";
+  import type { ChatCodeSelection } from "./ChatCodePreview.svelte";
   import ChatFileIcon from "./ChatFileIcon.svelte";
   import ChatPaneResizeHandle from "./ChatPaneResizeHandle.svelte";
   import ChatWorkspaceFileTree from "./ChatWorkspaceFileTree.svelte";
@@ -33,6 +36,7 @@
     treeVisible,
     treeWidthPx,
     onStateChange,
+    onReviewCreated = () => {},
   }: {
     directoryPath: string;
     selectedPath: string | null;
@@ -44,6 +48,7 @@
       treeVisible?: boolean;
       treeWidthPx?: number;
     }) => void;
+    onReviewCreated?: () => void;
   } = $props();
 
   const DEFAULT_TREE_WIDTH = 220;
@@ -59,6 +64,15 @@
   let expandedPaths = $state<string[]>([]);
   let loadingPaths = $state<string[]>([]);
   let preview = $state<ProjectWorkingFolderFilePreview | null>(null);
+  let draftText = $state("");
+  let editorSelection = $state<ChatCodeSelection | null>(null);
+  let reviewComposerOpen = $state(false);
+  let reviewDraft = $state("");
+  let creatingReview = $state(false);
+  let savingFile = $state(false);
+  let saveConflict = $state(false);
+  let conflictDiskText = $state<string | null>(null);
+  let saveCopyPath = $state("");
   let previewElement: HTMLElement | undefined = $state();
   let panelElement: HTMLDivElement | undefined = $state();
   let panelWidth = $state(0);
@@ -88,6 +102,7 @@
   const changedPaths = $derived(new Set(
     chat.timelinePages.flatMap((page) => page.turns.flatMap((turn) => turn.changedFiles.map((file) => file.relativePath))),
   ));
+  const fileDirty = $derived(preview?.text !== null && draftText !== preview?.text);
 
   onMount(() => {
     const observer = new ResizeObserver(([entry]) => {
@@ -113,28 +128,37 @@
 
   $effect(() => {
     const workspace = workingFolderId;
-    const scope = `${workspace ?? ""}:${chat.selectedThreadId ?? ""}`;
+    const executionEnvironmentId = chat.selectedExecutionEnvironmentId;
+    const scope = `${workspace ?? ""}:${chat.selectedThreadId ?? ""}:${executionEnvironmentId ?? ""}`;
     if (!workspace || scope === loadedScope) return;
     loadedScope = scope;
     rootEntries = [];
     childrenByDirectory = {};
     expandedPaths = [];
     preview = null;
-    void loadRoot(workspace, directoryPath);
-    if (selectedPath) void selectFile(selectedPath);
+    draftText = "";
+    editorSelection = null;
+    reviewComposerOpen = false;
+    reviewDraft = "";
+    saveConflict = false;
+    conflictDiskText = null;
+    saveCopyPath = "";
+    void loadRoot(workspace, directoryPath, executionEnvironmentId);
+    if (selectedPath) void selectFile(selectedPath, executionEnvironmentId);
   });
 
   $effect(() => {
     const workspace = workingFolderId;
     const value = query.trim();
     const showIgnored = includeIgnored;
+    const executionEnvironmentId = chat.selectedExecutionEnvironmentId;
     if (!workspace || !value) {
       searchResults = [];
       return;
     }
     let cancelled = false;
     const timer = window.setTimeout(() => {
-      void chatApi.searchChatWorkingFolderPaths(workspace, value, showIgnored, null, 100)
+      void chatApi.searchChatWorkingFolderPaths(workspace, value, showIgnored, null, 100, executionEnvironmentId)
         .then((page) => { if (!cancelled) searchResults = page.entries; })
         .catch((reason: unknown) => { if (!cancelled) error = message(reason); });
     }, 160);
@@ -144,12 +168,16 @@
     };
   });
 
-  async function loadRoot(workspace: string, pathToReveal = ""): Promise<void> {
+  async function loadRoot(
+    workspace: string,
+    pathToReveal = "",
+    executionEnvironmentId = chat.selectedExecutionEnvironmentId,
+  ): Promise<void> {
     const requestId = ++treeRequestId;
     loadingRoot = true;
     error = null;
     try {
-      const result = await chatApi.listProjectWorkingFolderDirectory(workspace, "", includeIgnored);
+      const result = await chatApi.listProjectWorkingFolderDirectory(workspace, "", includeIgnored, executionEnvironmentId);
       if (requestId !== treeRequestId || workspace !== workingFolderId) return;
       rootEntries = result.entries;
       if (pathToReveal) await revealDirectory(pathToReveal);
@@ -166,7 +194,7 @@
     const requestId = treeRequestId;
     loadingPaths = [...loadingPaths, path];
     try {
-      const result = await chatApi.listProjectWorkingFolderDirectory(workspace, path, includeIgnored);
+      const result = await chatApi.listProjectWorkingFolderDirectory(workspace, path, includeIgnored, chat.selectedExecutionEnvironmentId);
       if (requestId !== treeRequestId || workspace !== workingFolderId) return;
       childrenByDirectory = { ...childrenByDirectory, [path]: result.entries };
     } catch (reason: unknown) {
@@ -204,22 +232,129 @@
     void loadDirectory(entry.relativePath);
   }
 
-  async function selectFile(path: string): Promise<void> {
+  async function selectFile(
+    path: string,
+    executionEnvironmentId = chat.selectedExecutionEnvironmentId,
+  ): Promise<void> {
     const workspace = workingFolderId;
     if (!workspace) return;
+    if (path !== selectedPath && fileDirty && !window.confirm(t("chat.inspector.discardUnsaved"))) return;
     const requestId = ++previewRequestId;
     onStateChange({ selectedPath: path });
     preview = null;
     loadingPreview = true;
     error = null;
     try {
-      const result = await chatApi.previewProjectWorkingFolderFile(workspace, path);
-      if (requestId === previewRequestId && workspace === workingFolderId) preview = result;
+      const result = await chatApi.previewProjectWorkingFolderFile(workspace, path, executionEnvironmentId);
+      if (requestId === previewRequestId && workspace === workingFolderId) {
+        preview = result;
+        draftText = result.text ?? "";
+        editorSelection = null;
+        reviewComposerOpen = false;
+        reviewDraft = "";
+        saveConflict = false;
+        conflictDiskText = null;
+        saveCopyPath = "";
+      }
     } catch (reason: unknown) {
       if (requestId === previewRequestId) error = message(reason);
     } finally {
       if (requestId === previewRequestId) loadingPreview = false;
     }
+  }
+
+  async function saveFile(): Promise<void> {
+    const workspace = workingFolderId;
+    const current = preview;
+    if (!workspace || !current?.contentRevision || !fileDirty || savingFile) return;
+    savingFile = true;
+    error = null;
+    try {
+      const saved = await chatApi.saveProjectWorkingFolderFile({
+        workingFolderId: workspace,
+        relativePath: current.relativePath,
+        contents: draftText,
+        expectedRevision: current.contentRevision,
+        executionEnvironmentId: chat.selectedExecutionEnvironmentId,
+      });
+      preview = saved;
+      draftText = saved.text ?? "";
+      saveConflict = false;
+      conflictDiskText = null;
+      saveCopyPath = "";
+      reloadTree();
+    } catch (reason: unknown) {
+      error = message(reason);
+      saveConflict = errorCode(reason) === "conflict";
+      if (saveConflict && !saveCopyPath) saveCopyPath = copyPath(current.relativePath);
+    } finally {
+      savingFile = false;
+    }
+  }
+
+  function errorCode(reason: unknown): string | null {
+    if (typeof reason !== "object" || reason === null || !("code" in reason)) return null;
+    return typeof reason.code === "string" ? reason.code : null;
+  }
+
+  function copyPath(path: string): string {
+    const slash = path.lastIndexOf("/");
+    const directory = slash >= 0 ? path.slice(0, slash + 1) : "";
+    const name = slash >= 0 ? path.slice(slash + 1) : path;
+    const dot = name.lastIndexOf(".");
+    return dot > 0
+      ? `${directory}${name.slice(0, dot)}.ganbaru-copy${name.slice(dot)}`
+      : `${directory}${name}.ganbaru-copy`;
+  }
+
+  async function compareConflict(): Promise<void> {
+    const workspace = workingFolderId;
+    const current = preview;
+    if (!workspace || !current) return;
+    try {
+      const disk = await chatApi.previewProjectWorkingFolderFile(
+        workspace,
+        current.relativePath,
+        chat.selectedExecutionEnvironmentId,
+      );
+      conflictDiskText = disk.text ?? "";
+    } catch (reason: unknown) {
+      error = message(reason);
+    }
+  }
+
+  async function saveConflictCopy(): Promise<void> {
+    const workspace = workingFolderId;
+    const current = preview;
+    const target = saveCopyPath.trim();
+    if (!workspace || !current || !target || savingFile) return;
+    savingFile = true;
+    error = null;
+    try {
+      const saved = await chatApi.saveProjectWorkingFolderFileCopy({
+        workingFolderId: workspace,
+        sourceRelativePath: current.relativePath,
+        targetRelativePath: target,
+        contents: draftText,
+        executionEnvironmentId: chat.selectedExecutionEnvironmentId,
+      });
+      preview = saved;
+      draftText = saved.text ?? "";
+      onStateChange({ selectedPath: saved.relativePath });
+      saveConflict = false;
+      conflictDiskText = null;
+      saveCopyPath = "";
+      reloadTree();
+    } catch (reason: unknown) {
+      error = message(reason);
+    } finally {
+      savingFile = false;
+    }
+  }
+
+  function reloadSelectedFile(): void {
+    if (!selectedPath) return;
+    void selectFile(selectedPath);
   }
 
   function openEntry(entry: ProjectWorkingFolderFileEntry): void {
@@ -326,10 +461,7 @@
 
   async function attachSelection(): Promise<void> {
     if (!workingFolderId || !selectedPath) return;
-    const browserSelection = window.getSelection();
-    if (!browserSelection || !previewElement?.contains(browserSelection.anchorNode)) return;
-    const selection = browserSelection.toString();
-    const bounded = boundTerminalContext(selection, 128 * 1024);
+    const bounded = boundTerminalContext(editorSelection?.text ?? "", 128 * 1024);
     if (!bounded.text) return;
     const attachment = await chatApi.importChatTextSnippet(
       workingFolderId,
@@ -338,6 +470,36 @@
       bounded.text,
     );
     chat.setComposerAttachments([...chat.composer.attachmentIds, attachment.id]);
+  }
+
+  async function createReviewComment(): Promise<void> {
+    const threadId = chat.selectedThreadId;
+    const current = preview;
+    const selection = editorSelection;
+    if (!threadId || !current?.contentRevision || !selection?.text || !reviewDraft.trim() || creatingReview) return;
+    creatingReview = true;
+    error = null;
+    try {
+      await chatApi.createChatReviewComment({
+        id: crypto.randomUUID(),
+        threadId,
+        relativePath: current.relativePath,
+        contentRevision: current.contentRevision,
+        startLine: selection.startLine,
+        startColumn: selection.startColumn,
+        endLine: selection.endLine,
+        endColumn: selection.endColumn,
+        selectedText: selection.text,
+        commentText: reviewDraft.trim(),
+      });
+      reviewDraft = "";
+      reviewComposerOpen = false;
+      onReviewCreated();
+    } catch (reason: unknown) {
+      error = message(reason);
+    } finally {
+      creatingReview = false;
+    }
   }
 
   function message(reason: unknown): string {
@@ -380,19 +542,51 @@
         {#if preview}
           <ChatFileIcon path={preview.relativePath} />
           <strong class="min-w-0 flex-1 truncate text-[0.733333rem] font-medium" title={preview.relativePath}>{preview.relativePath}</strong>
+          {#if fileDirty}<span class="dirty-indicator" title={t("chat.inspector.unsavedChanges")} aria-label={t("chat.inspector.unsavedChanges")}></span>{/if}
+          <button type="button" class="chat-icon-button" disabled={!fileDirty || savingFile || !preview.contentRevision} title={savingFile ? t("chat.inspector.savingFile") : t("chat.inspector.saveFile")} aria-label={savingFile ? t("chat.inspector.savingFile") : t("chat.inspector.saveFile")} onclick={() => void saveFile()}><Save size={13} /></button>
           <button type="button" class="chat-icon-button" title={t("chat.inspector.copyPath")} aria-label={t("chat.inspector.copyPath")} onclick={() => navigator.clipboard.writeText(selectedPath ?? "")}><Copy size={13} /></button>
           <button type="button" class="chat-icon-button" title={t("chat.inspector.attachFile")} aria-label={t("chat.inspector.attachFile")} onclick={() => selectedPath && attachFileReference(selectedPath)}><Paperclip size={13} /></button>
           <button type="button" class="chat-icon-button" title={t("chat.inspector.attachSelection")} aria-label={t("chat.inspector.attachSelection")} onclick={() => { void attachSelection().catch((reason) => { error = message(reason); }); }}><TextSelect size={13} /></button>
-          <button type="button" class="chat-icon-button" title={t("chat.inspector.openExternally")} aria-label={t("chat.inspector.openExternally")} onclick={() => workingFolderId && selectedPath && chatApi.openProjectWorkingFolderFile(workingFolderId, selectedPath)}><ExternalLink size={13} /></button>
+          <button type="button" class="chat-icon-button" disabled={!editorSelection?.text || !preview.contentRevision || !chat.selectedThreadId} title={t("chat.review.addComment")} aria-label={t("chat.review.addComment")} onclick={() => { reviewComposerOpen = !reviewComposerOpen; }}><MessageSquarePlus size={13} /></button>
+          <button type="button" class="chat-icon-button" title={t("chat.inspector.openExternally")} aria-label={t("chat.inspector.openExternally")} onclick={() => workingFolderId && selectedPath && chatApi.openProjectWorkingFolderFile(workingFolderId, selectedPath, chat.selectedExecutionEnvironmentId)}><ExternalLink size={13} /></button>
         {:else}
           <span class="min-w-0 flex-1 truncate text-[0.733333rem] text-muted-foreground">{t("chat.inspector.filePreview")}</span>
         {/if}
       </header>
+      {#if reviewComposerOpen && editorSelection?.text}
+        <form class="review-composer" onsubmit={(event) => { event.preventDefault(); void createReviewComment(); }}>
+          <label for="chat-review-comment">{t("chat.review.commentOnSelection", editorSelection.startLine, editorSelection.endLine)}</label>
+          <textarea id="chat-review-comment" bind:value={reviewDraft} maxlength="65536" placeholder={t("chat.review.commentPlaceholder")}></textarea>
+          <div>
+            <button type="button" onclick={() => { reviewComposerOpen = false; reviewDraft = ""; }}>{t("common.cancel")}</button>
+            <button type="submit" class="primary" disabled={!reviewDraft.trim() || creatingReview}>{creatingReview ? t("common.loading") : t("chat.review.add")}</button>
+          </div>
+        </form>
+      {/if}
       {#if error && !treeVisible}<p role="alert" class="border-b border-destructive/30 p-2 text-xs text-destructive">{error}</p>{/if}
+      {#if saveConflict}
+        <div role="alert" class="save-conflict">
+          <span>{t("chat.inspector.saveConflict")}</span>
+          <div><button type="button" onclick={() => void compareConflict()}>{t("chat.inspector.compareFile")}</button><button type="button" onclick={reloadSelectedFile}>{t("chat.inspector.reloadFile")}</button></div>
+          <form onsubmit={(event) => { event.preventDefault(); void saveConflictCopy(); }}><input bind:value={saveCopyPath} aria-label={t("chat.inspector.saveCopyPath")} /><button type="submit" disabled={!saveCopyPath.trim() || savingFile}>{t("chat.inspector.saveCopy")}</button></form>
+        </div>
+      {/if}
+      {#if conflictDiskText !== null && preview}
+        <section class="conflict-compare" aria-label={t("chat.inspector.compareFile")}>
+          <div><strong>{t("chat.inspector.diskVersion")}</strong><pre>{conflictDiskText}</pre></div>
+          <div><strong>{t("chat.inspector.yourVersion")}</strong><pre>{draftText}</pre></div>
+        </section>
+      {/if}
       {#if loadingPreview}
         <p class="m-auto text-xs text-muted-foreground">{t("common.loading")}</p>
       {:else if preview && preview.text !== null}
-        <ChatCodePreview text={preview.text} language={preview.language} />
+        <ChatCodePreview
+          text={draftText}
+          language={preview.language}
+          onChange={(text) => { draftText = text; }}
+          onSelectionChange={(selection) => { editorSelection = selection; }}
+          onSave={() => void saveFile()}
+        />
       {:else if preview}
         <div class="m-auto p-4 text-center text-xs text-muted-foreground">
           <p>{preview.binary ? t("chat.inspector.binary") : preview.oversized ? t("chat.inspector.previewOversized") : t("chat.inspector.previewUnavailable")}</p>
@@ -418,4 +612,25 @@
   .tree-action:hover, .tree-action.active { background: var(--accent); color: var(--foreground); }
   .file-editor { display: flex; min-width: 0; min-height: 0; flex: 1; flex-direction: column; overflow: hidden; }
   .editor-heading { display: flex; min-height: 2.45rem; flex: 0 0 auto; align-items: center; gap: 0.25rem; border-bottom: 1px solid var(--border); padding: 0.3rem 0.4rem; }
+  .dirty-indicator { width: 0.45rem; height: 0.45rem; flex: 0 0 auto; border-radius: 999px; background: var(--status-tentative); }
+  .save-conflict { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 0.35rem; border-bottom: 1px solid color-mix(in srgb, var(--destructive) 35%, var(--border)); background: color-mix(in srgb, var(--destructive) 8%, var(--background)); padding: 0.4rem 0.55rem; color: var(--destructive); font-size: 0.7rem; }
+  .save-conflict > div { display: flex; gap: 0.25rem; }
+  .save-conflict form { grid-column: 1 / -1; display: flex; min-width: 0; gap: 0.35rem; }
+  .save-conflict input { min-width: 0; flex: 1; border: 1px solid var(--border); border-radius: 0.35rem; background: var(--background); padding: 0.25rem 0.4rem; color: var(--foreground); }
+  .save-conflict button { flex: 0 0 auto; border-radius: 0.35rem; padding: 0.2rem 0.45rem; color: var(--foreground); }
+  .save-conflict button:hover { background: var(--accent); }
+  .conflict-compare { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); max-height: 35%; overflow: hidden; border-bottom: 1px solid var(--border); }
+  .conflict-compare > div { min-width: 0; overflow: auto; padding: 0.4rem; }
+  .conflict-compare > div + div { border-left: 1px solid var(--border); }
+  .conflict-compare strong { font-size: 0.66rem; }
+  .conflict-compare pre { margin-top: 0.3rem; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 0.66rem; }
+  .review-composer { display: grid; flex: 0 0 auto; gap: 0.4rem; border-bottom: 1px solid var(--border); padding: 0.55rem; background: var(--background); }
+  .review-composer label { font-size: 0.7rem; color: var(--muted-foreground); }
+  .review-composer textarea { min-height: 4rem; max-height: 9rem; resize: vertical; border: 1px solid var(--border); border-radius: 0.4rem; background: var(--cal-bg); padding: 0.45rem; font-size: 0.733333rem; color: var(--foreground); outline: none; }
+  .review-composer textarea:focus { border-color: var(--ring); }
+  .review-composer div { display: flex; justify-content: flex-end; gap: 0.35rem; }
+  .review-composer button { border-radius: 0.35rem; padding: 0.3rem 0.55rem; font-size: 0.7rem; }
+  .review-composer button:hover { background: var(--accent); }
+  .review-composer button.primary { background: var(--primary); color: var(--primary-foreground); }
+  .review-composer button:disabled { opacity: 0.5; }
 </style>

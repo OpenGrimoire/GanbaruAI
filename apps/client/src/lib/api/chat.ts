@@ -19,9 +19,15 @@ import type {
   ChatTerminalCloseResult,
   ChatTerminalContextRead,
   ChatTerminalRead,
+  ChatTerminalLayoutRead,
+  ChatTerminalPanelLayout,
   ChatTerminalSnapshotRead,
   ChatCheckpointDiffRead,
   ChatCheckpointFileDiffRead,
+  ChatReviewCommentRead,
+  ChatExecutionEnvironmentRead,
+  CreateChatWorktreeRequest,
+  CreateChatReviewCommentRequest,
   ChatRestorePreviewRead,
   ChatRestoreResultRead,
   ChatPanelPreferences,
@@ -52,6 +58,15 @@ import type {
   ResolveChatApprovalCommand,
   ResolveChatUserInputCommand,
   VersionedJson,
+  GitStatusRead,
+  GitRemoteRead,
+  GitBranchRead,
+  GitWorktreeRead,
+  PreviewBounds,
+  PreviewTabRead,
+  HostedChangeRequestRead,
+  CreateHostedChangeRequest,
+  HostedSourceControlRead,
 } from "$lib/chat/contracts";
 import {
   parseChatProjectShells,
@@ -72,10 +87,15 @@ import {
   parseChatTerminalCloseResult,
   parseChatTerminalContext,
   parseChatTerminal,
+  parseChatTerminalLayout,
   parseChatTerminalSnapshot,
   parseChatTerminals,
   parseChatCheckpointDiff,
   parseChatCheckpointFileDiff,
+  parseChatReviewComment,
+  parseChatReviewComments,
+  parseChatExecutionEnvironment,
+  parseChatExecutionEnvironments,
   parseChatRestorePreview,
   parseChatRestoreResult,
   parseTurnDispatchReceipt,
@@ -93,37 +113,516 @@ import {
   parseProviderFiles,
   parseProviderSetupTestRead,
   parseRemoveProviderResult,
+  parseGitStatus,
+  parseGitRemotes,
+  parseGitBranches,
+  parseGitWorktrees,
+  parsePreviewTabRead,
+  parsePreviewTabs,
+  parseHostedSourceControls,
+  parseHostedChangeRequest,
+  parseHostedChangeRequests,
 } from "$lib/chat/validation";
+
+export async function listChatReviewComments(
+  threadId: ChatThreadId,
+  includeResolved: boolean,
+): Promise<ChatReviewCommentRead[]> {
+  return parseChatReviewComments(await invoke<unknown>("chat_list_review_comments", {
+    dbUrl: await ensureDbUrl(), threadId, includeResolved,
+  }));
+}
+
+export async function createChatReviewComment(
+  request: CreateChatReviewCommentRequest,
+): Promise<ChatReviewCommentRead> {
+  return parseChatReviewComment(await invoke<unknown>("chat_create_review_comment", {
+    dbUrl: await ensureDbUrl(), request,
+  }));
+}
+
+export async function setChatReviewCommentResolved(
+  threadId: ChatThreadId,
+  commentId: string,
+  resolved: boolean,
+): Promise<ChatReviewCommentRead> {
+  return parseChatReviewComment(await invoke<unknown>("chat_set_review_comment_resolved", {
+    dbUrl: await ensureDbUrl(), threadId, commentId, resolved,
+  }));
+}
+
+export async function attachChatReviewComment(
+  threadId: ChatThreadId,
+  commentId: string,
+  attachmentId: string,
+): Promise<ChatAttachmentRead> {
+  return parseChatAttachmentRead(await invoke<unknown>("chat_attach_review_comment", {
+    dbUrl: await ensureDbUrl(), request: { threadId, commentId, attachmentId },
+  }));
+}
+
+export async function listChatExecutionEnvironments(
+  workingFolderId: ProjectWorkingFolderId,
+): Promise<ChatExecutionEnvironmentRead[]> {
+  return parseChatExecutionEnvironments(await invoke<unknown>("chat_list_execution_environments", {
+    dbUrl: await ensureDbUrl(), workingFolderId,
+  }));
+}
+
+export async function createChatWorktreeEnvironment(
+  request: CreateChatWorktreeRequest,
+): Promise<ChatExecutionEnvironmentRead> {
+  return parseChatExecutionEnvironment(await invoke<unknown>("chat_create_worktree_environment", {
+    dbUrl: await ensureDbUrl(), request,
+  }));
+}
+
+export async function removeChatWorktreeEnvironment(
+  workingFolderId: ProjectWorkingFolderId,
+  environmentId: string,
+  confirmed: boolean,
+): Promise<void> {
+  await invoke("chat_remove_worktree_environment", {
+    dbUrl: await ensureDbUrl(), workingFolderId, environmentId, confirmed,
+  });
+}
+
+export async function readChatThreadExecutionEnvironment(threadId: ChatThreadId): Promise<string | null> {
+  const value = await invoke<unknown>("chat_read_thread_execution_environment", {
+    dbUrl: await ensureDbUrl(), threadId,
+  });
+  if (value === null) return null;
+  if (typeof value !== "string" || value.length === 0) {
+    throw new Error("Chat execution environment response is invalid");
+  }
+  return value;
+}
+
+export async function discoverHostedSourceControl(
+  workingFolderId: ProjectWorkingFolderId,
+  executionEnvironmentId: string | null = null,
+): Promise<HostedSourceControlRead[]> {
+  return parseHostedSourceControls(await invoke<unknown>("chat_discover_source_control", {
+    dbUrl: await ensureDbUrl(), workingFolderId, executionEnvironmentId,
+  }));
+}
+
+export async function listHostedChangeRequests(
+  workingFolderId: ProjectWorkingFolderId,
+  executionEnvironmentId: string | null,
+  providerKind: HostedSourceControlRead["kind"],
+  repositorySlug: string,
+  limit = 50,
+): Promise<HostedChangeRequestRead[]> {
+  return parseHostedChangeRequests(await invoke<unknown>("chat_list_hosted_change_requests", {
+    dbUrl: await ensureDbUrl(),
+    workingFolderId,
+    executionEnvironmentId,
+    providerKind,
+    repositorySlug,
+    limit,
+  }));
+}
+
+export async function createHostedChangeRequest(
+  request: CreateHostedChangeRequest,
+): Promise<HostedChangeRequestRead> {
+  return parseHostedChangeRequest(await invoke<unknown>("chat_create_hosted_change_request", {
+    dbUrl: await ensureDbUrl(), request,
+  }));
+}
+
+export async function checkoutHostedChangeRequest(
+  workingFolderId: ProjectWorkingFolderId,
+  executionEnvironmentId: string | null,
+  providerKind: HostedSourceControlRead["kind"],
+  reference: string,
+  remoteName: string | null,
+): Promise<GitStatusRead> {
+  return parseGitStatus(await invoke<unknown>("chat_checkout_hosted_change_request", {
+    dbUrl: await ensureDbUrl(),
+    workingFolderId,
+    executionEnvironmentId,
+    providerKind,
+    reference,
+    remoteName,
+  }));
+}
+
+export async function configureBitbucketCredential(
+  repositorySlug: string,
+  username: string,
+  token: string,
+): Promise<void> {
+  await invoke("chat_configure_bitbucket_credential", {
+    request: { repositorySlug, username, token },
+  });
+}
+
+export async function removeBitbucketCredential(repositorySlug: string): Promise<boolean> {
+  return invoke<boolean>("chat_remove_bitbucket_credential", { repositorySlug });
+}
+
+export async function readPreviewStatus(threadId: ChatThreadId): Promise<PreviewTabRead[]> {
+  return parsePreviewTabs(await invoke<unknown>("chat_preview_status", {
+    dbUrl: await ensureDbUrl(), threadId,
+  }));
+}
+
+export interface DiscoveredPreviewServer {
+  url: string;
+  sourceLabel: string;
+}
+
+export async function discoverPreviewServers(threadId: ChatThreadId): Promise<DiscoveredPreviewServer[]> {
+  const value = await invoke<unknown>("chat_preview_discover_servers", {
+    dbUrl: await ensureDbUrl(), threadId,
+  });
+  if (!Array.isArray(value)) throw new Error("Invalid preview server list");
+  return value.map((entry) => {
+    if (typeof entry !== "object" || entry === null) throw new Error("Invalid preview server");
+    const record = entry as Record<string, unknown>;
+    if (typeof record.url !== "string" || typeof record.sourceLabel !== "string") {
+      throw new Error("Invalid preview server");
+    }
+    return { url: record.url, sourceLabel: record.sourceLabel };
+  });
+}
+
+export async function openPreview(request: {
+  threadId: ChatThreadId;
+  tabId: string;
+  url: string;
+  bounds: PreviewBounds;
+  externalNavigationConfirmed: boolean;
+}): Promise<PreviewTabRead> {
+  return parsePreviewTabRead(await invoke<unknown>("chat_preview_open", {
+    dbUrl: await ensureDbUrl(), request,
+  }));
+}
+
+export async function navigatePreview(
+  threadId: ChatThreadId,
+  tabId: string,
+  url: string,
+  externalNavigationConfirmed: boolean,
+): Promise<PreviewTabRead> {
+  return parsePreviewTabRead(await invoke<unknown>("chat_preview_navigate", {
+    dbUrl: await ensureDbUrl(), threadId, tabId, url, externalNavigationConfirmed,
+  }));
+}
+
+export async function resizePreview(
+  threadId: ChatThreadId,
+  tabId: string,
+  bounds: PreviewBounds,
+): Promise<PreviewTabRead> {
+  return parsePreviewTabRead(await invoke<unknown>("chat_preview_resize", {
+    dbUrl: await ensureDbUrl(), threadId, tabId, bounds,
+  }));
+}
+
+export async function setPreviewVisible(
+  threadId: ChatThreadId,
+  tabId: string,
+  visible: boolean,
+): Promise<PreviewTabRead> {
+  return parsePreviewTabRead(await invoke<unknown>("chat_preview_set_visible", {
+    dbUrl: await ensureDbUrl(), threadId, tabId, visible,
+  }));
+}
+
+export async function previewBack(threadId: ChatThreadId, tabId: string): Promise<void> {
+  await invoke("chat_preview_back", { threadId, tabId });
+}
+
+export async function previewForward(threadId: ChatThreadId, tabId: string): Promise<void> {
+  await invoke("chat_preview_forward", { threadId, tabId });
+}
+
+export async function refreshPreview(threadId: ChatThreadId, tabId: string): Promise<void> {
+  await invoke("chat_preview_refresh", { threadId, tabId });
+}
+
+export interface BrowserArtifactRead {
+  id: string;
+  displayName: string;
+  mimeType: string;
+  byteSize: number;
+  resourceUri: string;
+}
+
+function parseBrowserArtifactRead(value: unknown): BrowserArtifactRead {
+  if (typeof value !== "object" || value === null) throw new Error("Invalid browser artifact");
+  const record = value as Record<string, unknown>;
+  if (typeof record.id !== "string" || typeof record.displayName !== "string"
+    || typeof record.mimeType !== "string" || typeof record.byteSize !== "number"
+    || typeof record.resourceUri !== "string") {
+    throw new Error("Invalid browser artifact");
+  }
+  return {
+    id: record.id,
+    displayName: record.displayName,
+    mimeType: record.mimeType,
+    byteSize: record.byteSize,
+    resourceUri: record.resourceUri,
+  };
+}
+
+export async function capturePreviewScreenshot(threadId: ChatThreadId, tabId: string): Promise<BrowserArtifactRead> {
+  return parseBrowserArtifactRead(await invoke<unknown>("chat_preview_screenshot", {
+    dbUrl: await ensureDbUrl(), threadId, tabId,
+  }));
+}
+
+export async function startPreviewRecording(threadId: ChatThreadId, tabId: string): Promise<void> {
+  await invoke("chat_preview_recording_start", { threadId, tabId, approved: true });
+}
+
+export async function stopPreviewRecording(threadId: ChatThreadId, tabId: string): Promise<BrowserArtifactRead> {
+  return parseBrowserArtifactRead(await invoke<unknown>("chat_preview_recording_stop", {
+    dbUrl: await ensureDbUrl(), threadId, tabId,
+  }));
+}
+
+export async function closePreview(threadId: ChatThreadId, tabId: string): Promise<void> {
+  await invoke("chat_preview_close", { dbUrl: await ensureDbUrl(), threadId, tabId });
+}
+
+export async function readGitStatus(workingFolderId: ProjectWorkingFolderId, executionEnvironmentId: string | null = null): Promise<GitStatusRead> {
+  return parseGitStatus(await invoke<unknown>("chat_git_status", {
+    dbUrl: await ensureDbUrl(),
+    workingFolderId,
+    executionEnvironmentId,
+  }));
+}
+
+export async function readGitDiff(
+  workingFolderId: ProjectWorkingFolderId,
+  staged: boolean,
+  relativePath: string | null,
+  executionEnvironmentId: string | null = null,
+): Promise<string> {
+  return await invoke<string>("chat_git_diff", {
+    dbUrl: await ensureDbUrl(),
+    workingFolderId,
+    staged,
+    relativePath,
+    executionEnvironmentId,
+  });
+}
+
+export async function stageGitPaths(
+  workingFolderId: ProjectWorkingFolderId,
+  paths: string[],
+  executionEnvironmentId: string | null = null,
+): Promise<GitStatusRead> {
+  return parseGitStatus(await invoke<unknown>("chat_git_stage", {
+    dbUrl: await ensureDbUrl(),
+    workingFolderId,
+    paths,
+    executionEnvironmentId,
+  }));
+}
+
+export async function unstageGitPaths(
+  workingFolderId: ProjectWorkingFolderId,
+  paths: string[],
+  executionEnvironmentId: string | null = null,
+): Promise<GitStatusRead> {
+  return parseGitStatus(await invoke<unknown>("chat_git_unstage", {
+    dbUrl: await ensureDbUrl(),
+    workingFolderId,
+    paths,
+    executionEnvironmentId,
+  }));
+}
+
+export async function commitGitChanges(
+  workingFolderId: ProjectWorkingFolderId,
+  message: string,
+  executionEnvironmentId: string | null = null,
+): Promise<GitStatusRead> {
+  return parseGitStatus(await invoke<unknown>("chat_git_commit", {
+    dbUrl: await ensureDbUrl(),
+    workingFolderId,
+    message,
+    executionEnvironmentId,
+  }));
+}
+
+export async function fetchGitRemote(
+  workingFolderId: ProjectWorkingFolderId,
+  remote: string | null = null,
+  executionEnvironmentId: string | null = null,
+): Promise<GitStatusRead> {
+  return parseGitStatus(await invoke<unknown>("chat_git_fetch", {
+    dbUrl: await ensureDbUrl(), workingFolderId, remote, executionEnvironmentId,
+  }));
+}
+
+export async function pullGitBranch(
+  workingFolderId: ProjectWorkingFolderId,
+  remote: string | null = null,
+  branch: string | null = null,
+  executionEnvironmentId: string | null = null,
+): Promise<GitStatusRead> {
+  return parseGitStatus(await invoke<unknown>("chat_git_pull", {
+    dbUrl: await ensureDbUrl(), workingFolderId, remote, branch, executionEnvironmentId,
+  }));
+}
+
+export async function pushGitBranch(
+  workingFolderId: ProjectWorkingFolderId,
+  remote: string | null = null,
+  branch: string | null = null,
+  forceWithLease = false,
+  destructiveConfirmed = false,
+  executionEnvironmentId: string | null = null,
+): Promise<GitStatusRead> {
+  return parseGitStatus(await invoke<unknown>("chat_git_push", {
+    dbUrl: await ensureDbUrl(),
+    request: { workingFolderId, remote, branch, forceWithLease, destructiveConfirmed, executionEnvironmentId },
+  }));
+}
+
+export async function listGitRemotes(workingFolderId: ProjectWorkingFolderId, executionEnvironmentId: string | null = null): Promise<GitRemoteRead[]> {
+  return parseGitRemotes(await invoke<unknown>("chat_git_remotes", {
+    dbUrl: await ensureDbUrl(), workingFolderId, executionEnvironmentId,
+  }));
+}
+
+export async function listGitBranches(workingFolderId: ProjectWorkingFolderId, executionEnvironmentId: string | null = null): Promise<GitBranchRead[]> {
+  return parseGitBranches(await invoke<unknown>("chat_git_branches", {
+    dbUrl: await ensureDbUrl(), workingFolderId, executionEnvironmentId,
+  }));
+}
+
+export async function listGitWorktrees(workingFolderId: ProjectWorkingFolderId, executionEnvironmentId: string | null = null): Promise<GitWorktreeRead[]> {
+  return parseGitWorktrees(await invoke<unknown>("chat_git_worktrees", {
+    dbUrl: await ensureDbUrl(), workingFolderId, executionEnvironmentId,
+  }));
+}
+
+export async function initializeGitRepository(
+  workingFolderId: ProjectWorkingFolderId,
+  initialBranch: string | null,
+  executionEnvironmentId: string | null = null,
+): Promise<GitStatusRead> {
+  return parseGitStatus(await invoke<unknown>("chat_git_initialize", {
+    dbUrl: await ensureDbUrl(), workingFolderId, initialBranch, executionEnvironmentId,
+  }));
+}
+
+export async function cloneGitRepository(
+  workingFolderId: ProjectWorkingFolderId,
+  remoteUrl: string,
+  remoteName = "origin",
+  executionEnvironmentId: string | null = null,
+): Promise<GitStatusRead> {
+  return parseGitStatus(await invoke<unknown>("chat_git_clone", {
+    dbUrl: await ensureDbUrl(), workingFolderId, remoteUrl, remoteName, executionEnvironmentId,
+  }));
+}
+
+export async function discardGitPaths(
+  workingFolderId: ProjectWorkingFolderId,
+  paths: string[],
+  destructiveConfirmed: boolean,
+  executionEnvironmentId: string | null = null,
+): Promise<GitStatusRead> {
+  return parseGitStatus(await invoke<unknown>("chat_git_discard", {
+    dbUrl: await ensureDbUrl(), workingFolderId, paths, destructiveConfirmed, executionEnvironmentId,
+  }));
+}
+
+export async function deleteGitBranch(
+  workingFolderId: ProjectWorkingFolderId,
+  branch: string,
+  force: boolean,
+  destructiveConfirmed: boolean,
+  executionEnvironmentId: string | null = null,
+): Promise<GitBranchRead[]> {
+  return parseGitBranches(await invoke<unknown>("chat_git_delete_branch", {
+    dbUrl: await ensureDbUrl(), workingFolderId, branch, force, destructiveConfirmed, executionEnvironmentId,
+  }));
+}
+
+export async function readChatTerminalLayout(threadId: ChatThreadId): Promise<ChatTerminalLayoutRead> {
+  return parseChatTerminalLayout(await invoke<unknown>("chat_read_terminal_layout", {
+    dbUrl: await ensureDbUrl(), threadId,
+  }));
+}
+
+export async function saveChatTerminalPanelLayout(
+  threadId: ChatThreadId,
+  panel: ChatTerminalPanelLayout,
+): Promise<ChatTerminalLayoutRead> {
+  return parseChatTerminalLayout(await invoke<unknown>("chat_save_terminal_panel_layout", {
+    dbUrl: await ensureDbUrl(), threadId, panel,
+  }));
+}
 
 export async function listProjectWorkingFolderDirectory(
   workingFolderId: ProjectWorkingFolderId,
   relativePath: string,
   includeIgnored = false,
+  executionEnvironmentId: string | null = null,
 ): Promise<ProjectWorkingFolderDirectoryRead> {
   return parseProjectWorkingFolderDirectory(await invoke<unknown>("project_list_working_folder_directory", {
     dbUrl: await ensureDbUrl(),
     workingFolderId,
     relativePath,
     includeIgnored,
+    executionEnvironmentId,
   }));
 }
 
 export async function previewProjectWorkingFolderFile(
   workingFolderId: ProjectWorkingFolderId,
   relativePath: string,
+  executionEnvironmentId: string | null = null,
 ): Promise<ProjectWorkingFolderFilePreview> {
   return parseProjectWorkingFolderFilePreview(await invoke<unknown>("project_preview_working_folder_file", {
     dbUrl: await ensureDbUrl(),
     workingFolderId,
     relativePath,
+    executionEnvironmentId,
+  }));
+}
+
+export async function saveProjectWorkingFolderFile(request: {
+  workingFolderId: ProjectWorkingFolderId;
+  relativePath: string;
+  contents: string;
+  expectedRevision: string;
+  executionEnvironmentId?: string | null;
+}): Promise<ProjectWorkingFolderFilePreview> {
+  return parseProjectWorkingFolderFilePreview(await invoke<unknown>("project_save_working_folder_file", {
+    dbUrl: await ensureDbUrl(),
+    request,
+  }));
+}
+
+export async function saveProjectWorkingFolderFileCopy(request: {
+  workingFolderId: ProjectWorkingFolderId;
+  sourceRelativePath: string;
+  targetRelativePath: string;
+  contents: string;
+  executionEnvironmentId?: string | null;
+}): Promise<ProjectWorkingFolderFilePreview> {
+  return parseProjectWorkingFolderFilePreview(await invoke<unknown>("project_save_working_folder_file_copy", {
+    dbUrl: await ensureDbUrl(),
+    request,
   }));
 }
 
 export async function openProjectWorkingFolderFile(
   workingFolderId: ProjectWorkingFolderId,
   relativePath: string,
+  executionEnvironmentId: string | null = null,
 ): Promise<void> {
-  await invoke("project_open_working_folder_file", { dbUrl: await ensureDbUrl(), workingFolderId, relativePath });
+  await invoke("project_open_working_folder_file", { dbUrl: await ensureDbUrl(), workingFolderId, relativePath, executionEnvironmentId });
 }
 
 export async function listChatTerminals(
@@ -443,6 +942,18 @@ export async function openChatExternalUrl(url: string): Promise<void> {
   await invoke("chat_open_external_url", { url });
 }
 
+export async function forkChatThread(
+  sourceThreadId: ChatThreadId,
+  newThreadId: ChatThreadId,
+  title: string,
+  lastProviderTurnId: string | null = null,
+): Promise<ChatThreadShellRead> {
+  return parseChatThreadShell(await invoke<unknown>("chat_fork_thread", {
+    dbUrl: await ensureDbUrl(),
+    request: { sourceThreadId, newThreadId, title, lastProviderTurnId },
+  }));
+}
+
 export async function readChatDraft(draftId: string): Promise<ChatDraftRead | null> {
   const value = await invoke<unknown>("chat_read_draft", { dbUrl: await ensureDbUrl(), draftId });
   return value === null ? null : parseChatDraftRead(value);
@@ -517,18 +1028,21 @@ export async function searchChatWorkingFolderPaths(
   includeIgnored: boolean,
   cursor: string | null = null,
   limit = 50,
+  executionEnvironmentId: string | null = null,
 ): Promise<ProjectWorkingFolderPathPage> {
   return parseProjectWorkingFolderPathPage(await invoke<unknown>("chat_search_working_folder_paths", {
-    dbUrl: await ensureDbUrl(), workingFolderId, query, includeIgnored, cursor, limit,
+    dbUrl: await ensureDbUrl(),
+    request: { workingFolderId, query, includeIgnored, cursor, limit, executionEnvironmentId },
   }));
 }
 
 export async function validateChatWorkingFolderMentions(
   workingFolderId: ProjectWorkingFolderId,
   relativePaths: string[],
+  executionEnvironmentId: string | null = null,
 ): Promise<void> {
   await invoke("chat_validate_working_folder_mentions", {
-    dbUrl: await ensureDbUrl(), workingFolderId, relativePaths,
+    dbUrl: await ensureDbUrl(), workingFolderId, relativePaths, executionEnvironmentId,
   });
 }
 

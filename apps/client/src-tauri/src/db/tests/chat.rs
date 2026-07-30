@@ -124,6 +124,17 @@ fn schema_creates_chat_tables_indexes_and_no_device_paths() {
             "chat_restore_previews",
             "chat_restore_operations",
             "chat_terminal_attachment_contexts",
+            "chat_execution_environments",
+            "chat_thread_relations",
+            "chat_worktrees",
+            "chat_review_comments",
+            "chat_resources",
+            "chat_resource_thread_references",
+            "chat_preview_tabs",
+            "chat_browser_artifacts",
+            "chat_provider_cleanup_jobs",
+            "chat_terminal_layouts",
+            "chat_source_control_state",
             "idx_chat_threads_active_project",
             "idx_chat_threads_active_working_folder",
             "idx_chat_threads_archived",
@@ -141,6 +152,12 @@ fn schema_creates_chat_tables_indexes_and_no_device_paths() {
             "idx_chat_restore_previews_thread",
             "idx_chat_restore_operations_thread",
             "idx_chat_events_valid_thread_sequence",
+            "idx_chat_threads_execution_environment",
+            "idx_chat_worktrees_cleanup",
+            "idx_chat_review_comments_thread_path",
+            "idx_chat_resources_workspace_kind",
+            "idx_chat_browser_artifacts_thread",
+            "idx_chat_provider_cleanup_jobs_retry",
         ] {
             let exists: Option<i64> =
                 sqlx::query_scalar("SELECT 1 FROM sqlite_schema WHERE name = ?")
@@ -157,6 +174,10 @@ fn schema_creates_chat_tables_indexes_and_no_device_paths() {
             "chat_turns",
             "chat_messages",
             "chat_events",
+            "chat_execution_environments",
+            "chat_worktrees",
+            "chat_resources",
+            "chat_browser_artifacts",
         ] {
             let columns = sqlx::query(&format!("SELECT name FROM pragma_table_info('{table}')"))
                 .fetch_all(&pool)
@@ -172,6 +193,157 @@ fn schema_creates_chat_tables_indexes_and_no_device_paths() {
                     || column.contains("secret")
             }));
         }
+    });
+}
+
+#[test]
+fn chat_workspace_schema_preserves_attachments_and_scopes_resources_to_threads() {
+    tauri::async_runtime::block_on(async {
+        let pool = migrated_memory_pool().await;
+        insert_project(&pool).await;
+        insert_working_folder(&pool, "folder-1", "project-1").await;
+        insert_thread(&pool, "thread-1", "folder-1", "project-1").await;
+        sqlx::query(
+            "INSERT INTO chat_messages
+                (id, thread_id, sequence_anchor, role, normalized_markdown, streaming_state, created_at, updated_at)
+             VALUES ('message-1', 'thread-1', 0, 'user', 'Inspect this image', 'complete', ?, ?)",
+        )
+        .bind(NOW)
+        .bind(NOW)
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            "INSERT INTO chat_attachments
+                (id, working_folder_id, kind, original_display_name, mime_type, byte_size,
+                 sha256, managed_relative_path, signature_kind, created_at)
+             VALUES ('resource-1', 'folder-1', 'image', 'screen.png', 'image/png', 8,
+                     'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+                     'assets/chat/attachments/resource-1.png', 'png', ?)",
+        )
+        .bind(NOW)
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            "INSERT INTO chat_attachment_references
+                (id, attachment_id, message_id, created_at)
+             VALUES ('reference-1', 'resource-1', 'message-1', ?)",
+        )
+        .bind(NOW)
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        let resource: (String, String, String) = sqlx::query_as(
+            "SELECT resource_uri, managed_relative_path, integrity_state
+             FROM chat_resources WHERE id = 'resource-1'",
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(resource.0, "ganbaru://chat/resource/resource-1");
+        assert_eq!(resource.1, "assets/chat/attachments/resource-1.png");
+        assert_eq!(resource.2, "verified");
+        let visible: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM chat_resource_thread_references
+             WHERE resource_id = 'resource-1' AND thread_id = 'thread-1'",
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(visible, 1);
+
+        sqlx::query("DELETE FROM chat_threads WHERE id = 'thread-1'")
+            .execute(&pool)
+            .await
+            .unwrap();
+        let resource_remains: i64 =
+            sqlx::query_scalar("SELECT COUNT(*) FROM chat_resources WHERE id = 'resource-1'")
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        let references_remain: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM chat_resource_thread_references WHERE resource_id = 'resource-1'",
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(resource_remains, 1);
+        assert_eq!(references_remain, 0);
+    });
+}
+
+#[test]
+fn chat_workspace_schema_records_forks_worktrees_reviews_and_cleanup_failures() {
+    tauri::async_runtime::block_on(async {
+        let pool = migrated_memory_pool().await;
+        insert_project(&pool).await;
+        insert_working_folder(&pool, "folder-1", "project-1").await;
+        insert_thread(&pool, "thread-parent", "folder-1", "project-1").await;
+        insert_thread(&pool, "thread-child", "folder-1", "project-1").await;
+        sqlx::query(
+            "INSERT INTO chat_thread_relations
+                (child_thread_id, parent_thread_id, relation_kind, created_at)
+             VALUES ('thread-child', 'thread-parent', 'fork', ?)",
+        )
+        .bind(NOW)
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            "INSERT INTO chat_execution_environments
+                (id, working_folder_id, kind, display_name, lifecycle_state, created_at, updated_at)
+             VALUES ('worktree-1', 'folder-1', 'worktree', 'Feature worktree', 'cleanup_failed', ?, ?)",
+        )
+        .bind(NOW)
+        .bind(NOW)
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            "INSERT INTO chat_worktrees
+                (execution_environment_id, branch_name, base_reference, cleanup_state,
+                 cleanup_error_code, cleanup_error_detail, created_at, updated_at)
+             VALUES ('worktree-1', 'feat/workspace', 'origin/dev', 'failed',
+                     'dirty_worktree', 'Worktree has local changes', ?, ?)",
+        )
+        .bind(NOW)
+        .bind(NOW)
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            "INSERT INTO chat_review_comments
+                (id, thread_id, relative_path, content_revision, start_line, end_line,
+                 selected_text, comment_text, created_at, updated_at)
+             VALUES ('review-1', 'thread-child', 'src/main.rs',
+                     'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+                     4, 5, 'unsafe block', 'Can this stay safe?', ?, ?)",
+        )
+        .bind(NOW)
+        .bind(NOW)
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        let environment: String = sqlx::query_scalar(
+            "SELECT execution_environment_id FROM chat_threads WHERE id = 'thread-child'",
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        let cleanup: (String, String) = sqlx::query_as(
+            "SELECT cleanup_state, cleanup_error_code FROM chat_worktrees WHERE execution_environment_id = 'worktree-1'",
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(environment, "current-folder:folder-1");
+        assert_eq!(
+            cleanup,
+            ("failed".to_string(), "dirty_worktree".to_string())
+        );
     });
 }
 

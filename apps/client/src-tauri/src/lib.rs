@@ -750,6 +750,8 @@ pub fn run() {
         .manage(soundscape::SoundscapeEngineState::default())
         .manage(chat::settings_commands::ChatSettingsState::default())
         .manage(chat::provider_files::ProviderFileState::default())
+        .manage(chat::internal_mcp::InternalMcpRegistry::default())
+        .manage(chat::preview::ChatPreviewManager::default())
         .manage(chat::runtime::ChatRuntimeRegistry::default())
         .manage(chat::terminal::ChatTerminalRegistry::default())
         .plugin(tauri_plugin_dialog::init())
@@ -778,8 +780,23 @@ pub fn run() {
             chat::workspace_commands::projects_last_working_folder,
             chat::workspace_files::project_list_working_folder_directory,
             chat::workspace_files::project_preview_working_folder_file,
+            chat::workspace_files::project_save_working_folder_file,
+            chat::workspace_files::project_save_working_folder_file_copy,
             chat::workspace_files::project_open_working_folder_file,
+            chat::execution_environment::chat_list_execution_environments,
+            chat::execution_environment::chat_create_worktree_environment,
+            chat::execution_environment::chat_select_thread_execution_environment,
+            chat::execution_environment::chat_read_thread_execution_environment,
+            chat::execution_environment::chat_remove_worktree_environment,
+            chat::resource_commands::chat_resource_list,
+            chat::resource_commands::chat_resource_read,
+            chat::review_commands::chat_list_review_comments,
+            chat::review_commands::chat_create_review_comment,
+            chat::review_commands::chat_set_review_comment_resolved,
+            chat::review_commands::chat_attach_review_comment,
             chat::terminal_commands::chat_list_terminals,
+            chat::terminal_commands::chat_read_terminal_layout,
+            chat::terminal_commands::chat_save_terminal_panel_layout,
             chat::terminal_commands::chat_terminal_create,
             chat::terminal_commands::chat_terminal_snapshot,
             chat::terminal_commands::chat_terminal_input,
@@ -821,12 +838,54 @@ pub fn run() {
             chat::thread_commands::chat_list_threads,
             chat::thread_commands::chat_search_thread_titles,
             chat::thread_commands::chat_read_timeline_page,
+            chat::thread_commands::chat_fork_thread,
             chat::thread_commands::chat_open_external_url,
             chat::thread_commands::chat_rename_thread,
             chat::thread_commands::chat_set_thread_read,
             chat::thread_commands::chat_archive_thread,
             chat::thread_commands::chat_restore_thread,
             chat::thread_commands::chat_delete_thread_permanently,
+            chat::thread_commands::chat_list_provider_cleanup_jobs,
+            chat::git_commands::chat_git_status,
+            chat::git_commands::chat_git_diff,
+            chat::git_commands::chat_git_stage,
+            chat::git_commands::chat_git_unstage,
+            chat::git_commands::chat_git_commit,
+            chat::git_commands::chat_git_fetch,
+            chat::git_commands::chat_git_pull,
+            chat::git_commands::chat_git_push,
+            chat::git_commands::chat_git_remotes,
+            chat::git_commands::chat_git_branches,
+            chat::git_commands::chat_git_worktrees,
+            chat::git_commands::chat_git_initialize,
+            chat::git_commands::chat_git_clone,
+            chat::git_commands::chat_git_discard,
+            chat::git_commands::chat_git_delete_branch,
+            chat::source_control::chat_discover_source_control,
+            chat::source_control::chat_list_hosted_change_requests,
+            chat::source_control::chat_create_hosted_change_request,
+            chat::source_control::chat_checkout_hosted_change_request,
+            chat::source_control::chat_configure_bitbucket_credential,
+            chat::source_control::chat_remove_bitbucket_credential,
+            chat::preview::chat_preview_status,
+            chat::preview::chat_preview_discover_servers,
+            chat::preview::chat_preview_open,
+            chat::preview::chat_preview_navigate,
+            chat::preview::chat_preview_resize,
+            chat::preview::chat_preview_set_visible,
+            chat::preview::chat_preview_back,
+            chat::preview::chat_preview_forward,
+            chat::preview::chat_preview_refresh,
+            chat::preview::chat_preview_snapshot,
+            chat::preview::chat_preview_screenshot,
+            chat::preview::chat_preview_recording_start,
+            chat::preview::chat_preview_recording_stop,
+            chat::preview::chat_preview_evaluate,
+            chat::preview::chat_preview_click,
+            chat::preview::chat_preview_type,
+            chat::preview::chat_preview_press,
+            chat::preview::chat_preview_scroll,
+            chat::preview::chat_preview_close,
             chat::draft_commands::chat_save_draft,
             chat::draft_commands::chat_read_draft,
             chat::draft_commands::chat_delete_draft,
@@ -1310,6 +1369,9 @@ pub fn run() {
             ) {
                 eprintln!("Chat runtime shutdown failed with code {:?}", error.code);
             }
+            app_handle
+                .state::<chat::preview::ChatPreviewManager>()
+                .close_all(app_handle);
             clear_doomscrolling_enforcement_state_best_effort(app_handle, "before app exit");
         }
     });

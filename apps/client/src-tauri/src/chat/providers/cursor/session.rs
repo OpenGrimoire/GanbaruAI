@@ -8,14 +8,39 @@ use super::transport::{AcpInboundMessage, AcpRpcClient, AcpRpcConnection, AcpRpc
 use crate::chat::events::*;
 use crate::chat::models::*;
 use crate::chat::providers::{DriverOperationContext, ProviderEventSink};
+use agent_client_protocol::schema::{
+    v1::{
+        ClientCapabilities, CreateTerminalRequest, CreateTerminalResponse, FileSystemCapabilities,
+        HttpHeader, Implementation, InitializeRequest,
+        InitializeResponse as OfficialInitializeResponse, KillTerminalRequest,
+        KillTerminalResponse, McpServer, McpServerHttp, ReadTextFileRequest, ReadTextFileResponse,
+        ReleaseTerminalRequest, ReleaseTerminalResponse, TerminalExitStatus, TerminalOutputRequest,
+        TerminalOutputResponse, WaitForTerminalExitRequest, WaitForTerminalExitResponse,
+        WriteTextFileRequest, WriteTextFileResponse,
+    },
+    ProtocolVersion,
+};
 use serde_json::{json, Value};
 use std::collections::HashMap;
+use std::fs::{self, OpenOptions};
+use std::io::Write;
+use std::path::{Component, Path, PathBuf};
+use std::process::Stdio;
 use std::sync::{
-    atomic::{AtomicBool, Ordering},
+    atomic::{AtomicBool, AtomicU64, Ordering},
     Arc, Mutex,
 };
-use tokio::sync::{mpsc, oneshot};
+use tokio::io::AsyncReadExt;
+use tokio::process::Command;
+use tokio::sync::{mpsc, oneshot, Notify};
 use tokio::task::JoinHandle;
+
+const MAX_ACP_FILE_BYTES: u64 = 4 * 1024 * 1024;
+const MAX_ACP_FILE_LINES: u32 = 100_000;
+const DEFAULT_ACP_TERMINAL_OUTPUT_BYTES: usize = 1024 * 1024;
+const MAX_ACP_TERMINAL_OUTPUT_BYTES: usize = 4 * 1024 * 1024;
+static NEXT_ACP_FILE_WRITE: AtomicU64 = AtomicU64::new(1);
+static NEXT_ACP_TERMINAL: AtomicU64 = AtomicU64::new(1);
 
 #[derive(Debug)]
 pub struct AcpStartedSession {
@@ -36,6 +61,61 @@ pub struct CursorRouterResources {
     pub terminal_error: Arc<Mutex<Option<ChatError>>>,
     pub flavor: AcpProviderFlavor,
     pub prompt_completions: PendingPromptCompletions,
+    pub terminal_callbacks: AcpTerminalCallbacks,
+}
+
+#[derive(Clone)]
+pub struct AcpTerminalCallbacks {
+    workspace: PathBuf,
+    session_id: String,
+    terminals: Arc<Mutex<HashMap<String, AcpTerminal>>>,
+}
+
+#[derive(Clone)]
+struct AcpTerminal {
+    state: Arc<Mutex<AcpTerminalState>>,
+    kill: mpsc::Sender<()>,
+    completed: Arc<Notify>,
+}
+
+#[derive(Clone, Default)]
+struct AcpTerminalState {
+    output: Vec<u8>,
+    output_limit: usize,
+    truncated: bool,
+    exit_status: Option<TerminalExitStatus>,
+}
+
+impl AcpTerminalCallbacks {
+    pub fn new(workspace: PathBuf, session_id: String) -> Self {
+        Self {
+            workspace,
+            session_id,
+            terminals: Arc::new(Mutex::new(HashMap::new())),
+        }
+    }
+
+    fn terminal(&self, id: &str) -> ChatResult<AcpTerminal> {
+        self.terminals
+            .lock()
+            .map_err(|_| driver_state_error())?
+            .get(id)
+            .cloned()
+            .ok_or_else(callback_permission_error)
+    }
+
+    fn verify_session(&self, session_id: &str) -> ChatResult<()> {
+        require_acp_session(session_id, &self.session_id)
+    }
+
+    fn shutdown(&self) {
+        if let Ok(mut terminals) = self.terminals.lock() {
+            for terminal in terminals.values() {
+                let _ = terminal.kill.try_send(());
+            }
+            terminals.clear();
+        }
+    }
 }
 
 pub type PendingPromptCompletions = Arc<Mutex<HashMap<String, oneshot::Sender<Value>>>>;
@@ -47,6 +127,17 @@ pub struct AcpRequestedConfiguration<'a> {
     pub model_options: &'a [ModelOptionSelection],
 }
 
+pub struct AcpSessionInitialization<'a> {
+    pub flavor: AcpProviderFlavor,
+    pub grok_uses_api_key: bool,
+    pub connection: &'a AcpRpcConnection,
+    pub workspace: &'a str,
+    pub resume_session_id: Option<&'a str>,
+    pub requested: AcpRequestedConfiguration<'a>,
+    pub internal_mcp: Option<&'a ProviderInternalMcpConfig>,
+    pub context: &'a DriverOperationContext,
+}
+
 pub async fn initialize_session(
     connection: &AcpRpcConnection,
     workspace: &str,
@@ -56,54 +147,71 @@ pub async fn initialize_session(
     model_options: &[ModelOptionSelection],
     context: &DriverOperationContext,
 ) -> ChatResult<AcpStartedSession> {
-    initialize_provider_session(
-        AcpProviderFlavor::Cursor,
-        false,
+    initialize_provider_session(AcpSessionInitialization {
+        flavor: AcpProviderFlavor::Cursor,
+        grok_uses_api_key: false,
         connection,
         workspace,
         resume_session_id,
-        AcpRequestedConfiguration {
+        requested: AcpRequestedConfiguration {
             modes,
             model_id,
             model_options,
         },
+        internal_mcp: None,
         context,
-    )
+    })
     .await
 }
 
 pub async fn initialize_provider_session(
-    flavor: AcpProviderFlavor,
-    grok_uses_api_key: bool,
-    connection: &AcpRpcConnection,
-    workspace: &str,
-    resume_session_id: Option<&str>,
-    requested: AcpRequestedConfiguration<'_>,
-    context: &DriverOperationContext,
+    initialization: AcpSessionInitialization<'_>,
 ) -> ChatResult<AcpStartedSession> {
+    let AcpSessionInitialization {
+        flavor,
+        grok_uses_api_key,
+        connection,
+        workspace,
+        resume_session_id,
+        requested,
+        internal_mcp,
+        context,
+    } = initialization;
     let client = connection.client();
     let provider_name = flavor.display_name();
-    let initialize = parse_initialize(
-        client
-            .request(
-                "initialize",
-                json!({
-                    "protocolVersion": ACP_PROTOCOL_VERSION,
-                    "clientCapabilities": {
-                        "fs": { "readTextFile": false, "writeTextFile": false },
-                        "terminal": false,
-                        "_meta": { "parameterizedModelPicker": true },
-                    },
-                    "clientInfo": {
-                        "name": "ganbaru-ai",
-                        "version": env!("CARGO_PKG_VERSION"),
-                    },
-                }),
-                context,
-            )
-            .await
-            .map_err(|error| error.to_chat_error("initialization"))?,
-    )?;
+    let filesystem = FileSystemCapabilities::new()
+        .read_text_file(true)
+        .write_text_file(true);
+    let capabilities = ClientCapabilities::new()
+        .fs(filesystem)
+        .terminal(true)
+        .meta(serde_json::Map::from_iter([(
+            "parameterizedModelPicker".to_string(),
+            Value::Bool(true),
+        )]));
+    let initialize_request = InitializeRequest::new(ProtocolVersion::V1)
+        .client_capabilities(capabilities)
+        .client_info(Implementation::new("ganbaru-ai", env!("CARGO_PKG_VERSION")));
+    let initialize_request = serde_json::to_value(initialize_request)
+        .map_err(|_| protocol_error("ACP initialization request"))?;
+    let initialize_value = client
+        .request("initialize", initialize_request, context)
+        .await
+        .map_err(|error| error.to_chat_error("initialization"))?;
+    let negotiated: OfficialInitializeResponse =
+        serde_json::from_value(initialize_value.clone())
+            .map_err(|_| protocol_error("ACP initialization response"))?;
+    if negotiated.protocol_version != ProtocolVersion::V1 {
+        return Err(ChatError::new(
+            ChatErrorCode::UnsupportedVersion,
+            format!(
+                "{provider_name} negotiated unsupported ACP protocol version {}",
+                negotiated.protocol_version
+            ),
+            true,
+        ));
+    }
+    let initialize = parse_initialize(initialize_value)?;
     let preferred_auth_method = match flavor {
         AcpProviderFlavor::Cursor => CURSOR_AUTH_METHOD,
         AcpProviderFlavor::Grok => {
@@ -134,6 +242,7 @@ pub async fn initialize_provider_session(
             true,
         ));
     }
+    let mcp_servers = acp_mcp_servers(internal_mcp)?;
     let (mut setup, session_id) = if let Some(session_id) = resume_session_id {
         if !initialize.agent_capabilities.load_session {
             return Err(ChatError::unsupported(format!(
@@ -143,7 +252,7 @@ pub async fn initialize_provider_session(
         let result = client
             .request(
                 "session/load",
-                json!({ "sessionId": session_id, "cwd": workspace, "mcpServers": [] }),
+                json!({ "sessionId": session_id, "cwd": workspace, "mcpServers": mcp_servers }),
                 context,
             )
             .await
@@ -153,7 +262,7 @@ pub async fn initialize_provider_session(
         let result = client
             .request(
                 "session/new",
-                json!({ "cwd": workspace, "mcpServers": [] }),
+                json!({ "cwd": workspace, "mcpServers": mcp_servers }),
                 context,
             )
             .await
@@ -185,6 +294,20 @@ pub async fn initialize_provider_session(
         session_id,
         models,
     })
+}
+
+fn acp_mcp_servers(config: Option<&ProviderInternalMcpConfig>) -> ChatResult<Value> {
+    let servers = config
+        .map(|server| {
+            vec![McpServer::Http(
+                McpServerHttp::new(server.name.clone(), server.url.clone()).headers(vec![
+                    HttpHeader::new("Authorization", format!("Bearer {}", server.bearer_token)),
+                ]),
+            )]
+        })
+        .unwrap_or_default();
+    serde_json::to_value(servers)
+        .map_err(|_| ChatError::validation("internalMcp", "ACP MCP server is invalid"))
 }
 
 pub async fn apply_configuration(
@@ -412,6 +535,7 @@ async fn route_inbound(mut resources: CursorRouterResources) {
             break;
         }
     }
+    resources.terminal_callbacks.shutdown();
     if !resources.expected_shutdown.load(Ordering::Acquire) {
         let provider_name = resources.flavor.display_name();
         let events = resources
@@ -537,6 +661,13 @@ async fn handle_request(
 ) -> ChatResult<()> {
     match method {
         "session/request_permission" => handle_permission(resources, rpc_id, params).await,
+        "fs/read_text_file" => handle_read_text_file(resources, rpc_id, params).await,
+        "fs/write_text_file" => handle_write_text_file(resources, rpc_id, params).await,
+        "terminal/create" => handle_terminal_create(resources, rpc_id, params).await,
+        "terminal/output" => handle_terminal_output(resources, rpc_id, params).await,
+        "terminal/wait_for_exit" => handle_terminal_wait(resources, rpc_id, params).await,
+        "terminal/kill" => handle_terminal_kill(resources, rpc_id, params).await,
+        "terminal/release" => handle_terminal_release(resources, rpc_id, params).await,
         "cursor/ask_question" => handle_question(resources, rpc_id, params).await,
         "x.ai/ask_user_question" | "_x.ai/ask_user_question"
             if resources.flavor == AcpProviderFlavor::Grok =>
@@ -581,6 +712,624 @@ async fn handle_request(
                 .await
                 .map_err(|error| error.to_chat_error("extension rejection"))
         }
+    }
+}
+
+async fn handle_read_text_file(
+    resources: &CursorRouterResources,
+    rpc_id: Value,
+    params: Value,
+) -> ChatResult<()> {
+    let request: ReadTextFileRequest = match serde_json::from_value(params) {
+        Ok(request) => request,
+        Err(_) => return reject_callback(resources, rpc_id, "Invalid file read request").await,
+    };
+    let result = (|| {
+        let (workspace, session_id) = route_workspace(resources)?;
+        require_acp_session(&request.session_id.to_string(), &session_id)?;
+        let path = verified_existing_file(&workspace, &request.path)?;
+        let metadata = fs::metadata(&path).map_err(|_| callback_permission_error())?;
+        if metadata.len() > MAX_ACP_FILE_BYTES {
+            return Err(ChatError::new(
+                ChatErrorCode::Protocol,
+                "ACP file read exceeds the supported limit",
+                true,
+            ));
+        }
+        let text = fs::read_to_string(path).map_err(|_| callback_permission_error())?;
+        if text.contains('\0') {
+            return Err(ChatError::validation("path", "ACP file is not text"));
+        }
+        let start = request.line.unwrap_or(1).max(1).saturating_sub(1) as usize;
+        let limit = request
+            .limit
+            .unwrap_or(MAX_ACP_FILE_LINES)
+            .min(MAX_ACP_FILE_LINES) as usize;
+        let content = text
+            .lines()
+            .skip(start)
+            .take(limit)
+            .collect::<Vec<_>>()
+            .join("\n");
+        serde_json::to_value(ReadTextFileResponse::new(content))
+            .map_err(|_| protocol_error("ACP file read response"))
+    })();
+    match result {
+        Ok(response) => resources
+            .client
+            .respond(rpc_id, response)
+            .await
+            .map_err(|error| error.to_chat_error("file read response")),
+        Err(error) => reject_callback(resources, rpc_id, &error.message).await,
+    }
+}
+
+async fn handle_write_text_file(
+    resources: &CursorRouterResources,
+    rpc_id: Value,
+    params: Value,
+) -> ChatResult<()> {
+    let request: WriteTextFileRequest = match serde_json::from_value(params) {
+        Ok(request) => request,
+        Err(_) => return reject_callback(resources, rpc_id, "Invalid file write request").await,
+    };
+    let result = (|| {
+        let (workspace, session_id) = route_workspace(resources)?;
+        require_acp_session(&request.session_id.to_string(), &session_id)?;
+        if request.content.len() as u64 > MAX_ACP_FILE_BYTES || request.content.contains('\0') {
+            return Err(ChatError::validation(
+                "content",
+                "ACP file write exceeds the supported text limit",
+            ));
+        }
+        let path = verified_write_path(&workspace, &request.path)?;
+        atomic_write_text(&path, request.content.as_bytes())?;
+        serde_json::to_value(WriteTextFileResponse::new())
+            .map_err(|_| protocol_error("ACP file write response"))
+    })();
+    match result {
+        Ok(response) => resources
+            .client
+            .respond(rpc_id, response)
+            .await
+            .map_err(|error| error.to_chat_error("file write response")),
+        Err(error) => reject_callback(resources, rpc_id, &error.message).await,
+    }
+}
+
+async fn handle_terminal_create(
+    resources: &CursorRouterResources,
+    rpc_id: Value,
+    params: Value,
+) -> ChatResult<()> {
+    let request: CreateTerminalRequest = match serde_json::from_value(params) {
+        Ok(request) => request,
+        Err(_) => {
+            return reject_callback(resources, rpc_id, "Invalid terminal create request").await
+        }
+    };
+    let result = create_acp_terminal(&resources.terminal_callbacks, request).await;
+    match result {
+        Ok(terminal_id) => {
+            let response = serde_json::to_value(CreateTerminalResponse::new(terminal_id))
+                .map_err(|_| protocol_error("ACP terminal create response"))?;
+            resources
+                .client
+                .respond(rpc_id, response)
+                .await
+                .map_err(|error| error.to_chat_error("terminal create response"))
+        }
+        Err(error) => reject_callback(resources, rpc_id, &error.message).await,
+    }
+}
+
+async fn handle_terminal_output(
+    resources: &CursorRouterResources,
+    rpc_id: Value,
+    params: Value,
+) -> ChatResult<()> {
+    let request: TerminalOutputRequest = match serde_json::from_value(params) {
+        Ok(request) => request,
+        Err(_) => {
+            return reject_callback(resources, rpc_id, "Invalid terminal output request").await
+        }
+    };
+    let result = (|| {
+        resources
+            .terminal_callbacks
+            .verify_session(&request.session_id.to_string())?;
+        let terminal = resources
+            .terminal_callbacks
+            .terminal(&request.terminal_id.to_string())?;
+        terminal_output_response(&terminal)
+    })();
+    match result {
+        Ok(response) => resources
+            .client
+            .respond(rpc_id, response)
+            .await
+            .map_err(|error| error.to_chat_error("terminal output response")),
+        Err(error) => reject_callback(resources, rpc_id, &error.message).await,
+    }
+}
+
+async fn handle_terminal_wait(
+    resources: &CursorRouterResources,
+    rpc_id: Value,
+    params: Value,
+) -> ChatResult<()> {
+    let request: WaitForTerminalExitRequest = match serde_json::from_value(params) {
+        Ok(request) => request,
+        Err(_) => return reject_callback(resources, rpc_id, "Invalid terminal wait request").await,
+    };
+    resources
+        .terminal_callbacks
+        .verify_session(&request.session_id.to_string())?;
+    let terminal = resources
+        .terminal_callbacks
+        .terminal(&request.terminal_id.to_string())?;
+    let client = resources.client.clone();
+    tokio::spawn(async move {
+        let exit_status = loop {
+            let notified = terminal.completed.notified();
+            let current = {
+                let state = match terminal.state.lock() {
+                    Ok(state) => state,
+                    Err(_) => return,
+                };
+                state.exit_status.clone()
+            };
+            if let Some(status) = current {
+                break status;
+            }
+            notified.await;
+        };
+        let Ok(response) = serde_json::to_value(WaitForTerminalExitResponse::new(exit_status))
+        else {
+            return;
+        };
+        let _ = client.respond(rpc_id, response).await;
+    });
+    Ok(())
+}
+
+async fn handle_terminal_kill(
+    resources: &CursorRouterResources,
+    rpc_id: Value,
+    params: Value,
+) -> ChatResult<()> {
+    let request: KillTerminalRequest = match serde_json::from_value(params) {
+        Ok(request) => request,
+        Err(_) => return reject_callback(resources, rpc_id, "Invalid terminal kill request").await,
+    };
+    let result = (|| {
+        resources
+            .terminal_callbacks
+            .verify_session(&request.session_id.to_string())?;
+        let terminal = resources
+            .terminal_callbacks
+            .terminal(&request.terminal_id.to_string())?;
+        terminal
+            .kill
+            .try_send(())
+            .map_err(|_| callback_permission_error())?;
+        serde_json::to_value(KillTerminalResponse::new())
+            .map_err(|_| protocol_error("ACP terminal kill response"))
+    })();
+    match result {
+        Ok(response) => resources
+            .client
+            .respond(rpc_id, response)
+            .await
+            .map_err(|error| error.to_chat_error("terminal kill response")),
+        Err(error) => reject_callback(resources, rpc_id, &error.message).await,
+    }
+}
+
+async fn handle_terminal_release(
+    resources: &CursorRouterResources,
+    rpc_id: Value,
+    params: Value,
+) -> ChatResult<()> {
+    let request: ReleaseTerminalRequest = match serde_json::from_value(params) {
+        Ok(request) => request,
+        Err(_) => {
+            return reject_callback(resources, rpc_id, "Invalid terminal release request").await
+        }
+    };
+    let result = (|| {
+        resources
+            .terminal_callbacks
+            .verify_session(&request.session_id.to_string())?;
+        let terminal = resources
+            .terminal_callbacks
+            .terminals
+            .lock()
+            .map_err(|_| driver_state_error())?
+            .remove(&request.terminal_id.to_string())
+            .ok_or_else(callback_permission_error)?;
+        let _ = terminal.kill.try_send(());
+        serde_json::to_value(ReleaseTerminalResponse::new())
+            .map_err(|_| protocol_error("ACP terminal release response"))
+    })();
+    match result {
+        Ok(response) => resources
+            .client
+            .respond(rpc_id, response)
+            .await
+            .map_err(|error| error.to_chat_error("terminal release response")),
+        Err(error) => reject_callback(resources, rpc_id, &error.message).await,
+    }
+}
+
+async fn create_acp_terminal(
+    callbacks: &AcpTerminalCallbacks,
+    request: CreateTerminalRequest,
+) -> ChatResult<String> {
+    callbacks.verify_session(&request.session_id.to_string())?;
+    validate_terminal_command(&request)?;
+    let cwd = match request.cwd.as_deref() {
+        Some(path) => verified_directory(&callbacks.workspace, path)?,
+        None => callbacks.workspace.clone(),
+    };
+    let output_limit = request
+        .output_byte_limit
+        .and_then(|limit| usize::try_from(limit).ok())
+        .unwrap_or(DEFAULT_ACP_TERMINAL_OUTPUT_BYTES)
+        .clamp(1, MAX_ACP_TERMINAL_OUTPUT_BYTES);
+    let mut command = Command::new(&request.command);
+    command
+        .args(&request.args)
+        .current_dir(cwd)
+        .envs(request.env.iter().map(|value| (&value.name, &value.value)))
+        .env("GIT_TERMINAL_PROMPT", "0")
+        .env("GCM_INTERACTIVE", "never")
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .kill_on_drop(true);
+    let mut child = command.spawn().map_err(|_| {
+        ChatError::new(
+            ChatErrorCode::DriverUnavailable,
+            "ACP terminal command could not be started",
+            true,
+        )
+    })?;
+    let stdout = child.stdout.take().ok_or_else(callback_permission_error)?;
+    let stderr = child.stderr.take().ok_or_else(callback_permission_error)?;
+    let terminal_id = format!(
+        "ganbaru-acp-terminal-{}",
+        NEXT_ACP_TERMINAL.fetch_add(1, Ordering::Relaxed)
+    );
+    let state = Arc::new(Mutex::new(AcpTerminalState {
+        output: Vec::new(),
+        output_limit,
+        truncated: false,
+        exit_status: None,
+    }));
+    let completed = Arc::new(Notify::new());
+    let (kill, mut kill_receiver) = mpsc::channel(1);
+    let terminal = AcpTerminal {
+        state: Arc::clone(&state),
+        kill,
+        completed: Arc::clone(&completed),
+    };
+    callbacks
+        .terminals
+        .lock()
+        .map_err(|_| driver_state_error())?
+        .insert(terminal_id.clone(), terminal);
+    let stdout_task = tokio::spawn(capture_terminal_output(stdout, Arc::clone(&state)));
+    let stderr_task = tokio::spawn(capture_terminal_output(stderr, Arc::clone(&state)));
+    tokio::spawn(async move {
+        let mut interval = tokio::time::interval(std::time::Duration::from_millis(40));
+        let status = loop {
+            tokio::select! {
+                _ = kill_receiver.recv() => {
+                    let _ = child.kill().await;
+                    break child.wait().await.ok();
+                }
+                _ = interval.tick() => match child.try_wait() {
+                    Ok(Some(status)) => break Some(status),
+                    Ok(None) => {}
+                    Err(_) => break None,
+                }
+            }
+        };
+        let _ = stdout_task.await;
+        let _ = stderr_task.await;
+        if let Ok(mut state) = state.lock() {
+            state.exit_status = Some(match status.and_then(|status| status.code()) {
+                Some(code) if code >= 0 => TerminalExitStatus::new().exit_code(code as u32),
+                _ => TerminalExitStatus::new().signal("terminated".to_string()),
+            });
+        }
+        completed.notify_waiters();
+    });
+    Ok(terminal_id)
+}
+
+async fn capture_terminal_output<R: tokio::io::AsyncRead + Unpin>(
+    mut reader: R,
+    state: Arc<Mutex<AcpTerminalState>>,
+) {
+    let mut buffer = [0u8; 8 * 1024];
+    loop {
+        let read = match reader.read(&mut buffer).await {
+            Ok(0) | Err(_) => break,
+            Ok(read) => read,
+        };
+        let Ok(mut state) = state.lock() else { break };
+        append_terminal_bytes(&mut state, &buffer[..read]);
+    }
+}
+
+fn append_terminal_bytes(state: &mut AcpTerminalState, bytes: &[u8]) {
+    state.output.extend_from_slice(bytes);
+    let excess = state.output.len().saturating_sub(state.output_limit);
+    if excess > 0 {
+        state.output.drain(..excess);
+        state.truncated = true;
+    }
+}
+
+fn terminal_output_response(terminal: &AcpTerminal) -> ChatResult<Value> {
+    let state = terminal.state.lock().map_err(|_| driver_state_error())?;
+    let output = String::from_utf8_lossy(&state.output).into_owned();
+    let response =
+        TerminalOutputResponse::new(output, state.truncated).exit_status(state.exit_status.clone());
+    serde_json::to_value(response).map_err(|_| protocol_error("ACP terminal output response"))
+}
+
+fn validate_terminal_command(request: &CreateTerminalRequest) -> ChatResult<()> {
+    if request.command.is_empty()
+        || request.command.len() > 4_096
+        || request.command.chars().any(|character| character == '\0')
+        || request.args.len() > 10_000
+        || request
+            .args
+            .iter()
+            .any(|argument| argument.len() > 65_536 || argument.contains('\0'))
+        || request.env.len() > 1_024
+        || request.env.iter().any(|value| {
+            value.name.is_empty()
+                || value.name.len() > 1_024
+                || value
+                    .name
+                    .chars()
+                    .any(|character| matches!(character, '=' | '\0'))
+                || value.value.len() > 65_536
+                || value.value.contains('\0')
+        })
+    {
+        return Err(ChatError::validation(
+            "command",
+            "ACP terminal command is invalid",
+        ));
+    }
+    Ok(())
+}
+
+fn verified_directory(workspace: &Path, requested: &Path) -> ChatResult<PathBuf> {
+    let relative = verified_relative_path(workspace, requested)?;
+    reject_symlink_components(workspace, relative, false)?;
+    let canonical = fs::canonicalize(requested).map_err(|_| callback_permission_error())?;
+    if !canonical.starts_with(workspace) || !canonical.is_dir() {
+        return Err(callback_permission_error());
+    }
+    Ok(canonical)
+}
+
+fn route_workspace(resources: &CursorRouterResources) -> ChatResult<(PathBuf, String)> {
+    let route = resources.route.lock().map_err(|_| driver_state_error())?;
+    Ok((route.workspace.clone(), route.provider_thread_id.clone()))
+}
+
+fn require_acp_session(actual: &str, expected: &str) -> ChatResult<()> {
+    if actual == expected {
+        Ok(())
+    } else {
+        Err(callback_permission_error())
+    }
+}
+
+fn verified_existing_file(workspace: &Path, requested: &Path) -> ChatResult<PathBuf> {
+    let relative = verified_relative_path(workspace, requested)?;
+    reject_symlink_components(workspace, relative, false)?;
+    let canonical = fs::canonicalize(requested).map_err(|_| callback_permission_error())?;
+    if !canonical.starts_with(workspace) || !canonical.is_file() {
+        return Err(callback_permission_error());
+    }
+    Ok(canonical)
+}
+
+fn verified_write_path(workspace: &Path, requested: &Path) -> ChatResult<PathBuf> {
+    let relative = verified_relative_path(workspace, requested)?;
+    reject_symlink_components(workspace, relative, true)?;
+    let parent = requested.parent().ok_or_else(callback_permission_error)?;
+    let canonical_parent = fs::canonicalize(parent).map_err(|_| callback_permission_error())?;
+    if !canonical_parent.starts_with(workspace) {
+        return Err(callback_permission_error());
+    }
+    if requested.exists() {
+        let metadata = fs::symlink_metadata(requested).map_err(|_| callback_permission_error())?;
+        if !metadata.file_type().is_file() {
+            return Err(callback_permission_error());
+        }
+    }
+    Ok(requested.to_path_buf())
+}
+
+fn verified_relative_path<'a>(workspace: &Path, requested: &'a Path) -> ChatResult<&'a Path> {
+    if !requested.is_absolute() {
+        return Err(callback_permission_error());
+    }
+    let relative = requested
+        .strip_prefix(workspace)
+        .map_err(|_| callback_permission_error())?;
+    if relative.as_os_str().is_empty()
+        || relative.components().any(|component| {
+            matches!(
+                component,
+                Component::ParentDir | Component::RootDir | Component::Prefix(_)
+            )
+        })
+    {
+        return Err(callback_permission_error());
+    }
+    Ok(relative)
+}
+
+fn reject_symlink_components(
+    workspace: &Path,
+    relative: &Path,
+    allow_missing_file: bool,
+) -> ChatResult<()> {
+    let mut current = workspace.to_path_buf();
+    let component_count = relative.components().count();
+    for (index, component) in relative.components().enumerate() {
+        current.push(component.as_os_str());
+        match fs::symlink_metadata(&current) {
+            Ok(metadata) if metadata.file_type().is_symlink() => {
+                return Err(callback_permission_error())
+            }
+            Ok(_) => {}
+            Err(_) if allow_missing_file && index + 1 == component_count => {}
+            Err(_) => return Err(callback_permission_error()),
+        }
+    }
+    Ok(())
+}
+
+fn atomic_write_text(path: &Path, content: &[u8]) -> ChatResult<()> {
+    let parent = path.parent().ok_or_else(callback_permission_error)?;
+    let permissions = fs::metadata(path)
+        .ok()
+        .map(|metadata| metadata.permissions());
+    let sequence = NEXT_ACP_FILE_WRITE.fetch_add(1, Ordering::Relaxed);
+    let temporary = parent.join(format!(
+        ".ganbaru-acp-write-{}-{sequence}",
+        std::process::id()
+    ));
+    let result = (|| {
+        let mut file = OpenOptions::new()
+            .create_new(true)
+            .write(true)
+            .open(&temporary)
+            .map_err(|_| callback_permission_error())?;
+        file.write_all(content)
+            .map_err(|_| callback_permission_error())?;
+        file.sync_all().map_err(|_| callback_permission_error())?;
+        if let Some(permissions) = permissions {
+            fs::set_permissions(&temporary, permissions)
+                .map_err(|_| callback_permission_error())?;
+        }
+        fs::rename(&temporary, path).map_err(|_| callback_permission_error())
+    })();
+    if result.is_err() {
+        let _ = fs::remove_file(&temporary);
+    }
+    result
+}
+
+async fn reject_callback(
+    resources: &CursorRouterResources,
+    rpc_id: Value,
+    message: &str,
+) -> ChatResult<()> {
+    resources
+        .client
+        .respond_error(rpc_id, -32602, message)
+        .await
+        .map_err(|error| error.to_chat_error("ACP callback rejection"))
+}
+
+fn callback_permission_error() -> ChatError {
+    ChatError::new(
+        ChatErrorCode::Permission,
+        "ACP callback cannot access this workspace path",
+        true,
+    )
+}
+
+#[cfg(test)]
+mod callback_tests {
+    use super::{
+        append_terminal_bytes, atomic_write_text, verified_existing_file, verified_write_path,
+        AcpTerminalCallbacks, AcpTerminalState,
+    };
+    use std::fs;
+    use std::path::PathBuf;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    struct TestDirectory(PathBuf);
+
+    impl TestDirectory {
+        fn new() -> Self {
+            let nonce = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .expect("clock should be valid")
+                .as_nanos();
+            let path = std::env::temp_dir().join(format!(
+                "ganbaru-acp-callback-{}-{nonce}",
+                std::process::id()
+            ));
+            fs::create_dir_all(&path).expect("test directory should be created");
+            Self(path)
+        }
+    }
+
+    impl Drop for TestDirectory {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.0);
+        }
+    }
+
+    #[test]
+    fn file_callbacks_reject_cross_workspace_and_preserve_atomic_contents() {
+        let workspace = TestDirectory::new();
+        let outside = TestDirectory::new();
+        let file = workspace.0.join("source.txt");
+        fs::write(&file, "before").expect("test file should be written");
+        assert_eq!(
+            verified_existing_file(&workspace.0, &file).expect("file should be authorized"),
+            file
+        );
+        assert!(verified_existing_file(&workspace.0, &outside.0.join("secret.txt")).is_err());
+        let write_path = verified_write_path(&workspace.0, &workspace.0.join("created.txt"))
+            .expect("new file should be authorized");
+        atomic_write_text(&write_path, b"after").expect("atomic write should succeed");
+        assert_eq!(fs::read_to_string(write_path).unwrap(), "after");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn file_callbacks_reject_symlink_substitution() {
+        use std::os::unix::fs::symlink;
+        let workspace = TestDirectory::new();
+        let outside = TestDirectory::new();
+        let outside_file = outside.0.join("secret.txt");
+        fs::write(&outside_file, "secret").unwrap();
+        let link = workspace.0.join("link.txt");
+        symlink(&outside_file, &link).unwrap();
+        assert!(verified_existing_file(&workspace.0, &link).is_err());
+        assert!(verified_write_path(&workspace.0, &link).is_err());
+    }
+
+    #[test]
+    fn terminal_callbacks_bound_output_and_session_ownership() {
+        let callbacks = AcpTerminalCallbacks::new(PathBuf::from("/workspace"), "session-a".into());
+        assert!(callbacks.verify_session("session-a").is_ok());
+        assert!(callbacks.verify_session("session-b").is_err());
+        let mut state = AcpTerminalState {
+            output: Vec::new(),
+            output_limit: 4,
+            truncated: false,
+            exit_status: None,
+        };
+        append_terminal_bytes(&mut state, b"abcdef");
+        assert_eq!(state.output, b"cdef");
+        assert!(state.truncated);
     }
 }
 

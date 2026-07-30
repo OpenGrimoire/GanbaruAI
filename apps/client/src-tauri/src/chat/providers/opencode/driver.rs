@@ -139,6 +139,7 @@ pub(super) struct OpenCodeCatalogSnapshot {
     pub account_label: Option<String>,
     pub models: Vec<ProviderModel>,
     pub commands: Vec<OpenCodeCommand>,
+    pub toolchain_detail: String,
 }
 
 impl OpenCodeProviderDriver {
@@ -175,6 +176,8 @@ impl OpenCodeProviderDriver {
             minimum_tested_cli_version: Some(MINIMUM_OPENCODE_VERSION.to_string()),
             default_executable_candidates: vec!["opencode".to_string()],
             implementation_status: ProviderImplementationStatus::Available,
+            maturity: ProviderMaturity::Beta,
+            protocol_name: "opencode-openapi".to_string(),
             potential_capabilities: capability_kinds(),
             unavailable_reason: None,
         }
@@ -244,17 +247,21 @@ impl OpenCodeProviderDriver {
                     let client =
                         OpenCodeHttpClient::new(&server.origin, workspace, self.password.as_ref())?;
                     client.health().await?;
-                    client.commands().await
+                    let commands = client.commands().await?;
+                    let lsp = client.lsp_status().await?;
+                    let formatters = client.formatter_status().await?;
+                    Ok((commands, lsp, formatters))
                 }
                 .await;
                 let stop = server.stop().await;
-                let commands = server_probe?;
+                let (commands, lsp, formatters) = server_probe?;
                 stop?;
                 Ok(OpenCodeCatalogSnapshot {
                     version: Some(version.to_string()),
                     account_label: None,
                     models: provider_models(&models, &agents)?,
                     commands,
+                    toolchain_detail: toolchain_detail(&lsp, &formatters),
                 })
             }
             OpenCodeConnectionMode::External { origin, .. } => {
@@ -264,6 +271,8 @@ impl OpenCodeProviderDriver {
                 let inventory = client.provider_inventory().await?;
                 let agents = client.agents().await?;
                 let commands = client.commands().await?;
+                let lsp = client.lsp_status().await?;
+                let formatters = client.formatter_status().await?;
                 let models = parse_provider_inventory(&inventory)?;
                 let agents = parse_agent_inventory(&agents)?;
                 Ok(OpenCodeCatalogSnapshot {
@@ -275,6 +284,7 @@ impl OpenCodeProviderDriver {
                     account_label: connected_account_label(&inventory),
                     models: provider_models(&models, &agents)?,
                     commands,
+                    toolchain_detail: toolchain_detail(&lsp, &formatters),
                 })
             }
         }
@@ -327,6 +337,17 @@ impl OpenCodeProviderDriver {
             .or_else(|| self.settings.server_origin())
             .ok_or_else(driver_state_error)?;
         let client = OpenCodeHttpClient::new(origin, &workspace, self.password.as_ref())?;
+        if owned_server.is_some() {
+            if let Some(server) = &self.configuration.internal_mcp {
+                if let Err(error) = client
+                    .add_mcp_server(&server.name, &server.url, &server.bearer_token)
+                    .await
+                {
+                    stop_owned_server(&mut owned_server).await;
+                    return Err(error);
+                }
+            }
+        }
         let commands = client.commands().await?;
         self.cached_commands = commands;
         let initial_events = match client.subscribe_events().await {
@@ -433,6 +454,41 @@ impl OpenCodeProviderDriver {
         })
     }
 
+    pub(super) async fn fork_native_session(
+        &mut self,
+        request: ProviderForkThreadRequest,
+    ) -> ChatResult<ProviderThreadId> {
+        let workspace = canonical_workspace(&request.workspace)?;
+        self.require_external_workspace_confirmation()?;
+        let mut owned_server = match self.settings.connection {
+            OpenCodeConnectionMode::Local => Some(
+                OwnedOpenCodeServer::start(&self.configuration, &workspace, self.password.as_ref())
+                    .await?,
+            ),
+            OpenCodeConnectionMode::External { .. } => None,
+        };
+        let origin = owned_server
+            .as_ref()
+            .map(|server| server.origin.as_str())
+            .or_else(|| self.settings.server_origin())
+            .ok_or_else(driver_state_error)?;
+        let result = async {
+            let client = OpenCodeHttpClient::new(origin, &workspace, self.password.as_ref())?;
+            let session = client
+                .fork_session(
+                    request.provider_thread_id.as_str(),
+                    request.last_provider_turn_id.as_deref(),
+                )
+                .await?;
+            ProviderThreadId::new(session_id(&session)?)
+                .map_err(|_| super::protocol::protocol_error("forked session ID"))
+        }
+        .await;
+        stop_owned_server(&mut owned_server).await;
+        let provider_thread_id = result?;
+        Ok(provider_thread_id)
+    }
+
     pub(super) fn live_mut(
         &mut self,
         session_id: &ProviderSessionId,
@@ -468,6 +524,21 @@ impl OpenCodeProviderDriver {
         }
         Ok(())
     }
+}
+
+fn toolchain_detail(lsp: &Value, formatters: &Value) -> String {
+    fn entries(value: &Value) -> usize {
+        value
+            .as_array()
+            .map(Vec::len)
+            .or_else(|| value.as_object().map(serde_json::Map::len))
+            .unwrap_or(0)
+    }
+    format!(
+        "OpenCode language servers: {}; formatters: {}",
+        entries(lsp),
+        entries(formatters)
+    )
 }
 
 async fn resolve_native_session(

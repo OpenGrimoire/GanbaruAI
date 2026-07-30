@@ -524,6 +524,7 @@ mod tests {
                 schema_version: 1,
                 value: serde_json::json!({}),
             },
+            internal_mcp: None,
             unknown_fields: BTreeMap::new(),
         }
     }

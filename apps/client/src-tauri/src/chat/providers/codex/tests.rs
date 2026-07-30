@@ -646,6 +646,7 @@ fn turn_builder_preserves_model_traits_modes_and_verified_images() {
             "kind": "image",
             "displayName": "prompt.png",
             "managedRelativePath": "prompt.png",
+            "resourceUri": "ganbaru://chat/resource/attachment-1",
             "mimeType": "image/png",
             "byteSize": 14,
             "localPath": workspace.path().join("prompt.png").to_string_lossy(),
@@ -684,10 +685,14 @@ fn turn_builder_preserves_model_traits_modes_and_verified_images() {
         "Use the repository conventions."
     );
     assert_eq!(params["input"][0]["type"], "text");
-    assert_eq!(params["input"][1]["type"], "image");
+    assert_eq!(params["input"][1]["type"], "localImage");
     assert_eq!(
-        params["input"][1]["url"],
-        "data:image/png;base64,cmVkYWN0ZWQgaW1hZ2U="
+        params["input"][1]["path"],
+        workspace
+            .path()
+            .join("prompt.png")
+            .to_string_lossy()
+            .as_ref()
     );
 
     let mut standard_request = request.clone();
@@ -701,7 +706,7 @@ fn turn_builder_preserves_model_traits_modes_and_verified_images() {
     )
     .unwrap();
     assert!(standard_params.get("serviceTier").is_none());
-    assert!(params["input"][1].get("path").is_none());
+    assert!(params["input"][1].get("url").is_none());
 
     let mut custom_request = request.clone();
     custom_request.modes.safety_mode = SafetyMode::Custom;

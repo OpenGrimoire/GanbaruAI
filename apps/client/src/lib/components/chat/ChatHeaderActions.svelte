@@ -2,6 +2,7 @@
   import Archive from "@lucide/svelte/icons/archive";
   import Ellipsis from "@lucide/svelte/icons/ellipsis";
   import FolderOpen from "@lucide/svelte/icons/folder-open";
+  import GitFork from "@lucide/svelte/icons/git-fork";
   import PanelBottom from "@lucide/svelte/icons/panel-bottom";
   import PanelRight from "@lucide/svelte/icons/panel-right";
   import Pencil from "@lucide/svelte/icons/pencil";
@@ -50,6 +51,7 @@
     <summary class="chat-header-icon-button list-none" aria-label={t("chat.moreActions")}><Ellipsis size={14} strokeWidth={1.75} /></summary>
     <div class="chat-actions-menu right-0 top-8">
       {#if selectedThread}<button type="button" onclick={onRename}><Pencil size={13} />{t("chat.rename")}</button>{/if}
+      {#if selectedThread && !selectedThread.archivedAt}<button type="button" onclick={() => run(() => chat.forkThread(selectedThread, t("chat.forkTitle", selectedThread.title)))}><GitFork size={13} />{t("chat.timeline.fork")}</button>{/if}
       {#if selectedFolder?.bindingStatus === "available"}<button type="button" onclick={() => run(() => chat.openWorkingFolder(selectedFolder.workingFolder.id))}><FolderOpen size={13} />{t("chat.openFolder")}</button>{/if}
       {#if selectedThread}<button type="button" onclick={() => run(() => openDetachedViewWindow("chat"))}><SquareArrowOutUpRight size={13} />{t("chat.detach")}</button>{/if}
       {#if selectedThread && !selectedThread.archivedAt}<button type="button" onclick={() => run(() => chat.archiveThread(selectedThread))}><Archive size={13} />{t("chat.archive")}</button>{/if}

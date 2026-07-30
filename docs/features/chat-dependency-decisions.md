@@ -18,6 +18,13 @@ Package metadata is not evidence that a package is advisory-free. The repository
 | Markdown parsing and sanitization | `marked` 18.0.6 plus existing DOMPurify | Timeline | Added in Phase 7 |
 | Diff parsing and rendering | `diff` 9.0.0 plus a bounded Ganbaru renderer | Inspector | Added in Phase 9 |
 | Terminal emulation | `@xterm/xterm` 6.0.0 and `@xterm/addon-fit` 0.11.0 | Terminal | Added in Phase 9 |
+| File editor | CodeMirror 6 through `codemirror` 6.0.2 | Revision-safe file editor | Added for complete local workspace parity |
+| ACP protocol types | Official `agent-client-protocol` 2.0.0 crate with ACP v1 negotiation | Cursor and Grok shared driver | Added for negotiated ACP parity |
+| Internal MCP bridge | Official `rmcp` 3.0.0 crate | Durable resources and browser tools | Added for complete local workspace parity |
+
+The complete local workspace parity phase added only dependencies explicitly approved for this milestone. CodeMirror replaces the preview-only text surface with a bounded editor. The official ACP crate replaces handwritten core wire types while provider extensions remain validated at the boundary. The official MCP SDK backs an ephemeral loopback endpoint and does not expose a permanent server or change provider-global configuration. The full dependency and advisory gate is `pnpm -w run validate:full`.
+
+Browser capture uses direct target-specific bindings already present in Tauri's locked dependency graph: WebKitGTK 2.0.2 and cairo-rs 0.18.5 on Linux, webview2-com 0.38.2 on Windows, and objc2 WebKit 0.3.2 with block2 0.6.2 on macOS. These bindings avoid a general desktop-capture dependency and capture only the isolated preview webview. Recordings reuse the existing ZIP implementation as bounded PNG frames plus a versioned manifest, so Ganbaru does not add a video codec, media subprocess, or screen-wide capture permission merely to record a preview.
 
 Phase 1 did not import these packages. Phase 4 added only Tokio's narrow process-supervision features, a direct Unix `libc` dependency, and Windows binding features. Phase 9 added the reviewed pseudoterminal, diff, and terminal-emulation dependencies at their first use. Phase 12 implemented OpenCode with existing Reqwest and Rustls dependencies and a repository-owned bounded event-stream decoder.
 

@@ -1,11 +1,18 @@
 use super::{
     CredentialReferenceId, ModelCatalogSource, ModelId, ProbeState, ProviderCapability,
-    ProviderFamilyId, ProviderImplementationStatus, ProviderInstanceId, UtcTimestamp,
-    VersionedJson,
+    ProviderFamilyId, ProviderImplementationStatus, ProviderInstanceId, ProviderMaturity,
+    UtcTimestamp, VersionedJson,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::BTreeMap;
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ProviderInternalMcpConfig {
+    pub name: String,
+    pub url: String,
+    pub bearer_token: String,
+}
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -24,6 +31,8 @@ pub struct ProviderInstanceConfig {
     pub visible_model_ids: Vec<ModelId>,
     pub favorite_model_ids: Vec<ModelId>,
     pub provider_config: VersionedJson,
+    #[serde(skip)]
+    pub internal_mcp: Option<ProviderInternalMcpConfig>,
     #[serde(flatten)]
     pub unknown_fields: BTreeMap<String, Value>,
 }
@@ -60,6 +69,8 @@ pub struct ProviderFamilyMetadataRead {
     pub minimum_tested_cli_version: Option<String>,
     pub default_executable_candidates: Vec<String>,
     pub implementation_status: ProviderImplementationStatus,
+    pub maturity: ProviderMaturity,
+    pub protocol_name: String,
     pub potential_capabilities: Vec<ProviderCapability>,
     pub unavailable_reason: Option<String>,
 }
@@ -70,6 +81,7 @@ pub struct ProviderProbeResult {
     pub instance_id: ProviderInstanceId,
     pub state: ProbeState,
     pub version: Option<String>,
+    pub negotiated_protocol_version: Option<String>,
     pub account_label: Option<String>,
     pub capabilities: ProviderCapabilities,
     pub checked_at: UtcTimestamp,

@@ -116,6 +116,74 @@ pub trait ProviderDriver: Send {
         context: &'a DriverOperationContext,
     ) -> DriverFuture<'a, ProviderSessionSnapshot>;
 
+    fn fork_thread<'a>(
+        &'a mut self,
+        _request: ProviderForkThreadRequest,
+        _context: &'a DriverOperationContext,
+    ) -> DriverFuture<'a, ProviderThreadId> {
+        Box::pin(async {
+            Err(ChatError::unsupported(
+                "This provider does not expose native thread forking",
+            ))
+        })
+    }
+
+    fn rename_thread<'a>(
+        &'a mut self,
+        _request: ProviderThreadLifecycleRequest,
+        _context: &'a DriverOperationContext,
+    ) -> DriverFuture<'a, DriverOperationReceipt> {
+        Box::pin(async {
+            Err(ChatError::unsupported(
+                "This provider does not expose native thread renaming",
+            ))
+        })
+    }
+
+    fn archive_thread<'a>(
+        &'a mut self,
+        _request: ProviderThreadLifecycleRequest,
+        _context: &'a DriverOperationContext,
+    ) -> DriverFuture<'a, DriverOperationReceipt> {
+        Box::pin(async {
+            Err(ChatError::unsupported(
+                "This provider does not expose native thread archiving",
+            ))
+        })
+    }
+
+    fn delete_thread<'a>(
+        &'a mut self,
+        _request: ProviderThreadLifecycleRequest,
+        _context: &'a DriverOperationContext,
+    ) -> DriverFuture<'a, DriverOperationReceipt> {
+        Box::pin(async {
+            Err(ChatError::unsupported(
+                "This provider does not expose native thread deletion",
+            ))
+        })
+    }
+
+    fn unsubscribe_thread<'a>(
+        &'a mut self,
+        _request: ProviderThreadLifecycleRequest,
+        _context: &'a DriverOperationContext,
+    ) -> DriverFuture<'a, DriverOperationReceipt> {
+        Box::pin(async {
+            Err(ChatError::unsupported(
+                "This provider does not expose native thread unsubscribe",
+            ))
+        })
+    }
+
+    fn cleanup_thread<'a>(
+        &'a mut self,
+        request: ProviderThreadLifecycleRequest,
+        context: &'a DriverOperationContext,
+    ) -> DriverFuture<'a, DriverOperationReceipt> {
+        self.unsubscribe_thread(request, context)
+    }
+
     fn send_turn<'a>(
         &'a mut self,
         request: SendTurnRequest,

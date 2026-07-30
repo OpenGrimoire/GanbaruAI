@@ -248,9 +248,9 @@ fn validate_owned_origin(value: &str) -> ChatResult<String> {
 }
 
 fn with_diagnostic(mut error: ChatError, diagnostic: Option<String>) -> ChatError {
-    error.details = Some(serde_json::json!({
+    error.details = Some(Box::new(serde_json::json!({
         "diagnosticAvailable": diagnostic.is_some_and(|value| !value.trim().is_empty())
-    }));
+    })));
     error
 }
 

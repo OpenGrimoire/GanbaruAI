@@ -230,6 +230,8 @@ impl CursorProviderDriver {
                 AcpProviderFlavor::Grok => vec!["grok".to_string()],
             },
             implementation_status: ProviderImplementationStatus::Available,
+            maturity: ProviderMaturity::Beta,
+            protocol_name: "acp".to_string(),
             potential_capabilities: acp_capability_kinds(flavor),
             unavailable_reason: None,
         }
@@ -270,13 +272,13 @@ impl CursorProviderDriver {
     ) -> ChatResult<(AcpStartedSession, AcpProviderAbout)> {
         let workspace = canonical_current_directory()?;
         let (mut connection, about) = self.open_connection(&workspace).await?;
-        let result = initialize_provider_session(
-            self.flavor,
-            self.grok_uses_api_key(),
-            &connection,
-            workspace.to_string_lossy().as_ref(),
-            None,
-            AcpRequestedConfiguration {
+        let result = initialize_provider_session(AcpSessionInitialization {
+            flavor: self.flavor,
+            grok_uses_api_key: self.grok_uses_api_key(),
+            connection: &connection,
+            workspace: workspace.to_string_lossy().as_ref(),
+            resume_session_id: None,
+            requested: AcpRequestedConfiguration {
                 modes: TurnModeSnapshot {
                     safety_mode: SafetyMode::AskForApproval,
                     interaction_mode: InteractionMode::Build,
@@ -284,8 +286,9 @@ impl CursorProviderDriver {
                 model_id: None,
                 model_options: &[],
             },
+            internal_mcp: None,
             context,
-        )
+        })
         .await;
         let stop = connection
             .stop(SESSION_GRACEFUL_STOP, SESSION_FORCE_STOP)
@@ -347,19 +350,20 @@ impl CursorProviderDriver {
                 true,
             ));
         }
-        let started = match initialize_provider_session(
-            self.flavor,
-            self.grok_uses_api_key(),
-            &connection,
-            workspace.to_string_lossy().as_ref(),
-            cursor.as_ref().map(|cursor| cursor.session_id.as_str()),
-            AcpRequestedConfiguration {
+        let started = match initialize_provider_session(AcpSessionInitialization {
+            flavor: self.flavor,
+            grok_uses_api_key: self.grok_uses_api_key(),
+            connection: &connection,
+            workspace: workspace.to_string_lossy().as_ref(),
+            resume_session_id: cursor.as_ref().map(|cursor| cursor.session_id.as_str()),
+            requested: AcpRequestedConfiguration {
                 modes: input.modes(),
                 model_id: input.model_id(),
                 model_options: input.model_options(),
             },
+            internal_mcp: self.configuration.internal_mcp.as_ref(),
             context,
-        )
+        })
         .await
         {
             Ok(started) => started,
@@ -387,7 +391,7 @@ impl CursorProviderDriver {
             input.modes(),
             effective_model_id.clone(),
             started.setup.config_options.clone(),
-            workspace,
+            workspace.clone(),
         )));
         let setup = Arc::new(Mutex::new(started.setup));
         let pending = Arc::new(Mutex::new(HashMap::new()));
@@ -402,6 +406,8 @@ impl CursorProviderDriver {
         let expected_shutdown = Arc::new(AtomicBool::new(false));
         let terminal_error = Arc::new(Mutex::new(None));
         let inbound = connection.take_inbound()?;
+        let terminal_callbacks =
+            AcpTerminalCallbacks::new(workspace.clone(), started.session_id.clone());
         let router_task = spawn_cursor_router(CursorRouterResources {
             client: connection.client(),
             inbound,
@@ -413,6 +419,7 @@ impl CursorProviderDriver {
             terminal_error: Arc::clone(&terminal_error),
             flavor: self.flavor,
             prompt_completions: Arc::clone(&prompt_completions),
+            terminal_callbacks,
         });
         let state = route.lock().map_err(|_| driver_state_error())?.clone();
         let cursor = resume_cursor(&started.session_id);

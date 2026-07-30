@@ -10,6 +10,7 @@ use crate::chat::events::*;
 use crate::chat::models::*;
 use crate::chat::process::{spawn_provider_process, ProviderProcessConfig};
 use crate::chat::providers::{DriverOperationContext, ProviderEventSink};
+use serde_json::json;
 use std::collections::HashMap;
 use std::path::Path;
 use std::sync::{
@@ -108,6 +109,8 @@ impl ClaudeProviderDriver {
             minimum_tested_cli_version: Some(MINIMUM_CLAUDE_VERSION.to_string()),
             default_executable_candidates: vec!["claude".to_string()],
             implementation_status: ProviderImplementationStatus::Available,
+            maturity: ProviderMaturity::Stable,
+            protocol_name: "claude-stream-json".to_string(),
             potential_capabilities: claude_capability_kinds(),
             unavailable_reason: None,
         }
@@ -176,15 +179,34 @@ impl ClaudeProviderDriver {
             return factory(working_directory);
         }
         let home = resolve_claude_home(&self.configuration)?;
-        let environment = claude_process_environment(&self.configuration, &home)?;
+        let mut environment = claude_process_environment(&self.configuration, &home)?;
         let executable = resolve_claude_executable(&self.configuration.executable, &environment)?;
         let version = probe_version(&executable, working_directory, environment.clone()).await?;
         ensure_supported_version(version)?;
-        let arguments = launch_arguments(
+        let mut arguments = launch_arguments(
             executable.prefix_arguments.clone(),
             &self.configuration.launch_arguments,
             options,
         )?;
+        if let Some(server) = &self.configuration.internal_mcp {
+            const TOKEN_ENVIRONMENT: &str = "GANBARU_CHAT_MCP_TOKEN";
+            environment.insert(TOKEN_ENVIRONMENT.to_string(), server.bearer_token.clone());
+            arguments.push("--mcp-config".to_string());
+            arguments.push(
+                json!({
+                    "mcpServers": {
+                        server.name.clone(): {
+                            "type": "http",
+                            "url": server.url,
+                            "headers": {
+                                "Authorization": format!("Bearer ${{{TOKEN_ENVIRONMENT}}}")
+                            }
+                        }
+                    }
+                })
+                .to_string(),
+            );
+        }
         let process = spawn_provider_process(ProviderProcessConfig {
             executable: executable.executable,
             arguments,

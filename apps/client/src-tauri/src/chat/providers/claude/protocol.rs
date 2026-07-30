@@ -829,6 +829,7 @@ fn validate_launch_arguments(arguments: &[String]) -> ChatResult<()> {
         "--model",
         "--effort",
         "--settings",
+        "--mcp-config",
     ];
     if arguments.len() > MAX_LAUNCH_ARGUMENTS
         || arguments.iter().any(|argument| {

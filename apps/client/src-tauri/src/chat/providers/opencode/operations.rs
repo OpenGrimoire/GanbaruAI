@@ -56,6 +56,7 @@ impl ProviderDriver for OpenCodeProviderDriver {
             let workspace = canonical_current_directory()?;
             match self.catalog_snapshot(&workspace).await {
                 Ok(snapshot) => {
+                    let negotiated_protocol_version = snapshot.version.clone();
                     self.cached_commands = snapshot.commands.clone();
                     self.cached_models = Some(ProviderModelCatalog {
                         instance_id: self.configuration.instance_id.clone(),
@@ -68,10 +69,11 @@ impl ProviderDriver for OpenCodeProviderDriver {
                         instance_id: self.configuration.instance_id.clone(),
                         state: ProbeState::Healthy,
                         version: snapshot.version,
+                        negotiated_protocol_version,
                         account_label: snapshot.account_label,
                         capabilities: capabilities(),
                         checked_at,
-                        detail: None,
+                        detail: Some(snapshot.toolchain_detail),
                     })
                 }
                 Err(error) if context.is_cancelled() => Err(error),
@@ -79,6 +81,7 @@ impl ProviderDriver for OpenCodeProviderDriver {
                     instance_id: self.configuration.instance_id.clone(),
                     state: probe_state(error.code),
                     version: None,
+                    negotiated_protocol_version: None,
                     account_label: None,
                     capabilities: capabilities(),
                     checked_at,
@@ -150,6 +153,14 @@ impl ProviderDriver for OpenCodeProviderDriver {
             self.open_session(OpenCodeSessionInput::Resume(request), sink, context)
                 .await
         })
+    }
+
+    fn fork_thread<'a>(
+        &'a mut self,
+        request: ProviderForkThreadRequest,
+        _context: &'a DriverOperationContext,
+    ) -> DriverFuture<'a, ProviderThreadId> {
+        Box::pin(async move { self.fork_native_session(request).await })
     }
 
     fn send_turn<'a>(

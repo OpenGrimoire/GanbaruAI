@@ -64,7 +64,7 @@ impl CodexRpcFailure {
             code: remote_code, ..
         } = self
         {
-            error.details = Some(json!({ "providerCode": remote_code }));
+            error.details = Some(Box::new(json!({ "providerCode": remote_code })));
         }
         error
     }

@@ -84,6 +84,17 @@ pub struct ProjectWorkingFolderPathPage {
     pub next_cursor: Option<String>,
 }
 
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SearchWorkingFolderPathsRequest {
+    pub working_folder_id: ProjectWorkingFolderId,
+    pub query: String,
+    pub include_ignored: bool,
+    pub cursor: Option<String>,
+    pub limit: u32,
+    pub execution_environment_id: Option<String>,
+}
+
 #[derive(Clone, Debug, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ChatPendingRequestRead {
@@ -390,37 +401,44 @@ pub async fn chat_import_text_snippet(
 pub async fn chat_search_working_folder_paths(
     app: tauri::AppHandle,
     db_url: String,
-    working_folder_id: ProjectWorkingFolderId,
-    query: String,
-    include_ignored: bool,
-    cursor: Option<String>,
-    limit: u32,
+    request: SearchWorkingFolderPathsRequest,
 ) -> ChatResult<ProjectWorkingFolderPathPage> {
     let pool = chat_pool(app.clone(), db_url).await?;
     let authorized = require_workspace(
         &app,
         &pool,
-        &working_folder_id,
+        &request.working_folder_id,
         WorkingFolderAuthorizationOperation::MentionResolution,
     )
     .await?;
-    let query = query.trim().to_lowercase();
+    let authorized = super::execution_environment::resolve_environment_workspace(
+        &app,
+        &pool,
+        authorized,
+        request.execution_environment_id.as_deref(),
+    )
+    .await?;
+    let query = request.query.trim().to_lowercase();
     if query.len() > 500 || query.chars().any(char::is_control) {
         return Err(ChatError::validation(
             "query",
             "Workspace path query is invalid",
         ));
     }
-    let offset = parse_offset(cursor.as_deref())?;
+    let offset = parse_offset(request.cursor.as_deref())?;
     let visible = git_visible_paths(&authorized.canonical_path).unwrap_or_default();
-    let mut entries = scan_paths(&authorized.canonical_path, include_ignored, &visible)?;
+    let mut entries = scan_paths(
+        &authorized.canonical_path,
+        request.include_ignored,
+        &visible,
+    )?;
     entries.retain(|entry| fuzzy_path_matches(&entry.relative_path, &query));
     entries.sort_by(|left, right| {
         path_rank(&left.relative_path, &query)
             .cmp(&path_rank(&right.relative_path, &query))
             .then_with(|| left.relative_path.cmp(&right.relative_path))
     });
-    let page_size = limit.clamp(1, MAX_PATH_RESULTS) as usize;
+    let page_size = request.limit.clamp(1, MAX_PATH_RESULTS) as usize;
     let page = entries
         .into_iter()
         .skip(offset)
@@ -439,6 +457,7 @@ pub async fn chat_validate_working_folder_mentions(
     db_url: String,
     working_folder_id: ProjectWorkingFolderId,
     relative_paths: Vec<String>,
+    execution_environment_id: Option<String>,
 ) -> ChatResult<()> {
     if relative_paths.len() > 100 {
         return Err(ChatError::validation(
@@ -452,6 +471,13 @@ pub async fn chat_validate_working_folder_mentions(
         &pool,
         &working_folder_id,
         WorkingFolderAuthorizationOperation::MentionResolution,
+    )
+    .await?;
+    let authorized = super::execution_environment::resolve_environment_workspace(
+        &app,
+        &pool,
+        authorized,
+        execution_environment_id.as_deref(),
     )
     .await?;
     for path in relative_paths {
@@ -1039,7 +1065,13 @@ pub async fn chat_stop_session(
                 operation_context("ui-force-stop-session", Duration::from_secs(5)),
             )
             .await;
-        return complete_driver_operation(&pool, &client_command_id, result).await;
+        let result = complete_driver_operation(&pool, &client_command_id, result).await;
+        if result.is_ok() {
+            app.state::<super::internal_mcp::InternalMcpRegistry>()
+                .stop_thread_endpoint(&thread_id)
+                .await;
+        }
+        return result;
     }
     let (session_id, turn_id) = interrupt_context.ok_or_else(|| {
         ChatError::new(

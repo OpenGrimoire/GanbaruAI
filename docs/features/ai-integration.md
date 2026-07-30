@@ -12,11 +12,11 @@ Chat provides:
 
 - **Native harness fidelity** through Codex app-server, the selected Claude transport, Cursor ACP, and OpenCode HTTP plus event streams. Provider sessions, approvals, questions, plans, models, usage, and errors remain provider-native facts.
 - **Project working folders** stored under each Ganbaru Project, with one vault-relative managed folder and optional device-bound external folders.
-- **Durable conversations** in the active vault SQLite database, with incremental projections, native resume identity, archive and recovery, managed attachments, and explicit incompatible-session forks.
+- **Durable conversations and resources** in the active vault SQLite database, with incremental projections, native resume identity, archive and recovery, managed attachments, reusable resource catalogs, and explicit incompatible-session forks.
 - **Safety controls** for Supervised, Auto-accept edits, and Full access, mapped truthfully to provider capabilities. Full access requires confirmation for each provider instance and working-folder trust boundary.
-- **Workspace tools** for bounded file inspection, changed-file diffs, thread-scoped terminals, explicit terminal context, and hidden Git checkpoints that do not alter the current branch or real index.
+- **Workspace tools** for revision-safe file editing, inline review, changed-file diffs, thread-scoped terminals, explicit terminal context, Git and optional worktrees, hosted source control, an isolated browser preview, and hidden Git checkpoints that do not alter the current branch or real index.
 
-Chat does not use `codex exec`, terminal scraping, a resident Node server, or a Ganbaru-hosted relay for interactive turns. Provider-reported subagents and tasks appear as normalized activity, but background autonomous scheduling is outside the initial Chat scope. The reviewed dependency choices and addition phases live in [Chat dependency decisions](chat-dependency-decisions.md).
+Chat does not use `codex exec`, terminal scraping, a resident Node server, or a Ganbaru-hosted relay for interactive turns. A loopback-only, bearer-authenticated MCP endpoint is created for the active provider session when durable resources or shared browser tools are needed. It never changes a provider's global configuration. Provider-reported subagents and tasks appear as normalized activity, but background autonomous scheduling is outside the initial Chat scope. The reviewed dependency choices and addition phases live in [Chat dependency decisions](chat-dependency-decisions.md).
 
 The user-facing working-folder behavior, lifecycle, recovery states, and data ownership rules live in [Chat](chat.md). This document keeps the provider and AI-surface architecture.
 
@@ -78,7 +78,7 @@ Claude safety modes remain native. Supervised uses permission callbacks, Auto-ac
 
 Cursor runs through ACP version 1 over a Rust-owned `cursor-agent acp` process. Ganbaru uses newline-delimited JSON-RPC 2.0 with bounded requests, response correlation, notifications, cancellation deadlines, malformed-frame termination, bounded stderr diagnostics, and the shared process-tree owner. The optional API endpoint is a tokenized `-e` argument and must use HTTPS or loopback HTTP without embedded credentials. Provider arguments cannot replace the endpoint, credentials, or ACP subcommand.
 
-The compatibility boundary follows T3 Code commit `5d34f9ff235115d43a6cb4b4561d10badf218b87` and Cursor's public ACP extension schemas. Cursor Agent `2026.04.08` is the minimum tested version for parameterized model selection. No Cursor executable was available in the local validation environment, so compatibility is proven through redacted ACP fixtures rather than claimed as a live local probe. Ganbaru added no ACP package or sidecar.
+The compatibility boundary follows ACP version 1, T3 Code commit `5d34f9ff235115d43a6cb4b4561d10badf218b87`, and Cursor's public ACP extension schemas. Cursor Agent `2026.04.08` is the minimum tested version for parameterized model selection. Ganbaru uses the official Rust ACP types for core protocol negotiation and retains bounded validation for provider extensions. No Cursor executable was available in the local validation environment, so compatibility is proven through redacted ACP fixtures rather than claimed as a live local probe. Ganbaru adds no ACP sidecar.
 
 Startup initializes ACP capabilities, authenticates through the advertised `cursor_login` method, creates or loads the native ACP session, applies validated model traits and mode before a prompt, then persists the ACP session ID as the resume cursor. Continuation compatibility includes the provider home, endpoint, and probed account identity. Only a provider error that specifically identifies a missing session becomes a recoverable resume-not-found result.
 
@@ -98,7 +98,7 @@ The Rust client creates or resumes native sessions, reasserts the selected permi
 
 The event stream is cancelable and incrementally decoded with strict size limits. After a disconnect, Ganbaru reconciles bounded native message history before reconnecting and deduplicates replayed message and part updates. Session, assistant, reasoning, tools, commands, files, permissions, questions, todos, diffs, usage, cost, model, agent, MCP, warning, error, and unknown provider events normalize into the canonical event model with native identifiers.
 
-OpenCode 1.14.19 is the minimum supported version. The compatibility boundary follows OpenCode v1.14.19 and the pinned T3 Code reference commit `5d34f9ff235115d43a6cb4b4561d10badf218b87`. No compatible OpenCode executable was available in the local validation environment, so local process behavior and the declared capability suite are verified through deterministic executable, HTTP, event-stream, and lifecycle fixtures rather than claimed as a live provider run. The implementation adds no package dependency.
+OpenCode 1.14.19 is the minimum supported version. The repository stores a deterministic compatibility artifact generated from the official v1.14.19 OpenAPI document at commit `27db54c859be74aa4caed3e58ae14ecc8bc34b30`. The artifact records the full document hash, size, and all method and path operations. `pnpm --dir apps/client run check:opencode-protocol` rejects drift, while `generate:opencode-protocol` refreshes the artifact only from an explicit source. No compatible OpenCode executable was available in the local validation environment, so local process behavior and the declared capability suite are verified through deterministic executable, HTTP, event-stream, lifecycle, and contract fixtures rather than claimed as a live provider run. The implementation adds no package dependency.
 
 ### 2. BYOK general assistant (future general-user path)
 
@@ -111,11 +111,11 @@ A separate assistant interface can connect to the user's chosen model API. Three
 
 The general assistant can read and write authorized Ganbaru AI data through the planned CLI bridge. It cannot edit arbitrary workspace files or execute commands. Those capabilities belong only to the coding-agent Chat and its explicit workspace and safety boundaries.
 
-### 3. MCP (external clients only)
+### 3. MCP boundaries
 
-Ganbaru AI exposes calendar, project, and notes data via an MCP server for use by external AI clients (ChatGPT, teammate agents, and other MCP-compatible clients on a different machine). MCP is also consumed for integrations with external systems (email, external calendars).
+Ganbaru AI plans to expose calendar, project, and notes data through a separately authorized MCP server for external AI clients. That future data service is distinct from the coding workspace bridge.
 
-MCP is **not** the path for internal provider interaction. Coding-agent Chat speaks each harness's native local protocol, while the future general assistant uses its own provider API contract.
+Coding-agent Chat continues to speak each harness's native local protocol. It also injects an ephemeral internal MCP endpoint into only the active provider session for capabilities that need one provider-neutral tool boundary, including durable Chat resource reads and controlled browser preview actions. The endpoint is loopback-only, bearer authenticated, thread scoped, bounded, and removed with the provider session. It is not a general Ganbaru data API.
 
 ## The CLI as the data bridge
 

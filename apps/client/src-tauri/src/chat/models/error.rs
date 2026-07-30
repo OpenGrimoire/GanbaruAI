@@ -34,7 +34,7 @@ pub struct ChatError {
     pub message: String,
     pub field: Option<String>,
     pub recoverable: bool,
-    pub details: Option<Value>,
+    pub details: Option<Box<Value>>,
 }
 
 pub type ChatResult<T> = Result<T, ChatError>;

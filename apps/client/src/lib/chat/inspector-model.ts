@@ -315,9 +315,9 @@ export function workspacePanelKinds(
 ): ChatInspectorTab[] {
   const kinds: ChatInspectorTab[] = [];
   for (const key of tabs) {
-    const kind: ChatInspectorTab = key === "changes" || key === "plan" || key === "files"
-      ? key
-      : "terminal";
+    const kind: ChatInspectorTab = key.startsWith("terminal:") || key === "terminal"
+      ? "terminal"
+      : key as Exclude<ChatWorkspacePanelTabKey, `terminal:${string}`>;
     if (!kinds.includes(kind)) kinds.push(kind);
   }
   return kinds;

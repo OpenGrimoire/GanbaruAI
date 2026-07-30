@@ -261,7 +261,7 @@
     try {
       if (trigger.kind === "mention") {
         if (!workingFolderId) return;
-        const page = await chatApi.searchChatWorkingFolderPaths(workingFolderId, trigger.query, includeIgnored);
+        const page = await chatApi.searchChatWorkingFolderPaths(workingFolderId, trigger.query, includeIgnored, null, 50, chat.selectedExecutionEnvironmentId);
         if (request !== menuRequest) return;
         menuEntries = page.entries;
         menuCursor = page.nextCursor;
@@ -296,7 +296,7 @@
     const selection = editorController.selection();
     const trigger = composerTokenTrigger(editorController.plainText(), selection.start);
     if (!trigger) return;
-    const page = await chatApi.searchChatWorkingFolderPaths(chat.composer.workingFolderId, trigger.query, includeIgnored, menuCursor);
+    const page = await chatApi.searchChatWorkingFolderPaths(chat.composer.workingFolderId, trigger.query, includeIgnored, menuCursor, 50, chat.selectedExecutionEnvironmentId);
     menuEntries = [...menuEntries, ...page.entries];
     menuCursor = page.nextCursor;
   }

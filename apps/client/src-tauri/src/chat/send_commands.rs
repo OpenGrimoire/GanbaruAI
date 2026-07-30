@@ -41,6 +41,7 @@ pub struct SendChatTurnCommand {
     pub working_folder_id: ProjectWorkingFolderId,
     pub thread_id: Option<ChatThreadId>,
     pub new_thread_id: Option<ChatThreadId>,
+    pub execution_environment_id: Option<String>,
     pub turn_id: ChatTurnId,
     pub message_id: ChatMessageId,
     pub provider_instance_id: ProviderInstanceId,
@@ -116,6 +117,12 @@ pub async fn chat_send_turn(
     if let Some(receipt) = read_command_receipt(&pool, &request.command.client_command_id).await? {
         return replay_send_receipt(&pool, &thread_id, &receipt).await;
     }
+    let existing = match request.thread_id.as_ref() {
+        Some(existing_thread_id) => {
+            Some(read_thread_runtime_data(&pool, existing_thread_id).await?)
+        }
+        None => None,
+    };
     let logical_workspace = workspaces::read_workspace(&pool, &request.working_folder_id).await?;
     require_project_accepts_ai_work(&pool, &logical_workspace.project_id).await?;
     let scope = read_active_device_scope(&app).map_err(device_state_error)?;
@@ -126,6 +133,17 @@ pub async fn chat_send_turn(
         &working_folder_scope,
         WorkingFolderAuthorizationOperation::ProviderStart,
     )?;
+    let selected_environment = existing
+        .as_ref()
+        .and_then(|data| data.execution_environment_id.as_deref())
+        .or(request.execution_environment_id.as_deref());
+    let authorized = super::execution_environment::resolve_environment_workspace(
+        &app,
+        &pool,
+        authorized,
+        selected_environment,
+    )
+    .await?;
     if matches!(
         request.modes.safety_mode,
         SafetyMode::FullAccess | SafetyMode::Custom
@@ -143,21 +161,43 @@ pub async fn chat_send_turn(
     validate_send_mentions(&authorized, &request.mentions)?;
     let provider = super::settings_commands::read_provider(&app, &request.provider_instance_id)?;
     validate_provider_selection(&provider, &request)?;
-    let configuration = materialize_provider_environment(
+    let mut configuration = materialize_provider_environment(
         &provider.configuration,
         &PlatformCredentialStore::default(),
     )?;
-    let existing = match request.thread_id.as_ref() {
-        Some(thread_id) => Some(read_thread_runtime_data(&pool, thread_id).await?),
-        None => None,
-    };
+    let resource_endpoint = app
+        .state::<super::internal_mcp::InternalMcpRegistry>()
+        .ensure_thread_endpoint(
+            app.clone(),
+            pool.clone(),
+            vault::active_vault_path(&app).map_err(|_| {
+                ChatError::new(
+                    ChatErrorCode::Persistence,
+                    "Active Ganbaru folder is unavailable",
+                    true,
+                )
+            })?,
+            thread_id.clone(),
+        )
+        .await?;
+    configuration.internal_mcp = Some(ProviderInternalMcpConfig {
+        name: "ganbaru-chat".to_string(),
+        url: resource_endpoint.url,
+        bearer_token: resource_endpoint.bearer_token,
+    });
     if let Some(existing) = &existing {
         if existing.working_folder_id != request.working_folder_id
             || existing.provider_instance_id != request.provider_instance_id
+            || request
+                .execution_environment_id
+                .as_deref()
+                .is_some_and(|requested| {
+                    existing.execution_environment_id.as_deref() != Some(requested)
+                })
         {
             return Err(ChatError::new(
                 ChatErrorCode::Conflict,
-                "Changing workspace or provider requires a new Chat thread",
+                "Changing workspace, provider, or execution environment requires a new Chat thread",
                 true,
             ));
         }
@@ -868,6 +908,7 @@ struct ThreadRuntimeData {
     provider_thread_id: Option<ProviderThreadId>,
     resume_cursor: Option<VersionedJson>,
     revision: u64,
+    execution_environment_id: Option<String>,
 }
 
 async fn read_thread_runtime_data(
@@ -876,7 +917,8 @@ async fn read_thread_runtime_data(
 ) -> ChatResult<ThreadRuntimeData> {
     let row = sqlx::query(
         "SELECT working_folder_id, provider_instance_id, continuation_group_id,
-                provider_thread_id, resume_cursor_schema_version, resume_cursor_data, revision
+                provider_thread_id, resume_cursor_schema_version, resume_cursor_data, revision,
+                execution_environment_id
          FROM chat_threads WHERE id = ? AND archived_at IS NULL AND state != 'closed'",
     )
     .bind(thread_id.as_str())
@@ -925,6 +967,9 @@ async fn read_thread_runtime_data(
                 .map_err(persistence_error)?,
         )
         .map_err(|_| corrupt_data())?,
+        execution_environment_id: row
+            .try_get("execution_environment_id")
+            .map_err(persistence_error)?,
     })
 }
 
@@ -1009,6 +1054,7 @@ async fn read_attachment_references(
             }
             .to_string(),
             display_name: attachment.original_display_name,
+            resource_uri: format!("ganbaru://chat/resource/{}", id.as_str()),
             managed_relative_path: attachment.managed_relative_path,
             mime_type: Some(attachment.mime_type),
             byte_size: attachment.byte_size,
@@ -1098,14 +1144,15 @@ async fn persist_user_turn(context: PersistUserTurnContext<'_>) -> ChatResult<()
         let title = prompt_title(&request.prompt);
         sqlx::query(
             "INSERT INTO chat_threads
-                (id, working_folder_id, project_id, title, provider_family_id,
+                (id, working_folder_id, execution_environment_id, project_id, title, provider_family_id,
                  provider_instance_id, continuation_group_id, model_selection_data,
                  safety_mode, interaction_mode, state, latest_turn_state,
                  last_activity_at, created_at, updated_at)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', 'pending', ?, ?, ?)",
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', 'pending', ?, ?, ?)",
         )
         .bind(thread_id.as_str())
         .bind(workspace.id.as_str())
+        .bind(request.execution_environment_id.as_deref())
         .bind(&workspace.project_id)
         .bind(title)
         .bind(provider_family_id.as_str())
@@ -1874,6 +1921,7 @@ mod tests {
                 working_folder_id,
                 thread_id: Some(thread_id.clone()),
                 new_thread_id: None,
+                execution_environment_id: None,
                 turn_id: ChatTurnId::new("turn-before-dispatch").unwrap(),
                 message_id: ChatMessageId::new("message-before-dispatch").unwrap(),
                 provider_instance_id: ProviderInstanceId::new("codex-personal").unwrap(),
@@ -1893,6 +1941,7 @@ mod tests {
                 kind: "image".to_string(),
                 display_name: "prompt.png".to_string(),
                 managed_relative_path: "assets/chat/attachments/prompt.png".to_string(),
+                resource_uri: "ganbaru://chat/resource/attachment:image".to_string(),
                 mime_type: Some("image/png".to_string()),
                 byte_size: 14,
                 local_path: Some("/vault/assets/chat/attachments/prompt.png".to_string()),

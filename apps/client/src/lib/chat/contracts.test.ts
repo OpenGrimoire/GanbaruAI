@@ -28,6 +28,8 @@ function metadataFixture(): Record<string, unknown> {
     minimumTestedCliVersion: null,
     defaultExecutableCandidates: ["codex"],
     implementationStatus: "metadata_only",
+    maturity: "experimental",
+    protocolName: "unavailable",
     potentialCapabilities: ["native_resume", "approvals", "structured_questions"],
     unavailableReason: "This provider driver has not been implemented yet.",
   };

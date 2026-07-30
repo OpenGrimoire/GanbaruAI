@@ -19,7 +19,7 @@ use crate::chat::repository::events::{
     append_canonical_event, read_canonical_events, AppendCanonicalEventRequest,
 };
 use crate::chat::repository::lifecycle::{
-    resolve_project_deletion, set_thread_archived, set_thread_read,
+    permanently_delete_thread, resolve_project_deletion, set_thread_archived, set_thread_read,
 };
 use crate::chat::repository::reads::{
     parse_timeline_cursor, read_project_shells, read_thread_shells, read_timeline_page,
@@ -30,6 +30,10 @@ use crate::chat::repository::receipts::{
     claim_command_receipt, complete_command_receipt, CommandReceiptClaim, CommandReceiptState,
 };
 use crate::chat::repository::recovery::recover_orphaned_turns;
+use crate::chat::repository::resources::{
+    list_thread_resources, read_thread_resource_bytes, store_browser_artifact, ChatResourceKind,
+    StoreBrowserArtifact,
+};
 use crate::chat::repository::workspaces::{create_workspace, list_workspaces, rename_workspace};
 use crate::chat::workspace::CreateProjectWorkingFolderRequest;
 use sqlx::Row;
@@ -676,6 +680,95 @@ fn durable_draft_preserves_unknown_json_and_attachment_references() {
         .await
         .unwrap();
         assert_eq!(unreferenced, NOW);
+        fs::remove_dir_all(vault_root).unwrap();
+    });
+}
+
+#[test]
+fn browser_artifacts_are_managed_thread_resources() {
+    tauri::async_runtime::block_on(async {
+        let pool = pool_with_thread().await;
+        let vault_root = std::env::temp_dir().join(format!(
+            "ganbaru-chat-browser-artifact-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        fs::create_dir_all(&vault_root).unwrap();
+        let thread_id = ChatThreadId::new("thread-1").unwrap();
+        let working_folder_id = ProjectWorkingFolderId::new("workspace-1").unwrap();
+        sqlx::query(
+            "INSERT INTO chat_preview_tabs
+                (id, thread_id, position, current_url, title, viewport_kind, viewport_width,
+                 viewport_height, visible, loading_state, created_at, updated_at)
+             VALUES ('preview-1', 'thread-1', 0, 'http://localhost:5173', 'Preview',
+                 'freeform', 1280, 720, 1, 'loaded', ?, ?)",
+        )
+        .bind(NOW)
+        .bind(NOW)
+        .execute(&pool)
+        .await
+        .unwrap();
+        let bytes = b"bounded-png-fixture";
+        let stored = store_browser_artifact(
+            &pool,
+            &vault_root,
+            StoreBrowserArtifact {
+                resource_id: "browser-artifact-1",
+                thread_id: &thread_id,
+                working_folder_id: &working_folder_id,
+                preview_tab_id: "preview-1",
+                kind: ChatResourceKind::BrowserScreenshot,
+                display_name: "Browser screenshot",
+                mime_type: "image/png",
+                source_url: "http://localhost:5173",
+                viewport_width: 1280,
+                viewport_height: 720,
+                duration_milliseconds: None,
+                frame_count: Some(1),
+                created_at: &UtcTimestamp::new(NOW).unwrap(),
+                bytes,
+            },
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(stored.kind, ChatResourceKind::BrowserScreenshot);
+        assert_eq!(
+            list_thread_resources(&pool, &thread_id).await.unwrap(),
+            vec![stored.clone()]
+        );
+        assert_eq!(
+            read_thread_resource_bytes(&pool, &vault_root, &thread_id, &stored.id)
+                .await
+                .unwrap(),
+            (stored, bytes.to_vec())
+        );
+        let artifact_path = vault_root.join("assets/chat/browser-artifacts/browser-artifact-1.png");
+        assert_eq!(fs::read(&artifact_path).unwrap(), bytes);
+        let revision =
+            sqlx::query_scalar::<_, i64>("SELECT revision FROM chat_threads WHERE id = 'thread-1'")
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        permanently_delete_thread(
+            &pool,
+            &thread_id,
+            u64::try_from(revision).unwrap(),
+            &UtcTimestamp::new(NOW).unwrap(),
+            &UtcTimestamp::new(NOW).unwrap(),
+        )
+        .await
+        .unwrap();
+        assert_eq!(
+            run_due_attachment_cleanup(&pool, &vault_root, &UtcTimestamp::new(NOW).unwrap())
+                .await
+                .unwrap(),
+            1
+        );
+        assert!(!artifact_path.exists());
         fs::remove_dir_all(vault_root).unwrap();
     });
 }

@@ -19,6 +19,7 @@ use std::fs::OpenOptions;
 use std::io::Write;
 use std::path::Path;
 use std::time::Duration;
+use tauri::Manager;
 use tauri_plugin_dialog::{DialogExt, FilePath};
 
 const STOP_CONFIRMATION: &str = "STOP ALL CHAT PROCESSES";
@@ -148,13 +149,18 @@ pub async fn chat_export_redacted_diagnostics(
 
 #[tauri::command]
 pub async fn chat_stop_all_processes(
+    app: tauri::AppHandle,
     runtimes: tauri::State<'_, ChatRuntimeRegistry>,
     terminals: tauri::State<'_, ChatTerminalRegistry>,
+    internal_mcp: tauri::State<'_, super::internal_mcp::InternalMcpRegistry>,
     request: ChatMaintenanceConfirmation,
 ) -> ChatResult<ChatStopAllResult> {
     require_confirmation(&request.confirmation, STOP_CONFIRMATION)?;
     let provider_processes_stopped = runtimes.stop_all_and_reset(MAINTENANCE_TIMEOUT).await?;
     let terminals_stopped = terminals.stop_all()?;
+    internal_mcp.stop_all().await;
+    app.state::<super::preview::ChatPreviewManager>()
+        .close_all(&app);
     Ok(ChatStopAllResult {
         provider_processes_stopped,
         terminals_stopped,

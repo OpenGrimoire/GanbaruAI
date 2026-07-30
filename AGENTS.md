@@ -163,6 +163,7 @@ Ganbaru AI/
   assets/: user asset root
     profile/: managed local profile image (created on demand)
     chat/attachments/: managed Chat image and text context files (created on demand)
+    chat/browser-artifacts/: managed Chat screenshots and recordings (created on demand)
     notes/page-icons/: managed Notes page icon images (created on demand)
     notes/page-covers/: managed Notes page cover images (created on demand)
     notes/files/: managed Notes block, property, comment, and import files (created on demand)

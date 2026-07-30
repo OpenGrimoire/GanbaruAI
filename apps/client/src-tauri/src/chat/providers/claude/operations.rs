@@ -64,6 +64,7 @@ impl ProviderDriver for ClaudeProviderDriver {
                             ProbeState::AuthenticationRequired
                         },
                         version: Some(snapshot.version.to_string()),
+                        negotiated_protocol_version: Some("stream-json".to_string()),
                         account_label: snapshot.initialize.account.and_then(|account| {
                             account
                                 .email
@@ -81,6 +82,7 @@ impl ProviderDriver for ClaudeProviderDriver {
                     instance_id: self.configuration.instance_id.clone(),
                     state: probe_state_for_error(error.code),
                     version: None,
+                    negotiated_protocol_version: None,
                     account_label: None,
                     capabilities: claude_capabilities(),
                     checked_at,

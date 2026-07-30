@@ -2,16 +2,28 @@ import {
   type ChatCheckpointDiffRead,
   type ChatCheckpointFileDiffRead,
   type ChatChangedFileRead,
+  type ChatExecutionEnvironmentRead,
+  type ChatReviewCommentRead,
   type ChatRestorePreviewRead,
   type ChatRestoreResultRead,
   type ChatTerminalContextRead,
+  type ChatTerminalLayoutRead,
+  type ChatTerminalPanelLayout,
   type ChatTerminalCloseResult,
   type ChatTerminalOutputChunk,
   type ChatTerminalRead,
   type ChatTerminalSnapshotRead,
+  type GitBranchRead,
+  type GitChangedPathRead,
+  type GitRemoteRead,
+  type GitStatusRead,
+  type GitWorktreeRead,
+  type HostedChangeRequestRead,
+  type HostedSourceControlRead,
   type ProjectWorkingFolderDirectoryRead,
   type ProjectWorkingFolderFileEntry,
   type ProjectWorkingFolderFilePreview,
+  type PreviewTabRead,
 } from "../contracts";
 import {
   readBoolean,
@@ -28,6 +40,11 @@ import {
 const FILE_KINDS = ["file", "directory"] as const;
 const FILE_STATUSES = ["added", "modified", "deleted", "renamed", "type_changed", "unknown"] as const;
 const CHANGE_SCOPES = ["current_turn", "entire_thread"] as const;
+const REVIEW_STATES = ["open", "resolved"] as const;
+const EXECUTION_ENVIRONMENT_KINDS = ["current_folder", "worktree"] as const;
+const HOSTED_SOURCE_CONTROL_KINDS = ["github", "gitlab", "azure_devops", "bitbucket"] as const;
+const TERMINAL_PLACEMENTS = ["inspector", "bottom"] as const;
+const TERMINAL_SPLIT_DIRECTIONS = ["horizontal", "vertical"] as const;
 
 function array<T>(value: unknown, label: string, parse: (entry: unknown, label: string) => T): T[] {
   if (!Array.isArray(value)) throw new Error(`${label} must be an array`);
@@ -65,7 +82,32 @@ export function parseProjectWorkingFolderFilePreview(value: unknown): ProjectWor
     byteSize: readNonNegativeSafeInteger(record.byteSize, "workspaceFilePreview.byteSize"),
     binary: readBoolean(record.binary, "workspaceFilePreview.binary"),
     oversized: readBoolean(record.oversized, "workspaceFilePreview.oversized"),
+    contentRevision: readNullable(record.contentRevision, "workspaceFilePreview.contentRevision", readString),
   };
+}
+
+export function parseChatReviewComment(value: unknown, label = "reviewComment"): ChatReviewCommentRead {
+  const record = readRecord(value, label);
+  return {
+    id: readIdentifier(record.id, `${label}.id`),
+    threadId: readIdentifier(record.threadId, `${label}.threadId`),
+    relativePath: readString(record.relativePath, `${label}.relativePath`),
+    contentRevision: readString(record.contentRevision, `${label}.contentRevision`),
+    startLine: readNonNegativeSafeInteger(record.startLine, `${label}.startLine`),
+    startColumn: readNonNegativeSafeInteger(record.startColumn, `${label}.startColumn`),
+    endLine: readNonNegativeSafeInteger(record.endLine, `${label}.endLine`),
+    endColumn: readNonNegativeSafeInteger(record.endColumn, `${label}.endColumn`),
+    selectedText: readString(record.selectedText, `${label}.selectedText`),
+    commentText: readString(record.commentText, `${label}.commentText`),
+    state: readEnum(record.state, REVIEW_STATES, `${label}.state`),
+    createdAt: readUtcTimestamp(record.createdAt, `${label}.createdAt`),
+    updatedAt: readUtcTimestamp(record.updatedAt, `${label}.updatedAt`),
+    resolvedAt: readNullable(record.resolvedAt, `${label}.resolvedAt`, readUtcTimestamp),
+  };
+}
+
+export function parseChatReviewComments(value: unknown): ChatReviewCommentRead[] {
+  return array(value, "reviewComments", parseChatReviewComment);
 }
 
 function parseChangedFile(value: unknown, label: string): ChatChangedFileRead {
@@ -122,6 +164,27 @@ export function parseChatTerminal(value: unknown, label = "terminal"): ChatTermi
     exitCode: readNullable(record.exitCode, `${label}.exitCode`, readSafeInteger),
     generation: readNonNegativeSafeInteger(record.generation, `${label}.generation`),
     lastSequence: readNonNegativeSafeInteger(record.lastSequence, `${label}.lastSequence`),
+  };
+}
+
+function parseChatTerminalPanelLayout(value: unknown, label: string): ChatTerminalPanelLayout {
+  const record = readRecord(value, label);
+  return {
+    placement: readEnum(record.placement, TERMINAL_PLACEMENTS, `${label}.placement`),
+    terminalNames: array(record.terminalNames, `${label}.terminalNames`, readString),
+    selectedIndex: readNullable(record.selectedIndex, `${label}.selectedIndex`, readNonNegativeSafeInteger),
+    splitDirection: readEnum(record.splitDirection, TERMINAL_SPLIT_DIRECTIONS, `${label}.splitDirection`),
+    splitSizes: array(record.splitSizes, `${label}.splitSizes`, readNonNegativeSafeInteger),
+  };
+}
+
+export function parseChatTerminalLayout(value: unknown): ChatTerminalLayoutRead {
+  const record = readRecord(value, "terminalLayout");
+  return {
+    threadId: readIdentifier(record.threadId, "terminalLayout.threadId"),
+    schemaVersion: readNonNegativeSafeInteger(record.schemaVersion, "terminalLayout.schemaVersion"),
+    groups: array(record.groups, "terminalLayout.groups", parseChatTerminalPanelLayout),
+    updatedAt: readNullable(record.updatedAt, "terminalLayout.updatedAt", readUtcTimestamp),
   };
 }
 
@@ -192,4 +255,154 @@ export function parseChatTerminalContext(value: unknown): ChatTerminalContextRea
     preview: readString(record.preview, "terminalContext.preview"),
     truncated: readBoolean(record.truncated, "terminalContext.truncated"),
   };
+}
+
+function parseGitChangedPath(value: unknown, label: string): GitChangedPathRead {
+  const record = readRecord(value, label);
+  return {
+    relativePath: readString(record.relativePath, `${label}.relativePath`),
+    originalRelativePath: readNullable(record.originalRelativePath, `${label}.originalRelativePath`, readString),
+    indexStatus: readString(record.indexStatus, `${label}.indexStatus`),
+    worktreeStatus: readString(record.worktreeStatus, `${label}.worktreeStatus`),
+    untracked: readBoolean(record.untracked, `${label}.untracked`),
+    ignored: readBoolean(record.ignored, `${label}.ignored`),
+  };
+}
+
+export function parseGitStatus(value: unknown): GitStatusRead {
+  const record = readRecord(value, "gitStatus");
+  return {
+    branch: readNullable(record.branch, "gitStatus.branch", readString),
+    detached: readBoolean(record.detached, "gitStatus.detached"),
+    upstream: readNullable(record.upstream, "gitStatus.upstream", readString),
+    ahead: readNonNegativeSafeInteger(record.ahead, "gitStatus.ahead"),
+    behind: readNonNegativeSafeInteger(record.behind, "gitStatus.behind"),
+    files: array(record.files, "gitStatus.files", parseGitChangedPath),
+  };
+}
+
+export function parseGitRemotes(value: unknown): GitRemoteRead[] {
+  return array(value, "gitRemotes", (entry, label) => {
+    const record = readRecord(entry, label);
+    return {
+      name: readString(record.name, `${label}.name`),
+      fetchUrl: readNullable(record.fetchUrl, `${label}.fetchUrl`, readString),
+      pushUrl: readNullable(record.pushUrl, `${label}.pushUrl`, readString),
+    };
+  });
+}
+
+export function parseGitBranches(value: unknown): GitBranchRead[] {
+  return array(value, "gitBranches", (entry, label) => {
+    const record = readRecord(entry, label);
+    return {
+      name: readString(record.name, `${label}.name`),
+      current: readBoolean(record.current, `${label}.current`),
+      upstream: readNullable(record.upstream, `${label}.upstream`, readString),
+      ahead: readNonNegativeSafeInteger(record.ahead, `${label}.ahead`),
+      behind: readNonNegativeSafeInteger(record.behind, `${label}.behind`),
+    };
+  });
+}
+
+export function parseGitWorktrees(value: unknown): GitWorktreeRead[] {
+  return array(value, "gitWorktrees", (entry, label) => {
+    const record = readRecord(entry, label);
+    return {
+      path: readString(record.path, `${label}.path`),
+      head: readString(record.head, `${label}.head`),
+      branch: readNullable(record.branch, `${label}.branch`, readString),
+      bare: readBoolean(record.bare, `${label}.bare`),
+      detached: readBoolean(record.detached, `${label}.detached`),
+      locked: readBoolean(record.locked, `${label}.locked`),
+      prunable: readBoolean(record.prunable, `${label}.prunable`),
+    };
+  });
+}
+
+export function parseChatExecutionEnvironment(
+  value: unknown,
+  label = "executionEnvironment",
+): ChatExecutionEnvironmentRead {
+  const record = readRecord(value, label);
+  return {
+    id: readIdentifier(record.id, `${label}.id`),
+    workingFolderId: readIdentifier(record.workingFolderId, `${label}.workingFolderId`),
+    kind: readEnum(record.kind, EXECUTION_ENVIRONMENT_KINDS, `${label}.kind`),
+    displayName: readString(record.displayName, `${label}.displayName`),
+    lifecycleState: readString(record.lifecycleState, `${label}.lifecycleState`),
+    branchName: readNullable(record.branchName, `${label}.branchName`, readString),
+    baseReference: readNullable(record.baseReference, `${label}.baseReference`, readString),
+    remoteName: readNullable(record.remoteName, `${label}.remoteName`, readString),
+    cleanupState: readNullable(record.cleanupState, `${label}.cleanupState`, readString),
+    localPath: readNullable(record.localPath, `${label}.localPath`, readString),
+    createdAt: readUtcTimestamp(record.createdAt, `${label}.createdAt`),
+    updatedAt: readUtcTimestamp(record.updatedAt, `${label}.updatedAt`),
+  };
+}
+
+export function parseChatExecutionEnvironments(value: unknown): ChatExecutionEnvironmentRead[] {
+  return array(value, "executionEnvironments", parseChatExecutionEnvironment);
+}
+
+export function parseHostedSourceControls(value: unknown): HostedSourceControlRead[] {
+  return array(value, "hostedSourceControls", (entry, label) => {
+    const record = readRecord(entry, label);
+    return {
+      kind: readEnum(record.kind, HOSTED_SOURCE_CONTROL_KINDS, `${label}.kind`),
+      label: readString(record.label, `${label}.label`),
+      detectedForRepository: readBoolean(record.detectedForRepository, `${label}.detectedForRepository`),
+      remoteName: readNullable(record.remoteName, `${label}.remoteName`, readString),
+      repositorySlug: readNullable(record.repositorySlug, `${label}.repositorySlug`, readString),
+      status: readString(record.status, `${label}.status`),
+      version: readNullable(record.version, `${label}.version`, readString),
+      unavailableReason: readNullable(record.unavailableReason, `${label}.unavailableReason`, readString),
+      configurationHint: readNullable(record.configurationHint, `${label}.configurationHint`, readString),
+    };
+  });
+}
+
+export function parseHostedChangeRequest(
+  value: unknown,
+  label = "hostedChangeRequest",
+): HostedChangeRequestRead {
+  const record = readRecord(value, label);
+  return {
+    providerKind: readEnum(record.providerKind, HOSTED_SOURCE_CONTROL_KINDS, `${label}.providerKind`),
+    number: readNonNegativeSafeInteger(record.number, `${label}.number`),
+    title: readString(record.title, `${label}.title`),
+    url: readString(record.url, `${label}.url`),
+    state: readString(record.state, `${label}.state`),
+    baseBranch: readString(record.baseBranch, `${label}.baseBranch`),
+    headBranch: readString(record.headBranch, `${label}.headBranch`),
+    author: readNullable(record.author, `${label}.author`, readString),
+    draft: readBoolean(record.draft, `${label}.draft`),
+  };
+}
+
+export function parseHostedChangeRequests(value: unknown): HostedChangeRequestRead[] {
+  return array(value, "hostedChangeRequests", parseHostedChangeRequest);
+}
+
+function parsePreviewTab(value: unknown, label: string): PreviewTabRead {
+  const record = readRecord(value, label);
+  return {
+    threadId: readIdentifier(record.threadId, `${label}.threadId`),
+    tabId: readIdentifier(record.tabId, `${label}.tabId`),
+    currentUrl: readString(record.currentUrl, `${label}.currentUrl`),
+    title: readString(record.title, `${label}.title`),
+    visible: readBoolean(record.visible, `${label}.visible`),
+    loading: readBoolean(record.loading, `${label}.loading`),
+    viewportWidth: readNonNegativeSafeInteger(record.viewportWidth, `${label}.viewportWidth`),
+    viewportHeight: readNonNegativeSafeInteger(record.viewportHeight, `${label}.viewportHeight`),
+    externalOrigin: readBoolean(record.externalOrigin, `${label}.externalOrigin`),
+  };
+}
+
+export function parsePreviewTabs(value: unknown): PreviewTabRead[] {
+  return array(value, "previewTabs", parsePreviewTab);
+}
+
+export function parsePreviewTabRead(value: unknown): PreviewTabRead {
+  return parsePreviewTab(value, "previewTab");
 }

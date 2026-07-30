@@ -59,6 +59,8 @@ pub struct ChatDeviceScope {
     pub preferences: ChatMachinePreferences,
     #[serde(default)]
     pub diagnostics: ChatDiagnosticPreferences,
+    #[serde(default)]
+    pub execution_environment_paths: BTreeMap<String, String>,
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]

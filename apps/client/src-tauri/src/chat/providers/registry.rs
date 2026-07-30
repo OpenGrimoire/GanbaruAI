@@ -5,7 +5,7 @@ use super::{
 };
 use crate::chat::models::{
     ChatResult, ProviderCapability, ProviderFamilyId, ProviderFamilyMetadataRead,
-    ProviderImplementationStatus, ProviderInstanceConfig,
+    ProviderImplementationStatus, ProviderInstanceConfig, ProviderMaturity,
 };
 
 const DESKTOP_PLATFORMS: &[&str] = &["linux", "windows", "macos"];
@@ -128,6 +128,8 @@ impl ProviderMetadataDefinition {
                 .map(|executable| (*executable).to_string())
                 .collect(),
             implementation_status: ProviderImplementationStatus::MetadataOnly,
+            maturity: ProviderMaturity::Experimental,
+            protocol_name: "unavailable".to_string(),
             potential_capabilities: self.potential_capabilities.to_vec(),
             unavailable_reason: Some(
                 "This provider driver has not been implemented yet.".to_string(),
@@ -262,6 +264,8 @@ fn unsupported_metadata(family_id: &ProviderFamilyId) -> ProviderFamilyMetadataR
         minimum_tested_cli_version: None,
         default_executable_candidates: Vec::new(),
         implementation_status: ProviderImplementationStatus::Unsupported,
+        maturity: ProviderMaturity::Experimental,
+        protocol_name: "unavailable".to_string(),
         potential_capabilities: Vec::new(),
         unavailable_reason: Some(
             "This provider family is not supported by this build.".to_string(),

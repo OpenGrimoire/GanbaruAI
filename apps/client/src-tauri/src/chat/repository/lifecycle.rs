@@ -153,6 +153,17 @@ pub async fn permanently_delete_thread(
     .fetch_all(&mut *transaction)
     .await
     .map_err(persistence_error)?;
+    let browser_artifacts: Vec<(String, String)> = sqlx::query_as(
+        "SELECT resource.id, resource.managed_relative_path
+         FROM chat_resources resource
+         JOIN chat_resource_thread_references reference ON reference.resource_id = resource.id
+         WHERE reference.thread_id = ? AND resource.attachment_id IS NULL
+           AND resource.resource_kind IN ('browser_screenshot', 'browser_recording')",
+    )
+    .bind(thread_id.as_str())
+    .fetch_all(&mut *transaction)
+    .await
+    .map_err(persistence_error)?;
     sqlx::query("DELETE FROM chat_threads WHERE id = ?")
         .bind(thread_id.as_str())
         .execute(&mut *transaction)
@@ -180,6 +191,41 @@ pub async fn permanently_delete_thread(
                 &mut transaction,
                 CleanupRequest {
                     id: &format!("cleanup:attachment:{attachment_id}"),
+                    thread_id: Some(thread_id.as_str()),
+                    kind: "attachment_file",
+                    target: &relative_path,
+                    repository_identity: None,
+                    working_folder_id: Some(&working_folder_id),
+                    expected_object_id: None,
+                    not_before: cleanup_not_before,
+                    now,
+                },
+            )
+            .await?;
+        }
+    }
+    for (resource_id, relative_path) in browser_artifacts {
+        let remaining: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM chat_resource_thread_references WHERE resource_id = ?",
+        )
+        .bind(&resource_id)
+        .fetch_one(&mut *transaction)
+        .await
+        .map_err(persistence_error)?;
+        if remaining == 0 {
+            sqlx::query(
+                "UPDATE chat_resources SET integrity_state = 'deleted', deleted_at = ?
+                 WHERE id = ?",
+            )
+            .bind(now.as_str())
+            .bind(&resource_id)
+            .execute(&mut *transaction)
+            .await
+            .map_err(persistence_error)?;
+            enqueue_cleanup(
+                &mut transaction,
+                CleanupRequest {
+                    id: &format!("cleanup:browser-artifact:{resource_id}"),
                     thread_id: Some(thread_id.as_str()),
                     kind: "attachment_file",
                     target: &relative_path,

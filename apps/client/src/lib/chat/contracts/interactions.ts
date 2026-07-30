@@ -115,6 +115,7 @@ export interface SendChatTurnCommand {
   workingFolderId: ProjectWorkingFolderId;
   threadId: ChatThreadId | null;
   newThreadId: ChatThreadId | null;
+  executionEnvironmentId?: string | null;
   turnId: string;
   messageId: string;
   providerInstanceId: string;

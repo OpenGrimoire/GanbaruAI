@@ -59,6 +59,7 @@ class ChatStore {
   selectedThreadId = $state<ChatThreadId | null>(null);
   draftWorkingFolderId = $state<ProjectWorkingFolderId | null>(null);
   draftThreadId = $state<ChatThreadId | null>(null);
+  selectedExecutionEnvironmentId = $state<string | null>(null);
   timelinePages = $state<ChatTimelinePageRead[]>([]);
   timelineItems = $state<ChatTimelineItemRead[]>([]);
   pendingUserMessage = $state<{ threadId: ChatThreadId; row: TimelineMessageRow } | null>(null);
@@ -263,6 +264,7 @@ class ChatStore {
 
   selectWorkingFolder(workingFolderId: ProjectWorkingFolderId): void {
     this.selectedWorkingFolderId = workingFolderId;
+    this.selectedExecutionEnvironmentId = null;
     const projectId = this.selectedWorkingFolder?.workingFolder.projectId;
     if (projectId) {
       void projects.selectProject(projectId);
@@ -279,6 +281,15 @@ class ChatStore {
       this.timelineError = null;
     }
     this.selectedThreadId = threadId;
+    if (threadId) {
+      void chatApi.readChatThreadExecutionEnvironment(threadId)
+        .then((environmentId) => {
+          if (this.selectedThreadId === threadId) this.selectedExecutionEnvironmentId = environmentId;
+        })
+        .catch(() => undefined);
+    } else {
+      this.selectedExecutionEnvironmentId = null;
+    }
     const thread = this.selectedThread;
     if (thread) {
       this.selectedWorkingFolderId = thread.workingFolderId;
@@ -321,6 +332,7 @@ class ChatStore {
     this.composerController.setRichContent(text, richContent);
   }
   setComposerAttachments(attachmentIds: string[]): void { this.composerController.setAttachments(attachmentIds); }
+  setExecutionEnvironment(environmentId: string | null): void { this.selectedExecutionEnvironmentId = environmentId; }
   setComposerMentions(mentions: ChatDraftMention[]): void { this.composerController.setMentions(mentions); }
   setComposerProvider(instanceId: ProviderInstanceId | null): void { this.composerController.setProvider(instanceId); }
   setComposerModel(selection: VersionedJson | null): void { this.composerController.setModelSelection(selection); }
@@ -406,6 +418,7 @@ class ChatStore {
         await chatApi.validateChatWorkingFolderMentions(
           workingFolderId,
           mentions.map((mention) => mention.relativePath),
+          this.selectedExecutionEnvironmentId,
         );
       }
       await this.composerController.flush();
@@ -414,6 +427,7 @@ class ChatStore {
         workingFolderId,
         threadId: current?.id ?? null,
         newThreadId,
+        executionEnvironmentId: current ? null : this.selectedExecutionEnvironmentId,
         turnId,
         messageId,
         providerInstanceId,
@@ -636,6 +650,12 @@ class ChatStore {
     this.upsertThread(await chatApi.setChatThreadRead(thread.id, read, thread.revision));
   }
 
+  async forkThread(thread: ChatThreadShellRead, title: string): Promise<void> {
+    const forked = await chatApi.forkChatThread(thread.id, crypto.randomUUID(), title);
+    this.activeThreads = [forked, ...this.activeThreads.filter((entry) => entry.id !== forked.id)];
+    this.selectThread(forked.id);
+  }
+
   async archiveThread(thread: ChatThreadShellRead): Promise<void> {
     const archived = await chatApi.archiveChatThread(thread.id, thread.revision);
     this.activeThreads = this.activeThreads.filter((entry) => entry.id !== thread.id);
@@ -726,6 +746,7 @@ class ChatStore {
         workingFolderId,
         threadId: thread.id,
         newThreadId: null,
+        executionEnvironmentId: null,
         turnId: `queue-turn:${queued.id}`,
         messageId: `queue-message:${queued.id}`,
         providerInstanceId,

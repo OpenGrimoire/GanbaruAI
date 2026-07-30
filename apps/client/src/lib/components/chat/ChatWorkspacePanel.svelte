@@ -28,9 +28,13 @@
 
 <script lang="ts">
   import { onDestroy, onMount, tick } from "svelte";
+  import Columns2 from "@lucide/svelte/icons/columns-2";
   import FileDiff from "@lucide/svelte/icons/file-diff";
   import Files from "@lucide/svelte/icons/files";
+  import GitBranch from "@lucide/svelte/icons/git-branch";
+  import Globe from "@lucide/svelte/icons/globe";
   import ListTodo from "@lucide/svelte/icons/list-todo";
+  import MessageSquareText from "@lucide/svelte/icons/message-square-text";
   import Plus from "@lucide/svelte/icons/plus";
   import SquareTerminal from "@lucide/svelte/icons/square-terminal";
   import X from "@lucide/svelte/icons/x";
@@ -66,9 +70,12 @@
   import { getChat } from "$lib/stores/chat.svelte";
   import { portal } from "$lib/utils/portal";
   import ChatChangesPanel from "./ChatChangesPanel.svelte";
+  import ChatBrowserPanel from "./ChatBrowserPanel.svelte";
   import ChatFileIcon from "./ChatFileIcon.svelte";
   import ChatFilesPanel from "./ChatFilesPanel.svelte";
   import ChatPlanPanel from "./ChatPlanPanel.svelte";
+  import ChatReviewPanel from "./ChatReviewPanel.svelte";
+  import ChatSourceControlPanel from "./ChatSourceControlPanel.svelte";
   import ChatTerminalView from "./ChatTerminalView.svelte";
 
   let {
@@ -127,6 +134,8 @@
   let loadedKey: string | null = null;
   let terminalScopeKey = "";
   let tabDragListenersAttached = false;
+  let terminalLayoutSaveTimer: number | null = null;
+  let splitTerminals = $state(false);
   let tabDragGesture = $state<{
     key: ChatWorkspacePanelTabKey;
     pointerId: number;
@@ -143,12 +152,15 @@
   const selectedTerminal = $derived(terminals.find((terminal) => terminal.id === selectedTerminalId) ?? null);
   const panelTabs: {
     id: Exclude<ChatInspectorTab, "terminal">;
-    label: "changes" | "plan" | "files";
+    label: "changes" | "plan" | "files" | "sourceControl" | "browser" | "review";
     icon: typeof FileDiff;
   }[] = [
     { id: "changes", label: "changes", icon: FileDiff },
     { id: "plan", label: "plan", icon: ListTodo },
     { id: "files", label: "files", icon: Files },
+    { id: "sourceControl", label: "sourceControl", icon: GitBranch },
+    { id: "browser", label: "browser", icon: Globe },
+    { id: "review", label: "review", icon: MessageSquareText },
   ];
   type WorkspacePanelRenderTab =
     | { key: ChatWorkspacePanelTabKey; type: "loading-terminal" }
@@ -246,6 +258,27 @@
     const key = sessionKey;
     if (!key) return;
     panelState = placementSession().update(key, updateValue);
+    if (updateValue.tabNames !== undefined || updateValue.tabOrder !== undefined) scheduleTerminalLayoutSave();
+  }
+
+  function scheduleTerminalLayoutSave(): void {
+    if (terminalLayoutSaveTimer !== null) window.clearTimeout(terminalLayoutSaveTimer);
+    terminalLayoutSaveTimer = window.setTimeout(() => {
+      terminalLayoutSaveTimer = null;
+      const thread = threadId;
+      if (!thread || terminals.length === 0) return;
+      const terminalNames = terminals.map((terminal) => workspacePanelTabLabel(terminalWorkspacePanelTabKey(terminal.id)));
+      const selectedIndex = selectedTerminalId === null
+        ? -1
+        : terminals.findIndex((terminal) => terminal.id === selectedTerminalId);
+      void chatApi.saveChatTerminalPanelLayout(thread, {
+        placement,
+        terminalNames,
+        selectedIndex: selectedIndex >= 0 ? selectedIndex : null,
+        splitDirection: placement === "bottom" ? "horizontal" : "vertical",
+        splitSizes: splitTerminals ? terminalNames.map(() => 1) : [],
+      }).catch((reason: unknown) => { error = message(reason); });
+    }, 250);
   }
 
   function openPanel(tab: ChatInspectorTab): void {
@@ -317,7 +350,9 @@
   }
 
   function panelKind(key: ChatWorkspacePanelTabKey): ChatInspectorTab {
-    return key === "changes" || key === "plan" || key === "files" ? key : "terminal";
+    return key.startsWith("terminal:") || key === "terminal"
+      ? "terminal"
+      : key as Exclude<ChatWorkspacePanelTabKey, `terminal:${string}`>;
   }
 
   function panelForKey(key: ChatWorkspacePanelTabKey): (typeof panelTabs)[number] | undefined {
@@ -335,16 +370,29 @@
     error = null;
     try {
       const loaded = await withTerminalLoadLock(scopeKey, async () => {
-        const available = await chatApi.listChatTerminals(thread, workspace);
+        const [available, layout] = await Promise.all([
+          chatApi.listChatTerminals(thread, workspace),
+          chatApi.readChatTerminalLayout(thread),
+        ]);
         const owned = terminalPanels.claimAvailable(available, placement);
-        if (owned.length > 0) return owned;
+        if (owned.length > 0) return { terminals: owned, layout };
         const snapshot = await createTerminal(thread, workspace);
-        return [snapshot.terminal];
+        return { terminals: [snapshot.terminal], layout };
       });
       if (thread !== threadId || workspace !== workingFolderId) return;
-      terminals = loaded;
+      terminals = loaded.terminals;
+      const savedPanel = loaded.layout.groups.find((group) => group.placement === placement);
+      if (savedPanel) {
+        splitTerminals = savedPanel.splitSizes.length > 1;
+        const tabNames = { ...panelState.tabNames };
+        loaded.terminals.forEach((terminal, index) => {
+          const name = savedPanel.terminalNames[index];
+          if (name) tabNames[terminalWorkspacePanelTabKey(terminal.id)] = name;
+        });
+        update({ tabNames });
+      }
       const placeholderName = panelState.tabNames.terminal;
-      const firstTerminal = loaded[0];
+      const firstTerminal = loaded.terminals[0];
       if (placeholderName && firstTerminal) {
         const tabNames = { ...panelState.tabNames };
         delete tabNames.terminal;
@@ -352,9 +400,12 @@
         update({ tabNames });
       }
       const remembered = terminalPanels.selected(thread, placement);
-      selectTerminal(loaded.some((terminal) => terminal.id === remembered)
+      const savedSelection = savedPanel?.selectedIndex === null || savedPanel?.selectedIndex === undefined
+        ? null
+        : loaded.terminals[savedPanel.selectedIndex]?.id ?? null;
+      selectTerminal(loaded.terminals.some((terminal) => terminal.id === remembered)
         ? remembered ?? null
-        : loaded[0]?.id ?? null);
+        : savedSelection ?? loaded.terminals[0]?.id ?? null);
     } catch (reason: unknown) {
       error = message(reason);
     } finally {
@@ -414,6 +465,12 @@
   function selectTerminal(terminalId: string | null): void {
     selectedTerminalId = terminalId;
     if (threadId) terminalPanels.select(threadId, placement, terminalId);
+    scheduleTerminalLayoutSave();
+  }
+
+  function toggleTerminalSplit(): void {
+    splitTerminals = !splitTerminals;
+    scheduleTerminalLayoutSave();
   }
 
   function updateTerminal(terminal: ChatTerminalRead): void {
@@ -732,7 +789,10 @@
     dragTargetIndex = 0;
   }
 
-  onDestroy(resetTabDrag);
+  onDestroy(() => {
+    resetTabDrag();
+    if (terminalLayoutSaveTimer !== null) window.clearTimeout(terminalLayoutSaveTimer);
+  });
 
   function activateWorkspacePanelTab(key: ChatWorkspacePanelTabKey): void {
     const terminalId = workspacePanelTerminalId(key);
@@ -914,6 +974,9 @@
       onclick={() => void togglePanelPicker()}
       onkeydown={handlePanelPickerTriggerKeydown}
     ><Plus size={14} /></button>
+    {#if panelState.tab === "terminal" && terminals.length > 1}
+      <button type="button" class="panel-add-button" class:active={splitTerminals} aria-pressed={splitTerminals} title={t("chat.inspector.toggleTerminalSplit")} aria-label={t("chat.inspector.toggleTerminalSplit")} onclick={toggleTerminalSplit}><Columns2 size={14} /></button>
+    {/if}
     {#if panelPickerOpen}
       <div
         bind:this={panelPicker}
@@ -987,6 +1050,15 @@
     {#if panelState.tab === "terminal"}
       {#if terminalsLoading}
         <p class="grid h-full place-items-center text-xs text-muted-foreground">{t("common.loading")}</p>
+      {:else if splitTerminals && terminals.length > 1}
+        <div class="terminal-split" data-direction={placement === "bottom" ? "horizontal" : "vertical"}>
+          {#each terminals as terminal (terminal.id)}
+            <section aria-label={workspacePanelTabLabel(terminalWorkspacePanelTabKey(terminal.id))}>
+              <header>{workspacePanelTabLabel(terminalWorkspacePanelTabKey(terminal.id))}</header>
+              <ChatTerminalView terminalRead={terminal} onState={updateTerminal} />
+            </section>
+          {/each}
+        </div>
       {:else if selectedTerminal}
         <div class="flex h-full min-h-0 flex-col">
           {#if !selectedTerminal.running}
@@ -1021,6 +1093,12 @@
       />
     {:else if panelState.tab === "plan"}
       <ChatPlanPanel />
+    {:else if panelState.tab === "sourceControl"}
+      <ChatSourceControlPanel />
+    {:else if panelState.tab === "browser"}
+      <ChatBrowserPanel />
+    {:else if panelState.tab === "review"}
+      <ChatReviewPanel />
     {:else}
       <ChatFilesPanel
         directoryPath={panelState.fileBrowserPath}
@@ -1033,6 +1111,7 @@
           ...(change.treeVisible === undefined ? {} : { fileTreeVisible: change.treeVisible }),
           ...(change.treeWidthPx === undefined ? {} : { fileTreeWidthPx: change.treeWidthPx }),
         })}
+        onReviewCreated={() => openPanel("review")}
       />
     {/if}
   </div>
@@ -1047,6 +1126,7 @@
   .panel-tabbar > :global(.chat-icon-button) { flex: 0 0 auto; align-self: center; }
   .panel-add-button { display: grid; width: 1.75rem; height: 1.75rem; flex: 0 0 1.75rem; place-items: center; align-self: center; border-radius: 0.375rem; color: var(--muted-foreground); transition: color 120ms ease, background-color 120ms ease; }
   .panel-add-button:hover, .panel-add-button:focus-visible, .panel-add-button[aria-expanded="true"] { background: var(--accent); color: var(--accent-foreground); }
+  .panel-add-button.active { background: var(--accent); color: var(--foreground); }
   .panel-tab-strip { display: flex; min-width: 0; flex: 0 1 auto; align-items: stretch; gap: 0.2rem; overflow-x: auto; overflow-y: hidden; scrollbar-width: none; }
   .panel-tab-strip::-webkit-scrollbar { display: none; }
   .panel-tab-slot { display: flex; width: var(--workspace-panel-tab-width); min-width: 3.75rem; flex: 0 1 var(--workspace-panel-tab-width); transform: translate3d(var(--tab-shift-x), 0, 0); align-items: stretch; transition: transform 140ms cubic-bezier(0.2, 0, 0, 1); }
@@ -1066,6 +1146,10 @@
   .tab-close:hover { background: var(--accent); }
   .terminal-close { margin-right: 0.2rem; }
   .terminal-stopped-bar { min-height: 1.8rem; flex: 0 0 auto; border-bottom: 1px solid var(--border); padding: 0.45rem 0.55rem; color: var(--muted-foreground); font-size: 0.666667rem; }
+  .terminal-split { display: grid; height: 100%; min-height: 0; grid-template-columns: repeat(auto-fit, minmax(min(20rem, 100%), 1fr)); overflow: hidden; }
+  .terminal-split[data-direction="vertical"] { grid-template-columns: 1fr; grid-template-rows: repeat(auto-fit, minmax(min(12rem, 100%), 1fr)); }
+  .terminal-split > section { display: flex; min-width: 0; min-height: 0; flex-direction: column; overflow: hidden; border-right: 1px solid var(--border); border-bottom: 1px solid var(--border); }
+  .terminal-split > section > header { min-height: 1.65rem; flex: 0 0 auto; overflow: hidden; border-bottom: 1px solid var(--border); padding: 0.3rem 0.45rem; text-overflow: ellipsis; white-space: nowrap; color: var(--muted-foreground); font-size: 0.65rem; }
   .panel-picker { position: fixed; z-index: 80; overflow-y: auto; border: 1px solid var(--border); border-radius: 0.65rem; background: var(--popover); padding: 0.35rem; color: var(--popover-foreground); box-shadow: 0 12px 32px rgb(0 0 0 / 0.2); }
   .panel-picker > p { padding: 0.35rem 0.55rem; color: var(--muted-foreground); font-size: 0.666667rem; font-weight: 600; }
   .panel-picker button { display: flex; width: 100%; align-items: flex-start; gap: 0.65rem; border-radius: 0.45rem; padding: 0.55rem; text-align: left; }

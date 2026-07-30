@@ -9,6 +9,7 @@ use std::path::{Component, Path, PathBuf};
 
 const MAX_ATTACHMENT_BYTES: u64 = 50 * 1024 * 1024;
 const CHAT_ATTACHMENT_DIRECTORY: &str = "assets/chat/attachments";
+const CHAT_BROWSER_ARTIFACT_DIRECTORY: &str = "assets/chat/browser-artifacts";
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -271,8 +272,16 @@ pub async fn run_due_attachment_cleanup(
                     EXISTS (SELECT 1 FROM chat_attachment_references r WHERE r.attachment_id = a.id)
                     OR EXISTS (SELECT 1 FROM chat_queued_attachment_references q WHERE q.attachment_id = a.id)
                 )
+                UNION ALL
+                SELECT 1 FROM chat_resources resource
+                WHERE resource.managed_relative_path = ?
+                  AND EXISTS (
+                      SELECT 1 FROM chat_resource_thread_references reference
+                      WHERE reference.resource_id = resource.id
+                  )
              )",
         )
+        .bind(&relative_path)
         .bind(&relative_path)
         .fetch_one(pool)
         .await
@@ -290,14 +299,13 @@ pub async fn run_due_attachment_cleanup(
             completed += 1;
             continue;
         }
-        let result =
-            resolve_managed_path(vault_root, &relative_path).and_then(
-                |path| match fs::remove_file(path) {
-                    Ok(()) => Ok(()),
-                    Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
-                    Err(error) => Err(io_error(error)),
-                },
-            );
+        let result = resolve_managed_chat_path(vault_root, &relative_path).and_then(|path| {
+            match fs::remove_file(path) {
+                Ok(()) => Ok(()),
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+                Err(error) => Err(io_error(error)),
+            }
+        });
         match result {
             Ok(()) => {
                 let mut transaction = pool.begin().await.map_err(persistence_error)?;
@@ -306,6 +314,19 @@ pub async fn run_due_attachment_cleanup(
                      WHERE managed_relative_path = ?
                        AND NOT EXISTS (SELECT 1 FROM chat_attachment_references r WHERE r.attachment_id = chat_attachments.id)
                        AND NOT EXISTS (SELECT 1 FROM chat_queued_attachment_references q WHERE q.attachment_id = chat_attachments.id)",
+                )
+                .bind(now.as_str())
+                .bind(&relative_path)
+                .execute(&mut *transaction)
+                .await
+                .map_err(persistence_error)?;
+                sqlx::query(
+                    "UPDATE chat_resources SET integrity_state = 'deleted', deleted_at = ?
+                     WHERE managed_relative_path = ?
+                       AND NOT EXISTS (
+                           SELECT 1 FROM chat_resource_thread_references reference
+                           WHERE reference.resource_id = chat_resources.id
+                       )",
                 )
                 .bind(now.as_str())
                 .bind(&relative_path)
@@ -375,13 +396,25 @@ fn inspect_signature(
     }
 }
 
-fn resolve_managed_path(vault_root: &Path, relative_path: &str) -> ChatResult<PathBuf> {
+pub(super) fn resolve_managed_path(vault_root: &Path, relative_path: &str) -> ChatResult<PathBuf> {
+    if !relative_path.starts_with(&format!("{CHAT_ATTACHMENT_DIRECTORY}/")) {
+        return Err(invalid_path());
+    }
+    resolve_managed_chat_path(vault_root, relative_path)
+}
+
+pub(super) fn resolve_managed_chat_path(
+    vault_root: &Path,
+    relative_path: &str,
+) -> ChatResult<PathBuf> {
     let relative = Path::new(relative_path);
+    let managed_directory = relative_path.starts_with(&format!("{CHAT_ATTACHMENT_DIRECTORY}/"))
+        || relative_path.starts_with(&format!("{CHAT_BROWSER_ARTIFACT_DIRECTORY}/"));
     if relative.is_absolute()
         || relative
             .components()
             .any(|part| !matches!(part, Component::Normal(_)))
-        || !relative_path.starts_with(&format!("{CHAT_ATTACHMENT_DIRECTORY}/"))
+        || !managed_directory
     {
         return Err(invalid_path());
     }

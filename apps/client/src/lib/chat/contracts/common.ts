@@ -165,6 +165,8 @@ export type ProviderCapability = (typeof PROVIDER_CAPABILITIES)[number];
 
 export const PROVIDER_IMPLEMENTATION_STATUSES = ["metadata_only", "available", "unsupported"] as const;
 export type ProviderImplementationStatus = (typeof PROVIDER_IMPLEMENTATION_STATUSES)[number];
+export const PROVIDER_MATURITIES = ["stable", "beta", "experimental"] as const;
+export type ProviderMaturity = (typeof PROVIDER_MATURITIES)[number];
 
 export const CHAT_ERROR_CODES = [
   "validation",

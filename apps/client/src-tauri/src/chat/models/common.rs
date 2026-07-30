@@ -272,6 +272,14 @@ pub enum ProviderImplementationStatus {
     Unsupported,
 }
 
+#[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ProviderMaturity {
+    Stable,
+    Beta,
+    Experimental,
+}
+
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct VersionedJson {

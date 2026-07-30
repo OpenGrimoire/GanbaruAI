@@ -6,7 +6,6 @@ use crate::chat::models::{
     ModelOptionDefinition, ModelOptionSelection, ModelOptionValue, ProviderCapability,
     ProviderModel, SafetyMode, SendTurnRequest, TurnModeSnapshot,
 };
-use base64::{engine::general_purpose, Engine as _};
 use serde::Deserialize;
 use serde_json::{json, Map, Value};
 use std::{
@@ -378,7 +377,7 @@ pub fn turn_start_params(
                         "Codex image attachment is invalid or oversized",
                     ));
                 }
-                let mime = attachment
+                attachment
                     .mime_type
                     .as_deref()
                     .filter(|value| {
@@ -390,15 +389,9 @@ pub fn turn_start_params(
                     .ok_or_else(|| {
                         ChatError::validation("attachments", "Codex image type is unsupported")
                     })?;
-                let bytes = fs::read(path).map_err(|_| {
-                    ChatError::validation("attachments", "Codex image attachment could not be read")
-                })?;
                 input.push(json!({
-                    "type": "image",
-                    "url": format!(
-                        "data:{mime};base64,{}",
-                        general_purpose::STANDARD.encode(bytes),
-                    ),
+                    "type": "localImage",
+                    "path": path,
                 }));
             }
             "text_snippet" => {

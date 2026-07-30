@@ -30,6 +30,7 @@ pub struct PromptAttachmentReference {
     pub kind: String,
     pub display_name: String,
     pub managed_relative_path: String,
+    pub resource_uri: String,
     pub mime_type: Option<String>,
     pub byte_size: u64,
     pub local_path: Option<String>,
@@ -64,6 +65,21 @@ pub struct ResumeSessionRequest {
     pub continuation_group_id: ContinuationGroupId,
     pub resume_cursor: VersionedJson,
     pub modes: TurnModeSnapshot,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProviderThreadLifecycleRequest {
+    pub provider_thread_id: ProviderThreadId,
+    pub title: Option<String>,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProviderForkThreadRequest {
+    pub provider_thread_id: ProviderThreadId,
+    pub workspace: VerifiedWorkspaceContext,
+    pub last_provider_turn_id: Option<String>,
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]

@@ -7,6 +7,7 @@ import type {
   ProviderCapability,
   ProviderFamilyId,
   ProviderImplementationStatus,
+  ProviderMaturity,
   ProviderInstanceId,
   ProbeState,
   UtcTimestamp,
@@ -49,6 +50,8 @@ export interface ProviderFamilyMetadataRead {
   minimumTestedCliVersion: string | null;
   defaultExecutableCandidates: string[];
   implementationStatus: ProviderImplementationStatus;
+  maturity: ProviderMaturity;
+  protocolName: string;
   potentialCapabilities: ProviderCapability[];
   unavailableReason: string | null;
 }
@@ -57,6 +60,7 @@ export interface ProviderProbeResult {
   instanceId: ProviderInstanceId;
   state: ProbeState;
   version: string | null;
+  negotiatedProtocolVersion: string | null;
   accountLabel: string | null;
   capabilities: ProviderCapabilities;
   checkedAt: UtcTimestamp;

@@ -157,6 +157,16 @@ impl OpenCodeHttpClient {
         )
     }
 
+    pub async fn lsp_status(&self) -> ChatResult<Value> {
+        self.json(Method::GET, &["lsp"], &[], Option::<&Value>::None)
+            .await
+    }
+
+    pub async fn formatter_status(&self) -> ChatResult<Value> {
+        self.json(Method::GET, &["formatter"], &[], Option::<&Value>::None)
+            .await
+    }
+
     pub async fn subscribe_events(&self) -> ChatResult<reqwest::Response> {
         let mut url = endpoint_url(&self.origin, &["event"])?;
         url.query_pairs_mut()
@@ -195,6 +205,42 @@ impl OpenCodeHttpClient {
             .unwrap_or_else(|| json!({}));
         self.json(Method::POST, &["session"], &[], Some(&body))
             .await
+    }
+
+    pub async fn add_mcp_server(
+        &self,
+        name: &str,
+        url: &str,
+        bearer_token: &str,
+    ) -> ChatResult<Value> {
+        if name.is_empty()
+            || name.len() > 240
+            || name.chars().any(char::is_control)
+            || !url.starts_with("http://127.0.0.1:")
+            || bearer_token.len() != 64
+        {
+            return Err(ChatError::validation(
+                "internalMcp",
+                "OpenCode MCP server configuration is invalid",
+            ));
+        }
+        self.json(
+            Method::POST,
+            &["mcp"],
+            &[],
+            Some(&json!({
+                "name": name,
+                "config": {
+                    "type": "remote",
+                    "url": url,
+                    "headers": {
+                        "Authorization": format!("Bearer {bearer_token}")
+                    },
+                    "oauth": false
+                }
+            })),
+        )
+        .await
     }
 
     pub async fn session(&self, session_id: &str) -> ChatResult<OpenCodeSessionLookup> {
@@ -574,7 +620,7 @@ fn status_error(status: StatusCode, body: &[u8]) -> ChatError {
         },
         code != ChatErrorCode::Protocol,
     );
-    error.details = details.map(|name| json!({ "providerError": name }));
+    error.details = details.map(|name| Box::new(json!({ "providerError": name })));
     error
 }
 

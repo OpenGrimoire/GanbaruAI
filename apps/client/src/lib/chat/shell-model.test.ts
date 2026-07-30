@@ -62,6 +62,7 @@ function provider(state: ProviderInstanceRead["lastProbe"] extends infer _Probe 
       instanceId: "codex",
       state,
       version: "1.0",
+      negotiatedProtocolVersion: "2",
       accountLabel: null,
       capabilities: { entries: [] },
       checkedAt: timestamp,
