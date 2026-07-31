@@ -16,8 +16,10 @@ fn bindings_are_scoped_by_vault_and_device() {
     let working_folder_id = ProjectWorkingFolderId::new("workspace-1").unwrap();
     let binding = ProjectWorkingFolderBindingState {
         canonical_path: "/mnt/work/ganbaru".to_string(),
+        filesystem_identity: Some("filesystem-sha256:folder".to_string()),
         repository_kind: RepositoryKind::Git,
         repository_identity: Some("git:example/ganbaru".to_string()),
+        repository_storage_identity: Some("filesystem-sha256:git".to_string()),
         last_verified_at: UtcTimestamp::new("2026-07-20T12:00:00Z").unwrap(),
     };
 
@@ -43,8 +45,10 @@ fn working_folder_device_state_round_trips_typed_map_keys() {
         ProjectWorkingFolderId::new("workspace-1").unwrap(),
         ProjectWorkingFolderBindingState {
             canonical_path: "/mnt/work/ganbaru".to_string(),
+            filesystem_identity: Some("filesystem-sha256:folder".to_string()),
             repository_kind: RepositoryKind::Git,
             repository_identity: Some("git:example/ganbaru".to_string()),
+            repository_storage_identity: Some("filesystem-sha256:git".to_string()),
             last_verified_at: UtcTimestamp::new("2026-07-20T12:00:00Z").unwrap(),
         },
     );
@@ -57,6 +61,20 @@ fn working_folder_device_state_round_trips_typed_map_keys() {
         restored.schema_version,
         WORKING_FOLDER_DEVICE_STATE_SCHEMA_VERSION
     );
+}
+
+#[test]
+fn legacy_working_folder_binding_defaults_new_identity_fields() {
+    let binding: ProjectWorkingFolderBindingState = serde_json::from_value(serde_json::json!({
+        "canonicalPath": "/mnt/work/ganbaru",
+        "repositoryKind": "git",
+        "repositoryIdentity": "git-sha256:legacy",
+        "lastVerifiedAt": "2026-07-20T12:00:00Z"
+    }))
+    .unwrap();
+
+    assert_eq!(binding.filesystem_identity, None);
+    assert_eq!(binding.repository_storage_identity, None);
 }
 
 #[test]

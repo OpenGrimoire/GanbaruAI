@@ -7,12 +7,8 @@ use super::models::{
     ChatCheckpointId, ChatError, ChatErrorCode, ChatResult, ChatThreadId, ChatTurnId,
     ProjectWorkingFolderId,
 };
-use super::repository::workspaces;
-use super::workspace::{
-    authorize_workspace, AuthorizedWorkingFolder, WorkingFolderAuthorizationOperation,
-};
+use super::workspace::{AuthorizedWorkingFolder, WorkingFolderAuthorizationOperation};
 use crate::db_path;
-use crate::projects::working_folders::read_active_working_folder_scope;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use sqlx::{Row, SqlitePool};
@@ -2803,15 +2799,13 @@ async fn authorize_review_request(
             ));
         }
     }
-    let workspace = workspaces::read_workspace(pool, &request.working_folder_id).await?;
-    let scope = read_active_working_folder_scope(app).map_err(|_| {
-        ChatError::new(
-            ChatErrorCode::ConfigurationInvalid,
-            "Working folder bindings are unavailable",
-            true,
-        )
-    })?;
-    let authorized = authorize_workspace(&workspace, &scope, operation)?;
+    let authorized = super::workspace_commands::authorize_working_folder(
+        app,
+        pool,
+        &request.working_folder_id,
+        operation,
+    )
+    .await?;
     let authorized = super::execution_environment::resolve_environment_workspace(
         app,
         pool,

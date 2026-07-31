@@ -10,12 +10,8 @@ use super::models::{
     ChatCheckpointId, ChatError, ChatErrorCode, ChatResult, ChatThreadId, ChatTurnId,
     ProjectWorkingFolderId,
 };
-use super::repository::workspaces;
-use super::workspace::{
-    authorize_workspace, AuthorizedWorkingFolder, WorkingFolderAuthorizationOperation,
-};
+use super::workspace::{AuthorizedWorkingFolder, WorkingFolderAuthorizationOperation};
 use crate::db_path;
-use crate::projects::working_folders::read_active_working_folder_scope;
 use chrono::{SecondsFormat, Utc};
 use serde::Serialize;
 use sqlx::{Row, SqlitePool};
@@ -179,13 +175,13 @@ pub async fn chat_run_checkpoint_cleanup(app: tauri::AppHandle, db_url: String) 
             (Some(working_folder_id), Some(repository_identity), Some(expected_object_id)) => {
                 let working_folder_id =
                     ProjectWorkingFolderId::new(working_folder_id).map_err(|_| corrupt_data())?;
-                let workspace = workspaces::read_workspace(&pool, &working_folder_id).await?;
-                let scope = read_active_working_folder_scope(&app).map_err(device_state_error)?;
-                let authorized = authorize_workspace(
-                    &workspace,
-                    &scope,
+                let authorized = super::workspace_commands::authorize_working_folder(
+                    &app,
+                    &pool,
+                    &working_folder_id,
                     WorkingFolderAuthorizationOperation::Restore,
-                )?;
+                )
+                .await?;
                 if authorized.repository_identity.as_deref() != Some(&repository_identity) {
                     Err(ChatError::new(
                         ChatErrorCode::ConfigurationInvalid,

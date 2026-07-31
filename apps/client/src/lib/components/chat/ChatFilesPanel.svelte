@@ -31,6 +31,7 @@
     subscribeChatWorkspaceObserverStatus,
   } from "$lib/chat/workspace-observer-client";
   import { splitPaneResizeBounds } from "$lib/chat/inspector-model";
+  import { chatErrorMessage } from "$lib/chat/error-presentation";
   import { alignPanelSizeToDevicePixel, panelWidthFromKey } from "$lib/chat/responsive-layout";
   import { boundTerminalContext } from "$lib/chat/terminal-model";
   import { formatNumber } from "$lib/i18n/formatters";
@@ -959,7 +960,7 @@
   }
 
   function message(reason: unknown): string {
-    return reason instanceof Error ? reason.message : String(reason);
+    return chatErrorMessage(reason);
   }
 </script>
 

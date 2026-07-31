@@ -1164,6 +1164,7 @@ mod tests {
                 canonical_path: self.0.clone(),
                 repository_kind: RepositoryKind::Git,
                 repository_identity: Some(identity.to_string()),
+                repository_storage_identity: Some(identity.to_string()),
             }
         }
     }

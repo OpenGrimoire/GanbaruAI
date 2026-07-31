@@ -12,7 +12,7 @@ use chrono::{SecondsFormat, Utc};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::ffi::OsStr;
-use std::fs;
+use std::fs::{self, OpenOptions};
 use std::path::{Component, Path, PathBuf};
 use tauri::Runtime;
 
@@ -50,6 +50,10 @@ impl WorkingFolderAuthorizationOperation {
         Self::Diff,
         Self::Restore,
     ];
+
+    fn requires_repository_continuity(self) -> bool {
+        matches!(self, Self::Git | Self::Diff | Self::Restore)
+    }
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -98,6 +102,7 @@ pub struct ProjectWorkingFolderRead {
 pub struct RepositoryProbe {
     pub kind: RepositoryKind,
     pub identity: Option<String>,
+    pub compatibility_identity: Option<String>,
     pub current_branch: Option<String>,
 }
 
@@ -106,7 +111,10 @@ pub struct AuthorizedWorkingFolder {
     pub working_folder_id: ProjectWorkingFolderId,
     pub canonical_path: PathBuf,
     pub repository_kind: RepositoryKind,
+    /// Logical repository identity used by persisted Chat records.
     pub repository_identity: Option<String>,
+    /// Filesystem identity of the currently authorized Git common directory.
+    pub repository_storage_identity: Option<String>,
 }
 
 pub(crate) fn prepare_workspace_binding(
@@ -115,17 +123,15 @@ pub(crate) fn prepare_workspace_binding(
 ) -> ChatResult<(RepositoryProbe, ProjectWorkingFolderBindingState)> {
     let canonical_path = canonical_existing_directory(selected_path)?;
     let probe = probe_repository(&canonical_path)?;
-    if workspace.repository_identity.is_some() && workspace.repository_identity != probe.identity {
-        return Err(repository_mismatch());
-    }
-    if workspace.repository_kind != RepositoryKind::None && workspace.repository_kind != probe.kind
-    {
-        return Err(repository_mismatch());
-    }
     let binding = ProjectWorkingFolderBindingState {
         canonical_path: path_to_string(&canonical_path)?,
+        filesystem_identity: Some(filesystem_identity(&canonical_path, b"working-folder")?),
         repository_kind: probe.kind,
-        repository_identity: probe.identity.clone(),
+        repository_identity: match workspace.repository_kind {
+            RepositoryKind::Git => workspace.repository_identity.clone(),
+            RepositoryKind::None => probe.compatibility_identity.clone(),
+        },
+        repository_storage_identity: probe.identity.clone(),
         last_verified_at: now_timestamp()?,
     };
     Ok((probe, binding))
@@ -200,7 +206,7 @@ pub(crate) fn store_active_device_binding<R: Runtime>(
 pub fn authorize_workspace(
     workspace: &ProjectWorkingFolder,
     scope: &WorkingFolderDeviceScope,
-    _operation: WorkingFolderAuthorizationOperation,
+    operation: WorkingFolderAuthorizationOperation,
 ) -> ChatResult<AuthorizedWorkingFolder> {
     let binding = scope.bindings.get(&workspace.id).ok_or_else(|| {
         ChatError::new(
@@ -217,19 +223,50 @@ pub fn authorize_workspace(
             true,
         ));
     }
-    let probe = probe_repository(&canonical_path)?;
-    if probe.kind != binding.repository_kind
-        || probe.identity != binding.repository_identity
-        || probe.kind != workspace.repository_kind
-        || probe.identity != workspace.repository_identity
+    let current_filesystem_identity = filesystem_identity(&canonical_path, b"working-folder")?;
+    if let Some(expected) = binding.filesystem_identity.as_deref() {
+        if expected != current_filesystem_identity {
+            return Err(folder_identity_mismatch());
+        }
+    }
+    let probe = match probe_repository(&canonical_path) {
+        Ok(probe) => Some(probe),
+        Err(_)
+            if binding.filesystem_identity.is_some()
+                && !operation.requires_repository_continuity() =>
+        {
+            None
+        }
+        Err(error) => return Err(error),
+    };
+    if binding.filesystem_identity.is_none()
+        && !probe
+            .as_ref()
+            .is_some_and(|probe| legacy_binding_matches(workspace, binding, probe))
     {
+        return Err(folder_identity_mismatch());
+    }
+    let repository_matches = probe
+        .as_ref()
+        .is_some_and(|probe| repository_matches_binding(workspace, binding, probe));
+    if operation.requires_repository_continuity() && !repository_matches {
         return Err(repository_mismatch());
     }
+    let repository_kind = probe
+        .as_ref()
+        .filter(|_| repository_matches)
+        .map_or(RepositoryKind::None, |probe| probe.kind);
+    let repository_storage_identity = probe
+        .filter(|_| repository_matches)
+        .and_then(|probe| probe.identity);
     Ok(AuthorizedWorkingFolder {
         working_folder_id: workspace.id.clone(),
         canonical_path,
-        repository_kind: probe.kind,
-        repository_identity: probe.identity,
+        repository_kind,
+        repository_identity: repository_matches
+            .then(|| workspace.repository_identity.clone())
+            .flatten(),
+        repository_storage_identity,
     })
 }
 
@@ -283,17 +320,40 @@ pub(crate) fn workspace_read(
         None => (WorkingFolderBindingStatus::Unbound, None),
         Some(binding) => match canonical_existing_directory(Path::new(&binding.canonical_path)) {
             Err(_) => (WorkingFolderBindingStatus::Missing, None),
-            Ok(path) => match probe_repository(&path) {
-                Ok(probe)
-                    if probe.kind == workspace.repository_kind
-                        && probe.identity == workspace.repository_identity
-                        && probe.kind == binding.repository_kind
-                        && probe.identity == binding.repository_identity =>
-                {
-                    (WorkingFolderBindingStatus::Available, probe.current_branch)
+            Ok(path) => {
+                let path_matches =
+                    path_to_string(&path).ok().as_deref() == Some(binding.canonical_path.as_str());
+                let filesystem_matches =
+                    binding
+                        .filesystem_identity
+                        .as_deref()
+                        .is_some_and(|expected| {
+                            filesystem_identity(&path, b"working-folder")
+                                .is_ok_and(|current| current == expected)
+                        });
+                if path_matches && filesystem_matches {
+                    let branch = probe_repository(&path).ok().and_then(|probe| {
+                        repository_matches_binding(&workspace, binding, &probe)
+                            .then_some(probe.current_branch)
+                            .flatten()
+                    });
+                    (WorkingFolderBindingStatus::Available, branch)
+                } else {
+                    match probe_repository(&path) {
+                        Ok(probe)
+                            if path_matches
+                                && binding.filesystem_identity.is_none()
+                                && legacy_binding_matches(&workspace, binding, &probe) =>
+                        {
+                            let branch = repository_matches_binding(&workspace, binding, &probe)
+                                .then_some(probe.current_branch)
+                                .flatten();
+                            (WorkingFolderBindingStatus::Available, branch)
+                        }
+                        _ => (WorkingFolderBindingStatus::RepositoryMismatch, None),
+                    }
                 }
-                _ => (WorkingFolderBindingStatus::RepositoryMismatch, None),
-            },
+            }
         },
     };
     Ok(ProjectWorkingFolderRead {
@@ -303,6 +363,66 @@ pub(crate) fn workspace_read(
         last_verified_at: binding.map(|value| value.last_verified_at.clone()),
         current_branch,
     })
+}
+
+pub(crate) fn repository_matches_binding(
+    workspace: &ProjectWorkingFolder,
+    binding: &ProjectWorkingFolderBindingState,
+    probe: &RepositoryProbe,
+) -> bool {
+    if binding.repository_kind != probe.kind || workspace.repository_kind != probe.kind {
+        return false;
+    }
+    match probe.kind {
+        RepositoryKind::None => {
+            binding.repository_identity.is_none() && workspace.repository_identity.is_none()
+        }
+        RepositoryKind::Git => {
+            if binding.repository_identity != workspace.repository_identity
+                || workspace.repository_identity.is_none()
+            {
+                return false;
+            }
+            match binding.repository_storage_identity.as_deref() {
+                Some(expected) => probe.identity.as_deref() == Some(expected),
+                None => legacy_binding_matches(workspace, binding, probe),
+            }
+        }
+    }
+}
+
+pub(crate) fn legacy_binding_matches(
+    workspace: &ProjectWorkingFolder,
+    binding: &ProjectWorkingFolderBindingState,
+    probe: &RepositoryProbe,
+) -> bool {
+    probe.kind == binding.repository_kind
+        && probe.kind == workspace.repository_kind
+        && probe.compatibility_identity == binding.repository_identity
+        && probe.compatibility_identity == workspace.repository_identity
+}
+
+pub(crate) fn initialized_repository_identity(
+    workspace: &ProjectWorkingFolder,
+    binding: &ProjectWorkingFolderBindingState,
+    probe: &RepositoryProbe,
+) -> Option<String> {
+    if workspace.repository_kind != RepositoryKind::None
+        || workspace.repository_identity.is_some()
+        || probe.kind != RepositoryKind::Git
+    {
+        return None;
+    }
+    let transition_is_unrecorded = binding.repository_kind == RepositoryKind::None;
+    let transition_was_partially_recorded = binding.repository_kind == RepositoryKind::Git
+        && binding.repository_storage_identity == probe.identity;
+    if !transition_is_unrecorded && !transition_was_partially_recorded {
+        return None;
+    }
+    binding
+        .repository_identity
+        .clone()
+        .or_else(|| probe.compatibility_identity.clone())
 }
 
 fn canonical_existing_directory(path: &Path) -> ChatResult<PathBuf> {
@@ -342,6 +462,7 @@ pub(crate) fn probe_repository(path: &Path) -> ChatResult<RepositoryProbe> {
             return Ok(RepositoryProbe {
                 kind: RepositoryKind::None,
                 identity: None,
+                compatibility_identity: None,
                 current_branch: None,
             });
         }
@@ -367,7 +488,8 @@ pub(crate) fn probe_repository(path: &Path) -> ChatResult<RepositoryProbe> {
     } else {
         return Err(repository_probe_error());
     };
-    let config_path = git_directory.join("config");
+    let common_directory = resolve_git_common_directory(&git_directory)?;
+    let config_path = common_directory.join("config");
     let config_metadata = fs::metadata(&config_path).map_err(|_| repository_probe_error())?;
     if !config_metadata.is_file() || config_metadata.len() > MAX_GIT_CONFIG_BYTES {
         return Err(repository_probe_error());
@@ -386,9 +508,41 @@ pub(crate) fn probe_repository(path: &Path) -> ChatResult<RepositoryProbe> {
     }
     Ok(RepositoryProbe {
         kind: RepositoryKind::Git,
-        identity: Some(format!("git-sha256:{}", hex_digest(hasher.finalize()))),
+        identity: Some(filesystem_identity(&common_directory, b"git-storage")?),
+        compatibility_identity: Some(format!("git-sha256:{}", hex_digest(hasher.finalize()))),
         current_branch,
     })
+}
+
+fn resolve_git_common_directory(git_directory: &Path) -> ChatResult<PathBuf> {
+    let common_file = git_directory.join("commondir");
+    let metadata = match fs::symlink_metadata(&common_file) {
+        Ok(metadata) => metadata,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            return Ok(git_directory.to_path_buf());
+        }
+        Err(_) => return Err(repository_probe_error()),
+    };
+    if metadata.file_type().is_symlink() || !metadata.is_file() || metadata.len() > 4_096 {
+        return Err(repository_probe_error());
+    }
+    let contents = fs::read_to_string(&common_file).map_err(|_| repository_probe_error())?;
+    let raw_path = contents.trim();
+    if raw_path.is_empty() || raw_path.chars().any(char::is_control) {
+        return Err(repository_probe_error());
+    }
+    let configured = Path::new(raw_path);
+    let candidate = if configured.is_absolute() {
+        configured.to_path_buf()
+    } else {
+        git_directory.join(configured)
+    };
+    let common = fs::canonicalize(candidate).map_err(|_| repository_probe_error())?;
+    let metadata = fs::metadata(&common).map_err(|_| repository_probe_error())?;
+    if !metadata.is_dir() {
+        return Err(repository_probe_error());
+    }
+    Ok(common)
 }
 
 fn read_current_branch(git_directory: &Path) -> ChatResult<Option<String>> {
@@ -476,6 +630,77 @@ fn hex_digest(bytes: impl AsRef<[u8]>) -> String {
         })
 }
 
+#[cfg(unix)]
+pub(crate) fn filesystem_identity(path: &Path, domain: &[u8]) -> ChatResult<String> {
+    use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
+
+    let mut options = OpenOptions::new();
+    options
+        .read(true)
+        .custom_flags(libc::O_CLOEXEC | libc::O_DIRECTORY | libc::O_NOFOLLOW);
+    let directory = options.open(path).map_err(|_| folder_identity_error())?;
+    let metadata = directory.metadata().map_err(|_| folder_identity_error())?;
+    Ok(hashed_filesystem_identity(
+        domain,
+        &metadata.dev().to_le_bytes(),
+        &metadata.ino().to_le_bytes(),
+    ))
+}
+
+#[cfg(windows)]
+pub(crate) fn filesystem_identity(path: &Path, domain: &[u8]) -> ChatResult<String> {
+    use std::os::windows::fs::{MetadataExt, OpenOptionsExt};
+    use std::os::windows::io::AsRawHandle;
+    use windows::Win32::Foundation::HANDLE;
+    use windows::Win32::Storage::FileSystem::{
+        GetFileInformationByHandle, BY_HANDLE_FILE_INFORMATION, FILE_ATTRIBUTE_REPARSE_POINT,
+        FILE_FLAG_BACKUP_SEMANTICS, FILE_FLAG_OPEN_REPARSE_POINT, FILE_SHARE_READ,
+        FILE_SHARE_WRITE,
+    };
+
+    let mut options = OpenOptions::new();
+    options
+        .read(true)
+        .share_mode(FILE_SHARE_READ.0 | FILE_SHARE_WRITE.0)
+        .custom_flags(FILE_FLAG_OPEN_REPARSE_POINT.0 | FILE_FLAG_BACKUP_SEMANTICS.0);
+    let directory = options.open(path).map_err(|_| folder_identity_error())?;
+    let metadata = directory.metadata().map_err(|_| folder_identity_error())?;
+    if !metadata.is_dir() || metadata.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT.0 != 0 {
+        return Err(folder_identity_error());
+    }
+    let mut information = BY_HANDLE_FILE_INFORMATION::default();
+    unsafe { GetFileInformationByHandle(HANDLE(directory.as_raw_handle()), &mut information) }
+        .map_err(|_| folder_identity_error())?;
+    let file_index =
+        (u64::from(information.nFileIndexHigh) << 32) | u64::from(information.nFileIndexLow);
+    Ok(hashed_filesystem_identity(
+        domain,
+        &information.dwVolumeSerialNumber.to_le_bytes(),
+        &file_index.to_le_bytes(),
+    ))
+}
+
+#[cfg(not(any(unix, windows)))]
+pub(crate) fn filesystem_identity(path: &Path, domain: &[u8]) -> ChatResult<String> {
+    let canonical = fs::canonicalize(path).map_err(|_| folder_identity_error())?;
+    Ok(hashed_filesystem_identity(
+        domain,
+        b"canonical-path",
+        canonical.to_string_lossy().as_bytes(),
+    ))
+}
+
+fn hashed_filesystem_identity(domain: &[u8], first: &[u8], second: &[u8]) -> String {
+    let mut hasher = Sha256::new();
+    hasher.update(b"ganbaru-filesystem-identity-v1\0");
+    hasher.update(domain);
+    hasher.update(b"\0");
+    hasher.update(first);
+    hasher.update(b"\0");
+    hasher.update(second);
+    format!("filesystem-sha256:{}", hex_digest(hasher.finalize()))
+}
+
 fn now_timestamp() -> ChatResult<UtcTimestamp> {
     let now: chrono::DateTime<Utc> = std::time::SystemTime::now().into();
     UtcTimestamp::new(now.to_rfc3339_opts(SecondsFormat::Millis, true))
@@ -495,6 +720,22 @@ fn repository_mismatch() -> ChatError {
     ChatError::new(
         ChatErrorCode::ConfigurationInvalid,
         "The selected folder belongs to a different repository. Rebind the project working folder or add it separately.",
+        true,
+    )
+}
+
+fn folder_identity_mismatch() -> ChatError {
+    ChatError::new(
+        ChatErrorCode::ConfigurationInvalid,
+        "The project working folder was replaced. Locate or recreate it before continuing.",
+        true,
+    )
+}
+
+fn folder_identity_error() -> ChatError {
+    ChatError::new(
+        ChatErrorCode::Permission,
+        "Project working-folder identity could not be verified",
         true,
     )
 }

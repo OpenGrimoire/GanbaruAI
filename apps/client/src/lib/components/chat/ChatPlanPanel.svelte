@@ -5,6 +5,7 @@
   import LoaderCircle from "@lucide/svelte/icons/loader-circle";
   import Play from "@lucide/svelte/icons/play";
   import X from "@lucide/svelte/icons/x";
+  import { chatErrorMessage } from "$lib/chat/error-presentation";
   import { projectTimelineReadModel, type TimelinePlanRow } from "$lib/chat/timeline-model";
   import { getLocalization } from "$lib/i18n/translator.svelte";
   import { getChat } from "$lib/stores/chat.svelte";
@@ -53,7 +54,7 @@
   }
 
   function reportError(reason: unknown): void {
-    error = reason instanceof Error ? reason.message : String(reason);
+    error = chatErrorMessage(reason);
   }
 </script>
 

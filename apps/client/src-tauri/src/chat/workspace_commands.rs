@@ -3,10 +3,13 @@
 use super::models::{ChatError, ChatErrorCode, ChatResult, ProjectWorkingFolderId, UtcTimestamp};
 use super::repository::workspaces as repository;
 use super::workspace::{
-    authorize_workspace, ensure_managed_working_folder_binding, open_authorized_workspace,
-    prepare_workspace_binding, remove_active_device_binding, store_active_device_binding,
-    validate_external_folder_outside_vault, workspace_read, CreateProjectWorkingFolderRequest,
-    ProjectWorkingFolderRead, WorkingFolderAuthorizationOperation, WorkingFolderKind,
+    authorize_workspace, ensure_managed_working_folder_binding, filesystem_identity,
+    initialized_repository_identity, legacy_binding_matches, open_authorized_workspace,
+    prepare_workspace_binding, probe_repository, remove_active_device_binding,
+    repository_matches_binding, store_active_device_binding,
+    validate_external_folder_outside_vault, workspace_read, AuthorizedWorkingFolder,
+    CreateProjectWorkingFolderRequest, ProjectWorkingFolder, ProjectWorkingFolderRead,
+    WorkingFolderAuthorizationOperation, WorkingFolderKind,
 };
 use crate::db_path;
 use crate::projects::working_folders::{
@@ -15,7 +18,7 @@ use crate::projects::working_folders::{
 use chrono::{SecondsFormat, Utc};
 use sqlx::SqlitePool;
 use std::path::{Path, PathBuf};
-use tauri::Manager;
+use tauri::{Manager, Runtime};
 use tauri_plugin_dialog::{DialogExt, FilePath};
 
 #[tauri::command]
@@ -25,14 +28,114 @@ pub async fn projects_list_working_folders(
 ) -> ChatResult<Vec<ProjectWorkingFolderRead>> {
     let pool = chat_pool(app.clone(), db_url).await?;
     let workspaces = repository::list_workspaces(&pool).await?;
-    for workspace in &workspaces {
-        ensure_managed_working_folder_binding(&app, workspace)?;
+    let mut reconciled = Vec::with_capacity(workspaces.len());
+    for workspace in workspaces {
+        ensure_managed_working_folder_binding(&app, &workspace)?;
+        reconciled.push(reconcile_working_folder_binding(&app, &pool, workspace).await?);
     }
     let scope = read_active_working_folder_scope(&app).map_err(device_state_error)?;
-    workspaces
+    reconciled
         .into_iter()
         .map(|workspace| workspace_read(workspace, &scope))
         .collect()
+}
+
+pub(crate) async fn reconcile_working_folder_binding_for_id(
+    app: &tauri::AppHandle,
+    db_url: &str,
+    working_folder_id: &ProjectWorkingFolderId,
+) -> ChatResult<ProjectWorkingFolder> {
+    let pool = chat_pool(app.clone(), db_url.to_string()).await?;
+    let workspace = repository::read_workspace(&pool, working_folder_id).await?;
+    reconcile_working_folder_binding(app, &pool, workspace).await
+}
+
+pub(crate) async fn authorize_working_folder<R: Runtime>(
+    app: &tauri::AppHandle<R>,
+    pool: &SqlitePool,
+    working_folder_id: &ProjectWorkingFolderId,
+    operation: WorkingFolderAuthorizationOperation,
+) -> ChatResult<AuthorizedWorkingFolder> {
+    let workspace = repository::read_workspace(pool, working_folder_id).await?;
+    let workspace = reconcile_working_folder_binding(app, pool, workspace).await?;
+    let scope = read_active_working_folder_scope(app).map_err(device_state_error)?;
+    authorize_workspace(&workspace, &scope, operation)
+}
+
+async fn reconcile_working_folder_binding<R: Runtime>(
+    app: &tauri::AppHandle<R>,
+    pool: &SqlitePool,
+    workspace: ProjectWorkingFolder,
+) -> ChatResult<ProjectWorkingFolder> {
+    let scope = read_active_working_folder_scope(app).map_err(device_state_error)?;
+    let Some(existing_binding) = scope.bindings.get(&workspace.id) else {
+        return Ok(workspace);
+    };
+    let Ok(canonical_path) = std::fs::canonicalize(&existing_binding.canonical_path) else {
+        return Ok(workspace);
+    };
+    if canonical_path.to_str() != Some(existing_binding.canonical_path.as_str()) {
+        return Ok(workspace);
+    }
+    let Ok(current_filesystem_identity) = filesystem_identity(&canonical_path, b"working-folder")
+    else {
+        return Ok(workspace);
+    };
+    if existing_binding
+        .filesystem_identity
+        .as_deref()
+        .is_some_and(|expected| expected != current_filesystem_identity)
+    {
+        return Ok(workspace);
+    }
+    let Ok(probe) = probe_repository(&canonical_path) else {
+        return Ok(workspace);
+    };
+    let repository_transition_identity =
+        initialized_repository_identity(&workspace, existing_binding, &probe);
+    let legacy_verified = legacy_binding_matches(&workspace, existing_binding, &probe);
+    if existing_binding.filesystem_identity.is_none()
+        && !legacy_verified
+        && repository_transition_identity.is_none()
+    {
+        return Ok(workspace);
+    }
+
+    let mut binding = existing_binding.clone();
+    let mut binding_changed = false;
+    if binding.filesystem_identity.is_none() {
+        binding.filesystem_identity = Some(current_filesystem_identity);
+        binding_changed = true;
+    }
+
+    if let Some(logical_identity) = repository_transition_identity {
+        binding.repository_kind = probe.kind;
+        binding.repository_identity = Some(logical_identity.clone());
+        binding.repository_storage_identity = probe.identity.clone();
+        binding.last_verified_at = now_timestamp()?;
+        store_active_device_binding(app, &workspace.id, binding)?;
+        return repository::set_workspace_repository(
+            pool,
+            &workspace.id,
+            probe.kind,
+            Some(&logical_identity),
+            &now_timestamp()?,
+        )
+        .await;
+    }
+
+    if repository_matches_binding(&workspace, &binding, &probe)
+        && binding.repository_storage_identity.is_none()
+        && probe.kind == super::models::RepositoryKind::Git
+    {
+        binding.repository_storage_identity = probe.identity;
+        binding_changed = true;
+    }
+    if binding_changed {
+        binding.last_verified_at = now_timestamp()?;
+        store_active_device_binding(app, &workspace.id, binding)?;
+    }
+    Ok(workspace)
 }
 
 #[tauri::command]
@@ -58,14 +161,18 @@ pub async fn projects_add_external_working_folder(
     ensure_unique_project_path(&pool, &app, &request.project_id, None, &selection).await?;
     let workspace = repository::create_workspace(&pool, &request, &now_timestamp()?).await?;
     let (probe, binding) = prepare_workspace_binding(&workspace, &selection)?;
-    let workspace = repository::set_workspace_repository(
-        &pool,
-        &workspace.id,
-        probe.kind,
-        probe.identity.as_deref(),
-        &now_timestamp()?,
-    )
-    .await?;
+    let workspace = if probe.kind == super::models::RepositoryKind::Git {
+        repository::set_workspace_repository(
+            &pool,
+            &workspace.id,
+            probe.kind,
+            probe.compatibility_identity.as_deref(),
+            &now_timestamp()?,
+        )
+        .await?
+    } else {
+        workspace
+    };
     store_active_device_binding(&app, &workspace.id, binding)?;
     read_workspace(&app, workspace).map(Some)
 }
@@ -157,13 +264,13 @@ pub async fn projects_open_working_folder(
     working_folder_id: ProjectWorkingFolderId,
 ) -> ChatResult<()> {
     let pool = chat_pool(app.clone(), db_url).await?;
-    let workspace = repository::read_workspace(&pool, &working_folder_id).await?;
-    let scope = read_active_working_folder_scope(&app).map_err(device_state_error)?;
-    let authorized = authorize_workspace(
-        &workspace,
-        &scope,
+    let authorized = authorize_working_folder(
+        &app,
+        &pool,
+        &working_folder_id,
         WorkingFolderAuthorizationOperation::FileRead,
-    )?;
+    )
+    .await?;
     open_authorized_workspace(&authorized)
 }
 
@@ -294,14 +401,20 @@ async fn pick_and_bind_workspace(
     app.state::<super::terminal::ChatTerminalRegistry>()
         .shutdown_workspace(working_folder_id)?;
     let (probe, binding) = prepare_workspace_binding(&workspace, &selection)?;
-    let workspace = repository::set_workspace_repository(
-        &pool,
-        working_folder_id,
-        probe.kind,
-        probe.identity.as_deref(),
-        &now_timestamp()?,
-    )
-    .await?;
+    let workspace = if workspace.repository_kind == super::models::RepositoryKind::None
+        && probe.kind == super::models::RepositoryKind::Git
+    {
+        repository::set_workspace_repository(
+            &pool,
+            working_folder_id,
+            probe.kind,
+            probe.compatibility_identity.as_deref(),
+            &now_timestamp()?,
+        )
+        .await?
+    } else {
+        workspace
+    };
     store_active_device_binding(app, working_folder_id, binding)?;
     read_workspace(app, workspace).map(Some)
 }

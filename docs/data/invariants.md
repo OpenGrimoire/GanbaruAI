@@ -110,11 +110,11 @@ A Notes folder belongs to exactly one project, folder parents stay inside that p
 
 ## 10. Working-folder filesystem access stays bounded
 
-**Statement:** the frontend passes a working-folder id and normalized relative path, never an arbitrary root path. Rust recanonicalizes the binding and rechecks repository identity before every filesystem-sensitive operation.
+**Statement:** the frontend passes a working-folder id and normalized relative path, never an arbitrary root path. Rust recanonicalizes the binding and rechecks the bound directory's filesystem identity before every filesystem-sensitive operation. Git-sensitive operations additionally recheck the Git common storage identity.
 
 **Why:** folder selection grants a narrow project capability, not general filesystem access.
 
-**What would break:** traversal, symbolic-link escapes, stale bindings, repository replacement, or vault overlap could expose or modify data outside the selected context.
+**What would break:** traversal, symbolic-link escapes, stale bindings, folder replacement, Git storage replacement, or vault overlap could expose or modify data outside the selected context.
 
 **Enforced by:** the shared Rust authorization boundary, device-local vault and device scoping, vault-overlap validation, symlink rejection, bounded Markdown scanning, expected revision saves, and authorization tests.
 

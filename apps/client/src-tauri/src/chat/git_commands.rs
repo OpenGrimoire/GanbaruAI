@@ -2,11 +2,9 @@
 
 use super::git_service::{self, GitBranchRead, GitRemoteRead, GitStatusRead, GitWorktreeRead};
 use super::models::{ChatError, ChatErrorCode, ChatResult, ProjectWorkingFolderId};
-use super::repository::workspaces;
-use super::workspace::{authorize_workspace, WorkingFolderAuthorizationOperation};
+use super::workspace::WorkingFolderAuthorizationOperation;
 use super::workspace_mutation::ChatWorkspaceMutationRegistry;
 use crate::db_path;
-use crate::projects::working_folders::read_active_working_folder_scope;
 use serde::Deserialize;
 use tauri::Manager;
 
@@ -294,6 +292,12 @@ pub async fn chat_git_initialize(
     .await?;
     let _guard = mutations.try_mutation(&root)?;
     git_service::initialize(&root, initial_branch).await?;
+    super::workspace_commands::reconcile_working_folder_binding_for_id(
+        &app,
+        &db_url,
+        &working_folder_id,
+    )
+    .await?;
     git_service::status(&root).await
 }
 
@@ -343,6 +347,12 @@ pub async fn chat_git_clone(
         ));
     }
     git_service::clone_into(&root, &remote_url, remote_name).await?;
+    super::workspace_commands::reconcile_working_folder_binding_for_id(
+        &app,
+        &db_url,
+        &working_folder_id,
+    )
+    .await?;
     git_service::status(&root).await
 }
 
@@ -441,16 +451,13 @@ async fn authorized_root(
     let pool = db_path::connect_sqlite(app.clone(), db_url.to_string())
         .await
         .map_err(|_| ChatError::new(ChatErrorCode::Persistence, "open Chat database", true))?;
-    let workspace = workspaces::read_workspace(&pool, working_folder_id).await?;
-    let scope = read_active_working_folder_scope(app).map_err(|_| {
-        ChatError::new(
-            ChatErrorCode::ConfigurationInvalid,
-            "Working folder bindings are unavailable",
-            true,
-        )
-    })?;
-    let authorized =
-        authorize_workspace(&workspace, &scope, WorkingFolderAuthorizationOperation::Git)?;
+    let authorized = super::workspace_commands::authorize_working_folder(
+        app,
+        &pool,
+        working_folder_id,
+        WorkingFolderAuthorizationOperation::Git,
+    )
+    .await?;
     Ok(super::execution_environment::resolve_environment_workspace(
         app,
         &pool,

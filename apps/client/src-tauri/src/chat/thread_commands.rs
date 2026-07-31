@@ -10,12 +10,11 @@ use super::providers::{
 use super::repository::provider_lifecycle::{
     self, EnqueueProviderLifecycleFailure, ProviderLifecycleJobRead, ProviderLifecycleOperation,
 };
-use super::repository::workspaces;
 use super::repository::{lifecycle, reads};
-use super::workspace::{authorize_workspace, WorkingFolderAuthorizationOperation};
+use super::workspace::WorkingFolderAuthorizationOperation;
+use super::workspace_commands::authorize_working_folder;
 use super::{credentials::materialize_provider_environment, credentials::PlatformCredentialStore};
 use crate::db_path;
-use crate::projects::working_folders::read_active_working_folder_scope;
 use chrono::{SecondsFormat, Utc};
 use serde::Deserialize;
 use serde_json::{json, Value};
@@ -138,19 +137,13 @@ pub async fn chat_fork_thread(
         Some(provider_thread_id)
             if matches!(source.provider_family_id.as_str(), "codex" | "opencode") =>
         {
-            let workspace = workspaces::read_workspace(&pool, &source.working_folder_id).await?;
-            let scope = read_active_working_folder_scope(&app).map_err(|_| {
-                ChatError::new(
-                    ChatErrorCode::ConfigurationInvalid,
-                    "Working folder bindings are unavailable",
-                    true,
-                )
-            })?;
-            let authorized = authorize_workspace(
-                &workspace,
-                &scope,
+            let authorized = authorize_working_folder(
+                &app,
+                &pool,
+                &source.working_folder_id,
                 WorkingFolderAuthorizationOperation::ProviderStart,
-            )?;
+            )
+            .await?;
             let authorized = super::execution_environment::resolve_environment_workspace(
                 &app,
                 &pool,

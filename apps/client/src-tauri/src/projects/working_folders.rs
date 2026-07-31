@@ -12,8 +12,12 @@ pub const WORKING_FOLDER_DEVICE_STATE_SCHEMA_VERSION: u32 = 1;
 #[serde(rename_all = "camelCase")]
 pub struct ProjectWorkingFolderBindingState {
     pub canonical_path: String,
+    #[serde(default)]
+    pub filesystem_identity: Option<String>,
     pub repository_kind: RepositoryKind,
     pub repository_identity: Option<String>,
+    #[serde(default)]
+    pub repository_storage_identity: Option<String>,
     pub last_verified_at: UtcTimestamp,
 }
 

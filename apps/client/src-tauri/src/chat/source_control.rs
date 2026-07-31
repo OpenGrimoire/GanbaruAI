@@ -6,10 +6,8 @@ use super::git_service;
 use super::models::{
     ChatError, ChatErrorCode, ChatResult, CredentialReferenceId, ProjectWorkingFolderId,
 };
-use super::repository::workspaces;
-use super::workspace::{authorize_workspace, WorkingFolderAuthorizationOperation};
+use super::workspace::WorkingFolderAuthorizationOperation;
 use crate::db_path;
-use crate::projects::working_folders::read_active_working_folder_scope;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
@@ -103,16 +101,13 @@ pub async fn chat_discover_source_control(
     let pool = db_path::connect_sqlite(app.clone(), db_url)
         .await
         .map_err(|_| ChatError::new(ChatErrorCode::Persistence, "open Chat database", true))?;
-    let workspace = workspaces::read_workspace(&pool, &working_folder_id).await?;
-    let scope = read_active_working_folder_scope(&app).map_err(|_| {
-        ChatError::new(
-            ChatErrorCode::ConfigurationInvalid,
-            "Working folder bindings are unavailable",
-            true,
-        )
-    })?;
-    let authorized =
-        authorize_workspace(&workspace, &scope, WorkingFolderAuthorizationOperation::Git)?;
+    let authorized = super::workspace_commands::authorize_working_folder(
+        &app,
+        &pool,
+        &working_folder_id,
+        WorkingFolderAuthorizationOperation::Git,
+    )
+    .await?;
     let root =
         resolve_environment_workspace(&app, &pool, authorized, execution_environment_id.as_deref())
             .await?
@@ -330,16 +325,13 @@ async fn source_control_root(
     let pool = db_path::connect_sqlite(app.clone(), db_url.to_string())
         .await
         .map_err(|_| ChatError::new(ChatErrorCode::Persistence, "open Chat database", true))?;
-    let workspace = workspaces::read_workspace(&pool, working_folder_id).await?;
-    let scope = read_active_working_folder_scope(app).map_err(|_| {
-        ChatError::new(
-            ChatErrorCode::ConfigurationInvalid,
-            "Working folder bindings are unavailable",
-            true,
-        )
-    })?;
-    let authorized =
-        authorize_workspace(&workspace, &scope, WorkingFolderAuthorizationOperation::Git)?;
+    let authorized = super::workspace_commands::authorize_working_folder(
+        app,
+        &pool,
+        working_folder_id,
+        WorkingFolderAuthorizationOperation::Git,
+    )
+    .await?;
     Ok(
         resolve_environment_workspace(app, &pool, authorized, execution_environment_id)
             .await?

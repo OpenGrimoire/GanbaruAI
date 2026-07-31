@@ -4,15 +4,13 @@ use super::models::{
     ChatAttachmentId, ChatError, ChatErrorCode, ChatResult, ChatThreadId, ProjectWorkingFolderId,
     UtcTimestamp,
 };
-use super::repository::{attachments, workspaces};
+use super::repository::attachments;
 use super::terminal::{
     ChatTerminalCloseResult, ChatTerminalCreateInput, ChatTerminalRead, ChatTerminalRegistry,
     ChatTerminalSnapshotRead,
 };
-use super::workspace::{
-    authorize_workspace, AuthorizedWorkingFolder, WorkingFolderAuthorizationOperation,
-};
-use crate::projects::working_folders::read_active_working_folder_scope;
+use super::workspace::{AuthorizedWorkingFolder, WorkingFolderAuthorizationOperation};
+use super::workspace_commands::authorize_working_folder;
 use crate::{db_path, vault};
 use chrono::{SecondsFormat, Utc};
 use serde::{Deserialize, Serialize};
@@ -432,13 +430,13 @@ async fn authorize_thread_workspace(
         })
         .transpose()?;
     validate_terminal_thread_scope(stored_scope.as_ref(), working_folder_id)?;
-    let workspace = workspaces::read_workspace(pool, working_folder_id).await?;
-    let scope = read_active_working_folder_scope(app).map_err(device_state_error)?;
-    let authorized = authorize_workspace(
-        &workspace,
-        &scope,
+    let authorized = authorize_working_folder(
+        app,
+        pool,
+        working_folder_id,
         WorkingFolderAuthorizationOperation::TerminalStart,
-    )?;
+    )
+    .await?;
     super::execution_environment::resolve_environment_workspace(
         app,
         pool,
@@ -519,14 +517,6 @@ async fn chat_pool(app: tauri::AppHandle, db_url: String) -> ChatResult<SqlitePo
 
 fn i64_value(value: u64) -> ChatResult<i64> {
     i64::try_from(value).map_err(|_| ChatError::validation("number", "Value is too large"))
-}
-
-fn device_state_error<T>(_error: T) -> ChatError {
-    ChatError::new(
-        ChatErrorCode::Persistence,
-        "Chat device state could not be read",
-        true,
-    )
 }
 
 fn vault_error<T>(_error: T) -> ChatError {

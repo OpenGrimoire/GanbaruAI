@@ -1,13 +1,10 @@
 //! Bounded, workspace-authorized file browsing and preview commands.
 
 use super::models::{ChatError, ChatErrorCode, ChatResult, ProjectWorkingFolderId, RepositoryKind};
-use super::repository::workspaces;
 use super::workspace::{
-    authorize_workspace, resolve_workspace_relative_path, AuthorizedWorkingFolder,
-    WorkingFolderAuthorizationOperation,
+    resolve_workspace_relative_path, AuthorizedWorkingFolder, WorkingFolderAuthorizationOperation,
 };
 use crate::db_path;
-use crate::projects::working_folders::read_active_working_folder_scope;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use sqlx::SqlitePool;
@@ -572,9 +569,8 @@ pub(crate) async fn require_workspace_for(
     working_folder_id: &ProjectWorkingFolderId,
     operation: WorkingFolderAuthorizationOperation,
 ) -> ChatResult<AuthorizedWorkingFolder> {
-    let workspace = workspaces::read_workspace(pool, working_folder_id).await?;
-    let scope = read_active_working_folder_scope(app).map_err(device_state_error)?;
-    authorize_workspace(&workspace, &scope, operation)
+    super::workspace_commands::authorize_working_folder(app, pool, working_folder_id, operation)
+        .await
 }
 
 async fn chat_pool(app: tauri::AppHandle, db_url: String) -> ChatResult<SqlitePool> {
@@ -1802,14 +1798,6 @@ fn replace_workspace_file(
     fs::remove_file(backup).map_err(|_| workspace_file_write_error())
 }
 
-fn device_state_error<T>(_error: T) -> ChatError {
-    ChatError::new(
-        ChatErrorCode::Persistence,
-        "Chat device state could not be read",
-        true,
-    )
-}
-
 fn file_error(error: std::io::Error) -> ChatError {
     if error.kind() == std::io::ErrorKind::NotFound {
         ChatError::new(
@@ -1879,6 +1867,7 @@ mod tests {
                 canonical_path: self.0.clone(),
                 repository_kind: kind,
                 repository_identity: None,
+                repository_storage_identity: None,
             }
         }
     }

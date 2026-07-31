@@ -13,16 +13,13 @@ use super::models::{
     UtcTimestamp, VersionedJson,
 };
 use super::providers::{ProviderDriverFactory, ProviderDriverRegistry};
+use super::repository::attachments;
 use super::repository::receipts::{
     claim_command_receipt, complete_command_receipt, CommandReceiptClaim, CommandReceiptRead,
     CommandReceiptState,
 };
-use super::repository::{attachments, workspaces};
 use super::runtime::ChatRuntimeRegistry;
-use super::workspace::{
-    authorize_workspace, resolve_workspace_relative_path, WorkingFolderAuthorizationOperation,
-};
-use crate::projects::working_folders::read_active_working_folder_scope;
+use super::workspace::{resolve_workspace_relative_path, WorkingFolderAuthorizationOperation};
 use crate::{db_path, vault};
 use base64::{engine::general_purpose, Engine as _};
 use chrono::{SecondsFormat, Utc};
@@ -1104,9 +1101,8 @@ async fn require_workspace(
     working_folder_id: &ProjectWorkingFolderId,
     operation: WorkingFolderAuthorizationOperation,
 ) -> ChatResult<super::workspace::AuthorizedWorkingFolder> {
-    let workspace = workspaces::read_workspace(pool, working_folder_id).await?;
-    let scope = read_active_working_folder_scope(app).map_err(device_state_error)?;
-    authorize_workspace(&workspace, &scope, operation)
+    super::workspace_commands::authorize_working_folder(app, pool, working_folder_id, operation)
+        .await
 }
 
 async fn read_pending_request(

@@ -16,10 +16,7 @@ use super::repository::receipts::{
 };
 use super::repository::{attachments, reads, workspaces};
 use super::runtime::{ChatRuntimeRegistry, ThreadRuntimeOwner};
-use super::workspace::{
-    authorize_workspace, AuthorizedWorkingFolder, WorkingFolderAuthorizationOperation,
-};
-use crate::projects::working_folders::read_active_working_folder_scope;
+use super::workspace::{AuthorizedWorkingFolder, WorkingFolderAuthorizationOperation};
 use crate::{db_path, vault};
 use chrono::{SecondsFormat, Utc};
 use serde::{Deserialize, Serialize};
@@ -128,13 +125,13 @@ pub async fn chat_send_turn(
     let logical_workspace = workspaces::read_workspace(&pool, &request.working_folder_id).await?;
     require_project_accepts_ai_work(&pool, &logical_workspace.project_id).await?;
     let scope = read_active_device_scope(&app).map_err(device_state_error)?;
-    let working_folder_scope =
-        read_active_working_folder_scope(&app).map_err(device_state_error)?;
-    let authorized = authorize_workspace(
-        &logical_workspace,
-        &working_folder_scope,
+    let authorized = super::workspace_commands::authorize_working_folder(
+        &app,
+        &pool,
+        &request.working_folder_id,
         WorkingFolderAuthorizationOperation::ProviderStart,
-    )?;
+    )
+    .await?;
     let selected_environment = existing
         .as_ref()
         .and_then(|data| data.execution_environment_id.as_deref())
@@ -2344,6 +2341,7 @@ mod tests {
             canonical_path: workspace.0.clone(),
             repository_kind: RepositoryKind::None,
             repository_identity: None,
+            repository_storage_identity: None,
         };
         let file_mention = WorkspaceMentionReference {
             relative_path: "selected.txt".to_string(),

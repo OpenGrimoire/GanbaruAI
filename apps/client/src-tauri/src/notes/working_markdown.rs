@@ -3,11 +3,11 @@
 use crate::chat::models::{ChatError, ChatErrorCode, ChatResult, ProjectWorkingFolderId};
 use crate::chat::repository::workspaces;
 use crate::chat::workspace::{
-    authorize_workspace, ensure_managed_working_folder_binding, open_authorized_path,
-    AuthorizedWorkingFolder, WorkingFolderAuthorizationOperation,
+    ensure_managed_working_folder_binding, open_authorized_path, AuthorizedWorkingFolder,
+    WorkingFolderAuthorizationOperation,
 };
+use crate::chat::workspace_commands::authorize_working_folder;
 use crate::db_path::connect_sqlite;
-use crate::projects::working_folders::read_active_working_folder_scope;
 use serde::Serialize;
 use sha2::{Digest, Sha256};
 use std::ffi::OsStr;
@@ -102,18 +102,20 @@ pub async fn notes_list_working_markdown<R: Runtime>(
     {
         ensure_managed_working_folder_binding(&app, folder)?;
     }
-    let scope = read_active_working_folder_scope(&app).map_err(device_state_error)?;
     let mut roots = Vec::new();
     let mut unavailable = Vec::new();
     for folder in folders
         .into_iter()
         .filter(|folder| folder.project_id == project_id && folder.archived_at.is_none())
     {
-        let authorized = match authorize_workspace(
-            &folder,
-            &scope,
+        let authorized = match authorize_working_folder(
+            &app,
+            &pool,
+            &folder.id,
             WorkingFolderAuthorizationOperation::FileRead,
-        ) {
+        )
+        .await
+        {
             Ok(authorized) => authorized,
             Err(_) => {
                 unavailable.push(folder.id);
@@ -242,8 +244,7 @@ async fn require_folder<R: Runtime>(
         ));
     }
     ensure_managed_working_folder_binding(app, &folder)?;
-    let scope = read_active_working_folder_scope(app).map_err(device_state_error)?;
-    authorize_workspace(&folder, &scope, operation)
+    authorize_working_folder(app, &pool, working_folder_id, operation).await
 }
 
 fn scan_directory(
@@ -504,14 +505,6 @@ fn persistence_error<T>(_error: T) -> ChatError {
     )
 }
 
-fn device_state_error(_error: String) -> ChatError {
-    ChatError::new(
-        ChatErrorCode::Persistence,
-        "Project working-folder device state could not be read",
-        true,
-    )
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -637,6 +630,7 @@ mod tests {
             canonical_path: fs::canonicalize(&root).unwrap(),
             repository_kind: RepositoryKind::None,
             repository_identity: None,
+            repository_storage_identity: None,
         };
         assert!(resolve_markdown_file(&authorized, "linked.md").is_err());
         fs::remove_dir_all(root).unwrap();

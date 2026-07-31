@@ -5,12 +5,8 @@ use super::git_service;
 use super::models::{
     ChatError, ChatErrorCode, ChatResult, ChatThreadId, ProjectWorkingFolderId, UtcTimestamp,
 };
-use super::repository::workspaces;
-use super::workspace::{
-    authorize_workspace, AuthorizedWorkingFolder, WorkingFolderAuthorizationOperation,
-};
+use super::workspace::{AuthorizedWorkingFolder, WorkingFolderAuthorizationOperation};
 use crate::db_path;
-use crate::projects::working_folders::read_active_working_folder_scope;
 use chrono::{SecondsFormat, Utc};
 use serde::{Deserialize, Serialize};
 use sha2::Digest;
@@ -460,9 +456,13 @@ pub async fn authorize_thread_environment(
             .map_err(persistence_error)?,
     )
     .map_err(|_| persistence_error("invalid thread revision"))?;
-    let workspace = workspaces::read_workspace(pool, &working_folder_id).await?;
-    let scope = read_active_working_folder_scope(app).map_err(device_state_error)?;
-    let authorized = authorize_workspace(&workspace, &scope, operation)?;
+    let authorized = super::workspace_commands::authorize_working_folder(
+        app,
+        pool,
+        &working_folder_id,
+        operation,
+    )
+    .await?;
     let resolved =
         resolve_environment_workspace(app, pool, authorized, Some(&environment_id)).await?;
     Ok((working_folder_id, environment_id, resolved, revision))
@@ -473,9 +473,13 @@ async fn authorized_workspace(
     pool: &SqlitePool,
     working_folder_id: &ProjectWorkingFolderId,
 ) -> ChatResult<AuthorizedWorkingFolder> {
-    let workspace = workspaces::read_workspace(pool, working_folder_id).await?;
-    let scope = read_active_working_folder_scope(app).map_err(device_state_error)?;
-    authorize_workspace(&workspace, &scope, WorkingFolderAuthorizationOperation::Git)
+    super::workspace_commands::authorize_working_folder(
+        app,
+        pool,
+        working_folder_id,
+        WorkingFolderAuthorizationOperation::Git,
+    )
+    .await
 }
 
 async fn read_environment(
