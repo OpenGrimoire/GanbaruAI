@@ -60,6 +60,32 @@ pub async fn chat_list_threads(
 }
 
 #[tauri::command]
+pub async fn chat_list_thread_window(
+    app: tauri::AppHandle,
+    db_url: String,
+    working_folder_id: Option<ProjectWorkingFolderId>,
+    archived: bool,
+    limit: u32,
+) -> ChatResult<Vec<ChatThreadShellRead>> {
+    reads::read_thread_shell_window(
+        &chat_pool(app, db_url).await?,
+        working_folder_id.as_ref(),
+        archived,
+        limit,
+    )
+    .await
+}
+
+#[tauri::command]
+pub async fn chat_read_thread_shell(
+    app: tauri::AppHandle,
+    db_url: String,
+    thread_id: ChatThreadId,
+) -> ChatResult<ChatThreadShellRead> {
+    reads::read_thread_shell(&chat_pool(app, db_url).await?, &thread_id).await
+}
+
+#[tauri::command]
 pub async fn chat_search_thread_titles(
     app: tauri::AppHandle,
     db_url: String,

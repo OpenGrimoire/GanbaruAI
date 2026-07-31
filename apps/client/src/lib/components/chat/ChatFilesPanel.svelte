@@ -106,8 +106,10 @@
   let searchResults = $state<ProjectWorkingFolderPathRead[]>([]);
   let includeIgnored = $state(false);
   let loadingRoot = $state(false);
+  let loadingRootVisible = $state(false);
   let refreshingTree = $state(false);
   let loadingPreview = $state(false);
+  let loadingPreviewVisible = $state(false);
   let observerStatus = $state<ChatWorkspaceObserverStatusRead | null>(null);
   let error = $state<string | null>(null);
   let loadedScope = "";
@@ -123,6 +125,8 @@
   let fileMutationRequestId = 0;
   let treeResizeFrame: number | null = null;
   let treeResizeEndFrame: number | null = null;
+  let previewLoadingTimer: number | null = null;
+  let rootLoadingTimer: number | null = null;
   let activeScopeKey = "";
   const workingFolderId = $derived(chat.selectedWorkingFolderId);
   const treeRows = $derived(flattenChatFileTree(rootEntries, childrenByDirectory, expandedPaths));
@@ -157,6 +161,8 @@
       observer.disconnect();
       if (treeResizeFrame !== null) window.cancelAnimationFrame(treeResizeFrame);
       if (treeResizeEndFrame !== null) window.cancelAnimationFrame(treeResizeEndFrame);
+      if (previewLoadingTimer !== null) window.clearTimeout(previewLoadingTimer);
+      if (rootLoadingTimer !== null) window.clearTimeout(rootLoadingTimer);
     };
   });
 
@@ -206,7 +212,13 @@
     expandedPaths = [];
     loadingPaths = [];
     loadingRoot = false;
+    loadingRootVisible = false;
+    if (rootLoadingTimer !== null) window.clearTimeout(rootLoadingTimer);
+    rootLoadingTimer = null;
     loadingPreview = false;
+    loadingPreviewVisible = false;
+    if (previewLoadingTimer !== null) window.clearTimeout(previewLoadingTimer);
+    previewLoadingTimer = null;
     refreshingTree = false;
     preview = null;
     draftText = "";
@@ -283,7 +295,7 @@
     executionEnvironmentId = chat.selectedExecutionEnvironmentId,
   ): Promise<void> {
     const requestId = ++treeRequestId;
-    loadingRoot = true;
+    beginRootLoading();
     error = null;
     try {
       const result = await chatApi.listProjectWorkingFolderDirectory(workspace, "", includeIgnored, executionEnvironmentId);
@@ -293,7 +305,7 @@
     } catch (reason: unknown) {
       if (requestId === treeRequestId) error = message(reason);
     } finally {
-      if (requestId === treeRequestId) loadingRoot = false;
+      if (requestId === treeRequestId) finishRootLoading();
     }
   }
 
@@ -327,7 +339,8 @@
       visibleTreeRefreshRequestId = requestId;
       refreshingTree = true;
     }
-    if (rootEntries.length === 0 && uniquePaths.includes("")) loadingRoot = true;
+    const loadingEmptyRoot = rootEntries.length === 0 && uniquePaths.includes("");
+    if (loadingEmptyRoot) beginRootLoading();
     error = null;
     try {
       for (let index = 0; index < uniquePaths.length; index += 3) {
@@ -367,7 +380,7 @@
         childrenByDirectory = nextChildren;
       }
     } finally {
-      if (requestId === treeRequestId) loadingRoot = false;
+      if (requestId === treeRequestId && loadingEmptyRoot) finishRootLoading();
       if (showProgress && visibleTreeRefreshRequestId === requestId) refreshingTree = false;
     }
   }
@@ -534,10 +547,11 @@
     savingFile = false;
     const scopeRevision = fileScopeRevision;
     const requestId = ++previewRequestId;
+    const previousPath = preview?.relativePath ?? null;
     onStateChange({ selectedPath: path });
-    preview = null;
-    loadingPreview = true;
+    beginPreviewLoading();
     error = null;
+    let opened = false;
     try {
       const result = await chatApi.previewProjectWorkingFolderFile(workspace, path, executionEnvironmentId);
       if (requestId === previewRequestId
@@ -551,16 +565,52 @@
         fileDeleted = false;
         conflictDiskText = null;
         saveCopyPath = "";
+        opened = true;
       }
     } catch (reason: unknown) {
       if (requestId === previewRequestId
         && fileScopeIsCurrent(workspace, executionEnvironmentId, scopeRevision)) {
         error = message(reason);
+        if (previousPath) onStateChange({ selectedPath: previousPath });
       }
     } finally {
-      if (requestId === previewRequestId) loadingPreview = false;
+      if (requestId === previewRequestId) finishPreviewLoading();
     }
-    return true;
+    return opened;
+  }
+
+  function beginPreviewLoading(): void {
+    loadingPreview = true;
+    loadingPreviewVisible = false;
+    if (previewLoadingTimer !== null) window.clearTimeout(previewLoadingTimer);
+    previewLoadingTimer = window.setTimeout(() => {
+      previewLoadingTimer = null;
+      if (loadingPreview) loadingPreviewVisible = true;
+    }, 140);
+  }
+
+  function beginRootLoading(): void {
+    loadingRoot = true;
+    loadingRootVisible = false;
+    if (rootLoadingTimer !== null) window.clearTimeout(rootLoadingTimer);
+    rootLoadingTimer = window.setTimeout(() => {
+      rootLoadingTimer = null;
+      if (loadingRoot) loadingRootVisible = true;
+    }, 140);
+  }
+
+  function finishRootLoading(): void {
+    loadingRoot = false;
+    loadingRootVisible = false;
+    if (rootLoadingTimer !== null) window.clearTimeout(rootLoadingTimer);
+    rootLoadingTimer = null;
+  }
+
+  function finishPreviewLoading(): void {
+    loadingPreview = false;
+    loadingPreviewVisible = false;
+    if (previewLoadingTimer !== null) window.clearTimeout(previewLoadingTimer);
+    previewLoadingTimer = null;
   }
 
   async function saveFile(): Promise<void> {
@@ -982,7 +1032,9 @@
           <p role="status" class="live-update-status warning">{t("chat.inspector.liveUpdatesDegraded")}</p>
         {/if}
         {#if error}<p role="alert" class="border-b border-destructive/30 p-2 text-xs text-destructive">{error}</p>{/if}
-        {#if loadingRoot}
+        {#if loadingRoot && !loadingRootVisible}
+          <span aria-hidden="true"></span>
+        {:else if loadingRootVisible}
           <p class="p-2 text-xs text-muted-foreground">{t("common.loading")}</p>
         {:else if shownRows.length > 0}
           <ChatWorkspaceFileTree
@@ -1050,7 +1102,9 @@
           <div><strong>{t("chat.inspector.yourVersion")}</strong><pre>{draftText}</pre></div>
         </section>
       {/if}
-      {#if loadingPreview}
+      {#if loadingPreview && !loadingPreviewVisible && !preview}
+        <span aria-hidden="true"></span>
+      {:else if loadingPreviewVisible && !preview}
         <p class="m-auto text-xs text-muted-foreground">{t("common.loading")}</p>
       {:else if preview && preview.text !== null}
         {@const previewPath = preview.relativePath}
@@ -1064,6 +1118,7 @@
           onSelectionChange={(selection) => { editorSelection = selection; }}
           onSave={() => void saveFile()}
         />
+        {#if loadingPreviewVisible}<div class="preview-loading-indicator" aria-hidden="true"></div>{/if}
       {:else if preview}
         <div class="m-auto p-4 text-center text-xs text-muted-foreground">
           <p>{preview.binary ? t("chat.inspector.binary") : preview.oversized ? t("chat.inspector.previewOversized") : t("chat.inspector.previewUnavailable")}</p>
@@ -1089,7 +1144,8 @@
   .tree-action:hover, .tree-action.active { background: var(--accent); color: var(--foreground); }
   .live-update-status { flex: 0 0 auto; border-bottom: 1px solid var(--border); padding: 0.3rem 0.45rem; color: var(--muted-foreground); font-size: 0.66rem; line-height: 1.2; }
   .live-update-status.warning { color: var(--status-tentative); }
-  .file-editor { display: flex; min-width: 0; min-height: 0; flex: 1; flex-direction: column; overflow: hidden; }
+  .file-editor { position: relative; display: flex; min-width: 0; min-height: 0; flex: 1; flex-direction: column; overflow: hidden; }
+  .preview-loading-indicator { position: absolute; top: 2.38rem; right: 0; left: 0; z-index: 2; height: 2px; background: linear-gradient(90deg, transparent, var(--primary), transparent); opacity: 0.65; }
   .editor-heading { display: flex; min-height: 2.45rem; flex: 0 0 auto; align-items: center; gap: 0.25rem; border-bottom: 1px solid var(--border); padding: 0.3rem 0.4rem; }
   .dirty-indicator { width: 0.45rem; height: 0.45rem; flex: 0 0 auto; border-radius: 999px; background: var(--status-tentative); }
   .save-conflict { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 0.35rem; border-bottom: 1px solid color-mix(in srgb, var(--destructive) 35%, var(--border)); background: color-mix(in srgb, var(--destructive) 8%, var(--background)); padding: 0.4rem 0.55rem; color: var(--destructive); font-size: 0.7rem; }

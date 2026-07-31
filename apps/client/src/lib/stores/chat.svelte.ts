@@ -36,6 +36,7 @@ import { getProjects } from "$lib/stores/projects.svelte";
 import { preferredProjectWorkingFolder } from "$lib/chat/working-folder-selection";
 
 const projects = getProjects();
+const CHAT_RECENT_THREAD_WINDOW = 200;
 
 export interface ChatComposerSendOptions {
   promptOverride?: string;
@@ -48,11 +49,13 @@ class ChatStore {
   composerAttachments = $state<ChatAttachmentRead[]>([]);
   interaction = $state<ChatInteractionStateRead | null>(null);
   interactionLoading = $state(false);
+  providerDiscoveryLoading = $state(false);
   sendError = $state<string | null>(null);
   settings = $state<ChatSettingsRead | null>(null);
   workingFolders = $state<ProjectWorkingFolderRead[]>([]);
   activeThreads = $state<ChatThreadShellRead[]>([]);
   archivedThreads = $state<ChatThreadShellRead[]>([]);
+  archivedThreadsLoading = $state(false);
   loading = $state(false);
   error = $state<string | null>(null);
   selectedWorkingFolderId = $state<ProjectWorkingFolderId | null>(null);
@@ -68,6 +71,11 @@ class ChatStore {
   railOpen = $state(true);
   inspectorOpen = $state(false);
   private loadRequest = 0;
+  private loadPromise: Promise<void> | null = null;
+  private providerDiscoveryPromise: Promise<void> | null = null;
+  private archivedThreadsPromise: Promise<void> | null = null;
+  private workingFolderRefreshPromise: Promise<void> | null = null;
+  private archivedThreadsLoaded = false;
   private timelineRequest = 0;
   private attachmentRequest = 0;
   private interactionRequest = 0;
@@ -101,7 +109,10 @@ class ChatStore {
 
   async ensureLoaded(): Promise<void> {
     if (this.loaded) return;
-    await this.reload();
+    this.loadPromise ??= this.reload().finally(() => {
+      this.loadPromise = null;
+    });
+    await this.loadPromise;
   }
 
   async reload(): Promise<void> {
@@ -109,17 +120,17 @@ class ChatStore {
     this.loading = true;
     this.error = null;
     try {
-      const [settings, workingFolders, activeThreads, archivedThreads] = await Promise.all([
+      const [settings, workingFolders, activeThreads] = await Promise.all([
         chatApi.readChatSettings(),
-        workingFolderApi.listProjectWorkingFolders(),
-        chatApi.listChatThreads(null, false),
-        chatApi.listChatThreads(null, true),
+        workingFolderApi.listCachedProjectWorkingFolders(),
+        chatApi.listChatThreadWindow(null, false, CHAT_RECENT_THREAD_WINDOW),
       ]);
       if (request !== this.loadRequest) return;
       this.settings = settings;
       this.workingFolders = workingFolders;
       this.activeThreads = activeThreads;
-      this.archivedThreads = archivedThreads;
+      this.archivedThreads = [];
+      this.archivedThreadsLoaded = false;
       await projects.ensureLoaded();
       await this.restoreSelection(settings);
       const workingFolderId = this.selectedWorkingFolderId;
@@ -129,6 +140,12 @@ class ChatStore {
         this.composerSeed(this.selectedThread),
       );
       this.loaded = true;
+      void this.refreshWorkingFolders().catch((error: unknown) => {
+        console.error("Chat working folder reconciliation failed", error);
+      });
+      void this.discoverProviders().catch((error: unknown) => {
+        console.error("Automatic Chat provider discovery failed", error);
+      });
     } catch (error: unknown) {
       if (request !== this.loadRequest) return;
       this.error = chatErrorMessage(error, "Chat could not be loaded");
@@ -140,6 +157,56 @@ class ChatStore {
 
   async refreshSettings(): Promise<void> {
     this.settings = await chatApi.readChatSettings();
+  }
+
+  async ensureArchivedThreads(): Promise<void> {
+    if (this.archivedThreadsLoaded) return;
+    this.archivedThreadsPromise ??= (async () => {
+      this.archivedThreadsLoading = true;
+      try {
+        const threads = await chatApi.listChatThreadWindow(
+          null,
+          true,
+          CHAT_RECENT_THREAD_WINDOW,
+        );
+        const existing = new Map(this.archivedThreads.map((thread) => [thread.id, thread]));
+        for (const thread of threads) existing.set(thread.id, thread);
+        this.archivedThreads = [...existing.values()].sort((left, right) => (
+          right.lastActivityAt.localeCompare(left.lastActivityAt)
+        ));
+        this.archivedThreadsLoaded = true;
+      } finally {
+        this.archivedThreadsLoading = false;
+        this.archivedThreadsPromise = null;
+      }
+    })();
+    await this.archivedThreadsPromise;
+  }
+
+  private async discoverProviders(): Promise<void> {
+    if (this.providerDiscoveryPromise) return this.providerDiscoveryPromise;
+    this.providerDiscoveryLoading = true;
+    this.providerDiscoveryPromise = chatApi.discoverDefaultChatProviders()
+      .then((settings) => {
+        this.settings = settings;
+      })
+      .finally(() => {
+        this.providerDiscoveryLoading = false;
+        this.providerDiscoveryPromise = null;
+      });
+    return this.providerDiscoveryPromise;
+  }
+
+  private async refreshWorkingFolders(): Promise<void> {
+    if (this.workingFolderRefreshPromise) return this.workingFolderRefreshPromise;
+    this.workingFolderRefreshPromise = workingFolderApi.listProjectWorkingFolders()
+      .then((workingFolders) => {
+        for (const workingFolder of workingFolders) this.upsertWorkingFolder(workingFolder);
+      })
+      .finally(() => {
+        this.workingFolderRefreshPromise = null;
+      });
+    return this.workingFolderRefreshPromise;
   }
 
   async syncProjectSelection(projectId: string | null): Promise<void> {
@@ -309,6 +376,11 @@ class ChatStore {
     if (threadId) void this.loadTimeline(threadId).catch(() => undefined);
     if (threadId) void this.refreshInteraction(threadId).catch(() => undefined);
     else this.interaction = null;
+  }
+
+  selectThreadShell(thread: ChatThreadShellRead): void {
+    this.upsertThread(thread);
+    this.selectThread(thread.id);
   }
 
   async loadOlderTimeline(selectedSequence: number | null = null): Promise<void> {
@@ -637,7 +709,7 @@ class ChatStore {
     if (threadId !== this.selectedThreadId) return;
     await this.loadTimeline(threadId);
     if (threadId !== this.selectedThreadId) return;
-    const active = await chatApi.listChatThreads(null, false);
+    const active = await chatApi.listChatThreadWindow(null, false, CHAT_RECENT_THREAD_WINDOW);
     this.activeThreads = active;
     await this.refreshInteraction(threadId);
   }
@@ -681,6 +753,13 @@ class ChatStore {
     const remembered = settings.configuration.behavior.restoreLastSelectedThread
       ? settings.lastSelectedThreadId
       : null;
+    if (remembered && ![...this.activeThreads, ...this.archivedThreads].some((thread) => thread.id === remembered)) {
+      try {
+        this.upsertThread(await chatApi.readChatThreadShell(remembered));
+      } catch (error: unknown) {
+        console.warn("Remembered Chat thread could not be restored", error);
+      }
+    }
     if (remembered && [...this.activeThreads, ...this.archivedThreads].some((thread) => thread.id === remembered)) {
       this.selectedThreadId = remembered;
       this.selectedWorkingFolderId = this.selectedThread?.workingFolderId ?? null;

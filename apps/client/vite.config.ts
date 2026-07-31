@@ -48,6 +48,7 @@ function gitOutput(args: string[]): string | undefined {
 function chunkNameForModule(id: string): string | undefined {
   const moduleId = id.replaceAll("\\", "/");
   if (moduleId.includes("vite/preload-helper")) return "vendor";
+  if (moduleId.endsWith("/src/lib/chat/code-editor-runtime.ts")) return "chat-editor-runtime";
   if (!moduleId.includes("node_modules")) return undefined;
 
   const reviewCatalogChunk = reviewCatalogChunkName(moduleId);
@@ -56,7 +57,7 @@ function chunkNameForModule(id: string): string | undefined {
   const codeEditorCatalogChunk = codeEditorCatalogChunkName(moduleId);
   if (codeEditorCatalogChunk) return codeEditorCatalogChunk;
 
-  if (isCodeEditorCoreModule(moduleId)) return undefined;
+  if (isCodeEditorCoreModule(moduleId)) return "chat-editor-runtime";
 
   if (
     moduleId.includes("/node_modules/@pierre/diffs/") ||
@@ -287,9 +288,19 @@ export default defineConfig({
   },
   clearScreen: false,
   build: {
-    rollupOptions: {
+    rolldownOptions: {
+      preserveEntrySignatures: "allow-extension",
       output: {
-        manualChunks: chunkNameForModule,
+        strictExecutionOrder: true,
+        codeSplitting: {
+          includeDependenciesRecursively: false,
+          groups: [
+            {
+              name: (id) => chunkNameForModule(id) ?? null,
+              priority: 10,
+            },
+          ],
+        },
       },
     },
   },

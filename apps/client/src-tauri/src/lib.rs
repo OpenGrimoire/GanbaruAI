@@ -769,6 +769,7 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             chat::workspace_commands::projects_list_working_folders,
+            chat::workspace_commands::projects_list_working_folders_cached,
             chat::workspace_commands::projects_add_external_working_folder,
             chat::workspace_commands::projects_rename_working_folder,
             chat::workspace_commands::projects_locate_working_folder,
@@ -824,6 +825,7 @@ pub fn run() {
             chat::restore_commands::chat_preview_checkpoint_restore,
             chat::restore_commands::chat_execute_checkpoint_restore,
             chat::settings_commands::chat_read_settings,
+            chat::settings_commands::chat_discover_default_providers,
             chat::settings_commands::chat_set_last_selected_thread,
             chat::settings_commands::chat_save_provider,
             chat::settings_commands::chat_set_provider_enabled,
@@ -845,6 +847,8 @@ pub fn run() {
             chat::provider_files::chat_save_provider_file,
             chat::thread_commands::chat_list_project_shells,
             chat::thread_commands::chat_list_threads,
+            chat::thread_commands::chat_list_thread_window,
+            chat::thread_commands::chat_read_thread_shell,
             chat::thread_commands::chat_search_thread_titles,
             chat::thread_commands::chat_read_timeline_page,
             chat::thread_commands::chat_fork_thread,

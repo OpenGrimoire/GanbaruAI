@@ -61,6 +61,7 @@
   import MusicSoundscapeCoordinator from "$lib/components/music/MusicSoundscapeCoordinator.svelte";
   import NotesView from "$lib/components/notes/NotesView.svelte";
   import ProjectsView from "$lib/components/projects/ProjectsView.svelte";
+  import ChatWorkspace from "$lib/components/chat/ChatWorkspace.svelte";
   import ConfirmDialog from "$lib/components/ui/ConfirmDialog.svelte";
   import TooltipHost from "$lib/components/ui/TooltipHost.svelte";
   import UpdateNotificationToast from "$lib/components/updates/UpdateNotificationToast.svelte";
@@ -142,13 +143,10 @@
   let completionMusicDuckingGeneration = 0;
   type BenchmarkOverlayComponent = typeof import("$lib/components/benchmark/BenchmarkOverlay.svelte").default;
   type IdleOverlayComponent = typeof import("$lib/components/pomodoro/IdleOverlay.svelte").default;
-  type ChatWorkspaceComponent = typeof import("$lib/components/chat/ChatWorkspace.svelte").default;
   let BenchmarkOverlay = $state<BenchmarkOverlayComponent | null>(null);
   let IdleOverlay = $state<IdleOverlayComponent | null>(null);
-  let ChatWorkspace = $state<ChatWorkspaceComponent | null>(null);
   let loadingBenchmarkOverlay: Promise<void> | null = null;
   let loadingIdleOverlay: Promise<void> | null = null;
-  let loadingChatWorkspace: Promise<void> | null = null;
   let devtoolsToggleInFlight = false;
   function ensureBenchmarkOverlay(): Promise<void> {
     if (BenchmarkOverlay) return Promise.resolve();
@@ -217,29 +215,6 @@
       });
     return loadingIdleOverlay;
   }
-
-  function loadChatWorkspace(): Promise<void> {
-    if (ChatWorkspace) return Promise.resolve();
-    loadingChatWorkspace ??= Promise.all([
-      import("$lib/components/chat/ChatWorkspace.svelte"),
-      import("$lib/stores/chat.svelte"),
-    ])
-      .then(async ([workspaceModule, chatModule]) => {
-        try {
-          await chatModule.getChat().ensureLoaded();
-        } finally {
-          ChatWorkspace = workspaceModule.default;
-        }
-      })
-      .finally(() => { loadingChatWorkspace = null; });
-    return loadingChatWorkspace;
-  }
-
-  $effect(() => {
-    if (nav.current === "chat") {
-      void loadChatWorkspace().catch((error) => console.error("Project Chat load failed", error));
-    }
-  });
 
   function parseNotesNotificationOpenPayload(
     payload: unknown,
@@ -1087,10 +1062,8 @@
         <ProjectsView />
       {:else if nav.current === "notes"}
         <NotesView />
-      {:else if ChatWorkspace}
-        <ChatWorkspace />
       {:else}
-        <div class="flex h-full items-center justify-center text-sm text-muted-foreground" style="background-color: var(--cal-bg);">{t("common.loading")}</div>
+        <ChatWorkspace />
       {/if}
     </main>
   </div>

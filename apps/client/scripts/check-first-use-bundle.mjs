@@ -120,6 +120,10 @@ function readBaseline(value) {
           contract.requiredDynamicChunkPrefixes,
           "baseline editorRuntime requiredDynamicChunkPrefixes",
         ),
+        forbiddenStaticChunkPrefixes: requireStringArray(
+          contract.forbiddenStaticChunkPrefixes,
+          "baseline editorRuntime forbiddenStaticChunkPrefixes",
+        ),
       };
     })(),
     reviewRuntime: (() => {
@@ -355,6 +359,12 @@ if (!editorRuntimeChunk) {
       failures.push(`Editor runtime does not load required dependency: ${substring}`);
     }
   }
+  for (const prefix of baseline.editorRuntime.forbiddenStaticChunkPrefixes) {
+    const matchingChunk = editorRuntimeClosure.find((chunk) => chunk.fileName.startsWith(prefix));
+    if (matchingChunk) {
+      failures.push(`Editor runtime eagerly loads language chunk: ${matchingChunk.fileName}`);
+    }
+  }
   const editorDynamicImports = new Set(
     editorRuntimeClosure.flatMap((chunk) => chunk.dynamicImports),
   );
@@ -530,6 +540,7 @@ console.log(JSON.stringify({
   editorRuntime: editorRuntimeChunk ? {
     chunk: editorRuntimeChunk.fileName,
     dynamicChunks: editorRuntimeChunk.dynamicImports.length,
+    forbiddenStaticChunkPrefixes: baseline.editorRuntime.forbiddenStaticChunkPrefixes,
   } : null,
   projectsShell: {
     chunks: projectsShellContract.closure.map((chunk) => chunk.fileName),

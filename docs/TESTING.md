@@ -43,7 +43,7 @@ Static checks are part of validation even though they are not runtime tests:
 
 The production bundle contract performs a real Vite build and inspects emitted module metadata. It protects route and first-use loading boundaries, source-module ceilings, and forbidden eager imports. Unit tests do not replace this gate because only a production transform exposes the final chunk graph.
 
-Chat's Review renderer, syntax grammars, and module worker must remain outside both the application entry closure and the ordinary unopened Chat closure. The bundle contract rejects Pierre, Shiki, React, ReactDOM, and Review worker modules in those eager paths. Focused Review model fixtures verify heavy-workload layout ceilings, paging behavior, search coordinates, and hunk selection. Platform WebView rendering and the plain-text fallback remain part of the manual Tauri acceptance gate.
+Chat's route shell is resident so first navigation has no component-loading gate. Its Review renderer, syntax grammars, and module worker must remain outside both the application entry closure and the unopened panel closure. The CodeMirror core may preload after Chat metadata settles, but its static closure must not include language chunks. The bundle contract rejects eager Pierre, Shiki, React, ReactDOM, Review worker, and editor-language modules in those paths. Focused Review model fixtures verify heavy-workload layout ceilings, paging behavior, search coordinates, and hunk selection. Platform WebView rendering and the plain-text fallback remain part of the manual Tauri acceptance gate.
 
 ### Dependency audits
 

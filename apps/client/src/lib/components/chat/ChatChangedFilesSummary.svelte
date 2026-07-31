@@ -3,24 +3,62 @@
   import FileDiff from "@lucide/svelte/icons/file-diff";
   import type { ChangedFileSummary, ChatTurnId } from "$lib/chat/contracts";
   import { formatNumber } from "$lib/i18n/formatters";
+  import { onDestroy } from "svelte";
+  import { loadChatReviewDiffRuntime } from "$lib/chat/review-diff-loader";
+  import { prefetchChatReview } from "$lib/chat/review-prefetch";
   import { getLocalization } from "$lib/i18n/translator.svelte";
+  import { getChat } from "$lib/stores/chat.svelte";
   import ChatFileIcon from "./ChatFileIcon.svelte";
 
   let { turnId, files }: { turnId: ChatTurnId; files: ChangedFileSummary[] } = $props();
   const localization = getLocalization();
   const { t } = localization;
+  const chat = getChat();
   const additions = $derived(files.reduce((total, file) => total + (file.additions ?? 0), 0));
   const deletions = $derived(files.reduce((total, file) => total + (file.deletions ?? 0), 0));
+  let prefetchTimer: number | null = null;
+
+  onDestroy(() => cancelPrefetch());
 
   function openChanges(relativePath: string | null): void {
     window.dispatchEvent(new CustomEvent("ganbaru-ai:chat-open-review", {
       detail: { source: { kind: "provider_turn", turnId }, relativePath },
     }));
   }
+
+  function prefetchChanges(relativePath: string | null): void {
+    cancelPrefetch();
+    prefetchTimer = window.setTimeout(() => {
+      prefetchTimer = null;
+      runPrefetch(relativePath);
+    }, 100);
+  }
+
+  function runPrefetch(relativePath: string | null): void {
+    const threadId = chat.selectedThreadId;
+    const workingFolderId = chat.selectedWorkingFolderId;
+    if (!threadId || !workingFolderId) return;
+    void loadChatReviewDiffRuntime().catch(() => undefined);
+    prefetchChatReview({
+      threadId,
+      workingFolderId,
+      executionEnvironmentId: chat.selectedExecutionEnvironmentId,
+      source: { kind: "provider_turn", turnId },
+      ignoreWhitespace: false,
+      contextLines: 3,
+      preferredRelativePath: relativePath,
+    });
+  }
+
+  function cancelPrefetch(): void {
+    if (prefetchTimer === null) return;
+    window.clearTimeout(prefetchTimer);
+    prefetchTimer = null;
+  }
 </script>
 
 <section class="changed-files-card">
-  <button type="button" class="changed-files-header" onclick={() => openChanges(files[0]?.relativePath ?? null)}>
+  <button type="button" class="changed-files-header" onpointerenter={() => prefetchChanges(files[0]?.relativePath ?? null)} onpointerleave={cancelPrefetch} onfocus={() => prefetchChanges(files[0]?.relativePath ?? null)} onblur={cancelPrefetch} onclick={() => openChanges(files[0]?.relativePath ?? null)}>
     <FileDiff size={14} />
     <strong>{t("chat.timeline.changedFiles", formatNumber(localization.locale, files.length))}</strong>
     {#if additions > 0}<span class="additions">+{formatNumber(localization.locale, additions)}</span>{/if}
@@ -29,7 +67,7 @@
   </button>
   <div class="changed-files-list">
     {#each files as file (file.relativePath)}
-      <button type="button" onclick={() => openChanges(file.relativePath)}>
+      <button type="button" onpointerenter={() => prefetchChanges(file.relativePath)} onpointerleave={cancelPrefetch} onfocus={() => prefetchChanges(file.relativePath)} onblur={cancelPrefetch} onclick={() => openChanges(file.relativePath)}>
         <ChatFileIcon path={file.relativePath} size={13} />
         <span title={file.relativePath}>{file.relativePath}</span>
         {#if file.additions}<small class="additions">+{formatNumber(localization.locale, file.additions)}</small>{/if}

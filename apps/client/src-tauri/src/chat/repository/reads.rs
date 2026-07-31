@@ -100,6 +100,30 @@ pub async fn read_thread_shells(
     working_folder_id: Option<&ProjectWorkingFolderId>,
     archived: bool,
 ) -> ChatResult<Vec<ChatThreadShellRead>> {
+    read_thread_shell_query(pool, working_folder_id, archived, None).await
+}
+
+pub async fn read_thread_shell_window(
+    pool: &SqlitePool,
+    working_folder_id: Option<&ProjectWorkingFolderId>,
+    archived: bool,
+    limit: u32,
+) -> ChatResult<Vec<ChatThreadShellRead>> {
+    read_thread_shell_query(
+        pool,
+        working_folder_id,
+        archived,
+        Some(limit.clamp(1, MAX_PAGE_SIZE)),
+    )
+    .await
+}
+
+async fn read_thread_shell_query(
+    pool: &SqlitePool,
+    working_folder_id: Option<&ProjectWorkingFolderId>,
+    archived: bool,
+    limit: Option<u32>,
+) -> ChatResult<Vec<ChatThreadShellRead>> {
     let rows = sqlx::query(
         "SELECT id, working_folder_id, project_id, title, provider_family_id,
                 provider_instance_id, provider_thread_id, model_selection_data,
@@ -109,12 +133,14 @@ pub async fn read_thread_shells(
          FROM chat_threads
          WHERE (? IS NULL OR working_folder_id = ?)
            AND ((? = 1 AND archived_at IS NOT NULL) OR (? = 0 AND archived_at IS NULL AND state != 'closed'))
-         ORDER BY CASE WHEN archived_at IS NULL THEN last_activity_at ELSE archived_at END DESC, id",
+         ORDER BY CASE WHEN archived_at IS NULL THEN last_activity_at ELSE archived_at END DESC, id
+         LIMIT COALESCE(?, -1)",
     )
     .bind(working_folder_id.map(ProjectWorkingFolderId::as_str))
     .bind(working_folder_id.map(ProjectWorkingFolderId::as_str))
     .bind(archived)
     .bind(archived)
+    .bind(limit.map(i64::from))
     .fetch_all(pool)
     .await
     .map_err(persistence_error)?;

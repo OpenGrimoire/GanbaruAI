@@ -59,6 +59,19 @@ describe("Chat inspector model", () => {
     expect(state.read("thread-b").tabNames).toEqual({});
   });
 
+  it("bounds retained per-thread panel state", () => {
+    const state = new ChatInspectorSessionState();
+    for (let index = 0; index < 64; index += 1) {
+      state.update(`thread-${index}`, { selectedFile: `src/${index}.ts` });
+    }
+    state.read("thread-0");
+    state.update("thread-64", { selectedFile: "src/64.ts" });
+
+    expect(state.read("thread-0").selectedFile).toBe("src/0.ts");
+    expect(state.read("thread-1").selectedFile).toBeNull();
+    expect(state.read("thread-64").selectedFile).toBe("src/64.ts");
+  });
+
   it("uses the terminal path as its default tab name and bounds custom names", () => {
     expect(terminalWorkspacePanelDefaultLabel("victor@workstation: ~/Documents/ganbaru-ai"))
       .toBe("~/Documents/ganbaru-ai");

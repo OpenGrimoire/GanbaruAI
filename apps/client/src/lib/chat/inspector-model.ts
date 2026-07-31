@@ -53,6 +53,8 @@ const DEFAULT_STATE: ChatInspectorThreadState = {
   reviewLayoutPreference: "auto",
 };
 
+const MAX_CHAT_INSPECTOR_SESSIONS = 64;
+
 export class ChatInspectorSessionState {
   private readonly threads = new Map<ChatThreadId, ChatInspectorThreadState>();
 
@@ -70,7 +72,12 @@ export class ChatInspectorSessionState {
   }
 
   read(threadId: ChatThreadId | null): ChatInspectorThreadState {
-    const state = threadId ? this.threads.get(threadId) ?? this.initialState() : this.initialState();
+    const stored = threadId ? this.threads.get(threadId) : undefined;
+    if (threadId && stored) {
+      this.threads.delete(threadId);
+      this.threads.set(threadId, stored);
+    }
+    const state = stored ?? this.initialState();
     return {
       ...state,
       openTabs: [...state.openTabs],
@@ -88,7 +95,13 @@ export class ChatInspectorSessionState {
       tabOrder: [...(update.tabOrder ?? current.tabOrder)],
       tabNames: { ...(update.tabNames ?? current.tabNames) },
     };
+    this.threads.delete(threadId);
     this.threads.set(threadId, next);
+    while (this.threads.size > MAX_CHAT_INSPECTOR_SESSIONS) {
+      const oldestThreadId = this.threads.keys().next().value;
+      if (typeof oldestThreadId !== "string") break;
+      this.threads.delete(oldestThreadId);
+    }
     return {
       ...next,
       openTabs: [...next.openTabs],

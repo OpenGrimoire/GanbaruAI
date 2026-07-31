@@ -20,7 +20,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
-const MAX_SNAPSHOTS: usize = 24;
+const MAX_SNAPSHOTS: usize = 8;
 const MAX_COMPLETED_OPERATIONS: usize = 128;
 const SNAPSHOT_LIFETIME: Duration = Duration::from_secs(30 * 60);
 const DEFAULT_PATCH_PAGE_BYTES: usize = 1024 * 1024;

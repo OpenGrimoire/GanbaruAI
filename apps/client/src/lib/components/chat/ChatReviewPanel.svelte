@@ -33,6 +33,7 @@
     ReviewDiffSource,
   } from "$lib/chat/contracts";
   import { isWorkspaceRelativeChangedFilePath } from "$lib/chat/changed-files";
+  import { openChatReviewSingleFlight } from "$lib/chat/review-prefetch";
   import {
     appendReviewPatchPages,
     findReviewSearchMatches,
@@ -378,7 +379,7 @@
     }
     try {
       const next = await withReviewTimeout(
-        chatApi.openChatReview({
+        openChatReviewSingleFlight({
           threadId,
           workingFolderId: folder,
           executionEnvironmentId,

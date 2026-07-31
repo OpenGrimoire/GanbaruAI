@@ -10,6 +10,7 @@
   import Search from "@lucide/svelte/icons/search";
   import Settings from "@lucide/svelte/icons/settings";
   import { chatHeaderActionInset, filterThreadTitles, nextThreadIndex } from "$lib/chat/shell-model";
+  import { loadChatCodeEditorRuntime } from "$lib/chat/code-editor-loader";
   import { inspectorFocusAction } from "$lib/chat/inspector-model";
   import {
     alignPanelSizeToDevicePixel,
@@ -100,6 +101,7 @@
     bottomPanelOpen && layout.variant !== "minimum_recovery",
   );
   let loadError = $state<string | null>(null);
+  let initialLoadingVisible = $state(false);
   let layoutError = $state<string | null>(null);
   let politeAnnouncement = $state("");
   let assertiveAnnouncement = $state("");
@@ -111,6 +113,7 @@
   let inspectorResizeEndFrame: number | null = null;
   let bottomResizeEndFrame: number | null = null;
   let panelTransitionFrame: number | null = null;
+  let initialLoadingTimer: number | null = null;
   let panelTransitionsEnabled = $state(false);
   type ResizableOuterPanel = "inspector" | "bottom";
   let snapTransitioning = $state<Record<ResizableOuterPanel, boolean>>({
@@ -128,9 +131,15 @@
     const updateMotionPreference = () => { reducedMotion = motionQuery.matches; };
     updateMotionPreference();
     motionQuery.addEventListener("change", updateMotionPreference);
-    void Promise.all([chat.ensureLoaded(), projects.ensureLoaded()]).catch((error) => {
-      loadError = error instanceof Error ? error.message : String(error);
-    });
+    void Promise.all([chat.ensureLoaded(), projects.ensureLoaded()])
+      .then(() => {
+        requestAnimationFrame(() => {
+          void loadChatCodeEditorRuntime().catch(() => undefined);
+        });
+      })
+      .catch((error) => {
+        loadError = error instanceof Error ? error.message : String(error);
+      });
     refreshWorkspacePixelGeometry();
     inspectorWidth = alignInspectorWidthToDisplay(
       chat.settings?.configuration.panels.inspectorWidthPx ?? DEFAULT_INSPECTOR_WIDTH,
@@ -196,6 +205,7 @@
       if (inspectorResizeEndFrame !== null) window.cancelAnimationFrame(inspectorResizeEndFrame);
       if (bottomResizeEndFrame !== null) window.cancelAnimationFrame(bottomResizeEndFrame);
       if (panelTransitionFrame !== null) window.cancelAnimationFrame(panelTransitionFrame);
+      if (initialLoadingTimer !== null) window.clearTimeout(initialLoadingTimer);
       for (const timer of Object.values(snapTransitionTimers)) {
         if (timer !== undefined) window.clearTimeout(timer);
       }
@@ -211,6 +221,20 @@
   $effect(() => {
     const projectId = projects.selectedProjectId;
     if (!chat.loading) void chat.syncProjectSelection(projectId);
+  });
+
+  $effect(() => {
+    if (!chat.loading || chat.settings) {
+      initialLoadingVisible = false;
+      if (initialLoadingTimer !== null) window.clearTimeout(initialLoadingTimer);
+      initialLoadingTimer = null;
+      return;
+    }
+    if (initialLoadingTimer !== null) return;
+    initialLoadingTimer = window.setTimeout(() => {
+      initialLoadingTimer = null;
+      if (chat.loading && !chat.settings) initialLoadingVisible = true;
+    }, 140);
   });
 
   function nextAnimationFrame(): Promise<number> {
@@ -896,8 +920,6 @@
   <main class="main-shell relative flex min-w-0 flex-col">
         {#if loadError}
           <div role="alert" class="m-auto max-w-md p-4 text-center text-sm text-destructive">{loadError}<div><button type="button" class="chat-secondary-button mt-3" onclick={() => { loadError = null; void chat.reload().catch((error) => { loadError = error instanceof Error ? error.message : String(error); }); }}>{t("common.retry")}</button></div></div>
-        {:else if chat.loading}
-          <div class="m-auto text-sm text-muted-foreground">{t("common.loading")}</div>
         {:else if chat.selectedThread}
           <div class="chat-conversation-shell">
             <ChatTimeline bottomInsetPx={composerDockHeight} />
@@ -908,8 +930,10 @@
               </div>
             {/if}
           </div>
-        {:else}
+        {:else if !chat.loading}
           <ChatFirstUse />
+        {:else if initialLoadingVisible}
+          <div class="m-auto text-sm text-muted-foreground" role="status">{t("common.loading")}</div>
         {/if}
   </main>
 

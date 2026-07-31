@@ -827,6 +827,10 @@ export async function readChatSettings(): Promise<ChatSettingsRead> {
   return parseChatSettingsRead(await invoke<unknown>("chat_read_settings"));
 }
 
+export async function discoverDefaultChatProviders(): Promise<ChatSettingsRead> {
+  return parseChatSettingsRead(await invoke<unknown>("chat_discover_default_providers"));
+}
+
 export async function refreshAllChatProviders(): Promise<ProviderRefreshResult> {
   return parseProviderRefreshResult(await invoke<unknown>("chat_refresh_all_providers"));
 }
@@ -965,6 +969,26 @@ export async function listChatThreads(
     dbUrl: await ensureDbUrl(),
     workingFolderId,
     archived,
+  }));
+}
+
+export async function listChatThreadWindow(
+  workingFolderId: ProjectWorkingFolderId | null,
+  archived: boolean,
+  limit: number,
+): Promise<ChatThreadShellRead[]> {
+  return parseChatThreadShells(await invoke<unknown>("chat_list_thread_window", {
+    dbUrl: await ensureDbUrl(),
+    workingFolderId,
+    archived,
+    limit,
+  }));
+}
+
+export async function readChatThreadShell(threadId: ChatThreadId): Promise<ChatThreadShellRead> {
+  return parseChatThreadShell(await invoke<unknown>("chat_read_thread_shell", {
+    dbUrl: await ensureDbUrl(),
+    threadId,
   }));
 }
 

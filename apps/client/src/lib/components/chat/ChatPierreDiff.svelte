@@ -16,6 +16,7 @@
     ReviewDiffRuntime,
     ReviewLineSelection,
   } from "$lib/chat/review-diff-runtime";
+  import { loadChatReviewDiffRuntime } from "$lib/chat/review-diff-loader";
   import { chatSyntaxStyle } from "$lib/chat/syntax-theme";
   import { getTheme } from "$lib/stores/theme.svelte";
   import ChatPlainDiff from "./ChatPlainDiff.svelte";
@@ -104,7 +105,7 @@
     enhancedFailed = false;
     error = null;
     try {
-      const module = await import("$lib/chat/review-diff-runtime");
+      const module = await loadChatReviewDiffRuntime();
       if (!active || !host || destroyed) return;
       runtime = new module.ReviewDiffRuntime(host, runtimeOptions());
       rejectedItems = runtime.setItems(items);

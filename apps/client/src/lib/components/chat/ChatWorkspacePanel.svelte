@@ -1138,6 +1138,45 @@
 
   {#if error}<p role="alert" class="border-b border-destructive/30 p-2 text-xs text-destructive">{error}</p>{/if}
   <div class="min-h-0 flex-1" role="tabpanel" aria-label={t(`chat.inspector.${panelState.tab}`)}>
+    {#if panelState.openTabs.includes("review")}
+      <div class="retained-workspace-panel" class:hidden={panelState.tab !== "review"}>
+        <ChatReviewPanel
+          active={visible && panelState.tab === "review"}
+          source={panelState.reviewSource}
+          legacyScope={panelState.changeScope}
+          legacyTurnId={panelState.changeTurnId}
+          selectedFile={panelState.selectedFile}
+          layoutPreference={panelState.reviewLayoutPreference}
+          whitespaceIgnored={panelState.whitespaceIgnored}
+          diffView={panelState.diffView}
+          onStateChange={(change) => update({
+            ...(change.source === undefined ? {} : { reviewSource: change.source }),
+            ...(change.selectedFile === undefined ? {} : { selectedFile: change.selectedFile }),
+            ...(change.layoutPreference === undefined ? {} : { reviewLayoutPreference: change.layoutPreference }),
+            ...(change.whitespaceIgnored === undefined ? {} : { whitespaceIgnored: change.whitespaceIgnored }),
+            ...(change.diffView === undefined ? {} : { diffView: change.diffView }),
+          })}
+        />
+      </div>
+    {/if}
+    {#if panelState.openTabs.includes("files")}
+      <div class="retained-workspace-panel" class:hidden={panelState.tab !== "files"}>
+        <ChatFilesPanel
+          active={visible && panelState.tab === "files"}
+          directoryPath={panelState.fileBrowserPath}
+          selectedPath={panelState.filePreviewPath}
+          treeVisible={panelState.fileTreeVisible}
+          treeWidthPx={panelState.fileTreeWidthPx}
+          onStateChange={(change) => update({
+            ...(change.directoryPath === undefined ? {} : { fileBrowserPath: change.directoryPath }),
+            ...(change.selectedPath === undefined ? {} : { filePreviewPath: change.selectedPath }),
+            ...(change.treeVisible === undefined ? {} : { fileTreeVisible: change.treeVisible }),
+            ...(change.treeWidthPx === undefined ? {} : { fileTreeWidthPx: change.treeWidthPx }),
+          })}
+          onReviewCreated={() => openPanel("review")}
+        />
+      </div>
+    {/if}
     {#if panelState.tab === "terminal"}
       {#if terminalsLoading}
         <p class="grid h-full place-items-center text-xs text-muted-foreground">{t("common.loading")}</p>
@@ -1172,39 +1211,6 @@
       <ChatSourceControlPanel />
     {:else if panelState.tab === "browser"}
       <ChatBrowserPanel />
-    {:else if panelState.tab === "review"}
-      <ChatReviewPanel
-        active={visible}
-        source={panelState.reviewSource}
-        legacyScope={panelState.changeScope}
-        legacyTurnId={panelState.changeTurnId}
-        selectedFile={panelState.selectedFile}
-        layoutPreference={panelState.reviewLayoutPreference}
-        whitespaceIgnored={panelState.whitespaceIgnored}
-        diffView={panelState.diffView}
-        onStateChange={(change) => update({
-          ...(change.source === undefined ? {} : { reviewSource: change.source }),
-          ...(change.selectedFile === undefined ? {} : { selectedFile: change.selectedFile }),
-          ...(change.layoutPreference === undefined ? {} : { reviewLayoutPreference: change.layoutPreference }),
-          ...(change.whitespaceIgnored === undefined ? {} : { whitespaceIgnored: change.whitespaceIgnored }),
-          ...(change.diffView === undefined ? {} : { diffView: change.diffView }),
-        })}
-      />
-    {:else}
-      <ChatFilesPanel
-        active={visible}
-        directoryPath={panelState.fileBrowserPath}
-        selectedPath={panelState.filePreviewPath}
-        treeVisible={panelState.fileTreeVisible}
-        treeWidthPx={panelState.fileTreeWidthPx}
-        onStateChange={(change) => update({
-          ...(change.directoryPath === undefined ? {} : { fileBrowserPath: change.directoryPath }),
-          ...(change.selectedPath === undefined ? {} : { filePreviewPath: change.selectedPath }),
-          ...(change.treeVisible === undefined ? {} : { fileTreeVisible: change.treeVisible }),
-          ...(change.treeWidthPx === undefined ? {} : { fileTreeWidthPx: change.treeWidthPx }),
-        })}
-        onReviewCreated={() => openPanel("review")}
-      />
     {/if}
   </div>
 </section>
@@ -1212,6 +1218,7 @@
 <style>
   .panel-picker :global(svg), .tab-rename-panel :global(svg) { stroke-width: 2 !important; }
   .workspace-panel { display: flex; height: 100%; min-height: 0; flex-direction: column; background: var(--cal-bg); }
+  .retained-workspace-panel { height: 100%; min-height: 0; }
   .panel-tabbar { --workspace-panel-tab-width: 9.5rem; position: relative; display: flex; min-height: 2.65rem; flex: 0 0 auto; align-items: center; gap: 0.2rem; padding-inline: 0.45rem; }
   .workspace-panel[data-placement="inspector"] .panel-tabbar { height: var(--cal-header-row-h); min-height: var(--cal-header-row-h); border-bottom: 1px solid var(--sidebar); background: var(--cal-header-bg); padding-right: var(--chat-global-actions-width); }
   .panel-tabbar.reordering { user-select: none; }

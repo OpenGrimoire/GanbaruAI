@@ -17,6 +17,13 @@ export async function listProjectWorkingFolders(): Promise<ProjectWorkingFolderR
   ));
 }
 
+export async function listCachedProjectWorkingFolders(): Promise<ProjectWorkingFolderRead[]> {
+  return parseProjectWorkingFolderReads(await invoke<unknown>(
+    "projects_list_working_folders_cached",
+    { dbUrl: await ensureDbUrl() },
+  ));
+}
+
 export async function addExternalProjectWorkingFolder(
   request: CreateProjectWorkingFolderRequest,
   title: string,

@@ -4,12 +4,17 @@
     {
       "name": "Projects",
       "module": "src/lib/components/projects/ProjectsView.svelte",
-      "maxSourceModules": 253
+      "maxSourceModules": 313
     },
     {
       "name": "Notes",
       "module": "src/lib/components/notes/NotesView.svelte",
-      "maxSourceModules": 253
+      "maxSourceModules": 313
+    },
+    {
+      "name": "Chat",
+      "module": "src/lib/components/chat/ChatWorkspace.svelte",
+      "maxSourceModules": 313
     }
   ],
   "shell": {
@@ -18,6 +23,7 @@
       "src/lib/components/calendar/CalendarView.svelte",
       "src/lib/components/projects/ProjectsView.svelte",
       "src/lib/components/notes/NotesView.svelte",
+      "src/lib/components/chat/ChatWorkspace.svelte",
       "src/lib/components/music/MusicPanel.svelte",
       "src/lib/components/quick-notes/QuickNotesPanel.svelte"
     ],
@@ -60,6 +66,9 @@
       "/node_modules/@codemirror/language-data/"
     ],
     "requiredDynamicChunkPrefixes": [
+      "assets/chat-editor-language-"
+    ],
+    "forbiddenStaticChunkPrefixes": [
       "assets/chat-editor-language-"
     ]
   },

@@ -94,13 +94,22 @@ struct ProviderDiscoveryRun {
 }
 
 #[tauri::command]
-pub async fn chat_read_settings(
+pub async fn chat_read_settings(app: tauri::AppHandle) -> ChatResult<ChatSettingsRead> {
+    read_settings(&app)
+}
+
+#[tauri::command]
+pub async fn chat_discover_default_providers(
     app: tauri::AppHandle,
     state: tauri::State<'_, ChatSettingsState>,
 ) -> ChatResult<ChatSettingsRead> {
     discover_default_providers_once(&app, &state).await?;
-    let configuration = read_chat_config(&app)?;
-    let scope = read_active_device_scope(&app).map_err(device_state_error)?;
+    read_settings(&app)
+}
+
+fn read_settings(app: &tauri::AppHandle) -> ChatResult<ChatSettingsRead> {
+    let configuration = read_chat_config(app)?;
+    let scope = read_active_device_scope(app).map_err(device_state_error)?;
     let provider_instances = configuration
         .providers
         .iter()

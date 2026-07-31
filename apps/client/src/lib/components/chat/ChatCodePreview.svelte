@@ -7,6 +7,7 @@
 <script lang="ts">
   import { onMount } from "svelte";
   import type { ChatCodeEditorRuntime } from "$lib/chat/code-editor-runtime";
+  import { loadChatCodeEditorRuntime } from "$lib/chat/code-editor-loader";
   import { chatSyntaxStyle } from "$lib/chat/syntax-theme";
   import { getTheme } from "$lib/stores/theme.svelte";
 
@@ -57,7 +58,7 @@
   async function loadRuntime(): Promise<void> {
     if (!host || runtime || destroyed) return;
     try {
-      const module = await import("$lib/chat/code-editor-runtime");
+      const module = await loadChatCodeEditorRuntime();
       if (!host || destroyed) return;
       runtime = new module.ChatCodeEditorRuntime(host, {
         text,

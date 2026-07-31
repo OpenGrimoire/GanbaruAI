@@ -187,7 +187,7 @@
   }
 
   function selectSearchResult(thread: ChatThreadShellRead): void {
-    chat.selectThread(thread.id);
+    chat.selectThreadShell(thread);
     search = "";
     searchOpen = false;
     showArchive = false;

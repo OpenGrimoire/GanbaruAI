@@ -22,8 +22,8 @@ use crate::chat::repository::lifecycle::{
     permanently_delete_thread, resolve_project_deletion, set_thread_archived, set_thread_read,
 };
 use crate::chat::repository::reads::{
-    parse_timeline_cursor, read_project_shells, read_thread_shells, read_timeline_page,
-    search_thread_titles,
+    parse_timeline_cursor, read_project_shells, read_thread_shell_window, read_thread_shells,
+    read_timeline_page, search_thread_titles,
 };
 use crate::chat::repository::rebuild::rebuild_thread_projections;
 use crate::chat::repository::receipts::{
@@ -572,6 +572,33 @@ fn shell_search_timeline_and_archive_reads_stay_lightweight() {
             read_thread_shells(&pool, None, false).await.unwrap().len(),
             1
         );
+    });
+}
+
+#[test]
+fn thread_shell_window_limits_recent_navigation_rows() {
+    tauri::async_runtime::block_on(async {
+        let pool = pool_with_thread().await;
+        sqlx::query(
+            "INSERT INTO chat_threads
+                (id, project_id, working_folder_id, title, provider_family_id,
+                 provider_instance_id, continuation_group_id, safety_mode, interaction_mode, state,
+                 last_activity_at, created_at, updated_at)
+             VALUES ('thread-recent', 'project-chat', 'workspace-1', 'Recent', 'codex',
+                     'codex-personal', 'continuation-1', 'ask_for_approval', 'build', 'idle',
+                     '2026-07-21T00:00:00.000Z', ?, ?)",
+        )
+        .bind(NOW)
+        .bind(NOW)
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        let threads = read_thread_shell_window(&pool, None, false, 1)
+            .await
+            .unwrap();
+        assert_eq!(threads.len(), 1);
+        assert_eq!(threads[0].id.as_str(), "thread-recent");
     });
 }
 

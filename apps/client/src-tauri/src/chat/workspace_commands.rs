@@ -40,6 +40,28 @@ pub async fn projects_list_working_folders(
         .collect()
 }
 
+#[tauri::command]
+pub async fn projects_list_working_folders_cached(
+    app: tauri::AppHandle,
+    db_url: String,
+) -> ChatResult<Vec<ProjectWorkingFolderRead>> {
+    let pool = chat_pool(app.clone(), db_url).await?;
+    let workspaces = repository::list_workspaces(&pool).await?;
+    let mut scope = read_active_working_folder_scope(&app).map_err(device_state_error)?;
+    for workspace in &workspaces {
+        if workspace.kind == WorkingFolderKind::Managed
+            && !scope.bindings.contains_key(&workspace.id)
+        {
+            ensure_managed_working_folder_binding(&app, workspace)?;
+            scope = read_active_working_folder_scope(&app).map_err(device_state_error)?;
+        }
+    }
+    workspaces
+        .into_iter()
+        .map(|workspace| workspace_read(workspace, &scope))
+        .collect()
+}
+
 pub(crate) async fn reconcile_working_folder_binding_for_id(
     app: &tauri::AppHandle,
     db_url: &str,
