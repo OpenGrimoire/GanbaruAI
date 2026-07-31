@@ -53,6 +53,7 @@ import {
   type UserInputRequestedEvent,
   type UserInputResolvedEvent,
 } from "../contracts";
+import { normalizeChangedFileSummaries } from "../changed-files";
 import { parseModelOptionSelection, parseProviderCapabilities } from "./provider";
 import {
   readArray,
@@ -225,7 +226,9 @@ function parseTurnCompleted(value: unknown, label: string): TurnCompletedEvent {
     state: readEnum(record.state, CHAT_TURN_STATES, `${label}.state`),
     stopReason: readNullable(record.stopReason, `${label}.stopReason`, readString),
     usage: readNullable(record.usage, `${label}.usage`, parseThreadUsage),
-    changedFiles: readArray(record.changedFiles, `${label}.changedFiles`, parseChangedFile),
+    changedFiles: normalizeChangedFileSummaries(
+      readArray(record.changedFiles, `${label}.changedFiles`, parseChangedFile),
+    ),
   };
 }
 
@@ -259,7 +262,9 @@ function parseDiffUpdated(value: unknown, label: string): DiffUpdatedEvent {
   const record = readRecord(value, label);
   return {
     source: readString(record.source, `${label}.source`),
-    files: readArray(record.files, `${label}.files`, parseChangedFile),
+    files: normalizeChangedFileSummaries(
+      readArray(record.files, `${label}.files`, parseChangedFile),
+    ),
     providerDiff: readNullable(record.providerDiff, `${label}.providerDiff`, readString),
   };
 }

@@ -12,14 +12,30 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use sqlx::SqlitePool;
 use std::collections::HashSet;
-use std::fs::{self, OpenOptions};
-use std::io::Write;
+use std::fs::{self, File, OpenOptions};
+use std::io::{Read, Seek, SeekFrom, Write};
+#[cfg(windows)]
+use std::path::PathBuf;
 use std::path::{Component, Path};
 use std::process::{Command, Stdio};
 use std::sync::{
     atomic::{AtomicU64, Ordering},
     Mutex,
 };
+#[cfg(windows)]
+use windows::Win32::Storage::FileSystem::{
+    FILE_ATTRIBUTE_REPARSE_POINT, FILE_FLAG_BACKUP_SEMANTICS, FILE_FLAG_OPEN_REPARSE_POINT,
+    FILE_SHARE_READ, FILE_SHARE_WRITE,
+};
+
+#[cfg(unix)]
+use std::ffi::{CStr, CString};
+#[cfg(unix)]
+use std::os::fd::{AsRawFd, FromRawFd};
+#[cfg(unix)]
+use std::os::unix::ffi::OsStrExt;
+#[cfg(unix)]
+use std::os::unix::fs::{MetadataExt, PermissionsExt};
 
 const MAX_DIRECTORY_ENTRIES: usize = 5_000;
 const MAX_PREVIEW_BYTES: u64 = 1024 * 1024;
@@ -79,6 +95,16 @@ pub struct SaveProjectWorkingFolderFileCopyRequest {
     pub execution_environment_id: Option<String>,
 }
 
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RecreateProjectWorkingFolderFileRequest {
+    pub working_folder_id: ProjectWorkingFolderId,
+    pub relative_path: String,
+    pub contents: String,
+    pub confirmed: bool,
+    pub execution_environment_id: Option<String>,
+}
+
 #[tauri::command]
 pub async fn project_list_working_folder_directory(
     app: tauri::AppHandle,
@@ -123,6 +149,8 @@ pub async fn project_preview_working_folder_file(
 #[tauri::command]
 pub async fn project_save_working_folder_file(
     app: tauri::AppHandle,
+    observers: tauri::State<'_, super::workspace_observer::ChatWorkspaceObserverRegistry>,
+    mutations: tauri::State<'_, super::workspace_mutation::ChatWorkspaceMutationRegistry>,
     db_url: String,
     request: SaveProjectWorkingFolderFileRequest,
 ) -> ChatResult<ProjectWorkingFolderFilePreview> {
@@ -141,17 +169,27 @@ pub async fn project_save_working_folder_file(
         request.execution_environment_id.as_deref(),
     )
     .await?;
-    save_workspace_file(
+    let _mutation = mutations.try_mutation(&authorized.canonical_path)?;
+    let saved = save_workspace_file(
         &authorized,
         &request.relative_path,
         &request.contents,
         &request.expected_revision,
-    )
+    )?;
+    observers.invalidate_paths(
+        &request.working_folder_id,
+        request.execution_environment_id.as_deref(),
+        vec![request.relative_path],
+        false,
+    );
+    Ok(saved)
 }
 
 #[tauri::command]
 pub async fn project_save_working_folder_file_copy(
     app: tauri::AppHandle,
+    observers: tauri::State<'_, super::workspace_observer::ChatWorkspaceObserverRegistry>,
+    mutations: tauri::State<'_, super::workspace_mutation::ChatWorkspaceMutationRegistry>,
     db_url: String,
     request: SaveProjectWorkingFolderFileCopyRequest,
 ) -> ChatResult<ProjectWorkingFolderFilePreview> {
@@ -170,12 +208,59 @@ pub async fn project_save_working_folder_file_copy(
         request.execution_environment_id.as_deref(),
     )
     .await?;
-    save_workspace_file_copy(
+    let _mutation = mutations.try_mutation(&authorized.canonical_path)?;
+    let saved = save_workspace_file_copy(
         &authorized,
         &request.source_relative_path,
         &request.target_relative_path,
         &request.contents,
+    )?;
+    observers.invalidate_paths(
+        &request.working_folder_id,
+        request.execution_environment_id.as_deref(),
+        vec![request.target_relative_path],
+        false,
+    );
+    Ok(saved)
+}
+
+#[tauri::command]
+pub async fn project_recreate_working_folder_file(
+    app: tauri::AppHandle,
+    observers: tauri::State<'_, super::workspace_observer::ChatWorkspaceObserverRegistry>,
+    mutations: tauri::State<'_, super::workspace_mutation::ChatWorkspaceMutationRegistry>,
+    db_url: String,
+    request: RecreateProjectWorkingFolderFileRequest,
+) -> ChatResult<ProjectWorkingFolderFilePreview> {
+    let pool = chat_pool(app.clone(), db_url).await?;
+    let authorized = require_workspace_for(
+        &app,
+        &pool,
+        &request.working_folder_id,
+        WorkingFolderAuthorizationOperation::FileWrite,
     )
+    .await?;
+    let authorized = super::execution_environment::resolve_environment_workspace(
+        &app,
+        &pool,
+        authorized,
+        request.execution_environment_id.as_deref(),
+    )
+    .await?;
+    let _mutation = mutations.try_mutation(&authorized.canonical_path)?;
+    let recreated = recreate_workspace_file(
+        &authorized,
+        &request.relative_path,
+        &request.contents,
+        request.confirmed,
+    )?;
+    observers.invalidate_paths(
+        &request.working_folder_id,
+        request.execution_environment_id.as_deref(),
+        vec![request.relative_path],
+        false,
+    );
+    Ok(recreated)
 }
 
 #[tauri::command]
@@ -205,28 +290,11 @@ pub fn list_workspace_directory(
     include_ignored: bool,
 ) -> ChatResult<ProjectWorkingFolderDirectoryRead> {
     validate_optional_relative_path(relative_path)?;
-    let directory = if relative_path.is_empty() {
-        authorized.canonical_path.clone()
-    } else {
-        resolve_workspace_relative_path(authorized, relative_path)?
-    };
-    if !fs::metadata(&directory).map_err(file_error)?.is_dir() {
-        return Err(ChatError::validation(
-            "relativePath",
-            "Workspace path is not a directory",
-        ));
-    }
-    let mut entries = Vec::new();
-    let mut truncated = false;
-    for entry in fs::read_dir(&directory).map_err(file_error)? {
-        let entry = entry.map_err(file_error)?;
-        let metadata = fs::symlink_metadata(entry.path()).map_err(file_error)?;
-        if metadata.file_type().is_symlink() || (!metadata.is_file() && !metadata.is_dir()) {
-            continue;
-        }
-        let Some(display_name) = entry.file_name().to_str().map(ToOwned::to_owned) else {
-            continue;
-        };
+    let (directory_entries, truncated) =
+        secure_directory_entries(&authorized.canonical_path, relative_path)?;
+    let mut entries = Vec::with_capacity(directory_entries.len());
+    for entry in directory_entries {
+        let display_name = entry.display_name;
         let child_relative = if relative_path.is_empty() {
             display_name.clone()
         } else {
@@ -242,18 +310,9 @@ pub fn list_workspace_directory(
             ignored: common_ignored(&child_relative),
             relative_path: child_relative,
             display_name,
-            kind: if metadata.is_dir() {
-                "directory"
-            } else {
-                "file"
-            }
-            .to_string(),
-            byte_size: metadata.is_file().then_some(metadata.len()),
+            kind: if entry.directory { "directory" } else { "file" }.to_string(),
+            byte_size: entry.byte_size,
         });
-        if entries.len() >= MAX_DIRECTORY_ENTRIES {
-            truncated = true;
-            break;
-        }
     }
     if authorized.repository_kind == RepositoryKind::Git {
         let git_ignored = git_ignored_paths(
@@ -296,18 +355,10 @@ pub fn preview_workspace_file(
             false,
         ));
     }
-    let requested_path = authorized.canonical_path.join(relative_path);
-    let requested_metadata = fs::symlink_metadata(&requested_path).map_err(file_error)?;
-    if requested_metadata.file_type().is_symlink() {
-        return Err(ChatError::new(
-            ChatErrorCode::Permission,
-            "Workspace symlinks are not available for Chat preview",
-            false,
-        ));
-    }
-    let path = resolve_workspace_relative_path(authorized, relative_path)?;
-    let metadata = fs::symlink_metadata(&path).map_err(file_error)?;
-    if metadata.file_type().is_symlink() || !metadata.is_file() {
+    let path = Path::new(relative_path);
+    let mut file = secure_workspace_file(&authorized.canonical_path, relative_path)?;
+    let metadata = file.metadata().map_err(file_error)?;
+    if !metadata.is_file() {
         return Err(ChatError::validation(
             "relativePath",
             "Workspace path is not a regular file",
@@ -322,7 +373,7 @@ pub fn preview_workspace_file(
         return Ok(ProjectWorkingFolderFilePreview {
             relative_path: relative_path.to_string(),
             display_name,
-            language: language_for_path(&path),
+            language: language_for_path(path),
             text: None,
             line_count: None,
             byte_size: metadata.len(),
@@ -331,8 +382,17 @@ pub fn preview_workspace_file(
             content_revision: None,
         });
     }
-    let bytes = fs::read(&path).map_err(file_error)?;
-    if bytes.len() as u64 != metadata.len() {
+    let modified = metadata.modified().ok();
+    let mut bytes = Vec::with_capacity(usize::try_from(metadata.len()).unwrap_or_default());
+    (&mut file)
+        .take(MAX_PREVIEW_BYTES + 1)
+        .read_to_end(&mut bytes)
+        .map_err(file_error)?;
+    let after = file.metadata().map_err(file_error)?;
+    if bytes.len() as u64 != metadata.len()
+        || after.len() != metadata.len()
+        || modified.is_some() && after.modified().ok() != modified
+    {
         return Err(ChatError::new(
             ChatErrorCode::Conflict,
             "Workspace file changed during preview",
@@ -357,7 +417,7 @@ pub fn preview_workspace_file(
     Ok(ProjectWorkingFolderFilePreview {
         relative_path: relative_path.to_string(),
         display_name,
-        language: language_for_path(&path),
+        language: language_for_path(path),
         text,
         line_count,
         byte_size: metadata.len(),
@@ -401,8 +461,12 @@ pub fn save_workspace_file(
             true,
         ));
     }
-    let path = resolve_workspace_relative_path(authorized, relative_path)?;
-    write_workspace_text_atomically(&path, contents)?;
+    write_workspace_text_atomically(
+        &authorized.canonical_path,
+        relative_path,
+        contents,
+        expected_revision,
+    )?;
     preview_workspace_file(authorized, relative_path)
 }
 
@@ -436,64 +500,59 @@ pub fn save_workspace_file_copy(
     let _guard = WORKSPACE_FILE_WRITE_LOCK
         .lock()
         .map_err(|_| workspace_file_write_error())?;
-    let source_path = resolve_workspace_relative_path(authorized, source_relative_path)?;
-    let source_metadata =
-        fs::symlink_metadata(&source_path).map_err(|_| workspace_file_write_error())?;
-    if source_metadata.file_type().is_symlink() || !source_metadata.is_file() {
-        return Err(ChatError::validation(
-            "sourceRelativePath",
-            "Source workspace path is not a regular file",
-        ));
-    }
-    let target_relative = Path::new(target_relative_path);
-    let parent_relative = target_relative.parent().unwrap_or_else(|| Path::new(""));
-    let parent = if parent_relative.as_os_str().is_empty() {
-        authorized.canonical_path.clone()
-    } else {
-        fs::canonicalize(authorized.canonical_path.join(parent_relative)).map_err(|_| {
-            ChatError::validation(
-                "targetRelativePath",
-                "Save-copy parent directory does not exist",
-            )
-        })?
-    };
-    if !parent.starts_with(&authorized.canonical_path) || !parent.is_dir() {
+    let source_permissions = workspace_regular_file_permissions(
+        &authorized.canonical_path,
+        source_relative_path,
+        "sourceRelativePath",
+    )?;
+    create_workspace_file_exclusively(
+        &authorized.canonical_path,
+        target_relative_path,
+        contents,
+        Some(source_permissions),
+        "Save-copy target already exists",
+    )?;
+    preview_workspace_file(authorized, target_relative_path)
+}
+
+pub fn recreate_workspace_file(
+    authorized: &AuthorizedWorkingFolder,
+    relative_path: &str,
+    contents: &str,
+    confirmed: bool,
+) -> ChatResult<ProjectWorkingFolderFilePreview> {
+    if !confirmed {
         return Err(ChatError::new(
             ChatErrorCode::Permission,
-            "Save-copy path resolves outside the working folder",
+            "Recreating a deleted workspace file requires confirmation",
+            true,
+        ));
+    }
+    validate_required_relative_path(relative_path)?;
+    if safety_excluded(relative_path) {
+        return Err(ChatError::new(
+            ChatErrorCode::Permission,
+            "This workspace path is excluded from Chat editing",
             false,
         ));
     }
-    let file_name = target_relative
-        .file_name()
-        .ok_or_else(|| ChatError::validation("targetRelativePath", "Save-copy path is invalid"))?;
-    let target = parent.join(file_name);
-    let mut file = fs::OpenOptions::new()
-        .write(true)
-        .create_new(true)
-        .open(&target)
-        .map_err(|error| {
-            if error.kind() == std::io::ErrorKind::AlreadyExists {
-                ChatError::new(
-                    ChatErrorCode::Conflict,
-                    "Save-copy target already exists",
-                    true,
-                )
-            } else {
-                workspace_file_write_error()
-            }
-        })?;
-    let write_result = file
-        .write_all(contents.as_bytes())
-        .and_then(|_| file.sync_all());
-    if write_result.is_err() {
-        drop(file);
-        let _ = fs::remove_file(&target);
-        return Err(workspace_file_write_error());
+    if contents.len() as u64 > MAX_PREVIEW_BYTES || contents.contains('\0') {
+        return Err(ChatError::validation(
+            "contents",
+            "Workspace files must be UTF-8 text no larger than 1 MiB",
+        ));
     }
-    fs::set_permissions(&target, source_metadata.permissions())
+    let _guard = WORKSPACE_FILE_WRITE_LOCK
+        .lock()
         .map_err(|_| workspace_file_write_error())?;
-    preview_workspace_file(authorized, target_relative_path)
+    create_workspace_file_exclusively(
+        &authorized.canonical_path,
+        relative_path,
+        contents,
+        None,
+        "Workspace file already exists. Reload it before saving.",
+    )?;
+    preview_workspace_file(authorized, relative_path)
 }
 
 async fn require_workspace(
@@ -510,7 +569,7 @@ async fn require_workspace(
     .await
 }
 
-async fn require_workspace_for(
+pub(crate) async fn require_workspace_for(
     app: &tauri::AppHandle,
     pool: &SqlitePool,
     working_folder_id: &ProjectWorkingFolderId,
@@ -554,17 +613,392 @@ fn validate_required_relative_path(value: &str) -> ChatResult<()> {
     Ok(())
 }
 
+struct SecureDirectoryEntry {
+    display_name: String,
+    directory: bool,
+    byte_size: Option<u64>,
+}
+
+struct SecureWorkspaceFile {
+    file: File,
+    #[cfg(windows)]
+    _parent_handles: Vec<File>,
+}
+
+impl SecureWorkspaceFile {
+    fn metadata(&self) -> std::io::Result<fs::Metadata> {
+        self.file.metadata()
+    }
+}
+
+impl Read for SecureWorkspaceFile {
+    fn read(&mut self, buffer: &mut [u8]) -> std::io::Result<usize> {
+        self.file.read(buffer)
+    }
+}
+
+#[cfg(unix)]
+fn secure_workspace_directory(root: &Path, relative_path: &str) -> std::io::Result<File> {
+    use std::os::unix::fs::OpenOptionsExt;
+
+    let mut options = OpenOptions::new();
+    options
+        .read(true)
+        .custom_flags(libc::O_CLOEXEC | libc::O_DIRECTORY | libc::O_NOFOLLOW);
+    let mut directory = options.open(root)?;
+    for component in Path::new(relative_path).components() {
+        let Component::Normal(name) = component else {
+            return Err(std::io::Error::from(std::io::ErrorKind::InvalidInput));
+        };
+        let name = CString::new(name.as_bytes())
+            .map_err(|_| std::io::Error::from(std::io::ErrorKind::InvalidInput))?;
+        let descriptor = unsafe {
+            libc::openat(
+                directory.as_raw_fd(),
+                name.as_ptr(),
+                libc::O_CLOEXEC | libc::O_DIRECTORY | libc::O_NOFOLLOW | libc::O_RDONLY,
+            )
+        };
+        if descriptor < 0 {
+            return Err(std::io::Error::last_os_error());
+        }
+        directory = unsafe { File::from_raw_fd(descriptor) };
+    }
+    Ok(directory)
+}
+
+#[cfg(unix)]
+struct SecureDirectoryStream(*mut libc::DIR);
+
+#[cfg(unix)]
+impl Drop for SecureDirectoryStream {
+    fn drop(&mut self) {
+        unsafe {
+            libc::closedir(self.0);
+        }
+    }
+}
+
+#[cfg(unix)]
+fn secure_directory_entries(
+    root: &Path,
+    relative_path: &str,
+) -> ChatResult<(Vec<SecureDirectoryEntry>, bool)> {
+    let directory = secure_workspace_directory(root, relative_path).map_err(file_error)?;
+    let duplicated = unsafe { libc::dup(directory.as_raw_fd()) };
+    if duplicated < 0 {
+        return Err(file_error(std::io::Error::last_os_error()));
+    }
+    let stream = unsafe { libc::fdopendir(duplicated) };
+    if stream.is_null() {
+        unsafe {
+            libc::close(duplicated);
+        }
+        return Err(file_error(std::io::Error::last_os_error()));
+    }
+    let stream = SecureDirectoryStream(stream);
+    let mut entries = Vec::new();
+    let mut truncated = false;
+    loop {
+        let raw = unsafe { libc::readdir(stream.0) };
+        if raw.is_null() {
+            break;
+        }
+        let name = unsafe { CStr::from_ptr((*raw).d_name.as_ptr()) };
+        if name.to_bytes() == b"." || name.to_bytes() == b".." {
+            continue;
+        }
+        let Ok(display_name) = name.to_str() else {
+            continue;
+        };
+        let mut stat = std::mem::MaybeUninit::<libc::stat>::uninit();
+        let status = unsafe {
+            libc::fstatat(
+                directory.as_raw_fd(),
+                name.as_ptr(),
+                stat.as_mut_ptr(),
+                libc::AT_SYMLINK_NOFOLLOW,
+            )
+        };
+        if status != 0 {
+            continue;
+        }
+        let stat = unsafe { stat.assume_init() };
+        let kind = stat.st_mode & libc::S_IFMT;
+        let directory = kind == libc::S_IFDIR;
+        let regular = kind == libc::S_IFREG;
+        if !directory && !regular {
+            continue;
+        }
+        entries.push(SecureDirectoryEntry {
+            display_name: display_name.to_string(),
+            directory,
+            byte_size: regular.then(|| u64::try_from(stat.st_size).unwrap_or_default()),
+        });
+        if entries.len() >= MAX_DIRECTORY_ENTRIES {
+            truncated = true;
+            break;
+        }
+    }
+    Ok((entries, truncated))
+}
+
+#[cfg(unix)]
+fn secure_workspace_file(root: &Path, relative_path: &str) -> ChatResult<SecureWorkspaceFile> {
+    let parent = secure_workspace_parent(root, relative_path).map_err(file_error)?;
+    open_regular_file_at(&parent)
+        .map(|file| SecureWorkspaceFile { file })
+        .map_err(file_error)
+}
+
+#[cfg(windows)]
+fn windows_metadata_is_reparse(metadata: &fs::Metadata) -> bool {
+    use std::os::windows::fs::MetadataExt;
+
+    metadata.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT.0 != 0
+}
+
+#[cfg(windows)]
+fn windows_open_directory(path: &Path) -> ChatResult<File> {
+    use std::os::windows::fs::OpenOptionsExt;
+
+    let mut options = OpenOptions::new();
+    options
+        .read(true)
+        .share_mode(FILE_SHARE_READ.0 | FILE_SHARE_WRITE.0)
+        .custom_flags(FILE_FLAG_OPEN_REPARSE_POINT.0 | FILE_FLAG_BACKUP_SEMANTICS.0);
+    let file = options.open(path).map_err(file_error)?;
+    let metadata = file.metadata().map_err(file_error)?;
+    if !metadata.is_dir() || windows_metadata_is_reparse(&metadata) {
+        return Err(ChatError::new(
+            ChatErrorCode::Permission,
+            "Workspace directory is unavailable or uses a reparse point",
+            false,
+        ));
+    }
+    Ok(file)
+}
+
+#[cfg(windows)]
+fn windows_workspace_directory_chain(
+    root: &Path,
+    relative_path: &str,
+) -> ChatResult<(PathBuf, Vec<File>)> {
+    let mut path = root.to_path_buf();
+    let mut handles = vec![windows_open_directory(&path)?];
+    for component in Path::new(relative_path).components() {
+        let Component::Normal(name) = component else {
+            return Err(ChatError::validation(
+                "relativePath",
+                "Workspace path must be a normalized relative path",
+            ));
+        };
+        path.push(name);
+        handles.push(windows_open_directory(&path)?);
+    }
+    Ok((path, handles))
+}
+
+#[cfg(windows)]
+fn windows_open_regular_file(root: &Path, relative_path: &str) -> ChatResult<(Vec<File>, File)> {
+    use std::os::windows::fs::OpenOptionsExt;
+
+    let relative = Path::new(relative_path);
+    let parent = relative.parent().unwrap_or_else(|| Path::new(""));
+    let parent = parent
+        .to_str()
+        .ok_or_else(|| ChatError::validation("relativePath", "Workspace path is unsupported"))?;
+    let (parent_path, handles) = windows_workspace_directory_chain(root, parent)?;
+    let name = relative
+        .file_name()
+        .ok_or_else(|| ChatError::validation("relativePath", "Workspace path is invalid"))?;
+    let mut options = OpenOptions::new();
+    options
+        .read(true)
+        .share_mode(FILE_SHARE_READ.0 | FILE_SHARE_WRITE.0)
+        .custom_flags(FILE_FLAG_OPEN_REPARSE_POINT.0);
+    let file = options.open(parent_path.join(name)).map_err(file_error)?;
+    let metadata = file.metadata().map_err(file_error)?;
+    if !metadata.is_file() || windows_metadata_is_reparse(&metadata) {
+        return Err(ChatError::new(
+            ChatErrorCode::Permission,
+            "Workspace file is unavailable or uses a reparse point",
+            false,
+        ));
+    }
+    Ok((handles, file))
+}
+
+#[cfg(windows)]
+fn secure_workspace_file(root: &Path, relative_path: &str) -> ChatResult<SecureWorkspaceFile> {
+    let (parent_handles, file) = windows_open_regular_file(root, relative_path)?;
+    Ok(SecureWorkspaceFile {
+        file,
+        _parent_handles: parent_handles,
+    })
+}
+
+#[cfg(windows)]
+fn secure_directory_entries(
+    root: &Path,
+    relative_path: &str,
+) -> ChatResult<(Vec<SecureDirectoryEntry>, bool)> {
+    use std::os::windows::fs::OpenOptionsExt;
+
+    let (directory, _handles) = windows_workspace_directory_chain(root, relative_path)?;
+    let mut entries = Vec::new();
+    let mut truncated = false;
+    for entry in fs::read_dir(&directory).map_err(file_error)? {
+        let entry = entry.map_err(file_error)?;
+        let Some(display_name) = entry.file_name().to_str().map(ToOwned::to_owned) else {
+            continue;
+        };
+        let mut options = OpenOptions::new();
+        options
+            .read(true)
+            .share_mode(FILE_SHARE_READ.0 | FILE_SHARE_WRITE.0)
+            .custom_flags(FILE_FLAG_OPEN_REPARSE_POINT.0 | FILE_FLAG_BACKUP_SEMANTICS.0);
+        let Ok(child) = options.open(entry.path()) else {
+            continue;
+        };
+        let Ok(metadata) = child.metadata() else {
+            continue;
+        };
+        if windows_metadata_is_reparse(&metadata) || (!metadata.is_file() && !metadata.is_dir()) {
+            continue;
+        }
+        entries.push(SecureDirectoryEntry {
+            display_name,
+            directory: metadata.is_dir(),
+            byte_size: metadata.is_file().then_some(metadata.len()),
+        });
+        if entries.len() >= MAX_DIRECTORY_ENTRIES {
+            truncated = true;
+            break;
+        }
+    }
+    Ok((entries, truncated))
+}
+
+#[cfg(not(any(unix, windows)))]
+fn secure_workspace_file(root: &Path, relative_path: &str) -> ChatResult<SecureWorkspaceFile> {
+    if workspace_path_contains_symlink(root, relative_path)? {
+        return Err(ChatError::new(
+            ChatErrorCode::Permission,
+            "Workspace symlinks are not available for Chat preview",
+            false,
+        ));
+    }
+    let path = root.join(relative_path);
+    let canonical = path.canonicalize().map_err(file_error)?;
+    if !canonical.starts_with(root) {
+        return Err(ChatError::new(
+            ChatErrorCode::Permission,
+            "Workspace file resolves outside the working folder",
+            false,
+        ));
+    }
+    File::open(canonical)
+        .map(|file| SecureWorkspaceFile { file })
+        .map_err(file_error)
+}
+
+#[cfg(not(any(unix, windows)))]
+fn secure_directory_entries(
+    root: &Path,
+    relative_path: &str,
+) -> ChatResult<(Vec<SecureDirectoryEntry>, bool)> {
+    if !relative_path.is_empty() && workspace_path_contains_symlink(root, relative_path)? {
+        return Err(ChatError::new(
+            ChatErrorCode::Permission,
+            "Workspace symlinks are not available for Chat browsing",
+            false,
+        ));
+    }
+    let path = root.join(relative_path);
+    let canonical = path.canonicalize().map_err(file_error)?;
+    if !canonical.starts_with(root) {
+        return Err(ChatError::new(
+            ChatErrorCode::Permission,
+            "Workspace directory resolves outside the working folder",
+            false,
+        ));
+    }
+    let mut entries = Vec::new();
+    let mut truncated = false;
+    for entry in fs::read_dir(canonical).map_err(file_error)? {
+        let entry = entry.map_err(file_error)?;
+        let metadata = fs::symlink_metadata(entry.path()).map_err(file_error)?;
+        if metadata.file_type().is_symlink() || (!metadata.is_file() && !metadata.is_dir()) {
+            continue;
+        }
+        let Some(display_name) = entry.file_name().to_str().map(ToOwned::to_owned) else {
+            continue;
+        };
+        entries.push(SecureDirectoryEntry {
+            display_name,
+            directory: metadata.is_dir(),
+            byte_size: metadata.is_file().then_some(metadata.len()),
+        });
+        if entries.len() >= MAX_DIRECTORY_ENTRIES {
+            truncated = true;
+            break;
+        }
+    }
+    Ok((entries, truncated))
+}
+
+#[cfg(not(any(unix, windows)))]
+fn workspace_path_contains_symlink(root: &Path, relative_path: &str) -> ChatResult<bool> {
+    let mut candidate = root.to_path_buf();
+    for component in Path::new(relative_path).components() {
+        let Component::Normal(name) = component else {
+            return Err(ChatError::validation(
+                "relativePath",
+                "Workspace path must be a normalized relative path",
+            ));
+        };
+        candidate.push(name);
+        let metadata = fs::symlink_metadata(&candidate).map_err(file_error)?;
+        if metadata.file_type().is_symlink() {
+            return Ok(true);
+        }
+    }
+    Ok(false)
+}
+
+#[cfg(not(any(unix, windows)))]
+fn workspace_parent_contains_symlink(root: &Path, relative_path: &str) -> ChatResult<bool> {
+    let Some(parent) = Path::new(relative_path).parent() else {
+        return Ok(false);
+    };
+    if parent.as_os_str().is_empty() {
+        return Ok(false);
+    }
+    let parent = parent
+        .to_str()
+        .ok_or_else(|| ChatError::validation("relativePath", "Workspace path is unsupported"))?;
+    workspace_path_contains_symlink(root, parent)
+}
+
 fn safety_excluded(relative_path: &str) -> bool {
     super::interaction_commands::workspace_mention_is_safety_excluded(relative_path)
 }
 
 fn common_ignored(relative_path: &str) -> bool {
     relative_path.split('/').any(|segment| {
+        let ganbaru_temporary = segment.starts_with('.')
+            && segment.contains(".ganbaru.")
+            && (segment.ends_with(".tmp") || segment.ends_with(".backup"));
         matches!(
             segment,
             ".git" | ".cache" | ".turbo" | "node_modules" | "target" | "dist" | "build"
-        )
+        ) || ganbaru_temporary
     })
+}
+
+pub(crate) fn observer_excluded(relative_path: &str) -> bool {
+    safety_excluded(relative_path) || common_ignored(relative_path)
 }
 
 fn git_ignored_paths<'a>(root: &Path, paths: impl Iterator<Item = &'a str>) -> HashSet<String> {
@@ -650,12 +1084,690 @@ fn workspace_file_revision(relative_path: &str, bytes: &[u8]) -> String {
     format!("{:x}", digest.finalize())
 }
 
-fn write_workspace_text_atomically(path: &Path, contents: &str) -> ChatResult<()> {
-    let metadata = fs::symlink_metadata(path).map_err(|_| workspace_file_write_error())?;
+#[cfg(unix)]
+struct SecureWorkspaceParent {
+    directory: File,
+    file_name: CString,
+}
+
+#[cfg(unix)]
+fn secure_workspace_parent(
+    root: &Path,
+    relative_path: &str,
+) -> std::io::Result<SecureWorkspaceParent> {
+    use std::os::unix::fs::OpenOptionsExt;
+
+    let relative = Path::new(relative_path);
+    let mut root_options = OpenOptions::new();
+    root_options
+        .read(true)
+        .custom_flags(libc::O_CLOEXEC | libc::O_DIRECTORY | libc::O_NOFOLLOW);
+    let mut directory = root_options.open(root)?;
+    if let Some(parent) = relative.parent() {
+        for component in parent.components() {
+            let Component::Normal(name) = component else {
+                return Err(std::io::Error::from(std::io::ErrorKind::InvalidInput));
+            };
+            let name = CString::new(name.as_bytes())
+                .map_err(|_| std::io::Error::from(std::io::ErrorKind::InvalidInput))?;
+            let descriptor = unsafe {
+                libc::openat(
+                    directory.as_raw_fd(),
+                    name.as_ptr(),
+                    libc::O_CLOEXEC | libc::O_DIRECTORY | libc::O_NOFOLLOW | libc::O_RDONLY,
+                )
+            };
+            if descriptor < 0 {
+                return Err(std::io::Error::last_os_error());
+            }
+            directory = unsafe { File::from_raw_fd(descriptor) };
+        }
+    }
+    let file_name = relative
+        .file_name()
+        .ok_or_else(|| std::io::Error::from(std::io::ErrorKind::InvalidInput))?;
+    Ok(SecureWorkspaceParent {
+        directory,
+        file_name: CString::new(file_name.as_bytes())
+            .map_err(|_| std::io::Error::from(std::io::ErrorKind::InvalidInput))?,
+    })
+}
+
+#[cfg(unix)]
+fn open_regular_file_at(parent: &SecureWorkspaceParent) -> std::io::Result<File> {
+    let descriptor = unsafe {
+        libc::openat(
+            parent.directory.as_raw_fd(),
+            parent.file_name.as_ptr(),
+            libc::O_CLOEXEC | libc::O_NOFOLLOW | libc::O_RDONLY,
+        )
+    };
+    if descriptor < 0 {
+        return Err(std::io::Error::last_os_error());
+    }
+    let file = unsafe { File::from_raw_fd(descriptor) };
+    if !file.metadata()?.is_file() {
+        return Err(std::io::Error::from(std::io::ErrorKind::InvalidInput));
+    }
+    Ok(file)
+}
+
+#[cfg(unix)]
+fn create_file_at(
+    parent: &SecureWorkspaceParent,
+    file_name: &CString,
+    mode: u32,
+) -> std::io::Result<File> {
+    let descriptor = unsafe {
+        libc::openat(
+            parent.directory.as_raw_fd(),
+            file_name.as_ptr(),
+            libc::O_CLOEXEC | libc::O_CREAT | libc::O_EXCL | libc::O_NOFOLLOW | libc::O_WRONLY,
+            0o600,
+        )
+    };
+    if descriptor < 0 {
+        return Err(std::io::Error::last_os_error());
+    }
+    let file = unsafe { File::from_raw_fd(descriptor) };
+    if unsafe { libc::fchmod(file.as_raw_fd(), mode as libc::mode_t) } != 0 {
+        let error = std::io::Error::last_os_error();
+        drop(file);
+        let _ = unlink_at(parent, file_name);
+        return Err(error);
+    }
+    Ok(file)
+}
+
+#[cfg(unix)]
+fn unlink_at(parent: &SecureWorkspaceParent, file_name: &CString) -> std::io::Result<()> {
+    if unsafe { libc::unlinkat(parent.directory.as_raw_fd(), file_name.as_ptr(), 0) } == 0 {
+        Ok(())
+    } else {
+        Err(std::io::Error::last_os_error())
+    }
+}
+
+#[cfg(any(target_os = "linux", target_os = "android"))]
+fn exchange_at(
+    parent: &SecureWorkspaceParent,
+    left: &CString,
+    right: &CString,
+) -> std::io::Result<()> {
+    if unsafe {
+        libc::renameat2(
+            parent.directory.as_raw_fd(),
+            left.as_ptr(),
+            parent.directory.as_raw_fd(),
+            right.as_ptr(),
+            libc::RENAME_EXCHANGE,
+        )
+    } == 0
+    {
+        Ok(())
+    } else {
+        Err(std::io::Error::last_os_error())
+    }
+}
+
+#[cfg(any(target_os = "macos", target_os = "ios"))]
+fn exchange_at(
+    parent: &SecureWorkspaceParent,
+    left: &CString,
+    right: &CString,
+) -> std::io::Result<()> {
+    if unsafe {
+        libc::renameatx_np(
+            parent.directory.as_raw_fd(),
+            left.as_ptr(),
+            parent.directory.as_raw_fd(),
+            right.as_ptr(),
+            libc::RENAME_SWAP,
+        )
+    } == 0
+    {
+        Ok(())
+    } else {
+        Err(std::io::Error::last_os_error())
+    }
+}
+
+#[cfg(all(
+    unix,
+    not(any(
+        target_os = "linux",
+        target_os = "android",
+        target_os = "macos",
+        target_os = "ios"
+    ))
+))]
+fn exchange_at(
+    _parent: &SecureWorkspaceParent,
+    _left: &CString,
+    _right: &CString,
+) -> std::io::Result<()> {
+    Err(std::io::Error::from(std::io::ErrorKind::Unsupported))
+}
+
+fn revision_and_permissions(
+    file: &mut File,
+    relative_path: &str,
+) -> ChatResult<(String, fs::Permissions)> {
+    let before = file.metadata().map_err(|_| workspace_file_write_error())?;
+    if !before.is_file() || before.len() > MAX_PREVIEW_BYTES {
+        return Err(ChatError::validation(
+            "relativePath",
+            "Workspace path is not bounded editable text",
+        ));
+    }
+    let modified = before.modified().ok();
+    file.seek(SeekFrom::Start(0))
+        .map_err(|_| workspace_file_write_error())?;
+    let mut bytes = Vec::with_capacity(usize::try_from(before.len()).unwrap_or_default());
+    (&mut *file)
+        .take(MAX_PREVIEW_BYTES + 1)
+        .read_to_end(&mut bytes)
+        .map_err(|_| workspace_file_write_error())?;
+    let after = file.metadata().map_err(|_| workspace_file_write_error())?;
+    if before.len() != after.len()
+        || bytes.len() as u64 != after.len()
+        || modified.is_some() && after.modified().ok() != modified
+    {
+        return Err(stale_workspace_file_error());
+    }
+    Ok((
+        workspace_file_revision(relative_path, &bytes),
+        after.permissions(),
+    ))
+}
+
+#[cfg(unix)]
+fn workspace_regular_file_permissions(
+    root: &Path,
+    relative_path: &str,
+    field: &str,
+) -> ChatResult<fs::Permissions> {
+    let parent = secure_workspace_parent(root, relative_path).map_err(|_| {
+        ChatError::validation(field, "Workspace file parent is unavailable or symbolic")
+    })?;
+    open_regular_file_at(&parent)
+        .and_then(|file| file.metadata())
+        .map(|metadata| metadata.permissions())
+        .map_err(|_| ChatError::validation(field, "Workspace path is not a regular file"))
+}
+
+#[cfg(windows)]
+fn workspace_regular_file_permissions(
+    root: &Path,
+    relative_path: &str,
+    field: &str,
+) -> ChatResult<fs::Permissions> {
+    let (_parents, file) = windows_open_regular_file(root, relative_path)
+        .map_err(|_| ChatError::validation(field, "Workspace path is not a regular file"))?;
+    file.metadata()
+        .map(|metadata| metadata.permissions())
+        .map_err(|_| ChatError::validation(field, "Workspace path is not a regular file"))
+}
+
+#[cfg(not(any(unix, windows)))]
+fn workspace_regular_file_permissions(
+    root: &Path,
+    relative_path: &str,
+    field: &str,
+) -> ChatResult<fs::Permissions> {
+    if workspace_path_contains_symlink(root, relative_path)? {
+        return Err(ChatError::validation(
+            field,
+            "Workspace path cannot be symbolic",
+        ));
+    }
+    let requested = root.join(relative_path);
+    let metadata = fs::symlink_metadata(&requested)
+        .map_err(|_| ChatError::validation(field, "Workspace path is unavailable"))?;
+    let canonical = fs::canonicalize(&requested)
+        .map_err(|_| ChatError::validation(field, "Workspace path is unavailable"))?;
+    if metadata.file_type().is_symlink() || !metadata.is_file() || !canonical.starts_with(root) {
+        return Err(ChatError::validation(
+            field,
+            "Workspace path is not a regular file",
+        ));
+    }
+    Ok(metadata.permissions())
+}
+
+#[cfg(unix)]
+fn create_workspace_file_exclusively(
+    root: &Path,
+    relative_path: &str,
+    contents: &str,
+    permissions: Option<fs::Permissions>,
+    conflict_message: &str,
+) -> ChatResult<()> {
+    let parent =
+        secure_workspace_parent(root, relative_path).map_err(|_| workspace_file_write_error())?;
+    let mode = permissions.map_or(0o600, |value| value.mode() & 0o777);
+    let mut file = create_file_at(&parent, &parent.file_name, mode).map_err(|error| {
+        if error.kind() == std::io::ErrorKind::AlreadyExists {
+            ChatError::new(ChatErrorCode::Conflict, conflict_message, true)
+        } else {
+            workspace_file_write_error()
+        }
+    })?;
+    if file
+        .write_all(contents.as_bytes())
+        .and_then(|_| file.sync_all())
+        .is_err()
+    {
+        drop(file);
+        return if unlink_at(&parent, &parent.file_name).is_ok() {
+            Err(workspace_file_write_error())
+        } else {
+            Err(workspace_file_recovery_error())
+        };
+    }
+    Ok(())
+}
+
+#[cfg(windows)]
+fn create_workspace_file_exclusively(
+    root: &Path,
+    relative_path: &str,
+    contents: &str,
+    permissions: Option<fs::Permissions>,
+    conflict_message: &str,
+) -> ChatResult<()> {
+    use std::os::windows::fs::OpenOptionsExt;
+
+    let relative = Path::new(relative_path);
+    let parent_relative = relative.parent().unwrap_or_else(|| Path::new(""));
+    let parent_relative = parent_relative
+        .to_str()
+        .ok_or_else(|| ChatError::validation("relativePath", "Workspace path is unsupported"))?;
+    let (parent, _handles) = windows_workspace_directory_chain(root, parent_relative)?;
+    let target = parent.join(
+        relative
+            .file_name()
+            .ok_or_else(|| ChatError::validation("relativePath", "Workspace path is invalid"))?,
+    );
+    let mut options = OpenOptions::new();
+    options
+        .write(true)
+        .create_new(true)
+        .share_mode(FILE_SHARE_READ.0 | FILE_SHARE_WRITE.0)
+        .custom_flags(FILE_FLAG_OPEN_REPARSE_POINT.0);
+    let mut file = options.open(&target).map_err(|error| {
+        if error.kind() == std::io::ErrorKind::AlreadyExists {
+            ChatError::new(ChatErrorCode::Conflict, conflict_message, true)
+        } else {
+            workspace_file_write_error()
+        }
+    })?;
+    if file
+        .write_all(contents.as_bytes())
+        .and_then(|_| file.sync_all())
+        .is_err()
+    {
+        drop(file);
+        if fs::remove_file(&target).is_err() {
+            return Err(workspace_file_recovery_error());
+        }
+        return Err(workspace_file_write_error());
+    }
+    if let Some(permissions) = permissions {
+        if file.set_permissions(permissions).is_err() {
+            drop(file);
+            if fs::remove_file(&target).is_err() {
+                return Err(workspace_file_recovery_error());
+            }
+            return Err(workspace_file_write_error());
+        }
+    }
+    Ok(())
+}
+
+#[cfg(not(any(unix, windows)))]
+fn create_workspace_file_exclusively(
+    root: &Path,
+    relative_path: &str,
+    contents: &str,
+    permissions: Option<fs::Permissions>,
+    conflict_message: &str,
+) -> ChatResult<()> {
+    if workspace_parent_contains_symlink(root, relative_path)? {
+        return Err(ChatError::new(
+            ChatErrorCode::Permission,
+            "Workspace file parent cannot be symbolic",
+            false,
+        ));
+    }
+    let relative = Path::new(relative_path);
+    let parent_relative = relative.parent().unwrap_or_else(|| Path::new(""));
+    let parent = if parent_relative.as_os_str().is_empty() {
+        root.to_path_buf()
+    } else {
+        fs::canonicalize(root.join(parent_relative)).map_err(|_| workspace_file_write_error())?
+    };
+    if !parent.starts_with(root) || !parent.is_dir() {
+        return Err(ChatError::new(
+            ChatErrorCode::Permission,
+            "Workspace file path resolves outside the working folder",
+            false,
+        ));
+    }
+    let target = parent.join(
+        relative
+            .file_name()
+            .ok_or_else(|| ChatError::validation("relativePath", "Workspace path is invalid"))?,
+    );
+    let mut file = OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&target)
+        .map_err(|error| {
+            if error.kind() == std::io::ErrorKind::AlreadyExists {
+                ChatError::new(ChatErrorCode::Conflict, conflict_message, true)
+            } else {
+                workspace_file_write_error()
+            }
+        })?;
+    if file
+        .write_all(contents.as_bytes())
+        .and_then(|_| file.sync_all())
+        .is_err()
+    {
+        drop(file);
+        let _ = fs::remove_file(&target);
+        return Err(workspace_file_write_error());
+    }
+    if let Some(permissions) = permissions {
+        if fs::set_permissions(&target, permissions).is_err() {
+            drop(file);
+            let _ = fs::remove_file(&target);
+            return Err(workspace_file_write_error());
+        }
+    }
+    Ok(())
+}
+
+#[cfg(unix)]
+fn write_workspace_text_atomically(
+    root: &Path,
+    relative_path: &str,
+    contents: &str,
+    expected_revision: &str,
+) -> ChatResult<()> {
+    let parent =
+        secure_workspace_parent(root, relative_path).map_err(|_| workspace_file_write_error())?;
+    let mut current = open_regular_file_at(&parent).map_err(|_| workspace_file_write_error())?;
+    let (current_revision, _) = revision_and_permissions(&mut current, relative_path)?;
+    if current_revision != expected_revision {
+        return Err(stale_workspace_file_error());
+    }
+    let current_metadata = current
+        .metadata()
+        .map_err(|_| workspace_file_write_error())?;
+    let current_identity = (current_metadata.dev(), current_metadata.ino());
+
+    let generation = WORKSPACE_FILE_WRITE_GENERATION.fetch_add(1, Ordering::Relaxed);
+    let nonce = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_nanos();
+    let temporary_name = CString::new(format!(
+        ".ganbaru.{}.{}.{}.tmp",
+        std::process::id(),
+        generation,
+        nonce,
+    ))
+    .map_err(|_| workspace_file_write_error())?;
+    let mut replacement = create_file_at(&parent, &temporary_name, 0o600)
+        .map_err(|_| workspace_file_write_error())?;
+    let write_result = replacement
+        .write_all(contents.as_bytes())
+        .and_then(|_| replacement.sync_all());
+    if write_result.is_err() {
+        drop(replacement);
+        return if unlink_at(&parent, &temporary_name).is_ok() {
+            Err(workspace_file_write_error())
+        } else {
+            Err(workspace_file_recovery_error())
+        };
+    }
+
+    if exchange_at(&parent, &temporary_name, &parent.file_name).is_err() {
+        drop(replacement);
+        return if unlink_at(&parent, &temporary_name).is_ok() {
+            Err(workspace_file_write_error())
+        } else {
+            Err(workspace_file_recovery_error())
+        };
+    }
+    let commit = (|| {
+        let mut displaced = {
+            let descriptor = unsafe {
+                libc::openat(
+                    parent.directory.as_raw_fd(),
+                    temporary_name.as_ptr(),
+                    libc::O_CLOEXEC | libc::O_NOFOLLOW | libc::O_RDONLY,
+                )
+            };
+            if descriptor < 0 {
+                return Err(workspace_file_write_error());
+            }
+            unsafe { File::from_raw_fd(descriptor) }
+        };
+        let displaced_metadata = displaced
+            .metadata()
+            .map_err(|_| workspace_file_write_error())?;
+        if (displaced_metadata.dev(), displaced_metadata.ino()) != current_identity {
+            return Err(stale_workspace_file_error());
+        }
+        let (displaced_revision, displaced_permissions) =
+            revision_and_permissions(&mut displaced, relative_path)?;
+        if displaced_revision != expected_revision {
+            return Err(stale_workspace_file_error());
+        }
+        if unsafe {
+            libc::fchmod(
+                replacement.as_raw_fd(),
+                (displaced_permissions.mode() & 0o777) as libc::mode_t,
+            )
+        } != 0
+        {
+            return Err(workspace_file_write_error());
+        }
+        replacement
+            .sync_all()
+            .map_err(|_| workspace_file_write_error())?;
+        unlink_at(&parent, &temporary_name).map_err(|_| workspace_file_write_error())
+    })();
+    if let Err(error) = commit {
+        if exchange_at(&parent, &temporary_name, &parent.file_name).is_ok() {
+            return if unlink_at(&parent, &temporary_name).is_ok() {
+                Err(error)
+            } else {
+                Err(workspace_file_recovery_error())
+            };
+        }
+        return Err(workspace_file_recovery_error());
+    }
+    Ok(())
+}
+
+#[cfg(windows)]
+fn write_workspace_text_atomically(
+    root: &Path,
+    relative_path: &str,
+    contents: &str,
+    expected_revision: &str,
+) -> ChatResult<()> {
+    use std::os::windows::fs::OpenOptionsExt;
+
+    let relative = Path::new(relative_path);
+    let parent_relative = relative.parent().unwrap_or_else(|| Path::new(""));
+    let parent_relative = parent_relative
+        .to_str()
+        .ok_or_else(|| ChatError::validation("relativePath", "Workspace path is unsupported"))?;
+    let (parent, _parent_handles) = windows_workspace_directory_chain(root, parent_relative)?;
+    let target = parent.join(
+        relative
+            .file_name()
+            .ok_or_else(|| ChatError::validation("relativePath", "Workspace path is invalid"))?,
+    );
+    let (_current_parents, mut current) = windows_open_regular_file(root, relative_path)?;
+    let (current_revision, permissions) = revision_and_permissions(&mut current, relative_path)?;
+    if current_revision != expected_revision {
+        return Err(stale_workspace_file_error());
+    }
+
+    let (temporary, backup, recovery) = windows_replacement_paths(&parent);
+    let mut options = OpenOptions::new();
+    options
+        .write(true)
+        .create_new(true)
+        .share_mode(FILE_SHARE_READ.0 | FILE_SHARE_WRITE.0)
+        .custom_flags(FILE_FLAG_OPEN_REPARSE_POINT.0);
+    let mut replacement = options
+        .open(&temporary)
+        .map_err(|_| workspace_file_write_error())?;
+    let prepared = replacement
+        .write_all(contents.as_bytes())
+        .and_then(|_| replacement.set_permissions(permissions))
+        .and_then(|_| replacement.sync_all());
+    drop(replacement);
+    if prepared.is_err() {
+        if fs::remove_file(&temporary).is_err() {
+            return Err(workspace_file_recovery_error());
+        }
+        return Err(workspace_file_write_error());
+    }
+    drop(current);
+
+    if windows_replace_file(&target, &temporary, &backup).is_err() {
+        // ReplaceFileW can move the original to its backup before reporting failure.
+        // Restore that documented partial state only after verifying the original bytes.
+        let target_exists = fs::symlink_metadata(&target).is_ok();
+        let backup_is_original = windows_revision_for_path(&backup, relative_path)
+            .is_ok_and(|revision| revision == expected_revision);
+        if !target_exists && backup_is_original {
+            if fs::rename(&backup, &target).is_err() {
+                return Err(workspace_file_recovery_error());
+            }
+        } else if !target_exists || fs::symlink_metadata(&backup).is_ok() {
+            return Err(workspace_file_recovery_error());
+        }
+        if fs::remove_file(&temporary).is_err() {
+            return Err(workspace_file_recovery_error());
+        }
+        return Err(workspace_file_write_error());
+    }
+
+    let displaced_revision = windows_revision_for_path(&backup, relative_path);
+    if !displaced_revision
+        .as_ref()
+        .is_ok_and(|revision| revision == expected_revision)
+    {
+        if windows_replace_file(&target, &backup, &recovery).is_err() {
+            return Err(workspace_file_recovery_error());
+        }
+        if fs::remove_file(&recovery).is_err() {
+            return Err(workspace_file_recovery_error());
+        }
+        return Err(stale_workspace_file_error());
+    }
+    fs::remove_file(&backup).map_err(|_| workspace_file_recovery_error())
+}
+
+#[cfg(windows)]
+fn windows_replacement_paths(parent: &Path) -> (PathBuf, PathBuf, PathBuf) {
+    let generation = WORKSPACE_FILE_WRITE_GENERATION.fetch_add(1, Ordering::Relaxed);
+    let nonce = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_nanos();
+    let stem = format!(".ganbaru.{}.{}.{}", std::process::id(), generation, nonce);
+    (
+        parent.join(format!("{stem}.tmp")),
+        parent.join(format!("{stem}.backup")),
+        parent.join(format!("{stem}.recovery")),
+    )
+}
+
+#[cfg(windows)]
+fn windows_replace_file(target: &Path, replacement: &Path, backup: &Path) -> std::io::Result<()> {
+    use std::os::windows::ffi::OsStrExt;
+    use windows::core::PCWSTR;
+    use windows::Win32::Storage::FileSystem::{ReplaceFileW, REPLACE_FILE_FLAGS};
+
+    fn wide(path: &Path) -> Vec<u16> {
+        path.as_os_str().encode_wide().chain(Some(0)).collect()
+    }
+
+    let target = wide(target);
+    let replacement = wide(replacement);
+    let backup = wide(backup);
+    unsafe {
+        ReplaceFileW(
+            PCWSTR(target.as_ptr()),
+            PCWSTR(replacement.as_ptr()),
+            PCWSTR(backup.as_ptr()),
+            REPLACE_FILE_FLAGS(0),
+            None,
+            None,
+        )
+    }
+    .map_err(|error| std::io::Error::other(error.to_string()))
+}
+
+#[cfg(windows)]
+fn windows_revision_for_path(path: &Path, relative_path: &str) -> ChatResult<String> {
+    use std::os::windows::fs::OpenOptionsExt;
+
+    let mut options = OpenOptions::new();
+    options
+        .read(true)
+        .share_mode(FILE_SHARE_READ.0 | FILE_SHARE_WRITE.0)
+        .custom_flags(FILE_FLAG_OPEN_REPARSE_POINT.0);
+    let mut file = options
+        .open(path)
+        .map_err(|_| workspace_file_recovery_error())?;
+    let metadata = file
+        .metadata()
+        .map_err(|_| workspace_file_recovery_error())?;
+    if !metadata.is_file() || windows_metadata_is_reparse(&metadata) {
+        return Err(workspace_file_recovery_error());
+    }
+    revision_and_permissions(&mut file, relative_path).map(|(revision, _)| revision)
+}
+
+#[cfg(not(any(unix, windows)))]
+fn write_workspace_text_atomically(
+    root: &Path,
+    relative_path: &str,
+    contents: &str,
+    expected_revision: &str,
+) -> ChatResult<()> {
+    if workspace_path_contains_symlink(root, relative_path)? {
+        return Err(ChatError::new(
+            ChatErrorCode::Permission,
+            "Workspace file path cannot be symbolic",
+            false,
+        ));
+    }
+    let requested = root.join(relative_path);
+    let metadata = fs::symlink_metadata(&requested).map_err(|_| workspace_file_write_error())?;
     if metadata.file_type().is_symlink() || !metadata.is_file() {
         return Err(ChatError::validation(
             "relativePath",
             "Workspace path is not an editable regular file",
+        ));
+    }
+    let path = fs::canonicalize(&requested).map_err(|_| workspace_file_write_error())?;
+    if !path.starts_with(root) {
+        return Err(ChatError::new(
+            ChatErrorCode::Permission,
+            "Workspace file path resolves outside the working folder",
+            false,
         ));
     }
     let parent = path.parent().ok_or_else(workspace_file_write_error)?;
@@ -669,21 +1781,22 @@ fn write_workspace_text_atomically(path: &Path, contents: &str) -> ChatResult<()
         std::process::id(),
         generation
     ));
+    let mut file = OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&temporary)
+        .map_err(|_| workspace_file_write_error())?;
     let result = (|| {
-        let mut options = OpenOptions::new();
-        options.write(true).create_new(true);
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
-            options.mode(metadata.permissions().mode());
-        }
-        let mut file = options
-            .open(&temporary)
-            .map_err(|_| workspace_file_write_error())?;
         file.write_all(contents.as_bytes())
             .map_err(|_| workspace_file_write_error())?;
         file.sync_all().map_err(|_| workspace_file_write_error())?;
-        replace_workspace_file(&temporary, path)
+        let current = fs::read(&path).map_err(|_| workspace_file_write_error())?;
+        if workspace_file_revision(relative_path, &current) != expected_revision {
+            return Err(stale_workspace_file_error());
+        }
+        fs::set_permissions(&temporary, metadata.permissions())
+            .map_err(|_| workspace_file_write_error())?;
+        replace_workspace_file(&temporary, &path, relative_path, expected_revision)
     })();
     if result.is_err() {
         let _ = fs::remove_file(&temporary);
@@ -691,13 +1804,13 @@ fn write_workspace_text_atomically(path: &Path, contents: &str) -> ChatResult<()
     result
 }
 
-#[cfg(not(windows))]
-fn replace_workspace_file(temporary: &Path, target: &Path) -> ChatResult<()> {
-    fs::rename(temporary, target).map_err(|_| workspace_file_write_error())
-}
-
-#[cfg(windows)]
-fn replace_workspace_file(temporary: &Path, target: &Path) -> ChatResult<()> {
+#[cfg(not(any(unix, windows)))]
+fn replace_workspace_file(
+    temporary: &Path,
+    target: &Path,
+    relative_path: &str,
+    expected_revision: &str,
+) -> ChatResult<()> {
     let generation = WORKSPACE_FILE_WRITE_GENERATION.fetch_add(1, Ordering::Relaxed);
     let backup = target.with_extension(format!(
         "ganbaru.{}.{}.backup",
@@ -706,8 +1819,18 @@ fn replace_workspace_file(temporary: &Path, target: &Path) -> ChatResult<()> {
     ));
     fs::rename(target, &backup).map_err(|_| workspace_file_write_error())?;
     if fs::rename(temporary, target).is_err() {
-        let _ = fs::rename(&backup, target);
-        return Err(workspace_file_write_error());
+        return if fs::rename(&backup, target).is_ok() {
+            Err(workspace_file_write_error())
+        } else {
+            Err(workspace_file_recovery_error())
+        };
+    }
+    let displaced = fs::read(&backup).map_err(|_| workspace_file_write_error())?;
+    if workspace_file_revision(relative_path, &displaced) != expected_revision {
+        if fs::remove_file(target).is_ok() && fs::rename(&backup, target).is_ok() {
+            return Err(stale_workspace_file_error());
+        }
+        return Err(workspace_file_recovery_error());
     }
     fs::remove_file(backup).map_err(|_| workspace_file_write_error())
 }
@@ -720,18 +1843,42 @@ fn device_state_error<T>(_error: T) -> ChatError {
     )
 }
 
-fn file_error<T>(_error: T) -> ChatError {
-    ChatError::new(
-        ChatErrorCode::Permission,
-        "Workspace file could not be read safely",
-        true,
-    )
+fn file_error(error: std::io::Error) -> ChatError {
+    if error.kind() == std::io::ErrorKind::NotFound {
+        ChatError::new(
+            ChatErrorCode::NotFound,
+            "Workspace file or directory no longer exists",
+            true,
+        )
+    } else {
+        ChatError::new(
+            ChatErrorCode::Permission,
+            "Workspace file could not be read safely",
+            true,
+        )
+    }
 }
 
 fn workspace_file_write_error() -> ChatError {
     ChatError::new(
         ChatErrorCode::Persistence,
         "Workspace file could not be saved safely",
+        true,
+    )
+}
+
+fn workspace_file_recovery_error() -> ChatError {
+    ChatError::new(
+        ChatErrorCode::Conflict,
+        "Workspace file recovery could not finish safely. A partial file or Ganbaru recovery artifact remains in the workspace.",
+        true,
+    )
+}
+
+fn stale_workspace_file_error() -> ChatError {
+    ChatError::new(
+        ChatErrorCode::Conflict,
+        "The workspace file changed outside Ganbaru. Reload or compare it before saving.",
         true,
     )
 }
@@ -947,6 +2094,27 @@ mod tests {
     }
 
     #[test]
+    fn recreate_requires_confirmation_and_never_overwrites_a_reappeared_file() {
+        let directory = TestDirectory::new();
+        let authorized = directory.authorized(RepositoryKind::None);
+
+        assert!(
+            recreate_workspace_file(&authorized, "restored.txt", "preserved\n", false).is_err()
+        );
+        let recreated = recreate_workspace_file(&authorized, "restored.txt", "preserved\n", true)
+            .expect("confirmed recreation should succeed");
+        assert_eq!(recreated.text.as_deref(), Some("preserved\n"));
+        let conflict = recreate_workspace_file(&authorized, "restored.txt", "overwrite\n", true)
+            .expect_err("recreation must not overwrite an existing file");
+        assert_eq!(conflict.code, ChatErrorCode::Conflict);
+        assert_eq!(
+            fs::read_to_string(directory.0.join("restored.txt"))
+                .expect("recreated file should read"),
+            "preserved\n"
+        );
+    }
+
+    #[test]
     fn save_rejects_binary_oversized_excluded_and_symbolic_files() {
         let directory = TestDirectory::new();
         fs::write(directory.0.join("binary.bin"), [0, 1, 2]).expect("binary should write");
@@ -973,6 +2141,61 @@ mod tests {
             )
             .expect("symlink should be created");
             assert!(save_workspace_file(&authorized, "link.txt", "changed\n", "missing").is_err());
+
+            fs::create_dir(directory.0.join("real-parent")).expect("real parent should be created");
+            fs::write(directory.0.join("real-parent/nested.txt"), "nested\n")
+                .expect("nested file should write");
+            std::os::unix::fs::symlink(
+                directory.0.join("real-parent"),
+                directory.0.join("linked-parent"),
+            )
+            .expect("parent symlink should be created");
+            assert!(preview_workspace_file(&authorized, "linked-parent/nested.txt").is_err());
+            assert!(list_workspace_directory(&authorized, "linked-parent", true).is_err());
+            assert!(save_workspace_file(
+                &authorized,
+                "linked-parent/nested.txt",
+                "changed\n",
+                "missing",
+            )
+            .is_err());
+            assert!(
+                recreate_workspace_file(&authorized, "linked-parent/new.txt", "new\n", true,)
+                    .is_err()
+            );
+            assert_eq!(
+                fs::read_to_string(directory.0.join("real-parent/nested.txt"))
+                    .expect("nested file should remain readable"),
+                "nested\n"
+            );
+            assert!(!directory.0.join("real-parent/new.txt").exists());
         }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn descriptor_relative_file_open_does_not_follow_a_replaced_parent_path() {
+        let directory = TestDirectory::new();
+        let original = directory.0.join("original");
+        let replacement = directory.0.join("replacement");
+        fs::create_dir(&original).expect("original directory should be created");
+        fs::create_dir(&replacement).expect("replacement directory should be created");
+        fs::write(original.join("sample.txt"), "original\n")
+            .expect("original file should be written");
+        fs::write(replacement.join("sample.txt"), "replacement\n")
+            .expect("replacement file should be written");
+
+        let parent = secure_workspace_parent(&directory.0, "original/sample.txt")
+            .expect("secure parent should open");
+        let moved = directory.0.join("moved-original");
+        fs::rename(&original, &moved).expect("original directory should move");
+        std::os::unix::fs::symlink(&replacement, &original)
+            .expect("replacement symlink should be created");
+
+        let mut file = open_regular_file_at(&parent).expect("descriptor-relative file should open");
+        let mut text = String::new();
+        file.read_to_string(&mut text)
+            .expect("descriptor-relative file should read");
+        assert_eq!(text, "original\n");
     }
 }

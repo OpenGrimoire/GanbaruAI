@@ -3,15 +3,16 @@
 use super::models::{ChatError, ChatErrorCode, ChatResult};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::time::Duration;
-use tokio::io::AsyncReadExt;
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::process::Command;
 
 const GIT_TIMEOUT: Duration = Duration::from_secs(60);
 const GIT_NETWORK_TIMEOUT: Duration = Duration::from_secs(180);
 const MAX_GIT_OUTPUT_BYTES: usize = 8 * 1024 * 1024;
+const MAX_REVIEW_OUTPUT_BYTES: usize = 64 * 1024 * 1024;
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -22,6 +23,7 @@ pub struct GitChangedPathRead {
     pub worktree_status: String,
     pub untracked: bool,
     pub ignored: bool,
+    pub conflicted: bool,
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -69,8 +71,26 @@ struct GitOutput {
     stdout: Vec<u8>,
 }
 
+#[derive(Clone, Copy, Default)]
+struct GitStorage<'a> {
+    index_file: Option<&'a Path>,
+    object_directory: Option<&'a Path>,
+    alternate_object_directory: Option<&'a Path>,
+}
+
 pub async fn status(root: &Path) -> ChatResult<GitStatusRead> {
-    let output = run(root, &["status", "--porcelain=v2", "--branch", "-z"], false).await?;
+    let output = run(
+        root,
+        &[
+            "status",
+            "--porcelain=v2",
+            "--branch",
+            "--untracked-files=all",
+            "-z",
+        ],
+        false,
+    )
+    .await?;
     parse_status(&output.stdout)
 }
 
@@ -94,7 +114,22 @@ pub async fn stage(root: &Path, paths: &[String]) -> ChatResult<()> {
 }
 
 pub async fn unstage(root: &Path, paths: &[String]) -> ChatResult<()> {
-    let mut arguments = vec!["reset", "--quiet", "HEAD", "--"];
+    let source = match run(root, &["rev-parse", "--verify", "HEAD^{tree}"], false).await {
+        Ok(output) => String::from_utf8(output.stdout)
+            .map_err(|_| git_protocol_error("Git tree ID is not valid UTF-8"))?
+            .trim()
+            .to_string(),
+        Err(_) => String::from_utf8(
+            run_bounded(root, &["mktree"], false, Some(&[]), MAX_GIT_OUTPUT_BYTES)
+                .await?
+                .stdout,
+        )
+        .map_err(|_| git_protocol_error("Git empty tree ID is not valid UTF-8"))?
+        .trim()
+        .to_string(),
+    };
+    let source_argument = format!("--source={source}");
+    let mut arguments = vec!["restore", "--staged", source_argument.as_str(), "--"];
     arguments.extend(paths.iter().map(String::as_str));
     run(root, &arguments, false).await.map(|_| ())
 }
@@ -254,6 +289,22 @@ pub async fn worktrees(root: &Path) -> ChatResult<Vec<GitWorktreeRead>> {
     Ok(reads)
 }
 
+pub async fn common_directory(root: &Path) -> ChatResult<PathBuf> {
+    let output = run(
+        root,
+        &["rev-parse", "--path-format=absolute", "--git-common-dir"],
+        false,
+    )
+    .await?;
+    let value = String::from_utf8(output.stdout)
+        .map_err(|_| git_protocol_error("Git common directory is not valid UTF-8"))?;
+    let value = value.trim();
+    if value.is_empty() {
+        return Err(git_protocol_error("Git common directory is missing"));
+    }
+    Ok(PathBuf::from(value))
+}
+
 pub async fn add_worktree(
     root: &Path,
     worktree_path: &str,
@@ -384,23 +435,168 @@ fn validate_git_argument(value: &str) -> ChatResult<()> {
 }
 
 async fn run(root: &Path, arguments: &[&str], network: bool) -> ChatResult<GitOutput> {
-    let mut child = Command::new("git")
+    run_bounded(root, arguments, network, None, MAX_GIT_OUTPUT_BYTES).await
+}
+
+pub(crate) async fn review_output(
+    root: &Path,
+    arguments: &[&str],
+    input: Option<&[u8]>,
+) -> ChatResult<Vec<u8>> {
+    run_bounded(root, arguments, false, input, MAX_REVIEW_OUTPUT_BYTES)
+        .await
+        .map(|output| output.stdout)
+}
+
+pub(crate) async fn review_output_in_storage(
+    root: &Path,
+    arguments: &[&str],
+    input: Option<&[u8]>,
+    index_file: Option<&Path>,
+    object_directory: Option<&Path>,
+    alternate_object_directory: Option<&Path>,
+) -> ChatResult<Vec<u8>> {
+    run_bounded_with_storage(
+        root,
+        arguments,
+        false,
+        input,
+        MAX_REVIEW_OUTPUT_BYTES,
+        GitStorage {
+            index_file,
+            object_directory,
+            alternate_object_directory,
+        },
+    )
+    .await
+    .map(|output| output.stdout)
+}
+
+pub(crate) async fn review_output_to_file_in_storage(
+    root: &Path,
+    arguments: &[&str],
+    output_path: &Path,
+    maximum_output_bytes: usize,
+    object_directory: Option<&Path>,
+    alternate_object_directory: Option<&Path>,
+) -> ChatResult<u64> {
+    let mut command = Command::new("git");
+    command
         .arg("-C")
         .arg(root)
         .args(arguments)
+        .env("GIT_LITERAL_PATHSPECS", "1")
         .env("GIT_TERMINAL_PROMPT", "0")
         .env("GCM_INTERACTIVE", "never")
         .env("LC_ALL", "C")
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
-        .kill_on_drop(true)
-        .spawn()
-        .map_err(|_| git_unavailable())?;
+        .kill_on_drop(true);
+    apply_storage_environment(
+        &mut command,
+        GitStorage {
+            index_file: None,
+            object_directory,
+            alternate_object_directory,
+        },
+    )?;
+    let mut child = command.spawn().map_err(|_| git_unavailable())?;
     let stdout = child.stdout.take().ok_or_else(git_unavailable)?;
     let stderr = child.stderr.take().ok_or_else(git_unavailable)?;
-    let stdout_task = tokio::spawn(read_bounded(stdout));
-    let stderr_task = tokio::spawn(read_bounded(stderr));
+    let output_path = output_path.to_path_buf();
+    let stdout_task = tokio::spawn(write_bounded_file(
+        stdout,
+        output_path,
+        maximum_output_bytes,
+    ));
+    let stderr_task = tokio::spawn(read_bounded(stderr, MAX_GIT_OUTPUT_BYTES));
+    let status = match tokio::time::timeout(GIT_TIMEOUT, child.wait()).await {
+        Ok(status) => status.map_err(|_| git_unavailable())?,
+        Err(_) => {
+            let _ = child.kill().await;
+            let _ = child.wait().await;
+            let _ = stdout_task.await;
+            let _ = stderr_task.await;
+            return Err(ChatError::new(
+                ChatErrorCode::Timeout,
+                "Git operation timed out",
+                true,
+            ));
+        }
+    };
+    let byte_size = stdout_task.await.map_err(|_| git_unavailable())??;
+    let stderr = stderr_task.await.map_err(|_| git_unavailable())??;
+    if !status.success() {
+        let detail = String::from_utf8_lossy(&stderr).trim().to_string();
+        return Err(ChatError {
+            code: ChatErrorCode::Conflict,
+            message: "Git operation failed safely".to_string(),
+            field: None,
+            recoverable: true,
+            details: (!detail.is_empty()).then(|| Box::new(json!({ "stderr": detail }))),
+        });
+    }
+    Ok(byte_size)
+}
+
+async fn run_bounded(
+    root: &Path,
+    arguments: &[&str],
+    network: bool,
+    input: Option<&[u8]>,
+    maximum_output_bytes: usize,
+) -> ChatResult<GitOutput> {
+    run_bounded_with_storage(
+        root,
+        arguments,
+        network,
+        input,
+        maximum_output_bytes,
+        GitStorage::default(),
+    )
+    .await
+}
+
+async fn run_bounded_with_storage(
+    root: &Path,
+    arguments: &[&str],
+    network: bool,
+    input: Option<&[u8]>,
+    maximum_output_bytes: usize,
+    storage: GitStorage<'_>,
+) -> ChatResult<GitOutput> {
+    let mut command = Command::new("git");
+    command
+        .arg("-C")
+        .arg(root)
+        .args(arguments)
+        .env("GIT_LITERAL_PATHSPECS", "1")
+        .env("GIT_TERMINAL_PROMPT", "0")
+        .env("GCM_INTERACTIVE", "never")
+        .env("LC_ALL", "C")
+        .stdin(if input.is_some() {
+            Stdio::piped()
+        } else {
+            Stdio::null()
+        })
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .kill_on_drop(true);
+    apply_storage_environment(&mut command, storage)?;
+    let mut child = command.spawn().map_err(|_| git_unavailable())?;
+    let stdout = child.stdout.take().ok_or_else(git_unavailable)?;
+    let stderr = child.stderr.take().ok_or_else(git_unavailable)?;
+    let stdout_task = tokio::spawn(read_bounded(stdout, maximum_output_bytes));
+    let stderr_task = tokio::spawn(read_bounded(stderr, maximum_output_bytes));
+    if let Some(bytes) = input {
+        let mut stdin = child.stdin.take().ok_or_else(git_unavailable)?;
+        tokio::time::timeout(GIT_TIMEOUT, stdin.write_all(bytes))
+            .await
+            .map_err(|_| ChatError::new(ChatErrorCode::Timeout, "Git input timed out", true))?
+            .map_err(|_| git_unavailable())?;
+        drop(stdin);
+    }
     let timeout = if network {
         GIT_NETWORK_TIMEOUT
     } else {
@@ -432,14 +628,37 @@ async fn run(root: &Path, arguments: &[&str], network: bool) -> ChatResult<GitOu
     Ok(GitOutput { stdout })
 }
 
-async fn read_bounded<R: tokio::io::AsyncRead + Unpin>(reader: R) -> ChatResult<Vec<u8>> {
+fn apply_storage_environment(command: &mut Command, storage: GitStorage<'_>) -> ChatResult<()> {
+    if let Some(index_file) = storage.index_file {
+        command.env("GIT_INDEX_FILE", index_file);
+    }
+    if let Some(object_directory) = storage.object_directory {
+        command.env("GIT_OBJECT_DIRECTORY", object_directory);
+    }
+    if let Some(alternate) = storage.alternate_object_directory {
+        let alternates = std::env::join_paths([alternate]).map_err(|_| {
+            ChatError::new(
+                ChatErrorCode::Validation,
+                "Git object directory path is unsupported",
+                false,
+            )
+        })?;
+        command.env("GIT_ALTERNATE_OBJECT_DIRECTORIES", alternates);
+    }
+    Ok(())
+}
+
+async fn read_bounded<R: tokio::io::AsyncRead + Unpin>(
+    reader: R,
+    maximum_bytes: usize,
+) -> ChatResult<Vec<u8>> {
     let mut bytes = Vec::new();
     reader
-        .take((MAX_GIT_OUTPUT_BYTES + 1) as u64)
+        .take((maximum_bytes + 1) as u64)
         .read_to_end(&mut bytes)
         .await
         .map_err(|_| git_unavailable())?;
-    if bytes.len() > MAX_GIT_OUTPUT_BYTES {
+    if bytes.len() > maximum_bytes {
         return Err(ChatError::new(
             ChatErrorCode::Protocol,
             "Git output exceeds the supported limit",
@@ -447,6 +666,43 @@ async fn read_bounded<R: tokio::io::AsyncRead + Unpin>(reader: R) -> ChatResult<
         ));
     }
     Ok(bytes)
+}
+
+async fn write_bounded_file<R: tokio::io::AsyncRead + Unpin>(
+    mut reader: R,
+    path: PathBuf,
+    maximum_bytes: usize,
+) -> ChatResult<u64> {
+    let mut file = tokio::fs::OpenOptions::new()
+        .create_new(true)
+        .write(true)
+        .open(path)
+        .await
+        .map_err(|_| git_unavailable())?;
+    let mut buffer = [0_u8; 64 * 1024];
+    let mut total = 0_usize;
+    loop {
+        let read = reader
+            .read(&mut buffer)
+            .await
+            .map_err(|_| git_unavailable())?;
+        if read == 0 {
+            break;
+        }
+        total = total.saturating_add(read);
+        if total > maximum_bytes {
+            return Err(ChatError::new(
+                ChatErrorCode::Protocol,
+                "Git output exceeds the supported limit",
+                true,
+            ));
+        }
+        file.write_all(&buffer[..read])
+            .await
+            .map_err(|_| git_unavailable())?;
+    }
+    file.flush().await.map_err(|_| git_unavailable())?;
+    u64::try_from(total).map_err(|_| git_unavailable())
 }
 
 fn parse_status(bytes: &[u8]) -> ChatResult<GitStatusRead> {
@@ -483,11 +739,11 @@ fn parse_status(bytes: &[u8]) -> ChatResult<GitStatusRead> {
         } else if let Some(path) = field.strip_prefix("? ") {
             status
                 .files
-                .push(changed_path(path, None, "?", "?", true, false));
+                .push(changed_path(path, None, "?", "?", true, false, false));
         } else if let Some(path) = field.strip_prefix("! ") {
             status
                 .files
-                .push(changed_path(path, None, "!", "!", false, true));
+                .push(changed_path(path, None, "!", "!", false, true, false));
         } else if field.starts_with("1 ") {
             let parts = field.splitn(9, ' ').collect::<Vec<_>>();
             if parts.len() != 9 || parts[1].len() != 2 {
@@ -498,6 +754,7 @@ fn parse_status(bytes: &[u8]) -> ChatResult<GitStatusRead> {
                 None,
                 &parts[1][..1],
                 &parts[1][1..],
+                false,
                 false,
                 false,
             ));
@@ -515,6 +772,7 @@ fn parse_status(bytes: &[u8]) -> ChatResult<GitStatusRead> {
                 &parts[1][1..],
                 false,
                 false,
+                false,
             ));
         } else if field.starts_with("u ") {
             let parts = field.splitn(11, ' ').collect::<Vec<_>>();
@@ -528,6 +786,7 @@ fn parse_status(bytes: &[u8]) -> ChatResult<GitStatusRead> {
                 &parts[1][1..],
                 false,
                 false,
+                true,
             ));
         }
     }
@@ -541,6 +800,7 @@ fn changed_path(
     worktree_status: &str,
     untracked: bool,
     ignored: bool,
+    conflicted: bool,
 ) -> GitChangedPathRead {
     GitChangedPathRead {
         relative_path: path.to_string(),
@@ -549,6 +809,7 @@ fn changed_path(
         worktree_status: worktree_status.to_string(),
         untracked,
         ignored,
+        conflicted,
     }
 }
 

@@ -16,6 +16,7 @@ use sha2::{Digest, Sha256};
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::time::Duration;
+use tauri::Manager;
 use tokio::io::AsyncReadExt;
 use tokio::process::Command;
 
@@ -271,6 +272,9 @@ pub async fn chat_checkout_hosted_change_request(
         execution_environment_id.as_deref(),
     )
     .await?;
+    let _guard = app
+        .state::<super::workspace_mutation::ChatWorkspaceMutationRegistry>()
+        .try_mutation(&root)?;
     if provider_kind == HostedSourceControlKind::Bitbucket {
         let remote_name = remote_name.as_deref().unwrap_or("origin");
         git_service::checkout_bitbucket_pull_request(&root, remote_name, &reference).await?;

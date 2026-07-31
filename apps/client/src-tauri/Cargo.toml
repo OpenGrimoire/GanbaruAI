@@ -48,6 +48,7 @@ sha2 = "0.10.9"
 tauri-plugin-dialog = "2"
 tauri-plugin-updater = "2.10.1"
 notify-rust = "4"
+notify = "=8.2.0"
 # Minimal zip support for unpacking Google/Apple-style `.ics.zip` exports.
 # `default-features = false` strips AES (encrypted zips), bzip2, lzma, zstd,
 # ppmd, deflate64, and time; we only need plain deflate for ICS bundles, so
@@ -79,6 +80,7 @@ windows = { version = "0.61", features = [
     "Media",
     "Win32_Foundation",
     "Win32_Security",
+    "Win32_Storage_FileSystem",
     "Win32_System_Diagnostics_ToolHelp",
     "Win32_System_Com",
     "Win32_System_Com_StructuredStorage",

@@ -3,7 +3,9 @@ import type {
   ChatInspectorTab,
   ChatThreadId,
   ChatTurnId,
+  ReviewDiffSource,
 } from "./contracts";
+import type { ReviewLayoutPreference } from "./review-model";
 
 export interface ChatInspectorThreadState {
   tab: ChatInspectorTab;
@@ -20,6 +22,8 @@ export interface ChatInspectorThreadState {
   changedFileListHeightPx: number;
   whitespaceIgnored: boolean;
   diffView: "auto" | "unified" | "split";
+  reviewSource: ReviewDiffSource | null;
+  reviewLayoutPreference: ReviewLayoutPreference;
 }
 
 export interface ChatChangedFileTreeNode {
@@ -45,6 +49,8 @@ const DEFAULT_STATE: ChatInspectorThreadState = {
   changedFileListHeightPx: 160,
   whitespaceIgnored: false,
   diffView: "auto",
+  reviewSource: null,
+  reviewLayoutPreference: "auto",
 };
 
 export class ChatInspectorSessionState {

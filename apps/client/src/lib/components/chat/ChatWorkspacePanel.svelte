@@ -34,12 +34,11 @@
   import GitBranch from "@lucide/svelte/icons/git-branch";
   import Globe from "@lucide/svelte/icons/globe";
   import ListTodo from "@lucide/svelte/icons/list-todo";
-  import MessageSquareText from "@lucide/svelte/icons/message-square-text";
   import Plus from "@lucide/svelte/icons/plus";
   import SquareTerminal from "@lucide/svelte/icons/square-terminal";
   import X from "@lucide/svelte/icons/x";
   import * as chatApi from "$lib/api/chat";
-  import type { ChatInspectorTab, ChatTerminalRead } from "$lib/chat/contracts";
+  import type { ChatInspectorTab, ChatTerminalRead, ReviewDiffSource } from "$lib/chat/contracts";
   import {
     CHAT_WORKSPACE_PANEL_TAB_NAME_MAX_LENGTH,
     closeInspectorTab,
@@ -59,6 +58,7 @@
     type ChatWorkspacePanelRenameGeometry,
     type ChatWorkspacePanelTabKey,
   } from "$lib/chat/inspector-model";
+  import { legacyReviewSource } from "$lib/chat/review-model";
   import { terminalErrorMessage } from "$lib/chat/terminal-model";
   import {
     pickSelectPopoverGeometry,
@@ -69,7 +69,6 @@
   import { getLocalization } from "$lib/i18n/translator.svelte";
   import { getChat } from "$lib/stores/chat.svelte";
   import { portal } from "$lib/utils/portal";
-  import ChatChangesPanel from "./ChatChangesPanel.svelte";
   import ChatBrowserPanel from "./ChatBrowserPanel.svelte";
   import ChatFileIcon from "./ChatFileIcon.svelte";
   import ChatFilesPanel from "./ChatFilesPanel.svelte";
@@ -152,15 +151,14 @@
   const selectedTerminal = $derived(terminals.find((terminal) => terminal.id === selectedTerminalId) ?? null);
   const panelTabs: {
     id: Exclude<ChatInspectorTab, "terminal">;
-    label: "changes" | "plan" | "files" | "sourceControl" | "browser" | "review";
+    label: "plan" | "files" | "sourceControl" | "browser" | "review";
     icon: typeof FileDiff;
   }[] = [
-    { id: "changes", label: "changes", icon: FileDiff },
     { id: "plan", label: "plan", icon: ListTodo },
     { id: "files", label: "files", icon: Files },
     { id: "sourceControl", label: "sourceControl", icon: GitBranch },
     { id: "browser", label: "browser", icon: Globe },
-    { id: "review", label: "review", icon: MessageSquareText },
+    { id: "review", label: "review", icon: FileDiff },
   ];
   type WorkspacePanelRenderTab =
     | { key: ChatWorkspacePanelTabKey; type: "loading-terminal" }
@@ -195,16 +193,41 @@
   onMount(() => {
     if (placement !== "inspector") return;
     const openChanges = (event: Event) => {
-      if (!(event instanceof CustomEvent) || !isOpenChangesDetail(event.detail)) return;
-      openPanel("changes");
+      openPanel("review");
+      if (!(event instanceof CustomEvent) || !isOpenChangesDetail(event.detail)) {
+        update({
+          reviewSource: chat.selectedThreadId
+            ? { kind: "checkpoint", range: "turn", turnId: null }
+            : { kind: "working_tree", mode: "all" },
+          selectedFile: null,
+        });
+        return;
+      }
       update({
         changeScope: "current_turn",
         changeTurnId: event.detail.turnId,
         selectedFile: event.detail.relativePath,
+        reviewSource: { kind: "checkpoint", range: "turn", turnId: event.detail.turnId },
       });
     };
+    const openReview = (event: Event) => {
+      if (!(event instanceof CustomEvent) || !isOpenReviewDetail(event.detail)) return;
+      openPanel("review");
+      update({ reviewSource: event.detail.source, selectedFile: event.detail.relativePath });
+    };
+    const openFile = (event: Event) => {
+      if (!(event instanceof CustomEvent) || !isOpenFileDetail(event.detail)) return;
+      openPanel("files");
+      update({ filePreviewPath: event.detail.relativePath });
+    };
     window.addEventListener("ganbaru-ai:chat-open-changes", openChanges);
-    return () => window.removeEventListener("ganbaru-ai:chat-open-changes", openChanges);
+    window.addEventListener("ganbaru-ai:chat-open-review", openReview);
+    window.addEventListener("ganbaru-ai:chat-open-file", openFile);
+    return () => {
+      window.removeEventListener("ganbaru-ai:chat-open-changes", openChanges);
+      window.removeEventListener("ganbaru-ai:chat-open-review", openReview);
+      window.removeEventListener("ganbaru-ai:chat-open-file", openFile);
+    };
   });
 
   function isOpenChangesDetail(value: unknown): value is {
@@ -215,6 +238,52 @@
     const detail = value as Record<string, unknown>;
     return typeof detail.turnId === "string"
       && (detail.relativePath === null || typeof detail.relativePath === "string");
+  }
+
+  function isOpenReviewDetail(value: unknown): value is {
+    source: ReviewDiffSource;
+    relativePath: string | null;
+  } {
+    if (typeof value !== "object" || value === null || Array.isArray(value)) return false;
+    const detail = value as Record<string, unknown>;
+    return isReviewDiffSource(detail.source)
+      && (detail.relativePath === null || typeof detail.relativePath === "string");
+  }
+
+  function isReviewDiffSource(value: unknown): value is ReviewDiffSource {
+    if (typeof value !== "object" || value === null || Array.isArray(value)) return false;
+    const source = value as Record<string, unknown>;
+    switch (source.kind) {
+      case "working_tree":
+        return source.mode === "staged" || source.mode === "unstaged" || source.mode === "all";
+      case "checkpoint":
+        return (source.range === "turn" || source.range === "thread")
+          && (source.turnId === null || typeof source.turnId === "string");
+      case "commit":
+        return typeof source.revision === "string";
+      case "branch":
+        return (source.baseRef === null || typeof source.baseRef === "string")
+          && typeof source.headRef === "string"
+          && (source.comparison === "merge_base" || source.comparison === "direct");
+      case "provider_turn":
+        return typeof source.turnId === "string";
+      case "change_request":
+        return (source.provider === "github"
+          || source.provider === "gitlab"
+          || source.provider === "azure_devops"
+          || source.provider === "bitbucket")
+          && typeof source.repositorySlug === "string"
+          && typeof source.number === "number"
+          && Number.isSafeInteger(source.number)
+          && source.number > 0;
+      default:
+        return false;
+    }
+  }
+
+  function isOpenFileDetail(value: unknown): value is { relativePath: string } {
+    if (typeof value !== "object" || value === null || Array.isArray(value)) return false;
+    return typeof (value as Record<string, unknown>).relativePath === "string";
   }
 
   function initialPanelTab(): "files" | "terminal" {
@@ -231,7 +300,8 @@
     resetTabDrag();
     closeTabRenamePanel();
     loadedKey = key;
-    panelState = placementSession().read(key);
+    const normalized = normalizeLegacyReviewState(placementSession().read(key));
+    panelState = key ? placementSession().update(key, normalized) : normalized;
   });
 
   $effect(() => {
@@ -282,6 +352,7 @@
   }
 
   function openPanel(tab: ChatInspectorTab): void {
+    tab = tab === "changes" ? "review" : tab;
     const openTabs = openInspectorTab(panelState.openTabs, tab);
     const currentOrder = reconcileWorkspacePanelTabOrder(
       panelState.tabOrder,
@@ -326,7 +397,27 @@
   }
 
   function selectPanel(tab: ChatInspectorTab): void {
+    tab = tab === "changes" ? "review" : tab;
     update({ tab, ...(tab === "files" ? { fileTreeVisible: true } : {}) });
+  }
+
+  function normalizeLegacyReviewState(state: ChatInspectorThreadState): ChatInspectorThreadState {
+    const normalize = (tab: ChatInspectorTab): ChatInspectorTab => tab === "changes" ? "review" : tab;
+    const openTabs = [...new Set(state.openTabs.map(normalize))];
+    const tabOrder = [...new Set(state.tabOrder.map((key) => key === "changes" ? "review" as const : key))];
+    const tabNames = { ...state.tabNames };
+    if (tabNames.review === undefined && tabNames.changes !== undefined) tabNames.review = tabNames.changes;
+    delete tabNames.changes;
+    return {
+      ...state,
+      tab: normalize(state.tab),
+      openTabs,
+      tabOrder,
+      tabNames,
+      reviewSource: state.reviewSource ?? (chat.selectedThreadId
+        ? legacyReviewSource(state.changeScope, state.changeTurnId)
+        : { kind: "working_tree", mode: "all" }),
+    };
   }
 
   function panelLabel(tab: (typeof panelTabs)[number]): string {
@@ -1075,22 +1166,6 @@
           <button type="button" class="chat-secondary-button" onclick={retryTerminalLoad}>{t("common.retry")}</button>
         </div>
       {/if}
-    {:else if panelState.tab === "changes"}
-      <ChatChangesPanel
-        scope={panelState.changeScope}
-        turnId={panelState.changeTurnId}
-        selectedFile={panelState.selectedFile}
-        fileListHeightPx={panelState.changedFileListHeightPx}
-        whitespaceIgnored={panelState.whitespaceIgnored}
-        diffView={panelState.diffView}
-        onStateChange={(change) => update({
-          ...(change.scope === undefined ? {} : { changeScope: change.scope, changeTurnId: null }),
-          ...(change.selectedFile === undefined ? {} : { selectedFile: change.selectedFile }),
-          ...(change.fileListHeightPx === undefined ? {} : { changedFileListHeightPx: change.fileListHeightPx }),
-          ...(change.whitespaceIgnored === undefined ? {} : { whitespaceIgnored: change.whitespaceIgnored }),
-          ...(change.diffView === undefined ? {} : { diffView: change.diffView }),
-        })}
-      />
     {:else if panelState.tab === "plan"}
       <ChatPlanPanel />
     {:else if panelState.tab === "sourceControl"}
@@ -1098,7 +1173,22 @@
     {:else if panelState.tab === "browser"}
       <ChatBrowserPanel />
     {:else if panelState.tab === "review"}
-      <ChatReviewPanel />
+      <ChatReviewPanel
+        source={panelState.reviewSource}
+        legacyScope={panelState.changeScope}
+        legacyTurnId={panelState.changeTurnId}
+        selectedFile={panelState.selectedFile}
+        layoutPreference={panelState.reviewLayoutPreference}
+        whitespaceIgnored={panelState.whitespaceIgnored}
+        diffView={panelState.diffView}
+        onStateChange={(change) => update({
+          ...(change.source === undefined ? {} : { reviewSource: change.source }),
+          ...(change.selectedFile === undefined ? {} : { selectedFile: change.selectedFile }),
+          ...(change.layoutPreference === undefined ? {} : { reviewLayoutPreference: change.layoutPreference }),
+          ...(change.whitespaceIgnored === undefined ? {} : { whitespaceIgnored: change.whitespaceIgnored }),
+          ...(change.diffView === undefined ? {} : { diffView: change.diffView }),
+        })}
+      />
     {:else}
       <ChatFilesPanel
         directoryPath={panelState.fileBrowserPath}

@@ -20,8 +20,21 @@
 
   const localization = getLocalization();
   const { t } = localization;
+  const INITIAL_VISIBLE_FILES = 400;
+  const FILE_BATCH_SIZE = 400;
   let collapsed = $state<string[]>([]);
-  const tree = $derived(buildChangedFileTree(files));
+  let visibleFileLimit = $state(INITIAL_VISIBLE_FILES);
+  const visibleFiles = $derived.by(() => {
+    const initial = files.slice(0, visibleFileLimit);
+    const selected = selectedFile
+      ? files.find((file) => file.relativePath === selectedFile)
+      : null;
+    return selected && !initial.some((file) => file.relativePath === selected.relativePath)
+      ? [...initial, selected]
+      : initial;
+  });
+  const hiddenFileCount = $derived(Math.max(0, files.length - visibleFileLimit));
+  const tree = $derived(buildChangedFileTree(visibleFiles));
 
   function toggle(path: string): void {
     collapsed = collapsed.includes(path)
@@ -64,9 +77,16 @@
 {/snippet}
 
 {@render nodes(tree, 0)}
+{#if hiddenFileCount > 0}
+  <button type="button" class="load-more-files" onclick={() => { visibleFileLimit += FILE_BATCH_SIZE; }}>
+    {t("chat.review.showMoreFiles", hiddenFileCount)}
+  </button>
+{/if}
 
 <style>
   .tree-row { display: flex; width: 100%; min-height: 1.75rem; align-items: center; gap: 0.25rem; border-radius: 0.25rem; padding-block: 0.25rem; padding-right: 0.3rem; font-size: 0.75rem; }
   .tree-row:hover, .tree-row.selected { background: var(--accent); }
   .file-status { display: inline-grid; min-width: 1rem; height: 1rem; place-items: center; border-radius: 0.25rem; background: var(--muted); color: var(--muted-foreground); font-family: "SF Mono", "SFMono-Regular", Consolas, monospace; font-size: 0.533333rem; font-weight: 600; }
+  .load-more-files { position: sticky; bottom: 0; width: 100%; min-height: 1.9rem; border-top: 1px solid var(--border); background: var(--background); color: var(--primary); font-size: 0.7rem; }
+  .load-more-files:hover { background: var(--accent); }
 </style>

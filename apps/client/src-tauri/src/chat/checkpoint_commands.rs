@@ -378,23 +378,14 @@ async fn authorize_thread(
     pool: &SqlitePool,
     thread_id: &ChatThreadId,
 ) -> ChatResult<(ProjectWorkingFolderId, AuthorizedWorkingFolder)> {
-    let working_folder_id: String = sqlx::query_scalar(
-        "SELECT working_folder_id FROM chat_threads WHERE id = ? AND state != 'closed'",
-    )
-    .bind(thread_id.as_str())
-    .fetch_optional(pool)
-    .await
-    .map_err(persistence_error)?
-    .ok_or_else(|| ChatError::new(ChatErrorCode::NotFound, "Chat thread was not found", true))?;
-    let working_folder_id =
-        ProjectWorkingFolderId::new(working_folder_id).map_err(|_| corrupt_data())?;
-    let workspace = workspaces::read_workspace(pool, &working_folder_id).await?;
-    let scope = read_active_working_folder_scope(app).map_err(device_state_error)?;
-    let authorized = authorize_workspace(
-        &workspace,
-        &scope,
-        WorkingFolderAuthorizationOperation::Diff,
-    )?;
+    let (working_folder_id, _, authorized, _) =
+        super::execution_environment::authorize_thread_environment(
+            app,
+            pool,
+            thread_id,
+            WorkingFolderAuthorizationOperation::Diff,
+        )
+        .await?;
     Ok((working_folder_id, authorized))
 }
 

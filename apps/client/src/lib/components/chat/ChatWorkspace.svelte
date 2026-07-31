@@ -36,6 +36,7 @@
   import ChatHeaderActions from "./ChatHeaderActions.svelte";
   import ChatThreadRail from "./ChatThreadRail.svelte";
   import ChatTimeline from "./ChatTimeline.svelte";
+  import ChatWorkspaceObserver from "./ChatWorkspaceObserver.svelte";
   import ChatWorkspacePanel from "./ChatWorkspacePanel.svelte";
   import { getChatBenchmarkHandle } from "./benchmark-handle.svelte";
 
@@ -161,12 +162,13 @@
       if (!(event instanceof CustomEvent) || !isRevertMessageDetail(event.detail)) return;
       void restoreMessageCheckpoint(event.detail.threadId, event.detail.checkpointId);
     };
-    const openChanges = (event: Event) => {
-      if (!(event instanceof CustomEvent) || !isOpenChangesDetail(event.detail)) return;
+    const openWorkspaceTool = () => {
       chat.inspectorOpen = true;
     };
     window.addEventListener("ganbaru-ai:chat-revert-message", revertMessage);
-    window.addEventListener("ganbaru-ai:chat-open-changes", openChanges);
+    window.addEventListener("ganbaru-ai:chat-open-changes", openWorkspaceTool);
+    window.addEventListener("ganbaru-ai:chat-open-review", openWorkspaceTool);
+    window.addEventListener("ganbaru-ai:chat-open-file", openWorkspaceTool);
     const unregisterBenchmark = getChatBenchmarkHandle().register({
       threadIds: () => chat.activeThreads.map((thread) => thread.id),
       waitUntilUsable: () => waitForBenchmarkState(() => !chat.loading && chat.activeThreads.length > 0),
@@ -199,20 +201,12 @@
       }
       motionQuery.removeEventListener("change", updateMotionPreference);
       window.removeEventListener("ganbaru-ai:chat-revert-message", revertMessage);
-      window.removeEventListener("ganbaru-ai:chat-open-changes", openChanges);
+      window.removeEventListener("ganbaru-ai:chat-open-changes", openWorkspaceTool);
+      window.removeEventListener("ganbaru-ai:chat-open-review", openWorkspaceTool);
+      window.removeEventListener("ganbaru-ai:chat-open-file", openWorkspaceTool);
       void unlisten.then((dispose) => dispose());
     };
   });
-
-  function isOpenChangesDetail(value: unknown): value is {
-    turnId: string;
-    relativePath: string | null;
-  } {
-    if (typeof value !== "object" || value === null || Array.isArray(value)) return false;
-    const detail = value as Record<string, unknown>;
-    return typeof detail.turnId === "string"
-      && (detail.relativePath === null || typeof detail.relativePath === "string");
-  }
 
   $effect(() => {
     const projectId = projects.selectedProjectId;
@@ -878,6 +872,7 @@
 <svelte:window onkeydown={handleKeydown} />
 
 <div bind:this={rootElement} class="chat-workspace @container/chat-shell relative grid h-full min-h-0 overflow-hidden" class:resizing-panels={resizingInspector || resizingBottomPanel} class:panel-transitions-enabled={panelTransitionsEnabled} data-chat-workspace data-layout={layout.variant} data-rail-presentation={layout.railPresentation} data-inspector-presentation={layout.inspectorPresentation} data-active-surface={layout.activeSurface} data-rail-open={chat.railOpen} style={`background-color:var(--cal-bg);container-type:inline-size;container-name:chat-shell;--chat-panel-transition-duration:${PANEL_TRANSITION_MS}ms;--chat-bottom-min-height:${MIN_BOTTOM_PANEL_HEIGHT}px;--chat-inspector-width:${inspectorWidth}px;`}>
+  <ChatWorkspaceObserver />
   <div class="sr-only" aria-live="polite" aria-atomic="true">{politeAnnouncement}</div>
   <div class="sr-only" aria-live="assertive" aria-atomic="true">{assertiveAnnouncement}</div>
   {#if layoutError}<div role="alert" class="absolute inset-x-2 top-2 z-50 rounded border border-destructive/40 bg-background p-2 text-xs text-destructive">{layoutError}</div>{/if}

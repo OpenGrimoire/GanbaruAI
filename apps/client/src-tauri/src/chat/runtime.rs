@@ -12,6 +12,9 @@ use crate::chat::models::{
 use crate::chat::providers::{
     DriverCancellation, DriverFuture, DriverOperationContext, ProviderDriver, ProviderEventSink,
 };
+use crate::chat::workspace_mutation::{
+    ChatWorkspaceMutationRegistry, ProviderTurnReservationHandoff, ThreadReservationCleanup,
+};
 use std::collections::HashMap;
 use std::sync::{
     atomic::{AtomicU64, Ordering},
@@ -26,7 +29,7 @@ const DEFAULT_IDLE_TIMEOUT: Duration = Duration::from_secs(15 * 60);
 const DEFAULT_STOP_TIMEOUT: Duration = Duration::from_secs(2);
 const STOP_FLUSH_INTERVAL: Duration = Duration::from_millis(32);
 
-pub enum ThreadRuntimeCommand {
+pub(crate) enum ThreadRuntimeCommand {
     SessionState(ProviderSessionState),
     TurnActive(bool),
     PendingRequest(bool),
@@ -61,6 +64,7 @@ pub enum ThreadRuntimeCommand {
     },
     SendTurn {
         request: SendTurnRequest,
+        reservation: ProviderTurnReservationHandoff,
         context: DriverOperationContext,
         response: oneshot::Sender<ChatResult<TurnDispatchReceipt>>,
     },
@@ -91,11 +95,13 @@ pub enum ThreadRuntimeCommand {
     },
     StopSession {
         force: bool,
+        reservation_cleanup: Option<ThreadReservationCleanup>,
         context: DriverOperationContext,
         response: oneshot::Sender<ChatResult<DriverOperationReceipt>>,
     },
     Shutdown {
         deadline: Instant,
+        reservation_cleanup: ThreadReservationCleanup,
         response: oneshot::Sender<ChatResult<()>>,
     },
 }
@@ -145,7 +151,7 @@ impl ThreadRuntimeOwner {
             .map_err(|_| runtime_state_error())
     }
 
-    pub fn try_command(&self, command: ThreadRuntimeCommand) -> ChatResult<()> {
+    pub(crate) fn try_command(&self, command: ThreadRuntimeCommand) -> ChatResult<()> {
         if !self.snapshot()?.accepting_commands {
             return Err(runtime_unavailable());
         }
@@ -214,15 +220,17 @@ impl ThreadRuntimeOwner {
         receive_response(receiver).await
     }
 
-    pub async fn send_turn(
+    pub(crate) async fn send_turn(
         &self,
         request: SendTurnRequest,
+        reservation: ProviderTurnReservationHandoff,
         context: DriverOperationContext,
     ) -> ChatResult<TurnDispatchReceipt> {
         let _guard = self.lock_operation().await;
         let (response, receiver) = oneshot::channel();
         self.try_command(ThreadRuntimeCommand::SendTurn {
             request,
+            reservation,
             context,
             response,
         })?;
@@ -328,10 +336,41 @@ impl ThreadRuntimeOwner {
         force: bool,
         context: DriverOperationContext,
     ) -> ChatResult<DriverOperationReceipt> {
+        self.stop_session_inner(force, context, None).await
+    }
+
+    pub async fn stop_session_and_release(
+        &self,
+        force: bool,
+        context: DriverOperationContext,
+        mutations: &ChatWorkspaceMutationRegistry,
+    ) -> ChatResult<DriverOperationReceipt> {
         let _guard = self.lock_operation().await;
+        let cleanup = mutations.thread_cleanup(&self.thread_id);
+        self.queue_stop_session(force, context, Some(cleanup)).await
+    }
+
+    async fn stop_session_inner(
+        &self,
+        force: bool,
+        context: DriverOperationContext,
+        reservation_cleanup: Option<ThreadReservationCleanup>,
+    ) -> ChatResult<DriverOperationReceipt> {
+        let _guard = self.lock_operation().await;
+        self.queue_stop_session(force, context, reservation_cleanup)
+            .await
+    }
+
+    async fn queue_stop_session(
+        &self,
+        force: bool,
+        context: DriverOperationContext,
+        reservation_cleanup: Option<ThreadReservationCleanup>,
+    ) -> ChatResult<DriverOperationReceipt> {
         let (response, receiver) = oneshot::channel();
         self.try_command(ThreadRuntimeCommand::StopSession {
             force,
+            reservation_cleanup,
             context,
             response,
         })?;
@@ -476,7 +515,53 @@ impl ChatRuntimeRegistry {
         Ok((live_processes, active_turns))
     }
 
-    pub async fn stop_all_and_reset(&self, timeout: Duration) -> ChatResult<u64> {
+    pub async fn shutdown_thread_and_remove(
+        &self,
+        thread_id: &ChatThreadId,
+        timeout: Duration,
+        mutations: &ChatWorkspaceMutationRegistry,
+    ) -> ChatResult<()> {
+        let owner = self
+            .owners
+            .lock()
+            .map_err(|_| runtime_state_error())?
+            .remove(thread_id);
+        let Some(owner) = owner else {
+            mutations.finish_thread(thread_id);
+            return Ok(());
+        };
+        owner.stop_accepting()?;
+        let (response, receiver) = oneshot::channel();
+        let command = ThreadRuntimeCommand::Shutdown {
+            deadline: Instant::now() + timeout,
+            reservation_cleanup: mutations.thread_cleanup(thread_id),
+            response,
+        };
+        if owner.command_sender.send(command).await.is_err() {
+            owner.abort_worker()?;
+            mutations.finish_thread(thread_id);
+            return Err(runtime_unavailable());
+        }
+        match tokio::time::timeout(timeout, receive_response(receiver)).await {
+            Ok(Ok(())) => Ok(()),
+            Ok(Err(error)) => {
+                owner.abort_worker()?;
+                mutations.finish_thread(thread_id);
+                Err(error)
+            }
+            Err(_) => {
+                owner.abort_worker()?;
+                mutations.finish_thread(thread_id);
+                Err(runtime_timeout())
+            }
+        }
+    }
+
+    pub async fn stop_all_and_reset(
+        &self,
+        timeout: Duration,
+        mutations: &ChatWorkspaceMutationRegistry,
+    ) -> ChatResult<u64> {
         let owners = {
             let mut registry = self.owners.lock().map_err(|_| runtime_state_error())?;
             registry.drain().map(|(_, owner)| owner).collect::<Vec<_>>()
@@ -498,9 +583,14 @@ impl ChatRuntimeRegistry {
             let mut receivers = Vec::with_capacity(owners.len());
             for owner in &owners {
                 let (response, receiver) = oneshot::channel();
+                let reservation_cleanup = mutations.thread_cleanup(owner.thread_id());
                 owner
                     .command_sender
-                    .send(ThreadRuntimeCommand::Shutdown { deadline, response })
+                    .send(ThreadRuntimeCommand::Shutdown {
+                        deadline,
+                        reservation_cleanup,
+                        response,
+                    })
                     .await
                     .map_err(|_| runtime_unavailable())?;
                 receivers.push(receiver);
@@ -511,17 +601,23 @@ impl ChatRuntimeRegistry {
             Ok(())
         };
         match tokio::time::timeout(timeout, shutdown).await {
-            Ok(result) => result.map(|()| count),
+            Ok(Ok(())) => Ok(count),
+            Ok(Err(error)) => {
+                abort_workers_and_release(&owners, mutations)?;
+                Err(error)
+            }
             Err(_) => {
-                for owner in owners {
-                    owner.abort_worker()?;
-                }
+                abort_workers_and_release(&owners, mutations)?;
                 Err(runtime_timeout())
             }
         }
     }
 
-    pub async fn shutdown_and_wait(&self, timeout: Duration) -> ChatResult<()> {
+    pub async fn shutdown_and_wait(
+        &self,
+        timeout: Duration,
+        mutations: &ChatWorkspaceMutationRegistry,
+    ) -> ChatResult<()> {
         let owners = self.owners()?;
         for owner in &owners {
             owner.stop_accepting()?;
@@ -531,9 +627,14 @@ impl ChatRuntimeRegistry {
             let mut receivers = Vec::with_capacity(owners.len());
             for owner in &owners {
                 let (response, receiver) = oneshot::channel();
+                let reservation_cleanup = mutations.thread_cleanup(owner.thread_id());
                 owner
                     .command_sender
-                    .send(ThreadRuntimeCommand::Shutdown { deadline, response })
+                    .send(ThreadRuntimeCommand::Shutdown {
+                        deadline,
+                        reservation_cleanup,
+                        response,
+                    })
                     .await
                     .map_err(|_| runtime_unavailable())?;
                 receivers.push(receiver);
@@ -544,15 +645,31 @@ impl ChatRuntimeRegistry {
             Ok(())
         };
         match tokio::time::timeout(timeout, shutdown).await {
-            Ok(result) => result,
+            Ok(Ok(())) => Ok(()),
+            Ok(Err(error)) => {
+                abort_workers_and_release(&owners, mutations)?;
+                Err(error)
+            }
             Err(_) => {
-                for owner in owners {
-                    owner.abort_worker()?;
-                }
+                abort_workers_and_release(&owners, mutations)?;
                 Err(runtime_timeout())
             }
         }
     }
+}
+
+fn abort_workers_and_release(
+    owners: &[Arc<ThreadRuntimeOwner>],
+    mutations: &ChatWorkspaceMutationRegistry,
+) -> ChatResult<()> {
+    let mut abort_error = None;
+    for owner in owners {
+        if let Err(error) = owner.abort_worker() {
+            abort_error.get_or_insert(error);
+        }
+        mutations.finish_thread(owner.thread_id());
+    }
+    abort_error.map_or(Ok(()), Err)
 }
 
 #[cfg(test)]
@@ -839,6 +956,7 @@ impl RuntimeWorker {
             }
             ThreadRuntimeCommand::SendTurn {
                 request,
+                reservation,
                 context,
                 response,
             } => {
@@ -863,6 +981,8 @@ impl RuntimeWorker {
                 if result.is_err() {
                     let _ = self.flush_events(&context).await;
                     self.update(|state| state.session_state = ProviderSessionState::Failed);
+                } else {
+                    reservation.handoff_to_event_sink();
                 }
                 let _ = response.send(result);
             }
@@ -994,21 +1114,32 @@ impl RuntimeWorker {
             }
             ThreadRuntimeCommand::StopSession {
                 force,
+                mut reservation_cleanup,
                 context,
                 response,
             } => {
+                if let Some(cleanup) = reservation_cleanup.as_mut() {
+                    cleanup.arm();
+                }
                 let result = self.stop_driver(force, context).await;
                 let receipt = result.map(|()| DriverOperationReceipt {
                     accepted: true,
                     operation_id: "runtime-stop".to_string(),
                     detail: None,
                 });
+                drop(reservation_cleanup);
                 let _ = response.send(receipt);
             }
-            ThreadRuntimeCommand::Shutdown { deadline, response } => {
+            ThreadRuntimeCommand::Shutdown {
+                deadline,
+                mut reservation_cleanup,
+                response,
+            } => {
+                reservation_cleanup.arm();
                 self.update(|state| state.accepting_commands = false);
                 let context = operation_context("runtime-shutdown", deadline);
                 let result = self.stop_driver(true, context).await;
+                drop(reservation_cleanup);
                 let _ = response.send(result);
                 return true;
             }

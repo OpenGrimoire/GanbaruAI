@@ -1019,19 +1019,19 @@ pub async fn chat_stop_session(
     let owner = app
         .state::<ChatRuntimeRegistry>()
         .owner(thread_id.clone())?;
+    let runtime_snapshot = owner.snapshot()?;
     let interrupt_context = if force {
         None
     } else {
-        let snapshot = owner.snapshot()?;
         Some((
-            snapshot.session_id.ok_or_else(|| {
+            runtime_snapshot.session_id.clone().ok_or_else(|| {
                 ChatError::new(
                     ChatErrorCode::InvalidStateTransition,
                     "Chat session is not running",
                     true,
                 )
             })?,
-            snapshot.active_turn_id.ok_or_else(|| {
+            runtime_snapshot.active_turn_id.clone().ok_or_else(|| {
                 ChatError::new(
                     ChatErrorCode::InvalidStateTransition,
                     "Chat turn is not running",
@@ -1059,10 +1059,12 @@ pub async fn chat_stop_session(
         CommandReceiptClaim::Claimed(_) => {}
     }
     if force {
+        let mutations = app.state::<super::workspace_mutation::ChatWorkspaceMutationRegistry>();
         let result = owner
-            .stop_session(
+            .stop_session_and_release(
                 true,
                 operation_context("ui-force-stop-session", Duration::from_secs(5)),
+                &mutations,
             )
             .await;
         let result = complete_driver_operation(&pool, &client_command_id, result).await;

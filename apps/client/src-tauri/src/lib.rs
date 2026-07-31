@@ -753,7 +753,10 @@ pub fn run() {
         .manage(chat::internal_mcp::InternalMcpRegistry::default())
         .manage(chat::preview::ChatPreviewManager::default())
         .manage(chat::runtime::ChatRuntimeRegistry::default())
+        .manage(chat::review_engine::ChatReviewRegistry::default())
         .manage(chat::terminal::ChatTerminalRegistry::default())
+        .manage(chat::workspace_mutation::ChatWorkspaceMutationRegistry::default())
+        .manage(chat::workspace_observer::ChatWorkspaceObserverRegistry::default())
         .plugin(tauri_plugin_dialog::init())
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {
@@ -782,7 +785,10 @@ pub fn run() {
             chat::workspace_files::project_preview_working_folder_file,
             chat::workspace_files::project_save_working_folder_file,
             chat::workspace_files::project_save_working_folder_file_copy,
+            chat::workspace_files::project_recreate_working_folder_file,
             chat::workspace_files::project_open_working_folder_file,
+            chat::workspace_observer::chat_watch_workspace,
+            chat::workspace_observer::chat_unwatch_workspace,
             chat::execution_environment::chat_list_execution_environments,
             chat::execution_environment::chat_create_worktree_environment,
             chat::execution_environment::chat_select_thread_execution_environment,
@@ -794,6 +800,9 @@ pub fn run() {
             chat::review_commands::chat_create_review_comment,
             chat::review_commands::chat_set_review_comment_resolved,
             chat::review_commands::chat_attach_review_comment,
+            chat::review_engine::chat_open_review,
+            chat::review_engine::chat_read_review_patches,
+            chat::review_engine::chat_apply_review_action,
             chat::terminal_commands::chat_list_terminals,
             chat::terminal_commands::chat_read_terminal_layout,
             chat::terminal_commands::chat_save_terminal_panel_layout,
@@ -1364,8 +1373,10 @@ pub fn run() {
                 eprintln!("Chat terminal shutdown failed with code {:?}", error.code);
             }
             let runtime = app_handle.state::<chat::runtime::ChatRuntimeRegistry>();
+            let mutations =
+                app_handle.state::<chat::workspace_mutation::ChatWorkspaceMutationRegistry>();
             if let Err(error) = tauri::async_runtime::block_on(
-                runtime.shutdown_and_wait(std::time::Duration::from_secs(4)),
+                runtime.shutdown_and_wait(std::time::Duration::from_secs(4), &mutations),
             ) {
                 eprintln!("Chat runtime shutdown failed with code {:?}", error.code);
             }

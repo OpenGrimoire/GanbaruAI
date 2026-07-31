@@ -702,6 +702,15 @@ fn event_fixture_normalizes_core_activity_and_deduplicates_replay() {
     let serialized_events = serde_json::to_string(&events).unwrap();
     assert!(!serialized_events.contains("must-redact"));
     assert!(!serialized_events.contains("authorization"));
+    let rollback_cursor = events
+        .iter()
+        .rev()
+        .filter_map(|event| event.provider_reference.as_ref())
+        .find(|reference| reference.value.get("messageId").is_some())
+        .expect("assistant activity should retain a rollback cursor");
+    let rollback_cursor = parse_rollback_cursor(rollback_cursor).unwrap();
+    assert_eq!(rollback_cursor.message_id, "msg_assistant");
+    assert_eq!(rollback_cursor.part_id, None);
     assert!(normalizer
         .normalize(&mut state, fixture[1].clone())
         .unwrap()

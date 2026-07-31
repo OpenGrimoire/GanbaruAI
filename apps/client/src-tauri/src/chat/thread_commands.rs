@@ -26,6 +26,7 @@ use tauri_plugin_opener::OpenerExt;
 
 const PERMANENT_DELETE_CLEANUP_GRACE: Duration = Duration::from_secs(24 * 60 * 60);
 const PROVIDER_LIFECYCLE_TIMEOUT: Duration = Duration::from_secs(30);
+const THREAD_DELETE_STOP_TIMEOUT: Duration = Duration::from_secs(15);
 
 #[derive(Clone, Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -390,6 +391,11 @@ pub async fn chat_delete_thread_permanently(
             "The confirmation title does not match the Chat thread",
         ));
     }
+    let runtimes = app.state::<super::runtime::ChatRuntimeRegistry>();
+    let mutations = app.state::<super::workspace_mutation::ChatWorkspaceMutationRegistry>();
+    runtimes
+        .shutdown_thread_and_remove(&thread_id, THREAD_DELETE_STOP_TIMEOUT, &mutations)
+        .await?;
     let now = SystemTime::now();
     let cleanup = now
         .checked_add(PERMANENT_DELETE_CLEANUP_GRACE)

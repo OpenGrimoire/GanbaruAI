@@ -16,6 +16,7 @@ import {
   type ProviderSessionSnapshot,
   type TurnDispatchReceipt,
 } from "../contracts";
+import { normalizeChangedFileSummaries } from "../changed-files";
 import { parseChangedFile, parseThreadUsage } from "./events";
 import { parseModelOptionSelection, parseProviderCapabilities } from "./provider";
 import {
@@ -178,7 +179,9 @@ function parseChatTimelineTurn(value: unknown, label: string): ChatTimelineTurnR
     modelOptions: readArray(record.modelOptions, `${label}.modelOptions`, parseModelOptionSelection),
     modes: readTurnModeSnapshot(record.modes, `${label}.modes`),
     usage: readNullable(record.usage, `${label}.usage`, parseThreadUsage),
-    changedFiles: readArray(record.changedFiles, `${label}.changedFiles`, parseChangedFile),
+    changedFiles: normalizeChangedFileSummaries(
+      readArray(record.changedFiles, `${label}.changedFiles`, parseChangedFile),
+    ),
   };
 }
 

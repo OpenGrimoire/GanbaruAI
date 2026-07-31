@@ -7,6 +7,7 @@ import {
   parseCanonicalStoredEvent,
   parseChatError,
   parseChatDiagnosticsRead,
+  parseChatTimelinePage,
   parseChatThreadShell,
   parseProjectWorkingFolderRead,
   parseProviderFamilyMetadata,
@@ -63,6 +64,41 @@ function runtimeEventFixture(): Record<string, unknown> {
 }
 
 describe("Chat provider contracts", () => {
+  it("removes absolute duplicate file summaries from stored timeline turns", () => {
+    const relative = {
+      relativePath: "hello.py",
+      previousRelativePath: null,
+      additions: 10,
+      deletions: 0,
+      binary: false,
+      status: "added",
+    };
+    const page = parseChatTimelinePage({
+      threadId: "thread-1",
+      items: [],
+      turns: [{
+        turnId: "turn-1",
+        state: "completed",
+        startedAt: timestamp,
+        completedAt: timestamp,
+        stopReason: null,
+        modelId: null,
+        modelOptions: [],
+        modes: { safetyMode: "ask_for_approval", interactionMode: "build" },
+        usage: null,
+        changedFiles: [
+          { ...relative, relativePath: "/home/user/workspace/hello.py", additions: 0 },
+          relative,
+        ],
+      }],
+      previousCursor: null,
+      nextCursor: null,
+      threadRevision: 1,
+    });
+
+    expect(page.turns[0]?.changedFiles).toEqual([relative]);
+  });
+
   it("parses metadata-only provider registry entries", () => {
     expect(parseProviderFamilyMetadata(metadataFixture())).toEqual(metadataFixture());
   });

@@ -16,6 +16,7 @@
     selectedPath,
     changedPaths,
     loadingPaths,
+    refreshing = false,
     onToggle,
     onSelect,
   }: {
@@ -23,6 +24,7 @@
     selectedPath: string | null;
     changedPaths: ReadonlySet<string>;
     loadingPaths: readonly string[];
+    refreshing?: boolean;
     onToggle: (entry: ProjectWorkingFolderFileEntry) => void;
     onSelect: (entry: ProjectWorkingFolderFileEntry) => void;
   } = $props();
@@ -57,7 +59,7 @@
   }
 </script>
 
-<div bind:this={scroller} class="file-tree-scroll" role="tree" onscroll={handleScroll}>
+<div bind:this={scroller} class="file-tree-scroll" role="tree" aria-busy={refreshing || undefined} onscroll={handleScroll}>
   <div class="file-tree-canvas" style={`height:${range.totalSize}px;`}>
     <div class="file-tree-window" style={`transform:translateY(${range.offset}px);`}>
       {#each visibleRows as row (row.entry.relativePath)}

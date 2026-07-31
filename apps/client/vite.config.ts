@@ -47,8 +47,24 @@ function gitOutput(args: string[]): string | undefined {
 
 function chunkNameForModule(id: string): string | undefined {
   const moduleId = id.replaceAll("\\", "/");
+  if (moduleId.includes("vite/preload-helper")) return "vendor";
   if (!moduleId.includes("node_modules")) return undefined;
 
+  const reviewCatalogChunk = reviewCatalogChunkName(moduleId);
+  if (reviewCatalogChunk) return reviewCatalogChunk;
+
+  if (
+    moduleId.includes("/node_modules/@pierre/diffs/") ||
+    moduleId.includes("/node_modules/@pierre/theme/") ||
+    moduleId.includes("/node_modules/@pierre/theming/") ||
+    moduleId.includes("/node_modules/@shikijs/") ||
+    moduleId.includes("/node_modules/shiki/") ||
+    moduleId.includes("/node_modules/hast-util-to-html/") ||
+    moduleId.includes("/node_modules/lru_map/") ||
+    moduleId.includes("/node_modules/diff/")
+  ) {
+    return undefined;
+  }
   if (moduleId.includes("/node_modules/svelte/") || moduleId.includes("/node_modules/esm-env/")) {
     return "vendor-svelte";
   }
@@ -69,6 +85,26 @@ function chunkNameForModule(id: string): string | undefined {
   }
 
   return "vendor";
+}
+
+function reviewCatalogChunkName(moduleId: string): string | undefined {
+  const catalogs = [
+    ["/node_modules/@shikijs/langs/dist/", "chat-review-language"],
+    ["/node_modules/@shikijs/themes/dist/", "chat-review-theme"],
+    ["/node_modules/@pierre/theme/dist/", "chat-review-pierre-theme"],
+  ] as const;
+  for (const [marker, prefix] of catalogs) {
+    const markerIndex = moduleId.lastIndexOf(marker);
+    if (markerIndex < 0) continue;
+    const relativeModule = moduleId.slice(markerIndex + marker.length).split("?", 1)[0] ?? "module";
+    const chunkSuffix = relativeModule
+      .replace(/\.[^.]+$/u, "")
+      .replace(/[^a-zA-Z0-9]+/gu, "-")
+      .replace(/^-+|-+$/gu, "")
+      .toLowerCase();
+    return `${prefix}-${chunkSuffix || "module"}`;
+  }
+  return undefined;
 }
 
 function svelteFilesWithStyles(dir: string): string[] {

@@ -15,22 +15,22 @@ use super::repository::receipts::{
     claim_command_receipt, complete_command_receipt, CommandReceiptClaim, CommandReceiptRead,
     CommandReceiptState,
 };
-use super::repository::workspaces;
 use super::runtime::ChatRuntimeRegistry;
-use super::workspace::{
-    authorize_workspace, AuthorizedWorkingFolder, WorkingFolderAuthorizationOperation,
-};
+use super::workspace::{AuthorizedWorkingFolder, WorkingFolderAuthorizationOperation};
 use crate::db_path;
-use crate::projects::working_folders::read_active_working_folder_scope;
 use chrono::{SecondsFormat, Utc};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use sha2::{Digest, Sha256};
 use sqlx::{Row, Sqlite, SqlitePool, Transaction};
+use std::sync::atomic::{AtomicU8, Ordering};
 use std::time::{Duration, Instant};
 use tauri::Manager;
 
 const RESTORE_PREVIEW_LIFETIME: chrono::Duration = chrono::Duration::minutes(15);
+const RESTORE_PHASE_SAFE_RETRY: u8 = 0;
+const RESTORE_PHASE_PROVIDER_ROLLBACK: u8 = 1;
+const RESTORE_PHASE_WORKSPACE_RESTORE: u8 = 2;
 
 #[derive(Clone, Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -295,6 +295,8 @@ async fn execute_restore(
         ));
     }
     mark_preview_state(pool, &preview.id, "executing", now).await?;
+    let failure_phase = AtomicU8::new(RESTORE_PHASE_SAFE_RETRY);
+    let execution: ChatResult<ChatRestoreResultRead> = async {
     let owner = app
         .state::<ChatRuntimeRegistry>()
         .owner(request.thread_id.clone())?;
@@ -313,14 +315,49 @@ async fn execute_restore(
             )
             .await?;
     }
+    let _mutation_guard = app
+        .state::<super::workspace_mutation::ChatWorkspaceMutationRegistry>()
+        .mutation_with_timeout(&authorized.canonical_path, Duration::from_secs(30))
+        .await?;
+    let current = {
+        let authorized = authorized.clone();
+        let target = target.clone();
+        tauri::async_runtime::spawn_blocking(move || {
+            verify_checkpoint(&authorized, &target)?;
+            let current = current_git_snapshot(&authorized.canonical_path)?;
+            require_head_context(&current, &target)?;
+            Ok::<_, ChatError>(current)
+        })
+        .await
+        .map_err(|_| restore_worker_error())??
+    };
+    if current.worktree_tree_oid != preview.current.worktree_tree_oid
+        || current.index_tree_oid != preview.current.index_tree_oid
+        || current.index_fingerprint != preview.current.index_fingerprint
+        || current.head_oid != preview.current.head_oid
+        || current.head_ref != preview.current.head_ref
+    {
+        mark_preview_state(pool, &preview.id, "stale", now).await?;
+        return Err(ChatError::new(
+            ChatErrorCode::StaleRevision,
+            "Workspace changed while the active coding agent was stopping",
+            true,
+        ));
+    }
     let refreshed = owner.snapshot()?;
+    let target_turn_id = target_turn_id(pool, &request.thread_id, target.turn_count).await?;
+    let provider_cursor = match target_turn_id.as_ref() {
+        Some(turn_id) => stored_provider_rollback_cursor(pool, &request.thread_id, turn_id).await?,
+        None => None,
+    };
     let provider_history_action = if refreshed
         .capabilities
         .supports(ProviderCapability::NativeRollback)
         && refreshed.session_id.is_some()
         && refreshed.session_state == super::models::ProviderSessionState::Ready
+        && provider_cursor.is_some()
     {
-        let target_turn_id = target_turn_id(pool, &request.thread_id, target.turn_count).await?;
+        failure_phase.store(RESTORE_PHASE_PROVIDER_ROLLBACK, Ordering::Release);
         owner
             .rollback(
                 RollbackRequest {
@@ -330,7 +367,7 @@ async fn execute_restore(
                         .clone()
                         .ok_or_else(restore_worker_error)?,
                     checkpoint_id: Some(target.id.clone()),
-                    provider_cursor: None,
+                    provider_cursor,
                     target_turn_id,
                 },
                 operation_context("restore-provider-rollback", Duration::from_secs(30)),
@@ -340,6 +377,9 @@ async fn execute_restore(
     } else {
         "fork_required"
     };
+    if provider_history_action == "fork_required" {
+        failure_phase.store(RESTORE_PHASE_WORKSPACE_RESTORE, Ordering::Release);
+    }
     let root = authorized.canonical_path.clone();
     let current_for_restore = current.clone();
     let target_for_restore = target.clone();
@@ -430,12 +470,27 @@ async fn execute_restore(
         .await
         .map_err(persistence_error)?;
     Ok(ChatRestoreResultRead {
-        checkpoint_id: target.id,
+        checkpoint_id: target.id.clone(),
         reverted_turn_ids,
         provider_history_action: provider_history_action.to_string(),
         recovery_state: "complete".to_string(),
         thread_revision: u64::try_from(thread_revision).map_err(|_| corrupt_data())?,
     })
+    }
+    .await;
+    if let Err(error) = execution.as_ref() {
+        settle_executing_preview_failure(
+            pool,
+            request,
+            &preview,
+            &target,
+            failure_phase.load(Ordering::Acquire),
+            error,
+            now,
+        )
+        .await?;
+    }
+    execution
 }
 
 async fn persist_restore(
@@ -801,31 +856,14 @@ async fn authorize_thread(
     pool: &SqlitePool,
     thread_id: &ChatThreadId,
 ) -> ChatResult<(ProjectWorkingFolderId, AuthorizedWorkingFolder, u64)> {
-    let row = sqlx::query(
-        "SELECT working_folder_id, revision FROM chat_threads WHERE id = ? AND state != 'closed'",
-    )
-    .bind(thread_id.as_str())
-    .fetch_optional(pool)
-    .await
-    .map_err(persistence_error)?
-    .ok_or_else(|| ChatError::new(ChatErrorCode::NotFound, "Chat thread was not found", true))?;
-    let working_folder_id = ProjectWorkingFolderId::new(
-        row.try_get::<String, _>("working_folder_id")
-            .map_err(persistence_error)?,
-    )
-    .map_err(|_| corrupt_data())?;
-    let revision = u64::try_from(
-        row.try_get::<i64, _>("revision")
-            .map_err(persistence_error)?,
-    )
-    .map_err(|_| corrupt_data())?;
-    let workspace = workspaces::read_workspace(pool, &working_folder_id).await?;
-    let scope = read_active_working_folder_scope(app).map_err(device_state_error)?;
-    let authorized = authorize_workspace(
-        &workspace,
-        &scope,
-        WorkingFolderAuthorizationOperation::Restore,
-    )?;
+    let (working_folder_id, _, authorized, revision) =
+        super::execution_environment::authorize_thread_environment(
+            app,
+            pool,
+            thread_id,
+            WorkingFolderAuthorizationOperation::Restore,
+        )
+        .await?;
     Ok((working_folder_id, authorized, revision))
 }
 
@@ -848,6 +886,63 @@ async fn target_turn_id(
         .map_err(|_| corrupt_data())
 }
 
+async fn stored_provider_rollback_cursor(
+    pool: &SqlitePool,
+    thread_id: &ChatThreadId,
+    turn_id: &ChatTurnId,
+) -> ChatResult<Option<VersionedJson>> {
+    let row = sqlx::query(
+        "SELECT provider_reference_schema_version, provider_reference_data, provider_item_id
+         FROM chat_events
+         WHERE thread_id = ? AND turn_id = ? AND provider_family_id = 'opencode'
+           AND invalidated_at IS NULL
+           AND (
+               (
+                   provider_reference_schema_version IS NOT NULL
+                   AND provider_reference_data IS NOT NULL
+                   AND length(CAST(provider_reference_data AS BLOB)) <= 8192
+                   AND json_type(provider_reference_data, '$.messageId') = 'text'
+               )
+               OR (event_type = 'session_configured' AND provider_item_id IS NOT NULL)
+           )
+         ORDER BY sequence DESC, id DESC LIMIT 1",
+    )
+    .bind(thread_id.as_str())
+    .bind(turn_id.as_str())
+    .fetch_optional(pool)
+    .await
+    .map_err(persistence_error)?;
+    let Some(row) = row else { return Ok(None) };
+    let schema_version = row
+        .try_get::<Option<i64>, _>("provider_reference_schema_version")
+        .map_err(persistence_error)?;
+    let data = row
+        .try_get::<Option<String>, _>("provider_reference_data")
+        .map_err(persistence_error)?;
+    let message_id = row
+        .try_get::<Option<String>, _>("provider_item_id")
+        .map_err(persistence_error)?;
+    stored_rollback_cursor(schema_version, data.as_deref(), message_id.as_deref()).map(Some)
+}
+
+fn stored_rollback_cursor(
+    schema_version: Option<i64>,
+    data: Option<&str>,
+    fallback_message_id: Option<&str>,
+) -> ChatResult<VersionedJson> {
+    if let (Some(schema_version), Some(data)) = (schema_version, data) {
+        return Ok(VersionedJson {
+            schema_version: u32::try_from(schema_version).map_err(|_| corrupt_data())?,
+            value: serde_json::from_str(data).map_err(json_error)?,
+        });
+    }
+    let message_id = fallback_message_id.ok_or_else(corrupt_data)?;
+    Ok(VersionedJson {
+        schema_version: 1,
+        value: json!({ "messageId": message_id, "partId": null }),
+    })
+}
+
 async fn mark_preview_state(
     pool: &SqlitePool,
     preview_id: &str,
@@ -862,6 +957,77 @@ async fn mark_preview_state(
         .await
         .map_err(persistence_error)?;
     Ok(())
+}
+
+async fn settle_executing_preview_failure(
+    pool: &SqlitePool,
+    request: &ExecuteChatRestoreRequest,
+    preview: &StoredRestorePreview,
+    target: &StoredCheckpoint,
+    failure_phase: u8,
+    error: &ChatError,
+    now: &UtcTimestamp,
+) -> ChatResult<()> {
+    let operation_id = format!(
+        "restore-operation:{}",
+        request.command.client_command_id.as_str()
+    );
+    let completed = sqlx::query_scalar::<_, i64>(
+        "SELECT COUNT(*) FROM chat_restore_operations
+         WHERE id = ? AND recovery_state = 'complete'",
+    )
+    .bind(&operation_id)
+    .fetch_one(pool)
+    .await
+    .map_err(persistence_error)?
+        == 1;
+    let state = preview_state_after_failure(completed, failure_phase);
+    let transition = sqlx::query(
+        "UPDATE chat_restore_previews SET state = ?, updated_at = ?
+         WHERE id = ? AND state = 'executing'",
+    )
+    .bind(state)
+    .bind(now.as_str())
+    .bind(&preview.id)
+    .execute(pool)
+    .await
+    .map_err(persistence_error)?;
+    if transition.rows_affected() == 0 || completed || failure_phase == RESTORE_PHASE_SAFE_RETRY {
+        return Ok(());
+    }
+    let provider_action = if failure_phase == RESTORE_PHASE_PROVIDER_ROLLBACK {
+        "rolled_back"
+    } else {
+        "fork_required"
+    };
+    sqlx::query(
+        "INSERT OR IGNORE INTO chat_restore_operations
+            (id, thread_id, checkpoint_id, preview_id, provider_history_action,
+             recovery_state, error_code, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, 'recovery_required', ?, ?, ?)",
+    )
+    .bind(operation_id)
+    .bind(request.thread_id.as_str())
+    .bind(target.id.as_str())
+    .bind(&preview.id)
+    .bind(provider_action)
+    .bind(format!("{:?}", error.code).to_lowercase())
+    .bind(now.as_str())
+    .bind(now.as_str())
+    .execute(pool)
+    .await
+    .map_err(persistence_error)?;
+    Ok(())
+}
+
+fn preview_state_after_failure(completed_operation: bool, failure_phase: u8) -> &'static str {
+    if completed_operation {
+        "completed"
+    } else if failure_phase == RESTORE_PHASE_SAFE_RETRY {
+        "ready"
+    } else {
+        "failed"
+    }
 }
 
 async fn record_restore_operation(
@@ -1033,18 +1199,59 @@ fn json_error<T>(_error: T) -> ChatError {
     )
 }
 
-fn device_state_error<T>(_error: T) -> ChatError {
-    ChatError::new(
-        ChatErrorCode::Persistence,
-        "Chat device state could not be read",
-        true,
-    )
-}
-
 fn corrupt_data() -> ChatError {
     ChatError::new(
         ChatErrorCode::Persistence,
         "Stored checkpoint restore data is invalid",
         false,
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn stored_opencode_cursor_preserves_native_message_and_part_ids() {
+        let cursor = stored_rollback_cursor(
+            Some(1),
+            Some(r#"{"messageId":"message-7","partId":"part-2","source":"message.updated"}"#),
+            None,
+        )
+        .expect("stored cursor should parse");
+
+        assert_eq!(cursor.schema_version, 1);
+        assert_eq!(cursor.value["messageId"], "message-7");
+        assert_eq!(cursor.value["partId"], "part-2");
+    }
+
+    #[test]
+    fn legacy_opencode_message_reference_becomes_a_rollback_cursor() {
+        let cursor = stored_rollback_cursor(None, None, Some("message-legacy"))
+            .expect("legacy message reference should convert");
+
+        assert_eq!(cursor.schema_version, 1);
+        assert_eq!(cursor.value["messageId"], "message-legacy");
+        assert!(cursor.value["partId"].is_null());
+    }
+
+    #[test]
+    fn executing_preview_failures_never_remain_executing() {
+        assert_eq!(
+            preview_state_after_failure(false, RESTORE_PHASE_SAFE_RETRY),
+            "ready"
+        );
+        assert_eq!(
+            preview_state_after_failure(false, RESTORE_PHASE_PROVIDER_ROLLBACK),
+            "failed"
+        );
+        assert_eq!(
+            preview_state_after_failure(false, RESTORE_PHASE_WORKSPACE_RESTORE),
+            "failed"
+        );
+        assert_eq!(
+            preview_state_after_failure(true, RESTORE_PHASE_WORKSPACE_RESTORE),
+            "completed"
+        );
+    }
 }

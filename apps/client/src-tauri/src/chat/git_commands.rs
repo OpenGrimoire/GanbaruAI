@@ -4,9 +4,11 @@ use super::git_service::{self, GitBranchRead, GitRemoteRead, GitStatusRead, GitW
 use super::models::{ChatError, ChatErrorCode, ChatResult, ProjectWorkingFolderId};
 use super::repository::workspaces;
 use super::workspace::{authorize_workspace, WorkingFolderAuthorizationOperation};
+use super::workspace_mutation::ChatWorkspaceMutationRegistry;
 use crate::db_path;
 use crate::projects::working_folders::read_active_working_folder_scope;
 use serde::Deserialize;
+use tauri::Manager;
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -62,6 +64,7 @@ pub async fn chat_git_diff(
 #[tauri::command]
 pub async fn chat_git_stage(
     app: tauri::AppHandle,
+    mutations: tauri::State<'_, ChatWorkspaceMutationRegistry>,
     db_url: String,
     working_folder_id: ProjectWorkingFolderId,
     paths: Vec<String>,
@@ -75,6 +78,7 @@ pub async fn chat_git_stage(
         execution_environment_id.as_deref(),
     )
     .await?;
+    let _guard = mutations.try_mutation(&root)?;
     git_service::stage(&root, &paths).await?;
     git_service::status(&root).await
 }
@@ -82,6 +86,7 @@ pub async fn chat_git_stage(
 #[tauri::command]
 pub async fn chat_git_unstage(
     app: tauri::AppHandle,
+    mutations: tauri::State<'_, ChatWorkspaceMutationRegistry>,
     db_url: String,
     working_folder_id: ProjectWorkingFolderId,
     paths: Vec<String>,
@@ -95,6 +100,7 @@ pub async fn chat_git_unstage(
         execution_environment_id.as_deref(),
     )
     .await?;
+    let _guard = mutations.try_mutation(&root)?;
     git_service::unstage(&root, &paths).await?;
     git_service::status(&root).await
 }
@@ -102,6 +108,7 @@ pub async fn chat_git_unstage(
 #[tauri::command]
 pub async fn chat_git_commit(
     app: tauri::AppHandle,
+    mutations: tauri::State<'_, ChatWorkspaceMutationRegistry>,
     db_url: String,
     working_folder_id: ProjectWorkingFolderId,
     message: String,
@@ -121,6 +128,7 @@ pub async fn chat_git_commit(
         execution_environment_id.as_deref(),
     )
     .await?;
+    let _guard = mutations.try_mutation(&root)?;
     git_service::commit(&root, message).await?;
     git_service::status(&root).await
 }
@@ -128,6 +136,7 @@ pub async fn chat_git_commit(
 #[tauri::command]
 pub async fn chat_git_fetch(
     app: tauri::AppHandle,
+    mutations: tauri::State<'_, ChatWorkspaceMutationRegistry>,
     db_url: String,
     working_folder_id: ProjectWorkingFolderId,
     remote: Option<String>,
@@ -141,6 +150,7 @@ pub async fn chat_git_fetch(
         execution_environment_id.as_deref(),
     )
     .await?;
+    let _guard = mutations.try_mutation(&root)?;
     git_service::fetch(&root, remote).await?;
     git_service::status(&root).await
 }
@@ -148,6 +158,7 @@ pub async fn chat_git_fetch(
 #[tauri::command]
 pub async fn chat_git_pull(
     app: tauri::AppHandle,
+    mutations: tauri::State<'_, ChatWorkspaceMutationRegistry>,
     db_url: String,
     working_folder_id: ProjectWorkingFolderId,
     remote: Option<String>,
@@ -163,6 +174,7 @@ pub async fn chat_git_pull(
         execution_environment_id.as_deref(),
     )
     .await?;
+    let _guard = mutations.try_mutation(&root)?;
     git_service::pull(&root, remote, branch).await?;
     git_service::status(&root).await
 }
@@ -170,6 +182,7 @@ pub async fn chat_git_pull(
 #[tauri::command]
 pub async fn chat_git_push(
     app: tauri::AppHandle,
+    mutations: tauri::State<'_, ChatWorkspaceMutationRegistry>,
     db_url: String,
     request: GitPushRequest,
 ) -> ChatResult<GitStatusRead> {
@@ -197,6 +210,7 @@ pub async fn chat_git_push(
         request.execution_environment_id.as_deref(),
     )
     .await?;
+    let _guard = mutations.try_mutation(&root)?;
     git_service::push(&root, remote, branch, request.force_with_lease).await?;
     git_service::status(&root).await
 }
@@ -261,6 +275,7 @@ pub async fn chat_git_worktrees(
 #[tauri::command]
 pub async fn chat_git_initialize(
     app: tauri::AppHandle,
+    mutations: tauri::State<'_, ChatWorkspaceMutationRegistry>,
     db_url: String,
     working_folder_id: ProjectWorkingFolderId,
     initial_branch: Option<String>,
@@ -277,6 +292,7 @@ pub async fn chat_git_initialize(
         execution_environment_id.as_deref(),
     )
     .await?;
+    let _guard = mutations.try_mutation(&root)?;
     git_service::initialize(&root, initial_branch).await?;
     git_service::status(&root).await
 }
@@ -284,6 +300,7 @@ pub async fn chat_git_initialize(
 #[tauri::command]
 pub async fn chat_git_clone(
     app: tauri::AppHandle,
+    mutations: tauri::State<'_, ChatWorkspaceMutationRegistry>,
     db_url: String,
     working_folder_id: ProjectWorkingFolderId,
     remote_url: String,
@@ -299,6 +316,7 @@ pub async fn chat_git_clone(
         execution_environment_id.as_deref(),
     )
     .await?;
+    let _guard = mutations.try_mutation(&root)?;
     let mut entries = std::fs::read_dir(&root).map_err(|_| {
         ChatError::new(
             ChatErrorCode::Permission,
@@ -331,6 +349,7 @@ pub async fn chat_git_clone(
 #[tauri::command]
 pub async fn chat_git_discard(
     app: tauri::AppHandle,
+    mutations: tauri::State<'_, ChatWorkspaceMutationRegistry>,
     db_url: String,
     working_folder_id: ProjectWorkingFolderId,
     paths: Vec<String>,
@@ -352,6 +371,7 @@ pub async fn chat_git_discard(
         execution_environment_id.as_deref(),
     )
     .await?;
+    let _guard = mutations.try_mutation(&root)?;
     let current = git_service::status(&root).await?;
     let selected = paths
         .iter()
@@ -405,6 +425,9 @@ pub async fn chat_git_delete_branch(
         execution_environment_id.as_deref(),
     )
     .await?;
+    let _guard = app
+        .state::<ChatWorkspaceMutationRegistry>()
+        .try_mutation(&root)?;
     git_service::delete_branch(&root, branch, force).await?;
     git_service::branches(&root).await
 }

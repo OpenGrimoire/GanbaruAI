@@ -11,6 +11,133 @@ export type ChatInspectorTab = "changes" | "plan" | "files" | "sourceControl" | 
 export type ChatChangeScope = "current_turn" | "entire_thread";
 export type ChatChangedFileStatus = "added" | "modified" | "deleted" | "renamed" | "type_changed" | "unknown";
 
+export type ReviewDiffSource =
+  | { kind: "working_tree"; mode: "staged" | "unstaged" | "all" }
+  | { kind: "checkpoint"; range: "turn" | "thread"; turnId: ChatTurnId | null }
+  | { kind: "commit"; revision: string }
+  | { kind: "branch"; baseRef: string | null; headRef: string; comparison: "merge_base" | "direct" }
+  | { kind: "provider_turn"; turnId: ChatTurnId }
+  | {
+    kind: "change_request";
+    provider: "github" | "gitlab" | "azure_devops" | "bitbucket";
+    repositorySlug: string;
+    number: number;
+  };
+
+export interface OpenChatReviewRequest {
+  threadId: ChatThreadId | null;
+  workingFolderId: ProjectWorkingFolderId;
+  executionEnvironmentId: string | null;
+  source: ReviewDiffSource;
+  ignoreWhitespace: boolean;
+  contextLines: number;
+  preferredRelativePath: string | null;
+}
+
+export interface ChatReviewTotalsRead {
+  files: number;
+  additions: number;
+  deletions: number;
+}
+
+export interface ChatReviewFileFlags {
+  binary: boolean;
+  submodule: boolean;
+  conflict: boolean;
+  modeOnly: boolean;
+  pureRename: boolean;
+  untracked: boolean;
+  symlink: boolean;
+  providerReported: boolean;
+  gitObserved: boolean;
+  readOnly: boolean;
+}
+
+export type ChatReviewFileAction = "stage" | "unstage" | "discard" | "comment" | "openEditor";
+
+export interface ChatReviewFileCapabilities {
+  stage: boolean;
+  unstage: boolean;
+  discard: boolean;
+  comment: boolean;
+  openEditor: boolean;
+}
+
+export interface ChatReviewFileRead {
+  fileId: string;
+  relativePath: string;
+  previousRelativePath: string | null;
+  status: ChatChangedFileStatus;
+  additions: number | null;
+  deletions: number | null;
+  flags: ChatReviewFileFlags;
+  capabilities: ChatReviewFileCapabilities;
+  capabilityReasons: Partial<Record<ChatReviewFileAction, string>>;
+}
+
+export type ChatReviewPatchState = "complete" | "partial" | "binary" | "oversized_hunk" | "unavailable";
+
+export interface ChatReviewPatchHunkRead {
+  hunkId: string;
+  oldStart: number;
+  oldCount: number;
+  newStart: number;
+  newCount: number;
+  state: ChatReviewPatchState;
+}
+
+export interface ChatReviewPatchRead {
+  fileId: string;
+  patch: string | null;
+  hunks: ChatReviewPatchHunkRead[];
+  continuationCursor: string | null;
+  state: ChatReviewPatchState;
+}
+
+export interface ChatReviewSnapshotRead {
+  snapshotId: string;
+  reviewRevision: string;
+  source: ReviewDiffSource;
+  sourceLabel: string;
+  files: ChatReviewFileRead[];
+  totals: ChatReviewTotalsRead;
+  preferredPatch: ChatReviewPatchRead | null;
+  freshness: "current" | "outdated";
+}
+
+export interface ReadChatReviewPatchesRequest {
+  threadId: ChatThreadId | null;
+  workingFolderId: ProjectWorkingFolderId;
+  executionEnvironmentId: string | null;
+  snapshotId: string;
+  reviewRevision: string;
+  fileIds: string[];
+  continuationCursor: string | null;
+  byteLimit?: number | null;
+}
+
+export interface ChatReviewPatchPageRead {
+  patches: ChatReviewPatchRead[];
+  continuationCursor: string | null;
+}
+
+export interface ApplyChatReviewActionRequest {
+  threadId: ChatThreadId | null;
+  workingFolderId: ProjectWorkingFolderId;
+  executionEnvironmentId: string | null;
+  snapshotId: string;
+  expectedReviewRevision: string;
+  operation: "stage" | "unstage" | "discard";
+  fileId: string | null;
+  hunkIds: string[];
+  confirmed: boolean;
+  clientOperationId: string;
+}
+
+export interface ApplyChatReviewActionResult {
+  snapshot: ChatReviewSnapshotRead;
+}
+
 export interface GitChangedPathRead {
   relativePath: string;
   originalRelativePath: string | null;
@@ -134,6 +261,7 @@ export interface PreviewTabRead {
 }
 
 export type ChatReviewCommentState = "open" | "resolved";
+export type ChatReviewCommentSourceKind = ReviewDiffSource["kind"] | "file";
 
 export interface ChatReviewCommentRead {
   id: string;
@@ -150,6 +278,13 @@ export interface ChatReviewCommentRead {
   createdAt: UtcTimestamp;
   updatedAt: UtcTimestamp;
   resolvedAt: UtcTimestamp | null;
+  sourceKind?: ChatReviewCommentSourceKind;
+  sourceData?: ReviewDiffSource;
+  snapshotId?: string | null;
+  reviewRevision?: string | null;
+  selectionSide?: "file" | "old" | "new";
+  previousRelativePath?: string | null;
+  applicability?: "current" | "outdated" | "source_unavailable";
 }
 
 export interface CreateChatReviewCommentRequest {
@@ -163,6 +298,13 @@ export interface CreateChatReviewCommentRequest {
   endColumn: number;
   selectedText: string;
   commentText: string;
+  sourceKind?: ChatReviewCommentSourceKind;
+  sourceData?: ReviewDiffSource;
+  snapshotId?: string | null;
+  reviewRevision?: string | null;
+  fileId?: string | null;
+  selectionSide?: "file" | "old" | "new";
+  previousRelativePath?: string | null;
 }
 
 export interface ProjectWorkingFolderFileEntry {
@@ -189,6 +331,33 @@ export interface ProjectWorkingFolderFilePreview {
   binary: boolean;
   oversized: boolean;
   contentRevision: string | null;
+}
+
+export type ChatWorkspaceObserverMode = "native" | "polling" | "unavailable";
+
+export interface ChatWorkspaceObserverStatusRead {
+  workingFolderId: ProjectWorkingFolderId;
+  executionEnvironmentId: string | null;
+  generation: number;
+  mode: ChatWorkspaceObserverMode;
+  degradedReason: string | null;
+}
+
+export interface ChatWorkspaceRename {
+  previousRelativePath: string;
+  relativePath: string;
+}
+
+export interface ChatWorkspaceChangeBatch {
+  workingFolderId: ProjectWorkingFolderId;
+  executionEnvironmentId: string | null;
+  generation: number;
+  relativePaths: string[];
+  affectedParentDirectories: string[];
+  renames: ChatWorkspaceRename[];
+  gitMetadataChanged: boolean;
+  overflowed: boolean;
+  degradedReason: string | null;
 }
 
 export interface ChatChangedFileRead {

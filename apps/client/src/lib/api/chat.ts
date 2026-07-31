@@ -25,6 +25,12 @@ import type {
   ChatCheckpointDiffRead,
   ChatCheckpointFileDiffRead,
   ChatReviewCommentRead,
+  ChatReviewSnapshotRead,
+  ChatReviewPatchPageRead,
+  OpenChatReviewRequest,
+  ReadChatReviewPatchesRequest,
+  ApplyChatReviewActionRequest,
+  ApplyChatReviewActionResult,
   ChatExecutionEnvironmentRead,
   CreateChatWorktreeRequest,
   CreateChatReviewCommentRequest,
@@ -94,6 +100,8 @@ import {
   parseChatCheckpointFileDiff,
   parseChatReviewComment,
   parseChatReviewComments,
+  parseChatReviewSnapshot,
+  parseChatReviewPatchPage,
   parseChatExecutionEnvironment,
   parseChatExecutionEnvironments,
   parseChatRestorePreview,
@@ -159,6 +167,37 @@ export async function attachChatReviewComment(
   return parseChatAttachmentRead(await invoke<unknown>("chat_attach_review_comment", {
     dbUrl: await ensureDbUrl(), request: { threadId, commentId, attachmentId },
   }));
+}
+
+export async function openChatReview(
+  request: OpenChatReviewRequest,
+): Promise<ChatReviewSnapshotRead> {
+  return parseChatReviewSnapshot(await invoke<unknown>("chat_open_review", {
+    dbUrl: await ensureDbUrl(),
+    request,
+  }));
+}
+
+export async function readChatReviewPatches(
+  request: ReadChatReviewPatchesRequest,
+): Promise<ChatReviewPatchPageRead> {
+  return parseChatReviewPatchPage(await invoke<unknown>("chat_read_review_patches", {
+    dbUrl: await ensureDbUrl(),
+    request,
+  }));
+}
+
+export async function applyChatReviewAction(
+  request: ApplyChatReviewActionRequest,
+): Promise<ApplyChatReviewActionResult> {
+  const value = await invoke<unknown>("chat_apply_review_action", {
+    dbUrl: await ensureDbUrl(),
+    request,
+  });
+  if (typeof value !== "object" || value === null || !("snapshot" in value)) {
+    throw new Error("Invalid Chat review action result");
+  }
+  return { snapshot: parseChatReviewSnapshot(value.snapshot) };
 }
 
 export async function listChatExecutionEnvironments(
@@ -612,6 +651,19 @@ export async function saveProjectWorkingFolderFileCopy(request: {
   executionEnvironmentId?: string | null;
 }): Promise<ProjectWorkingFolderFilePreview> {
   return parseProjectWorkingFolderFilePreview(await invoke<unknown>("project_save_working_folder_file_copy", {
+    dbUrl: await ensureDbUrl(),
+    request,
+  }));
+}
+
+export async function recreateProjectWorkingFolderFile(request: {
+  workingFolderId: ProjectWorkingFolderId;
+  relativePath: string;
+  contents: string;
+  confirmed: boolean;
+  executionEnvironmentId?: string | null;
+}): Promise<ProjectWorkingFolderFilePreview> {
+  return parseProjectWorkingFolderFilePreview(await invoke<unknown>("project_recreate_working_folder_file", {
     dbUrl: await ensureDbUrl(),
     request,
   }));

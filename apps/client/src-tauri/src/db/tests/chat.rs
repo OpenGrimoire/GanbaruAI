@@ -4,6 +4,8 @@ use sqlx::Row;
 const NOW: &str = "2026-07-20T12:00:00Z";
 const ADD_CHAT_DRAFT_RICH_CONTENT: &str =
     include_str!("../../../migrations/20260728032141_add_chat_draft_rich_content.sql");
+const ADD_CHAT_REVIEW_COMMENT_SOURCES: &str =
+    include_str!("../../../migrations/20260730193000_add_chat_review_comment_sources.sql");
 
 async fn insert_project(pool: &sqlx::SqlitePool) {
     sqlx::query("INSERT INTO project_groups (id, name) VALUES ('group-1', 'Engineering')")
@@ -155,6 +157,7 @@ fn schema_creates_chat_tables_indexes_and_no_device_paths() {
             "idx_chat_threads_execution_environment",
             "idx_chat_worktrees_cleanup",
             "idx_chat_review_comments_thread_path",
+            "idx_chat_review_comments_thread_queue",
             "idx_chat_resources_workspace_kind",
             "idx_chat_browser_artifacts_thread",
             "idx_chat_provider_cleanup_jobs_retry",
@@ -383,6 +386,100 @@ fn chat_draft_rich_content_migration_preserves_existing_plain_text() {
             None
         );
         assert_eq!(row.get::<Option<String>, _>("rich_content_data"), None);
+    });
+}
+
+#[test]
+fn chat_review_comment_sources_migration_preserves_legacy_rows_and_enforces_constraints() {
+    tauri::async_runtime::block_on(async {
+        let pool = sqlx::SqlitePool::connect("sqlite::memory:").await.unwrap();
+        sqlx::query(
+            "CREATE TABLE chat_review_comments (
+                id TEXT PRIMARY KEY NOT NULL,
+                thread_id TEXT NOT NULL,
+                turn_id TEXT,
+                relative_path TEXT NOT NULL,
+                content_revision TEXT NOT NULL,
+                start_line INTEGER NOT NULL,
+                start_column INTEGER NOT NULL DEFAULT 1,
+                end_line INTEGER NOT NULL,
+                end_column INTEGER NOT NULL DEFAULT 1,
+                selected_text TEXT NOT NULL DEFAULT '',
+                comment_text TEXT NOT NULL,
+                state TEXT NOT NULL DEFAULT 'open',
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                resolved_at TEXT
+            ) STRICT",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            "INSERT INTO chat_review_comments
+                (id, thread_id, relative_path, content_revision, start_line, end_line,
+                 selected_text, comment_text, created_at, updated_at)
+             VALUES ('review-legacy', 'thread-1', 'src/main.rs',
+                     'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+                     4, 5, 'unsafe block', 'Can this stay safe?', ?, ?)",
+        )
+        .bind(NOW)
+        .bind(NOW)
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        sqlx::raw_sql(ADD_CHAT_REVIEW_COMMENT_SOURCES)
+            .execute(&pool)
+            .await
+            .unwrap();
+
+        let row = sqlx::query(
+            "SELECT selected_text, comment_text, source_kind, source_data,
+                    review_revision, snapshot_id, file_id, selection_side,
+                    previous_relative_path, applicability, queued_for_send
+             FROM chat_review_comments WHERE id = 'review-legacy'",
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(row.get::<String, _>("selected_text"), "unsafe block");
+        assert_eq!(row.get::<String, _>("comment_text"), "Can this stay safe?");
+        assert_eq!(row.get::<String, _>("source_kind"), "file");
+        assert_eq!(row.get::<Option<String>, _>("source_data"), None);
+        assert_eq!(row.get::<Option<String>, _>("review_revision"), None);
+        assert_eq!(row.get::<Option<String>, _>("snapshot_id"), None);
+        assert_eq!(row.get::<Option<String>, _>("file_id"), None);
+        assert_eq!(row.get::<String, _>("selection_side"), "file");
+        assert_eq!(row.get::<Option<String>, _>("previous_relative_path"), None);
+        assert_eq!(row.get::<String, _>("applicability"), "current");
+        assert_eq!(row.get::<i64, _>("queued_for_send"), 0);
+
+        for invalid_update in [
+            "UPDATE chat_review_comments SET source_kind = 'unsupported' WHERE id = 'review-legacy'",
+            "UPDATE chat_review_comments SET source_data = 'not-json' WHERE id = 'review-legacy'",
+            "UPDATE chat_review_comments SET review_revision = 'short' WHERE id = 'review-legacy'",
+            "UPDATE chat_review_comments SET snapshot_id = '' WHERE id = 'review-legacy'",
+            "UPDATE chat_review_comments SET file_id = '' WHERE id = 'review-legacy'",
+            "UPDATE chat_review_comments SET selection_side = 'both' WHERE id = 'review-legacy'",
+            "UPDATE chat_review_comments SET previous_relative_path = '../secret' WHERE id = 'review-legacy'",
+            "UPDATE chat_review_comments SET applicability = 'unknown' WHERE id = 'review-legacy'",
+            "UPDATE chat_review_comments SET queued_for_send = 2 WHERE id = 'review-legacy'",
+        ] {
+            assert!(
+                sqlx::query(invalid_update).execute(&pool).await.is_err(),
+                "constraint should reject: {invalid_update}"
+            );
+        }
+
+        let queue_index: Option<i64> = sqlx::query_scalar(
+            "SELECT 1 FROM sqlite_schema
+             WHERE type = 'index' AND name = 'idx_chat_review_comments_thread_queue'",
+        )
+        .fetch_optional(&pool)
+        .await
+        .unwrap();
+        assert_eq!(queue_index, Some(1));
     });
 }
 

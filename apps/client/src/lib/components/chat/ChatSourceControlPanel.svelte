@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount } from "svelte";
+  import { onMount, untrack } from "svelte";
   import ArrowDown from "@lucide/svelte/icons/arrow-down";
   import ArrowUp from "@lucide/svelte/icons/arrow-up";
   import Check from "@lucide/svelte/icons/check";
@@ -12,6 +12,7 @@
   import Trash2 from "@lucide/svelte/icons/trash-2";
   import * as chatApi from "$lib/api/chat";
   import type { ChatExecutionEnvironmentRead, GitChangedPathRead, GitStatusRead, HostedChangeRequestRead, HostedSourceControlRead } from "$lib/chat/contracts";
+  import { subscribeChatWorkspaceChanges } from "$lib/chat/workspace-observer-client";
   import { getLocalization } from "$lib/i18n/translator.svelte";
   import { getChat } from "$lib/stores/chat.svelte";
 
@@ -45,22 +46,79 @@
   let repositorySetupOpen = $state(false);
   let initialBranch = $state("main");
   let cloneUrl = $state("");
+  let refreshPending = false;
+  let liveRefreshTimer: number | null = null;
+  let refreshRequest = 0;
+  let environmentRequest = 0;
+  let providerRequest = 0;
+  let hostedRequest = 0;
+  let operationRequest = 0;
   const workspace = $derived(chat.selectedWorkingFolderId);
   const staged = $derived(status?.files.filter(isStaged) ?? []);
   const unstaged = $derived(status?.files.filter(isUnstaged) ?? []);
   const hostedProvider = $derived(hostedProviders.find((entry) => entry.kind === hostedProviderKind) ?? null);
 
-  onMount(() => void refresh());
+  onMount(() => {
+    const unsubscribe = subscribeChatWorkspaceChanges((batch) => {
+      if (batch.workingFolderId !== workspace
+        || batch.executionEnvironmentId !== chat.selectedExecutionEnvironmentId
+        || (batch.relativePaths.length === 0 && !batch.gitMetadataChanged && !batch.overflowed)) return;
+      if (liveRefreshTimer !== null) window.clearTimeout(liveRefreshTimer);
+      liveRefreshTimer = window.setTimeout(() => {
+        liveRefreshTimer = null;
+        void refresh();
+      }, 100);
+    });
+    return () => {
+      unsubscribe();
+      if (liveRefreshTimer !== null) window.clearTimeout(liveRefreshTimer);
+    };
+  });
 
   $effect(() => {
-    workspace;
-    chat.selectedExecutionEnvironmentId;
-    status = null;
-    error = null;
-    void refresh();
-    void loadEnvironments();
-    void discoverProviders();
+    const workingFolderId = workspace;
+    const executionEnvironmentId = chat.selectedExecutionEnvironmentId;
+    untrack(() => {
+      refreshRequest += 1;
+      environmentRequest += 1;
+      providerRequest += 1;
+      hostedRequest += 1;
+      operationRequest += 1;
+      loading = false;
+      environmentLoading = false;
+      hostedLoading = false;
+      operation = null;
+      refreshPending = false;
+      status = null;
+      environments = [];
+      hostedProviders = [];
+      hostedRequests = [];
+      hostedProviderKind = null;
+      worktreeFormOpen = false;
+      changeRequestFormOpen = false;
+      bitbucketCredentialOpen = false;
+      repositorySetupOpen = false;
+      commitMessage = "";
+      worktreeBranch = "";
+      changeRequestTitle = "";
+      changeRequestBody = "";
+      changeRequestBase = "";
+      changeRequestHead = "";
+      bitbucketUsername = "";
+      bitbucketToken = "";
+      cloneUrl = "";
+      error = null;
+      if (!scopeMatches(workingFolderId, executionEnvironmentId)) return;
+      void refresh();
+      void loadEnvironments();
+      void discoverProviders();
+    });
   });
+
+  function scopeMatches(workingFolderId: string | null, executionEnvironmentId: string | null): boolean {
+    return workspace === workingFolderId
+      && chat.selectedExecutionEnvironmentId === executionEnvironmentId;
+  }
 
   function isStaged(file: GitChangedPathRead): boolean {
     return file.indexStatus !== "." && file.indexStatus !== "?" && file.indexStatus !== "!";
@@ -80,34 +138,70 @@
   }
 
   async function refresh(): Promise<void> {
-    if (!workspace || loading || operation) return;
+    const workingFolderId = workspace;
+    const executionEnvironmentId = chat.selectedExecutionEnvironmentId;
+    if (!workingFolderId) return;
+    if (loading || operation) {
+      refreshPending = true;
+      return;
+    }
+    const request = ++refreshRequest;
     loading = true;
     error = null;
     try {
-      status = await chatApi.readGitStatus(workspace, chat.selectedExecutionEnvironmentId);
+      const nextStatus = await chatApi.readGitStatus(workingFolderId, executionEnvironmentId);
+      if (request === refreshRequest && scopeMatches(workingFolderId, executionEnvironmentId)) {
+        status = nextStatus;
+      }
     } catch (reason) {
-      error = message(reason);
+      if (request === refreshRequest && scopeMatches(workingFolderId, executionEnvironmentId)) {
+        error = message(reason);
+      }
     } finally {
-      loading = false;
+      if (request === refreshRequest) {
+        loading = false;
+        if (refreshPending) {
+          refreshPending = false;
+          queueMicrotask(() => void refresh());
+        }
+      }
     }
   }
 
+  function openReview(mode: "staged" | "unstaged", relativePath: string): void {
+    window.dispatchEvent(new CustomEvent("ganbaru-ai:chat-open-review", {
+      detail: { source: { kind: "working_tree", mode }, relativePath },
+    }));
+  }
+
   async function loadEnvironments(): Promise<void> {
-    if (!workspace || environmentLoading) return;
+    const workingFolderId = workspace;
+    const executionEnvironmentId = chat.selectedExecutionEnvironmentId;
+    if (!workingFolderId || environmentLoading) return;
+    const request = ++environmentRequest;
     environmentLoading = true;
     try {
-      environments = await chatApi.listChatExecutionEnvironments(workspace);
+      const nextEnvironments = await chatApi.listChatExecutionEnvironments(workingFolderId);
+      if (request === environmentRequest && scopeMatches(workingFolderId, executionEnvironmentId)) {
+        environments = nextEnvironments;
+      }
     } catch (reason: unknown) {
-      error = message(reason);
+      if (request === environmentRequest && scopeMatches(workingFolderId, executionEnvironmentId)) {
+        error = message(reason);
+      }
     } finally {
-      environmentLoading = false;
+      if (request === environmentRequest) environmentLoading = false;
     }
   }
 
   async function discoverProviders(): Promise<void> {
-    if (!workspace) return;
+    const workingFolderId = workspace;
+    const executionEnvironmentId = chat.selectedExecutionEnvironmentId;
+    if (!workingFolderId) return;
+    const request = ++providerRequest;
     try {
-      const providers = await chatApi.discoverHostedSourceControl(workspace, chat.selectedExecutionEnvironmentId);
+      const providers = await chatApi.discoverHostedSourceControl(workingFolderId, executionEnvironmentId);
+      if (request !== providerRequest || !scopeMatches(workingFolderId, executionEnvironmentId)) return;
       hostedProviders = providers;
       const selected = providers.find((provider) => provider.kind === hostedProviderKind && provider.detectedForRepository)
         ?? providers.find((provider) => provider.detectedForRepository && provider.status === "available")
@@ -116,194 +210,261 @@
       hostedProviderKind = selected?.kind ?? null;
       await loadHostedRequests();
     } catch (reason: unknown) {
-      error = message(reason);
+      if (request === providerRequest && scopeMatches(workingFolderId, executionEnvironmentId)) {
+        error = message(reason);
+      }
     }
   }
 
   async function loadHostedRequests(): Promise<void> {
     const provider = hostedProviders.find((entry) => entry.kind === hostedProviderKind);
-    if (!workspace || !provider?.repositorySlug || provider.status !== "available") {
+    const workingFolderId = workspace;
+    const executionEnvironmentId = chat.selectedExecutionEnvironmentId;
+    if (!workingFolderId || !provider?.repositorySlug || provider.status !== "available") {
+      hostedRequest += 1;
+      hostedLoading = false;
       hostedRequests = [];
       return;
     }
+    const request = ++hostedRequest;
+    const providerKind = provider.kind;
+    const repositorySlug = provider.repositorySlug;
     hostedLoading = true;
     try {
-      hostedRequests = await chatApi.listHostedChangeRequests(
-        workspace,
-        chat.selectedExecutionEnvironmentId,
-        provider.kind,
-        provider.repositorySlug,
+      const nextRequests = await chatApi.listHostedChangeRequests(
+        workingFolderId,
+        executionEnvironmentId,
+        providerKind,
+        repositorySlug,
       );
+      if (request === hostedRequest
+        && scopeMatches(workingFolderId, executionEnvironmentId)
+        && hostedProviderKind === providerKind) {
+        hostedRequests = nextRequests;
+      }
     } catch (reason: unknown) {
-      hostedRequests = [];
-      error = message(reason);
+      if (request === hostedRequest
+        && scopeMatches(workingFolderId, executionEnvironmentId)
+        && hostedProviderKind === providerKind) {
+        hostedRequests = [];
+        error = message(reason);
+      }
     } finally {
-      hostedLoading = false;
+      if (request === hostedRequest) hostedLoading = false;
     }
   }
 
   async function createChangeRequest(): Promise<void> {
     const provider = hostedProviders.find((entry) => entry.kind === hostedProviderKind);
-    if (!workspace || !provider?.repositorySlug || operation) return;
+    const workingFolderId = workspace;
+    const executionEnvironmentId = chat.selectedExecutionEnvironmentId;
+    if (!workingFolderId || !provider?.repositorySlug || operation) return;
+    const request = ++operationRequest;
+    const providerKind = provider.kind;
+    const repositorySlug = provider.repositorySlug;
     operation = "create-change-request";
     error = null;
     try {
       const created = await chatApi.createHostedChangeRequest({
-        workingFolderId: workspace,
-        executionEnvironmentId: chat.selectedExecutionEnvironmentId,
-        providerKind: provider.kind,
-        repositorySlug: provider.repositorySlug,
+        workingFolderId,
+        executionEnvironmentId,
+        providerKind,
+        repositorySlug,
         title: changeRequestTitle.trim(),
         body: changeRequestBody,
         baseBranch: changeRequestBase.trim(),
         headBranch: changeRequestHead.trim(),
         draft: changeRequestDraft,
       });
+      if (request !== operationRequest || !scopeMatches(workingFolderId, executionEnvironmentId)) return;
       hostedRequests = [created, ...hostedRequests.filter((entry) => entry.number !== created.number)];
       changeRequestFormOpen = false;
       changeRequestTitle = "";
       changeRequestBody = "";
     } catch (reason: unknown) {
-      error = message(reason);
+      if (request === operationRequest && scopeMatches(workingFolderId, executionEnvironmentId)) error = message(reason);
     } finally {
-      operation = null;
+      if (request === operationRequest) operation = null;
     }
   }
 
   async function checkoutChangeRequest(request: HostedChangeRequestRead): Promise<void> {
     const provider = hostedProviders.find((entry) => entry.kind === request.providerKind);
-    if (!workspace || operation) return;
+    const workingFolderId = workspace;
+    const executionEnvironmentId = chat.selectedExecutionEnvironmentId;
+    if (!workingFolderId || operation) return;
+    const operationId = ++operationRequest;
     operation = "checkout-change-request";
     error = null;
     try {
-      status = await chatApi.checkoutHostedChangeRequest(
-        workspace,
-        chat.selectedExecutionEnvironmentId,
+      const nextStatus = await chatApi.checkoutHostedChangeRequest(
+        workingFolderId,
+        executionEnvironmentId,
         request.providerKind,
         String(request.number),
         provider?.remoteName ?? null,
       );
+      if (operationId === operationRequest && scopeMatches(workingFolderId, executionEnvironmentId)) status = nextStatus;
     } catch (reason: unknown) {
-      error = message(reason);
+      if (operationId === operationRequest && scopeMatches(workingFolderId, executionEnvironmentId)) error = message(reason);
     } finally {
-      operation = null;
+      if (operationId === operationRequest) operation = null;
     }
   }
 
   async function configureBitbucket(): Promise<void> {
-    if (!hostedProvider?.repositorySlug || operation) return;
+    const workingFolderId = workspace;
+    const executionEnvironmentId = chat.selectedExecutionEnvironmentId;
+    const repositorySlug = hostedProvider?.repositorySlug;
+    if (!workingFolderId || !repositorySlug || operation) return;
+    const request = ++operationRequest;
     operation = "configure-bitbucket";
     error = null;
     try {
       await chatApi.configureBitbucketCredential(
-        hostedProvider.repositorySlug,
+        repositorySlug,
         bitbucketUsername.trim(),
         bitbucketToken,
       );
+      if (request !== operationRequest || !scopeMatches(workingFolderId, executionEnvironmentId)) return;
       bitbucketToken = "";
       bitbucketCredentialOpen = false;
       await discoverProviders();
     } catch (reason: unknown) {
-      error = message(reason);
+      if (request === operationRequest && scopeMatches(workingFolderId, executionEnvironmentId)) error = message(reason);
     } finally {
-      operation = null;
+      if (request === operationRequest) operation = null;
     }
   }
 
   async function removeBitbucketCredential(): Promise<void> {
-    if (!hostedProvider?.repositorySlug || operation) return;
+    const workingFolderId = workspace;
+    const executionEnvironmentId = chat.selectedExecutionEnvironmentId;
+    const repositorySlug = hostedProvider?.repositorySlug;
+    if (!workingFolderId || !repositorySlug || operation) return;
+    const request = ++operationRequest;
     operation = "remove-bitbucket-credential";
     error = null;
     try {
-      await chatApi.removeBitbucketCredential(hostedProvider.repositorySlug);
+      await chatApi.removeBitbucketCredential(repositorySlug);
+      if (request !== operationRequest || !scopeMatches(workingFolderId, executionEnvironmentId)) return;
       hostedRequests = [];
       await discoverProviders();
     } catch (reason: unknown) {
-      error = message(reason);
+      if (request === operationRequest && scopeMatches(workingFolderId, executionEnvironmentId)) error = message(reason);
     } finally {
-      operation = null;
+      if (request === operationRequest) operation = null;
     }
   }
 
   async function createWorktree(): Promise<void> {
-    if (!workspace || operation || !worktreeBranch.trim() || !worktreeBase.trim()) return;
+    const workingFolderId = workspace;
+    const executionEnvironmentId = chat.selectedExecutionEnvironmentId;
+    const branchName = worktreeBranch.trim();
+    const baseReference = worktreeBase.trim();
+    if (!workingFolderId || operation || !branchName || !baseReference) return;
+    const request = ++operationRequest;
     operation = "create-worktree";
     error = null;
     try {
       const environment = await chatApi.createChatWorktreeEnvironment({
         environmentId: crypto.randomUUID(),
-        workingFolderId: workspace,
-        displayName: worktreeBranch.trim(),
-        branchName: worktreeBranch.trim(),
-        baseReference: worktreeBase.trim(),
+        workingFolderId,
+        displayName: branchName,
+        branchName,
+        baseReference,
         remoteName: worktreeRemote.trim() || null,
         fetchRemote,
       });
+      if (request !== operationRequest || !scopeMatches(workingFolderId, executionEnvironmentId)) return;
       environments = [...environments, environment];
       chat.setExecutionEnvironment(environment.id);
       worktreeFormOpen = false;
       worktreeBranch = "";
     } catch (reason: unknown) {
-      error = message(reason);
+      if (request === operationRequest && scopeMatches(workingFolderId, executionEnvironmentId)) error = message(reason);
     } finally {
-      operation = null;
+      if (request === operationRequest) operation = null;
     }
   }
 
   async function removeWorktree(environment: ChatExecutionEnvironmentRead): Promise<void> {
-    if (!workspace || operation || !window.confirm(t("chat.sourceControl.confirmRemoveWorktree", environment.displayName))) return;
+    const workingFolderId = workspace;
+    const executionEnvironmentId = chat.selectedExecutionEnvironmentId;
+    if (!workingFolderId || operation || !window.confirm(t("chat.sourceControl.confirmRemoveWorktree", environment.displayName))) return;
+    const request = ++operationRequest;
     operation = "remove-worktree";
     error = null;
     try {
-      await chatApi.removeChatWorktreeEnvironment(workspace, environment.id, true);
+      await chatApi.removeChatWorktreeEnvironment(workingFolderId, environment.id, true);
+      if (request !== operationRequest || !scopeMatches(workingFolderId, executionEnvironmentId)) return;
       environments = environments.filter((entry) => entry.id !== environment.id);
       if (chat.selectedExecutionEnvironmentId === environment.id) chat.setExecutionEnvironment(null);
     } catch (reason: unknown) {
-      error = message(reason);
+      if (request === operationRequest && scopeMatches(workingFolderId, executionEnvironmentId)) error = message(reason);
     } finally {
-      operation = null;
+      if (request === operationRequest) operation = null;
     }
   }
 
-  async function run(name: string, action: (workspaceId: string) => Promise<GitStatusRead>): Promise<void> {
-    if (!workspace || operation) return;
+  async function run(
+    name: string,
+    action: (workspaceId: string, executionEnvironmentId: string | null) => Promise<GitStatusRead>,
+  ): Promise<boolean> {
+    const workingFolderId = workspace;
+    const executionEnvironmentId = chat.selectedExecutionEnvironmentId;
+    if (!workingFolderId || operation) return false;
+    const request = ++operationRequest;
     operation = name;
     error = null;
     try {
-      status = await action(workspace);
+      const nextStatus = await action(workingFolderId, executionEnvironmentId);
+      if (request !== operationRequest || !scopeMatches(workingFolderId, executionEnvironmentId)) return false;
+      status = nextStatus;
+      return true;
     } catch (reason) {
-      error = message(reason);
+      if (request === operationRequest && scopeMatches(workingFolderId, executionEnvironmentId)) {
+        error = message(reason);
+      }
+      return false;
     } finally {
-      operation = null;
+      if (request === operationRequest) {
+        operation = null;
+        if (refreshPending) {
+          refreshPending = false;
+          queueMicrotask(() => void refresh());
+        }
+      }
     }
   }
 
   async function commit(): Promise<void> {
     const nextMessage = commitMessage.trim();
     if (!nextMessage) return;
-    await run("commit", (workspaceId) => chatApi.commitGitChanges(workspaceId, nextMessage, chat.selectedExecutionEnvironmentId));
-    if (!error) commitMessage = "";
+    if (await run("commit", (workspaceId, environmentId) => chatApi.commitGitChanges(workspaceId, nextMessage, environmentId))) {
+      commitMessage = "";
+    }
   }
 
   async function initializeRepository(): Promise<void> {
-    await run("initialize", (workspaceId) => chatApi.initializeGitRepository(
+    const succeeded = await run("initialize", (workspaceId, environmentId) => chatApi.initializeGitRepository(
       workspaceId,
       initialBranch.trim() || null,
-      chat.selectedExecutionEnvironmentId,
+      environmentId,
     ));
-    if (!error) repositorySetupOpen = false;
+    if (succeeded) repositorySetupOpen = false;
   }
 
   async function cloneRepository(): Promise<void> {
     const nextUrl = cloneUrl.trim();
     if (!nextUrl) return;
-    await run("clone", (workspaceId) => chatApi.cloneGitRepository(
+    const succeeded = await run("clone", (workspaceId, environmentId) => chatApi.cloneGitRepository(
       workspaceId,
       nextUrl,
       "origin",
-      chat.selectedExecutionEnvironmentId,
+      environmentId,
     ));
-    if (!error) {
+    if (succeeded) {
       cloneUrl = "";
       repositorySetupOpen = false;
       await discoverProviders();
@@ -313,11 +474,11 @@
   async function discard(file: GitChangedPathRead): Promise<void> {
     const confirmed = window.confirm(t("chat.sourceControl.confirmDiscard", file.relativePath));
     if (!confirmed) return;
-    await run("discard", (workspaceId) => chatApi.discardGitPaths(
+    await run("discard", (workspaceId, environmentId) => chatApi.discardGitPaths(
       workspaceId,
       [file.relativePath],
       true,
-      chat.selectedExecutionEnvironmentId,
+      environmentId,
     ));
   }
 
@@ -341,9 +502,9 @@
   </header>
 
   <div class="network-actions">
-    <button type="button" disabled={operation !== null} onclick={() => void run("fetch", (id) => chatApi.fetchGitRemote(id, null, chat.selectedExecutionEnvironmentId))}>{t("chat.sourceControl.fetch")}</button>
-    <button type="button" disabled={operation !== null} onclick={() => void run("pull", (id) => chatApi.pullGitBranch(id, null, null, chat.selectedExecutionEnvironmentId))}>{t("chat.sourceControl.pull")}</button>
-    <button type="button" disabled={operation !== null} onclick={() => void run("push", (id) => chatApi.pushGitBranch(id, null, null, false, false, chat.selectedExecutionEnvironmentId))}>{t("chat.sourceControl.push")}</button>
+    <button type="button" disabled={operation !== null} onclick={() => void run("fetch", (id, environmentId) => chatApi.fetchGitRemote(id, null, environmentId))}>{t("chat.sourceControl.fetch")}</button>
+    <button type="button" disabled={operation !== null} onclick={() => void run("pull", (id, environmentId) => chatApi.pullGitBranch(id, null, null, environmentId))}>{t("chat.sourceControl.pull")}</button>
+    <button type="button" disabled={operation !== null} onclick={() => void run("push", (id, environmentId) => chatApi.pushGitBranch(id, null, null, false, false, environmentId))}>{t("chat.sourceControl.push")}</button>
   </div>
 
   <section class="environments">
@@ -458,8 +619,8 @@
         <h3><span>{t("chat.sourceControl.staged")}</span><small>{staged.length}</small></h3>
         {#each staged as file (file.relativePath)}
           <div class="file-row">
-            <code>{statusLabel(file)}</code><span title={file.relativePath}>{file.relativePath}</span>
-            <button type="button" class="chat-icon-button" disabled={operation !== null} aria-label={t("chat.sourceControl.unstageFile", file.relativePath)} onclick={() => void run("unstage", (id) => chatApi.unstageGitPaths(id, [file.relativePath], chat.selectedExecutionEnvironmentId))}><Minus size={13} /></button>
+            <code>{statusLabel(file)}</code><button type="button" class="file-link" title={file.relativePath} onclick={() => openReview("staged", file.relativePath)}>{file.relativePath}</button>
+            <button type="button" class="chat-icon-button" disabled={operation !== null} aria-label={t("chat.sourceControl.unstageFile", file.relativePath)} onclick={() => void run("unstage", (id, environmentId) => chatApi.unstageGitPaths(id, [file.relativePath], environmentId))}><Minus size={13} /></button>
           </div>
         {:else}<p class="empty compact">{t("chat.sourceControl.noneStaged")}</p>{/each}
       </section>
@@ -467,10 +628,10 @@
         <h3><span>{t("chat.sourceControl.changes")}</span><small>{unstaged.length}</small></h3>
         {#each unstaged as file (file.relativePath)}
           <div class="file-row">
-            <code>{statusLabel(file)}</code><span title={file.relativePath}>{file.relativePath}</span>
+            <code>{statusLabel(file)}</code><button type="button" class="file-link" title={file.relativePath} onclick={() => openReview("unstaged", file.relativePath)}>{file.relativePath}</button>
             <span class="file-actions">
               <button type="button" class="chat-icon-button" disabled={operation !== null} aria-label={t("chat.sourceControl.discardFile", file.relativePath)} onclick={() => void discard(file)}><Trash2 size={13} /></button>
-              <button type="button" class="chat-icon-button" disabled={operation !== null} aria-label={t("chat.sourceControl.stageFile", file.relativePath)} onclick={() => void run("stage", (id) => chatApi.stageGitPaths(id, [file.relativePath], chat.selectedExecutionEnvironmentId))}><Plus size={13} /></button>
+              <button type="button" class="chat-icon-button" disabled={operation !== null} aria-label={t("chat.sourceControl.stageFile", file.relativePath)} onclick={() => void run("stage", (id, environmentId) => chatApi.stageGitPaths(id, [file.relativePath], environmentId))}><Plus size={13} /></button>
             </span>
           </div>
         {:else}<p class="empty compact">{t("chat.sourceControl.clean")}</p>{/each}
@@ -548,6 +709,8 @@
   .file-row:hover { background: color-mix(in srgb, var(--accent) 55%, transparent); }
   .file-row code { color: var(--primary); font-size: 0.68rem; }
   .file-row > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: "SF Mono", "SFMono-Regular", Consolas, monospace; font-size: 0.68rem; }
+  .file-link { min-width: 0; overflow: hidden; border-radius: 0.25rem; padding: 0.15rem 0.2rem; text-align: left; text-overflow: ellipsis; white-space: nowrap; font-family: "SF Mono", "SFMono-Regular", Consolas, monospace; font-size: 0.68rem; }
+  .file-link:hover, .file-link:focus-visible { background: var(--accent); color: var(--accent-foreground); }
   .file-row > .file-actions { display: flex; overflow: visible; font-family: inherit; }
   .commit { display: grid; gap: 0.4rem; border-top: 1px solid var(--border); padding: 0.6rem 0.7rem; }
   .commit label { font-size: 0.68rem; font-weight: 600; }

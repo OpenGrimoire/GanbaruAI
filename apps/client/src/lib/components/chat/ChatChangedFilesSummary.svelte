@@ -13,8 +13,8 @@
   const deletions = $derived(files.reduce((total, file) => total + (file.deletions ?? 0), 0));
 
   function openChanges(relativePath: string | null): void {
-    window.dispatchEvent(new CustomEvent("ganbaru-ai:chat-open-changes", {
-      detail: { turnId, relativePath },
+    window.dispatchEvent(new CustomEvent("ganbaru-ai:chat-open-review", {
+      detail: { source: { kind: "provider_turn", turnId }, relativePath },
     }));
   }
 </script>

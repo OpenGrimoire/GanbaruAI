@@ -1,6 +1,6 @@
 # Chat dependency decisions
 
-This document freezes the minimum dependency direction for project-owned coding-agent Chat. It was reviewed on 2026-07-21. A reviewed dependency is not added until the phase that imports it. This keeps unused process, credential, terminal, and rendering code out of the application while preserving an explicit implementation choice.
+This document freezes the minimum dependency direction for project-owned coding-agent Chat. It was reviewed on 2026-07-30. A reviewed dependency is not added until the phase that imports it. This keeps unused process, credential, terminal, and rendering code out of the application while preserving an explicit implementation choice.
 
 Package metadata is not evidence that a package is advisory-free. The repository audits are the authoritative advisory gate. Run `pnpm -w run audit` when a reviewed package is first added, and run `pnpm -w run validate:full` for that dependency-sensitive phase. Keep package-security protections enabled.
 
@@ -16,7 +16,8 @@ Package metadata is not evidence that a package is advisory-free. The repository
 | Pseudoterminals | `portable-pty` 0.9.0 | Terminal | Added in Phase 9 |
 | HTTP and event streams | Existing Reqwest and Rustls with a bounded Ganbaru SSE decoder | OpenCode | Added in Phase 12, no new dependency |
 | Markdown parsing and sanitization | `marked` 18.0.6 plus existing DOMPurify | Timeline | Added in Phase 7 |
-| Diff parsing and rendering | `diff` 9.0.0 plus a bounded Ganbaru renderer | Inspector | Added in Phase 9 |
+| Diff parsing and rendering | `@pierre/diffs` 1.2.12 through its vanilla `CodeView` API | Review workspace | Added for the high-performance review workspace |
+| Workspace file observation | `notify` 8.2.0 behind a bounded Rust observer | Live Files, Review, and source-control updates | Added for the high-performance review workspace |
 | Terminal emulation | `@xterm/xterm` 6.0.0 and `@xterm/addon-fit` 0.11.0 | Terminal | Added in Phase 9 |
 | File editor | CodeMirror 6 through `codemirror` 6.0.2 | Revision-safe file editor | Added for complete local workspace parity |
 | ACP protocol types | Official `agent-client-protocol` 2.0.0 crate with ACP v1 negotiation | Cursor and Grok shared driver | Added for negotiated ACP parity |
@@ -115,16 +116,26 @@ The Phase 7 dependency gate passed. npm reported no known vulnerabilities, Rust 
 
 ## Diff parsing and rendering
 
-Use [`diff` 9.0.0](https://www.npmjs.com/package/diff) to parse bounded unified patches, then render unified and fitting split views in focused Svelte components. Rust remains authoritative for file identity, binary state, rename metadata, and checkpoint comparison.
+Use [`@pierre/diffs` 1.2.12](https://www.npmjs.com/package/%40pierre/diffs) through its framework-neutral `CodeView` API. Rust remains authoritative for repository authorization, snapshot identity, file and hunk identity, binary and rename metadata, and every Git mutation. The browser renderer receives only validated, whole-hunk patch pages.
 
-Phase 9 added the exact reviewed version. The Changes panel loads it dynamically only after a bounded Rust patch is selected, converts the parsed result into inert text rows, and caps the rendered line collection. The parser never determines file identity or restore scope.
+The high-performance Review workspace replaces the earlier `diff` parser and hand-built line DOM. Pierre is exact-pinned behind a Ganbaru adapter, lazy-loaded only when Review opens, and isolated with Shiki and its module worker. Grammar and theme payloads remain separate on-demand production chunks instead of being collapsed into the Review core. Plain virtualized text renders before asynchronous syntax highlighting. Worker, parser, or highlighter failure keeps a bounded raw-patch fallback usable.
 
-- Maintenance: jsdiff is actively released, uses BSD-3-Clause licensing, and has zero production dependencies.
-- Advisories: run `pnpm audit` when it is added and keep malformed-patch fixtures at the wrapper boundary.
-- Permissions: the parser receives already bounded text. It has no filesystem or process access.
-- Platforms: it is portable browser JavaScript.
-- Size: the published package is about 616 KB unpacked and should be lazy-loaded with the inspector.
-- Rejected alternative: a Shiki-based diff renderer brings a much broader syntax, theme, worker, and HTML transformation graph than the required safe text diff. Ganbaru does not need that supply-chain or bundle cost.
+- Maintenance: Pierre is actively maintained, Apache-2.0 licensed, and established enough for use behind an exact-version adapter. Its young public API requires deliberate upgrade review.
+- Advisories: run the npm audit and full dependency gate after addition. Its React peer declarations are marked optional only for this exact package because the vanilla entry has no React runtime import. Resolved React and ReactDOM packages are prohibited from the production dependency graph and emitted bundles.
+- Permissions: the renderer and worker receive inert patch text and typed callbacks. They have no filesystem, process, network, or Tauri command capability.
+- Platforms: the vanilla browser API targets the WebView engines used by Tauri. The module worker is same-origin and the content security policy does not permit blob workers.
+- Size: Pierre and Shiki add several megabytes of packaged grammar and theme assets. A lazy Review core, on-demand grammar and theme chunks, one to three workers, bounded caches, and bundle contracts protect startup and normal Chat use.
+- Rejected alternatives: Monaco duplicates the CodeMirror editor and carries a much larger editor runtime. A new custom renderer would recreate virtualization, split alignment, syntax, intraline changes, annotations, and accessibility behavior without an established engine.
+
+## Workspace file observation
+
+Use [`notify` 8.2.0](https://crates.io/crates/notify/8.2.0) behind a Rust-owned Chat workspace observer. One observer follows the active authorized execution environment while Chat is active, coalesces bounded relative-path events, and invalidates Files, Review, and source-control projections.
+
+- Maintenance: `notify` is the established cross-platform Rust filesystem notification crate, uses CC0-1.0, and supports the repository toolchain.
+- Advisories: run the Rust audit and full dependency gate after addition. Do not add a JavaScript file-watching sidecar or expose a generic watcher command to the webview.
+- Permissions: Rust resolves the authorized root and emits only normalized relative paths and semantic invalidation flags. Symlink escapes, safety-excluded paths, and absolute paths never cross IPC.
+- Platforms: the recommended native backend covers Linux, Windows, and macOS. Overflow or unavailable native observation falls back to bounded active-Chat polling with a visible degraded state.
+- Resource policy: maintain one observer, coalesce bursts, cap each event batch, and stop observation when Chat closes or changes execution environment.
 
 ## Terminal emulation
 

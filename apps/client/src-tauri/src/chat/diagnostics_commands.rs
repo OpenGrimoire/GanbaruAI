@@ -151,12 +151,15 @@ pub async fn chat_export_redacted_diagnostics(
 pub async fn chat_stop_all_processes(
     app: tauri::AppHandle,
     runtimes: tauri::State<'_, ChatRuntimeRegistry>,
+    mutations: tauri::State<'_, super::workspace_mutation::ChatWorkspaceMutationRegistry>,
     terminals: tauri::State<'_, ChatTerminalRegistry>,
     internal_mcp: tauri::State<'_, super::internal_mcp::InternalMcpRegistry>,
     request: ChatMaintenanceConfirmation,
 ) -> ChatResult<ChatStopAllResult> {
     require_confirmation(&request.confirmation, STOP_CONFIRMATION)?;
-    let provider_processes_stopped = runtimes.stop_all_and_reset(MAINTENANCE_TIMEOUT).await?;
+    let provider_processes_stopped = runtimes
+        .stop_all_and_reset(MAINTENANCE_TIMEOUT, &mutations)
+        .await?;
     let terminals_stopped = terminals.stop_all()?;
     internal_mcp.stop_all().await;
     app.state::<super::preview::ChatPreviewManager>()

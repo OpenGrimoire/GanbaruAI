@@ -3,6 +3,11 @@ import {
   type ChatCheckpointFileDiffRead,
   type ChatChangedFileRead,
   type ChatExecutionEnvironmentRead,
+  type ChatReviewFileAction,
+  type ChatReviewFileRead,
+  type ChatReviewPatchPageRead,
+  type ChatReviewPatchRead,
+  type ChatReviewSnapshotRead,
   type ChatReviewCommentRead,
   type ChatRestorePreviewRead,
   type ChatRestoreResultRead,
@@ -23,7 +28,11 @@ import {
   type ProjectWorkingFolderDirectoryRead,
   type ProjectWorkingFolderFileEntry,
   type ProjectWorkingFolderFilePreview,
+  type ChatWorkspaceChangeBatch,
+  type ChatWorkspaceObserverStatusRead,
+  type ChatWorkspaceRename,
   type PreviewTabRead,
+  type ReviewDiffSource,
 } from "../contracts";
 import {
   readBoolean,
@@ -41,21 +50,64 @@ const FILE_KINDS = ["file", "directory"] as const;
 const FILE_STATUSES = ["added", "modified", "deleted", "renamed", "type_changed", "unknown"] as const;
 const CHANGE_SCOPES = ["current_turn", "entire_thread"] as const;
 const REVIEW_STATES = ["open", "resolved"] as const;
+const REVIEW_SOURCE_KINDS = ["working_tree", "checkpoint", "commit", "branch", "provider_turn", "change_request"] as const;
+const REVIEW_COMMENT_SOURCE_KINDS = ["file", ...REVIEW_SOURCE_KINDS] as const;
+const REVIEW_PATCH_STATES = ["complete", "partial", "binary", "oversized_hunk", "unavailable"] as const;
+const REVIEW_FRESHNESS = ["current", "outdated"] as const;
 const EXECUTION_ENVIRONMENT_KINDS = ["current_folder", "worktree"] as const;
 const HOSTED_SOURCE_CONTROL_KINDS = ["github", "gitlab", "azure_devops", "bitbucket"] as const;
 const TERMINAL_PLACEMENTS = ["inspector", "bottom"] as const;
 const TERMINAL_SPLIT_DIRECTIONS = ["horizontal", "vertical"] as const;
+const WORKSPACE_OBSERVER_MODES = ["native", "polling", "unavailable"] as const;
+
+const MAX_RELATIVE_PATH_CHARS = 4_096;
+const MAX_DIRECTORY_ENTRIES = 5_000;
+const MAX_FILE_PREVIEW_CHARS = 1024 * 1024;
+const MAX_OBSERVER_PATHS = 512;
+const MAX_REVIEW_FILES = 100_000;
+const MAX_REVIEW_PATCHES = 64;
+const MAX_REVIEW_HUNKS = 2_048;
+const MAX_REVIEW_PATCH_CHARS = 4 * 1024 * 1024;
+const MAX_REVIEW_COMMENTS = 256;
+const MAX_REVIEW_SELECTION_CHARS = 1024 * 1024;
+const MAX_REVIEW_COMMENT_CHARS = 65_536;
+const MAX_REVIEW_METADATA_CHARS = 4_096;
 
 function array<T>(value: unknown, label: string, parse: (entry: unknown, label: string) => T): T[] {
   if (!Array.isArray(value)) throw new Error(`${label} must be an array`);
   return value.map((entry, index) => parse(entry, `${label}[${index}]`));
 }
 
+function boundedArray<T>(
+  value: unknown,
+  label: string,
+  maximumLength: number,
+  parse: (entry: unknown, label: string) => T,
+): T[] {
+  if (!Array.isArray(value)) throw new Error(`${label} must be an array`);
+  if (value.length > maximumLength) {
+    throw new Error(`${label} must contain at most ${maximumLength} entries`);
+  }
+  return value.map((entry, index) => parse(entry, `${label}[${index}]`));
+}
+
+function boundedString(value: unknown, label: string, maximumLength: number): string {
+  const parsed = readString(value, label);
+  if (parsed.length > maximumLength) {
+    throw new Error(`${label} must contain at most ${maximumLength} characters`);
+  }
+  return parsed;
+}
+
+function relativePath(value: unknown, label: string): string {
+  return boundedString(value, label, MAX_RELATIVE_PATH_CHARS);
+}
+
 function parseWorkspaceFileEntry(value: unknown, label: string): ProjectWorkingFolderFileEntry {
   const record = readRecord(value, label);
   return {
-    relativePath: readString(record.relativePath, `${label}.relativePath`),
-    displayName: readString(record.displayName, `${label}.displayName`),
+    relativePath: relativePath(record.relativePath, `${label}.relativePath`),
+    displayName: boundedString(record.displayName, `${label}.displayName`, MAX_RELATIVE_PATH_CHARS),
     kind: readEnum(record.kind, FILE_KINDS, `${label}.kind`),
     ignored: readBoolean(record.ignored, `${label}.ignored`),
     byteSize: readNullable(record.byteSize, `${label}.byteSize`, readNonNegativeSafeInteger),
@@ -65,8 +117,13 @@ function parseWorkspaceFileEntry(value: unknown, label: string): ProjectWorkingF
 export function parseProjectWorkingFolderDirectory(value: unknown): ProjectWorkingFolderDirectoryRead {
   const record = readRecord(value, "workspaceDirectory");
   return {
-    relativePath: readString(record.relativePath, "workspaceDirectory.relativePath"),
-    entries: array(record.entries, "workspaceDirectory.entries", parseWorkspaceFileEntry),
+    relativePath: relativePath(record.relativePath, "workspaceDirectory.relativePath"),
+    entries: boundedArray(
+      record.entries,
+      "workspaceDirectory.entries",
+      MAX_DIRECTORY_ENTRIES,
+      parseWorkspaceFileEntry,
+    ),
     truncated: readBoolean(record.truncated, "workspaceDirectory.truncated"),
   };
 }
@@ -74,10 +131,18 @@ export function parseProjectWorkingFolderDirectory(value: unknown): ProjectWorki
 export function parseProjectWorkingFolderFilePreview(value: unknown): ProjectWorkingFolderFilePreview {
   const record = readRecord(value, "workspaceFilePreview");
   return {
-    relativePath: readString(record.relativePath, "workspaceFilePreview.relativePath"),
-    displayName: readString(record.displayName, "workspaceFilePreview.displayName"),
-    language: readNullable(record.language, "workspaceFilePreview.language", readString),
-    text: readNullable(record.text, "workspaceFilePreview.text", readString),
+    relativePath: relativePath(record.relativePath, "workspaceFilePreview.relativePath"),
+    displayName: boundedString(
+      record.displayName,
+      "workspaceFilePreview.displayName",
+      MAX_RELATIVE_PATH_CHARS,
+    ),
+    language: readNullable(record.language, "workspaceFilePreview.language", (entry, entryLabel) =>
+      boundedString(entry, entryLabel, 128),
+    ),
+    text: readNullable(record.text, "workspaceFilePreview.text", (entry, entryLabel) =>
+      boundedString(entry, entryLabel, MAX_FILE_PREVIEW_CHARS),
+    ),
     lineCount: readNullable(record.lineCount, "workspaceFilePreview.lineCount", readNonNegativeSafeInteger),
     byteSize: readNonNegativeSafeInteger(record.byteSize, "workspaceFilePreview.byteSize"),
     binary: readBoolean(record.binary, "workspaceFilePreview.binary"),
@@ -86,28 +151,265 @@ export function parseProjectWorkingFolderFilePreview(value: unknown): ProjectWor
   };
 }
 
+function parseWorkspaceRename(value: unknown, label: string): ChatWorkspaceRename {
+  const record = readRecord(value, label);
+  return {
+    previousRelativePath: relativePath(record.previousRelativePath, `${label}.previousRelativePath`),
+    relativePath: relativePath(record.relativePath, `${label}.relativePath`),
+  };
+}
+
+export function parseChatWorkspaceObserverStatus(value: unknown): ChatWorkspaceObserverStatusRead {
+  const record = readRecord(value, "workspaceObserverStatus");
+  return {
+    workingFolderId: readIdentifier(record.workingFolderId, "workspaceObserverStatus.workingFolderId"),
+    executionEnvironmentId: readNullable(
+      record.executionEnvironmentId,
+      "workspaceObserverStatus.executionEnvironmentId",
+      readString,
+    ),
+    generation: readNonNegativeSafeInteger(record.generation, "workspaceObserverStatus.generation"),
+    mode: readEnum(record.mode, WORKSPACE_OBSERVER_MODES, "workspaceObserverStatus.mode"),
+    degradedReason: readNullable(record.degradedReason, "workspaceObserverStatus.degradedReason", readString),
+  };
+}
+
+export function parseChatWorkspaceChangeBatch(value: unknown): ChatWorkspaceChangeBatch {
+  const record = readRecord(value, "workspaceChangeBatch");
+  return {
+    workingFolderId: readIdentifier(record.workingFolderId, "workspaceChangeBatch.workingFolderId"),
+    executionEnvironmentId: readNullable(
+      record.executionEnvironmentId,
+      "workspaceChangeBatch.executionEnvironmentId",
+      readString,
+    ),
+    generation: readNonNegativeSafeInteger(record.generation, "workspaceChangeBatch.generation"),
+    relativePaths: boundedArray(
+      record.relativePaths,
+      "workspaceChangeBatch.relativePaths",
+      MAX_OBSERVER_PATHS,
+      relativePath,
+    ),
+    affectedParentDirectories: boundedArray(
+      record.affectedParentDirectories,
+      "workspaceChangeBatch.affectedParentDirectories",
+      MAX_OBSERVER_PATHS,
+      relativePath,
+    ),
+    renames: boundedArray(
+      record.renames,
+      "workspaceChangeBatch.renames",
+      MAX_OBSERVER_PATHS,
+      parseWorkspaceRename,
+    ),
+    gitMetadataChanged: readBoolean(record.gitMetadataChanged, "workspaceChangeBatch.gitMetadataChanged"),
+    overflowed: readBoolean(record.overflowed, "workspaceChangeBatch.overflowed"),
+    degradedReason: readNullable(record.degradedReason, "workspaceChangeBatch.degradedReason", readString),
+  };
+}
+
 export function parseChatReviewComment(value: unknown, label = "reviewComment"): ChatReviewCommentRead {
   const record = readRecord(value, label);
   return {
     id: readIdentifier(record.id, `${label}.id`),
     threadId: readIdentifier(record.threadId, `${label}.threadId`),
-    relativePath: readString(record.relativePath, `${label}.relativePath`),
-    contentRevision: readString(record.contentRevision, `${label}.contentRevision`),
+    relativePath: relativePath(record.relativePath, `${label}.relativePath`),
+    contentRevision: boundedString(
+      record.contentRevision,
+      `${label}.contentRevision`,
+      MAX_REVIEW_METADATA_CHARS,
+    ),
     startLine: readNonNegativeSafeInteger(record.startLine, `${label}.startLine`),
     startColumn: readNonNegativeSafeInteger(record.startColumn, `${label}.startColumn`),
     endLine: readNonNegativeSafeInteger(record.endLine, `${label}.endLine`),
     endColumn: readNonNegativeSafeInteger(record.endColumn, `${label}.endColumn`),
-    selectedText: readString(record.selectedText, `${label}.selectedText`),
-    commentText: readString(record.commentText, `${label}.commentText`),
+    selectedText: boundedString(
+      record.selectedText,
+      `${label}.selectedText`,
+      MAX_REVIEW_SELECTION_CHARS,
+    ),
+    commentText: boundedString(
+      record.commentText,
+      `${label}.commentText`,
+      MAX_REVIEW_COMMENT_CHARS,
+    ),
     state: readEnum(record.state, REVIEW_STATES, `${label}.state`),
     createdAt: readUtcTimestamp(record.createdAt, `${label}.createdAt`),
     updatedAt: readUtcTimestamp(record.updatedAt, `${label}.updatedAt`),
     resolvedAt: readNullable(record.resolvedAt, `${label}.resolvedAt`, readUtcTimestamp),
+    ...(record.sourceKind === undefined ? {} : { sourceKind: readEnum(record.sourceKind, REVIEW_COMMENT_SOURCE_KINDS, `${label}.sourceKind`) }),
+    ...(record.sourceData === undefined ? {} : { sourceData: parseReviewDiffSource(record.sourceData, `${label}.sourceData`) }),
+    ...(record.snapshotId === undefined ? {} : { snapshotId: readNullable(record.snapshotId, `${label}.snapshotId`, readIdentifier) }),
+    ...(record.reviewRevision === undefined ? {} : { reviewRevision: readNullable(record.reviewRevision, `${label}.reviewRevision`, (entry, entryLabel) => boundedString(entry, entryLabel, MAX_REVIEW_METADATA_CHARS)) }),
+    ...(record.selectionSide === undefined ? {} : { selectionSide: readEnum(record.selectionSide, ["file", "old", "new"] as const, `${label}.selectionSide`) }),
+    ...(record.previousRelativePath === undefined ? {} : { previousRelativePath: readNullable(record.previousRelativePath, `${label}.previousRelativePath`, relativePath) }),
+    ...(record.applicability === undefined ? {} : { applicability: readEnum(record.applicability, ["current", "outdated", "source_unavailable"] as const, `${label}.applicability`) }),
   };
 }
 
 export function parseChatReviewComments(value: unknown): ChatReviewCommentRead[] {
-  return array(value, "reviewComments", parseChatReviewComment);
+  return boundedArray(value, "reviewComments", MAX_REVIEW_COMMENTS, parseChatReviewComment);
+}
+
+function parseReviewDiffSource(value: unknown, label = "reviewSource"): ReviewDiffSource {
+  const record = readRecord(value, label);
+  const kind = readEnum(record.kind, REVIEW_SOURCE_KINDS, `${label}.kind`);
+  switch (kind) {
+    case "working_tree":
+      return { kind, mode: readEnum(record.mode, ["staged", "unstaged", "all"] as const, `${label}.mode`) };
+    case "checkpoint":
+      return {
+        kind,
+        range: readEnum(record.range, ["turn", "thread"] as const, `${label}.range`),
+        turnId: readNullable(record.turnId, `${label}.turnId`, readIdentifier),
+      };
+    case "commit":
+      return {
+        kind,
+        revision: boundedString(record.revision, `${label}.revision`, MAX_REVIEW_METADATA_CHARS),
+      };
+    case "branch":
+      return {
+        kind,
+        baseRef: readNullable(record.baseRef, `${label}.baseRef`, (entry, entryLabel) =>
+          boundedString(entry, entryLabel, MAX_REVIEW_METADATA_CHARS),
+        ),
+        headRef: boundedString(record.headRef, `${label}.headRef`, MAX_REVIEW_METADATA_CHARS),
+        comparison: readEnum(record.comparison, ["merge_base", "direct"] as const, `${label}.comparison`),
+      };
+    case "provider_turn":
+      return { kind, turnId: readIdentifier(record.turnId, `${label}.turnId`) };
+    case "change_request":
+      return {
+        kind,
+        provider: readEnum(record.provider, HOSTED_SOURCE_CONTROL_KINDS, `${label}.provider`),
+        repositorySlug: boundedString(
+          record.repositorySlug,
+          `${label}.repositorySlug`,
+          MAX_REVIEW_METADATA_CHARS,
+        ),
+        number: readNonNegativeSafeInteger(record.number, `${label}.number`),
+      };
+  }
+}
+
+function parseReviewCapabilityReasons(
+  value: unknown,
+  label: string,
+): Partial<Record<ChatReviewFileAction, string>> {
+  const record = readRecord(value, label);
+  const result: Partial<Record<ChatReviewFileAction, string>> = {};
+  for (const action of ["stage", "unstage", "discard", "comment", "openEditor"] as const) {
+    if (record[action] !== undefined) result[action] = readString(record[action], `${label}.${action}`);
+  }
+  return result;
+}
+
+function parseReviewFile(value: unknown, label: string): ChatReviewFileRead {
+  const record = readRecord(value, label);
+  const flags = readRecord(record.flags, `${label}.flags`);
+  const capabilities = readRecord(record.capabilities, `${label}.capabilities`);
+  return {
+    fileId: readIdentifier(record.fileId, `${label}.fileId`),
+    relativePath: relativePath(record.relativePath, `${label}.relativePath`),
+    previousRelativePath: readNullable(
+      record.previousRelativePath,
+      `${label}.previousRelativePath`,
+      relativePath,
+    ),
+    status: readEnum(record.status, FILE_STATUSES, `${label}.status`),
+    additions: readNullable(record.additions, `${label}.additions`, readNonNegativeSafeInteger),
+    deletions: readNullable(record.deletions, `${label}.deletions`, readNonNegativeSafeInteger),
+    flags: {
+      binary: readBoolean(flags.binary, `${label}.flags.binary`),
+      submodule: readBoolean(flags.submodule, `${label}.flags.submodule`),
+      conflict: readBoolean(flags.conflict, `${label}.flags.conflict`),
+      modeOnly: readBoolean(flags.modeOnly, `${label}.flags.modeOnly`),
+      pureRename: readBoolean(flags.pureRename, `${label}.flags.pureRename`),
+      untracked: readBoolean(flags.untracked, `${label}.flags.untracked`),
+      symlink: readBoolean(flags.symlink, `${label}.flags.symlink`),
+      providerReported: readBoolean(flags.providerReported, `${label}.flags.providerReported`),
+      gitObserved: readBoolean(flags.gitObserved, `${label}.flags.gitObserved`),
+      readOnly: readBoolean(flags.readOnly, `${label}.flags.readOnly`),
+    },
+    capabilities: {
+      stage: readBoolean(capabilities.stage, `${label}.capabilities.stage`),
+      unstage: readBoolean(capabilities.unstage, `${label}.capabilities.unstage`),
+      discard: readBoolean(capabilities.discard, `${label}.capabilities.discard`),
+      comment: readBoolean(capabilities.comment, `${label}.capabilities.comment`),
+      openEditor: readBoolean(capabilities.openEditor, `${label}.capabilities.openEditor`),
+    },
+    capabilityReasons: parseReviewCapabilityReasons(record.capabilityReasons, `${label}.capabilityReasons`),
+  };
+}
+
+function parseReviewPatch(value: unknown, label: string): ChatReviewPatchRead {
+  const record = readRecord(value, label);
+  return {
+    fileId: readIdentifier(record.fileId, `${label}.fileId`),
+    patch: readNullable(record.patch, `${label}.patch`, (entry, entryLabel) =>
+      boundedString(entry, entryLabel, MAX_REVIEW_PATCH_CHARS),
+    ),
+    hunks: boundedArray(record.hunks, `${label}.hunks`, MAX_REVIEW_HUNKS, (entry, entryLabel) => {
+      const hunk = readRecord(entry, entryLabel);
+      return {
+        hunkId: readIdentifier(hunk.hunkId, `${entryLabel}.hunkId`),
+        oldStart: readNonNegativeSafeInteger(hunk.oldStart, `${entryLabel}.oldStart`),
+        oldCount: readNonNegativeSafeInteger(hunk.oldCount, `${entryLabel}.oldCount`),
+        newStart: readNonNegativeSafeInteger(hunk.newStart, `${entryLabel}.newStart`),
+        newCount: readNonNegativeSafeInteger(hunk.newCount, `${entryLabel}.newCount`),
+        state: readEnum(hunk.state, REVIEW_PATCH_STATES, `${entryLabel}.state`),
+      };
+    }),
+    continuationCursor: readNullable(record.continuationCursor, `${label}.continuationCursor`, (entry, entryLabel) =>
+      boundedString(entry, entryLabel, MAX_REVIEW_METADATA_CHARS),
+    ),
+    state: readEnum(record.state, REVIEW_PATCH_STATES, `${label}.state`),
+  };
+}
+
+export function parseChatReviewSnapshot(value: unknown): ChatReviewSnapshotRead {
+  const record = readRecord(value, "reviewSnapshot");
+  const totals = readRecord(record.totals, "reviewSnapshot.totals");
+  return {
+    snapshotId: readIdentifier(record.snapshotId, "reviewSnapshot.snapshotId"),
+    reviewRevision: boundedString(
+      record.reviewRevision,
+      "reviewSnapshot.reviewRevision",
+      MAX_REVIEW_METADATA_CHARS,
+    ),
+    source: parseReviewDiffSource(record.source, "reviewSnapshot.source"),
+    sourceLabel: boundedString(
+      record.sourceLabel,
+      "reviewSnapshot.sourceLabel",
+      MAX_REVIEW_METADATA_CHARS,
+    ),
+    files: boundedArray(record.files, "reviewSnapshot.files", MAX_REVIEW_FILES, parseReviewFile),
+    totals: {
+      files: readNonNegativeSafeInteger(totals.files, "reviewSnapshot.totals.files"),
+      additions: readNonNegativeSafeInteger(totals.additions, "reviewSnapshot.totals.additions"),
+      deletions: readNonNegativeSafeInteger(totals.deletions, "reviewSnapshot.totals.deletions"),
+    },
+    preferredPatch: readNullable(record.preferredPatch, "reviewSnapshot.preferredPatch", parseReviewPatch),
+    freshness: readEnum(record.freshness, REVIEW_FRESHNESS, "reviewSnapshot.freshness"),
+  };
+}
+
+export function parseChatReviewPatchPage(value: unknown): ChatReviewPatchPageRead {
+  const record = readRecord(value, "reviewPatchPage");
+  return {
+    patches: boundedArray(
+      record.patches,
+      "reviewPatchPage.patches",
+      MAX_REVIEW_PATCHES,
+      parseReviewPatch,
+    ),
+    continuationCursor: readNullable(
+      record.continuationCursor,
+      "reviewPatchPage.continuationCursor",
+      (entry, entryLabel) => boundedString(entry, entryLabel, MAX_REVIEW_METADATA_CHARS),
+    ),
+  };
 }
 
 function parseChangedFile(value: unknown, label: string): ChatChangedFileRead {

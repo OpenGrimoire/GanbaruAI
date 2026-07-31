@@ -27,6 +27,7 @@ pub mod repository;
 pub mod resource_commands;
 pub mod restore_commands;
 pub mod review_commands;
+pub mod review_engine;
 pub mod runtime;
 pub mod send_commands;
 pub mod settings_commands;
@@ -38,6 +39,8 @@ pub mod thread_commands;
 pub mod workspace;
 pub mod workspace_commands;
 pub mod workspace_files;
+pub mod workspace_mutation;
+pub mod workspace_observer;
 
 #[cfg(test)]
 mod tests;

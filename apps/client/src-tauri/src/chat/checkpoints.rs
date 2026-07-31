@@ -15,7 +15,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Output, Stdio};
 use std::sync::atomic::{AtomicU64, Ordering};
 
-const MAX_GIT_OUTPUT_BYTES: usize = 4 * 1024 * 1024;
+const MAX_GIT_OUTPUT_BYTES: usize = 16 * 1024 * 1024;
 const MAX_DIFF_BYTES: usize = 2 * 1024 * 1024;
 const REF_PREFIX: &str = "refs/ganbaru-ai/chat/";
 type DiffLineCounts = BTreeMap<String, (Option<u64>, Option<u64>)>;
@@ -99,6 +99,14 @@ pub struct CurrentGitSnapshot {
     pub index_fingerprint: String,
     pub head_oid: Option<String>,
     pub head_ref: Option<String>,
+}
+
+/// Immutable Git trees used to compare the current index and worktree without
+/// creating the synthetic commits required by restore previews.
+pub struct CurrentGitTrees {
+    pub head_oid: Option<String>,
+    pub index_tree_oid: String,
+    pub worktree_tree_oid: String,
 }
 
 pub async fn capture_and_store(
@@ -313,9 +321,12 @@ pub fn file_diff(
     validate_diff_path(relative_path)?;
     let mut arguments = vec![
         "diff",
+        "--full-index",
+        "--no-color",
         "--no-ext-diff",
         "--no-textconv",
         "--find-renames",
+        "--diff-algorithm=histogram",
         "--unified=3",
     ];
     if ignore_whitespace {
@@ -330,15 +341,48 @@ pub fn file_diff(
     let output = git_output(root, &arguments, None, None)?;
     let byte_size = output.stdout.len() as u64;
     let truncated = output.stdout.len() > MAX_DIFF_BYTES;
-    let bounded = &output.stdout[..output.stdout.len().min(MAX_DIFF_BYTES)];
-    let binary = bounded.windows(16).any(|window| window == b"Binary files ");
+    let patch = String::from_utf8(output.stdout)
+        .map_err(|_| checkpoint_error("Git diff output is not valid UTF-8"))?;
+    let binary = patch.contains("Binary files ") || patch.contains("GIT binary patch");
+    let bounded = if truncated {
+        truncate_patch_at_hunk_boundary(&patch, MAX_DIFF_BYTES)
+    } else {
+        patch
+    };
     Ok(ChatCheckpointFileDiffRead {
         relative_path: relative_path.to_string(),
-        patch: (!binary).then(|| String::from_utf8_lossy(bounded).into_owned()),
+        patch: (!binary).then_some(bounded),
         binary,
         truncated,
         byte_size,
     })
+}
+
+fn truncate_patch_at_hunk_boundary(patch: &str, maximum_bytes: usize) -> String {
+    if patch.len() <= maximum_bytes {
+        return patch.to_string();
+    }
+    let mut boundaries = patch
+        .match_indices("\n@@ ")
+        .map(|(index, _)| index + 1)
+        .collect::<Vec<_>>();
+    if patch.starts_with("@@ ") {
+        boundaries.insert(0, 0);
+    }
+    let first_hunk = boundaries.first().copied().unwrap_or(patch.len());
+    let mut end = if first_hunk <= maximum_bytes {
+        first_hunk
+    } else {
+        0
+    };
+    for (index, start) in boundaries.iter().copied().enumerate() {
+        let next = boundaries.get(index + 1).copied().unwrap_or(patch.len());
+        if next > maximum_bytes || start > end {
+            break;
+        }
+        end = next;
+    }
+    patch[..end].to_string()
 }
 
 pub fn delete_exact_ref(root: &Path, reference: &str, expected_oid: &str) -> ChatResult<()> {
@@ -374,14 +418,58 @@ pub fn delete_exact_ref(root: &Path, reference: &str, expected_oid: &str) -> Cha
 }
 
 pub fn current_git_snapshot(root: &Path) -> ChatResult<CurrentGitSnapshot> {
-    verify_git_root(root)?;
+    let CurrentGitTrees {
+        head_oid,
+        index_tree_oid,
+        worktree_tree_oid,
+    } = current_git_trees(root)?;
     let head_ref = optional_git_text(root, &["symbolic-ref", "-q", "HEAD"])?;
-    let head_oid = optional_git_text(root, &["rev-parse", "-q", "--verify", "HEAD^{commit}"])?;
-    let index_tree_oid = git_text(root, &["write-tree"], None)?;
     let index_fingerprint =
         hash_bytes(&git_output(root, &["ls-files", "--stage", "-z"], None, None)?.stdout);
+    let index_commit_oid =
+        git_commit_tree(root, &index_tree_oid, None, "Ganbaru Chat preview index")?;
+    let worktree_commit_oid = git_commit_tree(
+        root,
+        &worktree_tree_oid,
+        Some(&index_commit_oid),
+        "Ganbaru Chat restore preview",
+    )?;
+    Ok(CurrentGitSnapshot {
+        worktree_commit_oid,
+        worktree_tree_oid,
+        index_tree_oid,
+        index_fingerprint,
+        head_oid,
+        head_ref,
+    })
+}
+
+/// Captures the current HEAD, index, and worktree trees without creating
+/// synthetic commit objects.
+pub fn current_git_trees(root: &Path) -> ChatResult<CurrentGitTrees> {
+    verify_git_root(root)?;
+    let head_oid = optional_git_text(root, &["rev-parse", "-q", "--verify", "HEAD^{commit}"])?;
+    let index_tree_oid = git_text(root, &["write-tree"], None)?;
+    let worktree_tree_oid = capture_worktree_tree(root, head_oid.as_deref())?;
+    Ok(CurrentGitTrees {
+        head_oid,
+        index_tree_oid,
+        worktree_tree_oid,
+    })
+}
+
+/// Captures the current worktree as an immutable tree even when the real index
+/// contains unmerged entries.
+pub fn current_worktree_tree(root: &Path) -> ChatResult<(Option<String>, String)> {
+    verify_git_root(root)?;
+    let head_oid = optional_git_text(root, &["rev-parse", "-q", "--verify", "HEAD^{commit}"])?;
+    let tree_oid = capture_worktree_tree(root, head_oid.as_deref())?;
+    Ok((head_oid, tree_oid))
+}
+
+fn capture_worktree_tree(root: &Path, head_oid: Option<&str>) -> ChatResult<String> {
     let temp_index = TemporaryIndex::new()?;
-    if let Some(head_oid) = head_oid.as_deref() {
+    if let Some(head_oid) = head_oid {
         git_output(
             root,
             &["read-tree", head_oid],
@@ -402,23 +490,7 @@ pub fn current_git_snapshot(root: &Path) -> ChatResult<CurrentGitSnapshot> {
         Some(temp_index.path()),
         None,
     )?;
-    let worktree_tree_oid = git_text(root, &["write-tree"], Some(temp_index.path()))?;
-    let index_commit_oid =
-        git_commit_tree(root, &index_tree_oid, None, "Ganbaru Chat preview index")?;
-    let worktree_commit_oid = git_commit_tree(
-        root,
-        &worktree_tree_oid,
-        Some(&index_commit_oid),
-        "Ganbaru Chat restore preview",
-    )?;
-    Ok(CurrentGitSnapshot {
-        worktree_commit_oid,
-        worktree_tree_oid,
-        index_tree_oid,
-        index_fingerprint,
-        head_oid,
-        head_ref,
-    })
+    git_text(root, &["write-tree"], Some(temp_index.path()))
 }
 
 pub fn restore_git_snapshot(
@@ -810,6 +882,7 @@ fn git_output_with_input_codes(
         .args(["-C"])
         .arg(root)
         .args(arguments)
+        .env("GIT_LITERAL_PATHSPECS", "1")
         .env("GIT_TERMINAL_PROMPT", "0")
         .env("GCM_INTERACTIVE", "never")
         .env("LC_ALL", "C")

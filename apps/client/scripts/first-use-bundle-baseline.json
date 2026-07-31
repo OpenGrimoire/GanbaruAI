@@ -27,6 +27,41 @@
       "src/lib/components/settings/NotesTransferSettingsPanel.svelte"
     ]
   },
+  "chatShell": {
+    "loadedModules": [
+      "src/lib/components/chat/ChatWorkspace.svelte"
+    ],
+    "requiredModules": [
+      "src/lib/components/chat/ChatWorkspacePanel.svelte",
+      "src/lib/components/chat/ChatReviewPanel.svelte",
+      "src/lib/components/chat/ChatPierreDiff.svelte",
+      "src/lib/components/chat/ChatPlainDiff.svelte"
+    ],
+    "forbiddenModules": [
+      "src/lib/chat/review-diff-runtime.ts"
+    ],
+    "forbiddenModuleSubstrings": [
+      "/node_modules/@pierre/diffs/",
+      "/node_modules/@pierre/theme/",
+      "/node_modules/@pierre/theming/",
+      "/node_modules/@shikijs/",
+      "/node_modules/shiki/"
+    ]
+  },
+  "reviewRuntime": {
+    "module": "src/lib/chat/review-diff-runtime.ts",
+    "catalogModuleSubstrings": [
+      "/node_modules/@shikijs/langs/dist/",
+      "/node_modules/@shikijs/themes/dist/",
+      "/node_modules/@pierre/theme/dist/"
+    ],
+    "requiredDynamicChunkPrefixes": [
+      "assets/chat-review-language-",
+      "assets/chat-review-theme-",
+      "assets/chat-review-pierre-theme-"
+    ],
+    "maxCatalogModulesPerChunk": 8
+  },
   "projectsShell": {
     "loadedModules": [
       "src/lib/components/projects/ProjectsView.svelte"
@@ -200,8 +235,13 @@
     ]
   },
   "forbiddenEntryModules": [
+    "src/lib/chat/review-diff-runtime.ts",
     "src/lib/components/notes/NotesHtmlImportDialog.svelte",
     "src/lib/components/notes/NotesNotionApiImportDialog.svelte",
     "src/lib/components/notes/NotesNotionExportImportDialog.svelte"
+  ],
+  "forbiddenModuleSubstrings": [
+    "/node_modules/react/",
+    "/node_modules/react-dom/"
   ]
 }

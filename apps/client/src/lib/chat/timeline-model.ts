@@ -26,6 +26,7 @@ import type {
   UserInputQuestion,
   VersionedJson,
 } from "./contracts";
+import { normalizeChangedFileSummaries } from "./changed-files";
 
 export type TimelineMessageState = "pending" | "streaming" | "complete" | "interrupted" | "failed";
 export type TimelineMessagePhase = "commentary" | "final_answer";
@@ -464,7 +465,7 @@ export function projectTimelineReadModel(
       modelId: turn.modelId,
       effectiveModelId: turn.modelId,
       usage: turn.usage,
-      changedFiles: turn.changedFiles,
+      changedFiles: mergeChangedFiles([], turn.changedFiles),
       diffSources: [],
       stopReason: turn.stopReason,
       recoverable: false,
@@ -866,9 +867,7 @@ function attachPendingTurnRows(rows: Map<string, TimelineRow>, turns: Map<ChatTu
 }
 
 function mergeChangedFiles(current: readonly ChangedFileSummary[], incoming: readonly ChangedFileSummary[]): ChangedFileSummary[] {
-  const files = new Map(current.map((file) => [file.relativePath, file]));
-  for (const file of incoming) files.set(file.relativePath, file);
-  return [...files.values()];
+  return normalizeChangedFileSummaries([...current, ...incoming]);
 }
 
 function elapsedMilliseconds(start: UtcTimestamp, end: UtcTimestamp): number | null {

@@ -12,8 +12,12 @@ use crate::chat::tests::fake_driver::{
     approval_request, fake_driver, operation_context, send_request, start_request,
     FakeDriverControl, RecordingEventSink,
 };
+use crate::chat::workspace_mutation::{
+    ChatWorkspaceMutationRegistry, ProviderTurnReservationHandoff,
+};
 use crate::chat::{events::CanonicalEvent, providers::ProviderEventSink};
 use std::collections::HashSet;
+use std::path::Path;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -59,6 +63,19 @@ impl ProviderEventSink for DurableTestSink {
     fn flush(&self) -> crate::chat::providers::DriverFuture<'_, ()> {
         Box::pin(async move { self.ingestor.lock().await.flush().await })
     }
+}
+
+fn turn_reservation(thread_id: &str, turn_id: &str) -> ProviderTurnReservationHandoff {
+    let registry = ChatWorkspaceMutationRegistry::default();
+    registry
+        .begin_provider_turn(
+            Path::new("/tmp/ganbaru-runtime-reservation-test"),
+            &ChatThreadId::new(thread_id).unwrap(),
+            &crate::chat::models::ChatTurnId::new(turn_id).unwrap(),
+        )
+        .unwrap()
+        .handoff_to_runtime()
+        .unwrap()
 }
 
 #[test]
@@ -130,11 +147,12 @@ fn idle_stop_requires_ready_unprotected_session_and_shutdown_is_visible() {
         assert!(!snapshot.can_idle_stop(now, Duration::from_secs(30)));
 
         let registry = ChatRuntimeRegistry::default();
+        let mutations = ChatWorkspaceMutationRegistry::default();
         let owner = registry
             .owner(ChatThreadId::new("thread-shutdown").unwrap())
             .unwrap();
         registry
-            .shutdown_and_wait(Duration::from_millis(50))
+            .shutdown_and_wait(Duration::from_millis(50), &mutations)
             .await
             .unwrap();
         let stopped = owner.snapshot().unwrap();
@@ -147,22 +165,74 @@ fn idle_stop_requires_ready_unprotected_session_and_shutdown_is_visible() {
 fn maintenance_stop_drains_owners_and_allows_new_sessions() {
     tauri::async_runtime::block_on(async {
         let registry = ChatRuntimeRegistry::default();
+        let mutations = ChatWorkspaceMutationRegistry::default();
         let thread_id = ChatThreadId::new("thread-maintenance").unwrap();
         let previous = registry.owner(thread_id.clone()).unwrap();
+        mutations
+            .begin_provider_turn(
+                Path::new("/tmp/ganbaru-runtime-maintenance-test"),
+                &thread_id,
+                &crate::chat::models::ChatTurnId::new("turn-maintenance").unwrap(),
+            )
+            .unwrap()
+            .handoff_to_runtime()
+            .unwrap()
+            .handoff_to_event_sink();
+        assert!(mutations
+            .try_mutation(Path::new("/tmp/ganbaru-runtime-maintenance-test"))
+            .is_err());
         assert_eq!(registry.process_counts().unwrap(), (0, 0));
         assert_eq!(
             registry
-                .stop_all_and_reset(Duration::from_millis(50))
+                .stop_all_and_reset(Duration::from_millis(50), &mutations)
                 .await
                 .unwrap(),
             0
         );
+        assert!(mutations
+            .try_mutation(Path::new("/tmp/ganbaru-runtime-maintenance-test"))
+            .is_ok());
         assert!(!previous.snapshot().unwrap().accepting_commands);
         let replacement = registry.owner(thread_id).unwrap();
         assert!(replacement.snapshot().unwrap().accepting_commands);
         assert!(!Arc::ptr_eq(&previous, &replacement));
         registry
-            .shutdown_and_wait(Duration::from_millis(50))
+            .shutdown_and_wait(Duration::from_millis(50), &mutations)
+            .await
+            .unwrap();
+    });
+}
+
+#[test]
+fn permanent_thread_shutdown_removes_the_owner_and_releases_its_workspace() {
+    tauri::async_runtime::block_on(async {
+        let registry = ChatRuntimeRegistry::default();
+        let mutations = ChatWorkspaceMutationRegistry::default();
+        let thread_id = ChatThreadId::new("thread-delete").unwrap();
+        let previous = registry.owner(thread_id.clone()).unwrap();
+        let root = Path::new("/tmp/ganbaru-runtime-delete-test");
+        mutations
+            .begin_provider_turn(
+                root,
+                &thread_id,
+                &crate::chat::models::ChatTurnId::new("turn-delete").unwrap(),
+            )
+            .unwrap()
+            .handoff_to_runtime()
+            .unwrap()
+            .handoff_to_event_sink();
+
+        registry
+            .shutdown_thread_and_remove(&thread_id, Duration::from_millis(50), &mutations)
+            .await
+            .unwrap();
+
+        assert!(mutations.try_mutation(root).is_ok());
+        assert!(!previous.snapshot().unwrap().accepting_commands);
+        let replacement = registry.owner(thread_id).unwrap();
+        assert!(!Arc::ptr_eq(&previous, &replacement));
+        registry
+            .shutdown_and_wait(Duration::from_millis(50), &mutations)
             .await
             .unwrap();
     });
@@ -196,6 +266,7 @@ fn fake_driver_streams_approval_stops_restarts_and_rejects_late_events() {
         owner
             .send_turn(
                 send_request("fake-turn"),
+                turn_reservation("thread-1", "fake-turn"),
                 operation_context("send", Duration::from_secs(1)),
             )
             .await
@@ -224,6 +295,7 @@ fn fake_driver_streams_approval_stops_restarts_and_rejects_late_events() {
         owner
             .send_turn(
                 send_request("stop-turn"),
+                turn_reservation("thread-1", "stop-turn"),
                 operation_context("send-before-stop", Duration::from_secs(1)),
             )
             .await
@@ -254,6 +326,7 @@ fn fake_driver_streams_approval_stops_restarts_and_rejects_late_events() {
         assert!(owner
             .send_turn(
                 send_request("crash-turn"),
+                turn_reservation("thread-1", "crash-turn"),
                 operation_context("crash", Duration::from_secs(1)),
             )
             .await
@@ -348,6 +421,7 @@ fn fake_driver_crash_flushes_and_rebuilds_durable_output() {
         assert!(owner
             .send_turn(
                 send_request("durable-crash-turn"),
+                turn_reservation("thread-1", "durable-crash-turn"),
                 operation_context("durable-send", Duration::from_secs(1)),
             )
             .await
@@ -408,6 +482,7 @@ fn output_emitted_before_a_hung_stop_is_flushed_durably() {
         owner
             .send_turn(
                 send_request("hung-output-turn"),
+                turn_reservation("thread-1", "hung-output-turn"),
                 operation_context("hung-output-send", Duration::from_secs(1)),
             )
             .await
@@ -459,6 +534,7 @@ fn simultaneous_window_commands_share_one_serial_driver_operation() {
             owner
                 .send_turn(
                     send_request("window-one"),
+                    turn_reservation("thread-1", "window-one"),
                     operation_context("window-one", Duration::from_secs(1)),
                 )
                 .await
@@ -467,6 +543,7 @@ fn simultaneous_window_commands_share_one_serial_driver_operation() {
             detached
                 .send_turn(
                     send_request("window-two"),
+                    turn_reservation("thread-1", "window-two"),
                     operation_context("window-two", Duration::from_secs(1)),
                 )
                 .await
@@ -505,6 +582,7 @@ fn ready_session_stops_lazily_and_hung_shutdown_stays_bounded() {
         );
 
         let registry = ChatRuntimeRegistry::default();
+        let mutations = ChatWorkspaceMutationRegistry::default();
         let owner = registry
             .owner(ChatThreadId::new("thread-1").unwrap())
             .unwrap();
@@ -522,7 +600,7 @@ fn ready_session_stops_lazily_and_hung_shutdown_stays_bounded() {
             .unwrap();
         let started = Instant::now();
         assert!(registry
-            .shutdown_and_wait(Duration::from_millis(40))
+            .shutdown_and_wait(Duration::from_millis(40), &mutations)
             .await
             .is_err());
         assert!(started.elapsed() < Duration::from_millis(250));

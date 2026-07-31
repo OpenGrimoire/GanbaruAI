@@ -21,6 +21,7 @@ pub struct OpenCodeRouteState {
     pub session_state: ProviderSessionState,
     pub modes: TurnModeSnapshot,
     message_roles: HashMap<String, String>,
+    rollback_message_id: Option<String>,
     part_text: HashMap<String, String>,
     completed_parts: HashSet<String>,
     pending_permissions: HashSet<String>,
@@ -44,6 +45,7 @@ impl OpenCodeRouteState {
             session_state: ProviderSessionState::Ready,
             modes,
             message_roles: HashMap::new(),
+            rollback_message_id: None,
             part_text: HashMap::new(),
             completed_parts: HashSet::new(),
             pending_permissions: HashSet::new(),
@@ -416,6 +418,7 @@ impl OpenCodeEventNormalizer {
         if role != "assistant" {
             return Ok(Vec::new());
         }
+        state.rollback_message_id = Some(id.to_string());
         let model_id = text(info, "modelID").and_then(|model| ModelId::new(model.to_string()).ok());
         let provider_id = text(info, "providerID").unwrap_or_default();
         let effective_model = model_id.and_then(|model| {
@@ -1231,7 +1234,15 @@ impl OpenCodeEventNormalizer {
             provider_task_id: None,
             provider_reference: Some(VersionedJson {
                 schema_version: 1,
-                value: json!({ "source": source, "sessionId": state.provider_thread_id }),
+                value: match state.rollback_message_id.as_deref() {
+                    Some(message_id) => json!({
+                        "messageId": message_id,
+                        "partId": null,
+                        "source": source,
+                        "sessionId": state.provider_thread_id,
+                    }),
+                    None => json!({ "source": source, "sessionId": state.provider_thread_id }),
+                },
             }),
             event,
             redacted_diagnostic: None,

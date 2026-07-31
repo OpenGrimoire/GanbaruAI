@@ -2,7 +2,7 @@
 
 use super::credentials::{materialize_provider_environment, PlatformCredentialStore};
 use super::device_state::{full_access_is_trusted, read_active_device_scope};
-use super::events::{CanonicalEvent, CanonicalRuntimeEvent};
+use super::events::{CanonicalEvent, CanonicalRuntimeEvent, ChangedFileSummary};
 use super::ingestion::{ChatEventIngestor, TauriChatChangeEmitter};
 use super::models::*;
 use super::providers::{
@@ -33,6 +33,8 @@ use tokio::sync::Mutex;
 
 const PROVIDER_START_TIMEOUT: Duration = Duration::from_secs(45);
 const TURN_OPERATION_TIMEOUT: Duration = Duration::from_secs(30);
+const MAX_PROVIDER_CHANGED_FILES: usize = 512;
+const MAX_PROVIDER_CHANGED_FILE_PATH_BYTES: usize = 4_096;
 
 #[derive(Clone, Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -237,7 +239,13 @@ pub async fn chat_send_turn(
     )
     .await?;
     let persistence_now = now_timestamp()?;
-    persist_user_turn(PersistUserTurnContext {
+    let mutation_registry = app.state::<super::workspace_mutation::ChatWorkspaceMutationRegistry>();
+    let reservation = mutation_registry.begin_provider_turn(
+        &authorized.canonical_path,
+        &thread_id,
+        &request.turn_id,
+    )?;
+    let persistence = persist_user_turn(PersistUserTurnContext {
         pool: &pool,
         workspace: &logical_workspace,
         thread_id: &thread_id,
@@ -248,7 +256,8 @@ pub async fn chat_send_turn(
         attachments: &attachment_references,
         now: &persistence_now,
     })
-    .await?;
+    .await;
+    persistence?;
     ensure_pre_turn_checkpoint(
         &pool,
         &authorized,
@@ -272,6 +281,7 @@ pub async fn chat_send_turn(
             request: &request,
         })
         .await?;
+        let reservation = reservation.handoff_to_runtime()?;
         owner
             .send_turn(
                 SendTurnRequest {
@@ -286,6 +296,7 @@ pub async fn chat_send_turn(
                     modes: request.modes,
                     developer_instructions: None,
                 },
+                reservation,
                 operation_context("send-turn", TURN_OPERATION_TIMEOUT),
             )
             .await
@@ -698,40 +709,130 @@ impl DurableChatEventSink {
 impl ProviderEventSink for DurableChatEventSink {
     fn emit<'a>(&'a self, mut event: CanonicalRuntimeEvent) -> DriverFuture<'a, ()> {
         Box::pin(async move {
+            normalize_changed_file_paths(&mut event.event, &self.workspace.canonical_path);
             let settled_turn = matches!(
                 &event.event,
                 CanonicalEvent::TurnCompleted(_) | CanonicalEvent::TurnAborted(_)
             )
             .then(|| (event.thread_id.clone(), event.turn_id.clone()))
             .and_then(|(thread_id, turn_id)| turn_id.map(|turn_id| (thread_id, turn_id)));
-            let diagnostic_expires_at =
-                super::diagnostics_commands::attach_opt_in_diagnostic(&self.app, &mut event)?;
-            self.ingestor
-                .lock()
-                .await
-                .ingest(AppendCanonicalEventRequest {
-                    runtime: event,
-                    ingested_at: now_timestamp()?,
-                    diagnostic_expires_at,
-                })
-                .await?;
-            if let Some((thread_id, turn_id)) = settled_turn {
-                ensure_post_turn_checkpoint(
-                    &self.pool,
-                    &self.workspace,
-                    &thread_id,
-                    &turn_id,
-                    &now_timestamp()?,
-                )
-                .await;
+            let stopped_thread = matches!(&event.event, CanonicalEvent::SessionExited(_))
+                .then(|| event.thread_id.clone());
+            let ingestion: ChatResult<()> = async {
+                let diagnostic_expires_at =
+                    super::diagnostics_commands::attach_opt_in_diagnostic(&self.app, &mut event)?;
+                self.ingestor
+                    .lock()
+                    .await
+                    .ingest(AppendCanonicalEventRequest {
+                        runtime: event,
+                        ingested_at: now_timestamp()?,
+                        diagnostic_expires_at,
+                    })
+                    .await
             }
-            Ok(())
+            .await;
+            if let Some((thread_id, turn_id)) = settled_turn {
+                if ingestion.is_ok() {
+                    if let Ok(settled_at) = now_timestamp() {
+                        ensure_post_turn_checkpoint(
+                            &self.pool,
+                            &self.workspace,
+                            &thread_id,
+                            &turn_id,
+                            &settled_at,
+                        )
+                        .await;
+                    }
+                }
+                self.app
+                    .state::<super::workspace_mutation::ChatWorkspaceMutationRegistry>()
+                    .finish_provider_turn(&thread_id, &turn_id);
+            }
+            if let Some(thread_id) = stopped_thread {
+                self.app
+                    .state::<super::workspace_mutation::ChatWorkspaceMutationRegistry>()
+                    .finish_thread(&thread_id);
+            }
+            ingestion
         })
     }
 
     fn flush(&self) -> DriverFuture<'_, ()> {
         Box::pin(async move { self.ingestor.lock().await.flush().await })
     }
+}
+
+fn normalize_changed_file_paths(event: &mut CanonicalEvent, workspace: &std::path::Path) {
+    let files = match event {
+        CanonicalEvent::DiffUpdated(event) => &mut event.files,
+        CanonicalEvent::TurnCompleted(event) => &mut event.changed_files,
+        _ => return,
+    };
+    let mut normalized: Vec<ChangedFileSummary> = Vec::with_capacity(files.len());
+    for mut file in std::mem::take(files)
+        .into_iter()
+        .take(MAX_PROVIDER_CHANGED_FILES)
+    {
+        let Some(relative_path) = workspace_relative_provider_path(workspace, &file.relative_path)
+        else {
+            continue;
+        };
+        file.relative_path = relative_path;
+        file.previous_relative_path = file
+            .previous_relative_path
+            .as_deref()
+            .and_then(|path| workspace_relative_provider_path(workspace, path));
+        if let Some(index) = normalized
+            .iter()
+            .position(|candidate| candidate.relative_path == file.relative_path)
+        {
+            normalized[index] = file;
+        } else {
+            normalized.push(file);
+        }
+    }
+    *files = normalized;
+}
+
+fn workspace_relative_provider_path(
+    workspace: &std::path::Path,
+    provider_path: &str,
+) -> Option<String> {
+    if provider_path.is_empty()
+        || provider_path.len() > MAX_PROVIDER_CHANGED_FILE_PATH_BYTES
+        || provider_path.contains('\0')
+        || (cfg!(not(windows)) && provider_path.contains('\\'))
+        || is_windows_absolute_provider_path(provider_path)
+        || provider_path.chars().any(char::is_control)
+    {
+        return None;
+    }
+    let path = std::path::Path::new(provider_path);
+    let relative = if path.is_absolute() {
+        path.strip_prefix(workspace).ok()?
+    } else {
+        path
+    };
+    let mut components = Vec::new();
+    for component in relative.components() {
+        let std::path::Component::Normal(component) = component else {
+            return None;
+        };
+        components.push(component.to_str()?);
+    }
+    (!components.is_empty()).then(|| components.join("/"))
+}
+
+fn is_windows_absolute_provider_path(path: &str) -> bool {
+    let bytes = path.as_bytes();
+    bytes
+        .first()
+        .is_some_and(|value| value.is_ascii_alphabetic())
+        && bytes.get(1) == Some(&b':')
+        && bytes
+            .get(2)
+            .is_some_and(|separator| matches!(*separator, b'/' | b'\\'))
 }
 
 async fn ensure_pre_turn_checkpoint(
@@ -1853,7 +1954,69 @@ fn corrupt_data() -> ChatError {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::chat::events::DiffUpdatedEvent;
     use crate::chat::tests::repository::pool_with_thread;
+
+    #[test]
+    fn provider_changed_files_become_relative_bounded_and_deduplicated() {
+        let workspace = std::env::temp_dir().join("ganbaru-provider-path-workspace");
+        let absolute_file = workspace.join("src").join("hello.py");
+        let outside_file = std::env::temp_dir().join("ganbaru-provider-path-outside.py");
+        let mut event = CanonicalEvent::DiffUpdated(DiffUpdatedEvent {
+            source: "fixture".to_string(),
+            files: vec![
+                ChangedFileSummary {
+                    relative_path: absolute_file.to_string_lossy().into_owned(),
+                    previous_relative_path: None,
+                    additions: Some(0),
+                    deletions: Some(0),
+                    binary: false,
+                    status: "modified".to_string(),
+                },
+                ChangedFileSummary {
+                    relative_path: "src/hello.py".to_string(),
+                    previous_relative_path: Some(
+                        workspace.join("old.py").to_string_lossy().into_owned(),
+                    ),
+                    additions: Some(10),
+                    deletions: Some(1),
+                    binary: false,
+                    status: "renamed".to_string(),
+                },
+                ChangedFileSummary {
+                    relative_path: outside_file.to_string_lossy().into_owned(),
+                    previous_relative_path: None,
+                    additions: None,
+                    deletions: None,
+                    binary: false,
+                    status: "modified".to_string(),
+                },
+                ChangedFileSummary {
+                    relative_path: "../escape.py".to_string(),
+                    previous_relative_path: None,
+                    additions: None,
+                    deletions: None,
+                    binary: false,
+                    status: "modified".to_string(),
+                },
+            ],
+            provider_diff: None,
+        });
+
+        normalize_changed_file_paths(&mut event, &workspace);
+
+        let CanonicalEvent::DiffUpdated(event) = event else {
+            panic!("expected diff event");
+        };
+        assert_eq!(event.files.len(), 1);
+        assert_eq!(event.files[0].relative_path, "src/hello.py");
+        assert_eq!(
+            event.files[0].previous_relative_path.as_deref(),
+            Some("old.py")
+        );
+        assert_eq!(event.files[0].additions, Some(10));
+        assert_eq!(event.files[0].status, "renamed");
+    }
 
     #[test]
     fn stopped_and_failed_sessions_restart_even_if_a_stale_identity_remains() {

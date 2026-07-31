@@ -5,6 +5,13 @@ packages:
 
 managePackageManagerVersions: true
 minimumReleaseAge: 4320
+packageExtensions:
+  "@pierre/diffs@1.2.12":
+    peerDependenciesMeta:
+      react:
+        optional: true
+      react-dom:
+        optional: true
 overrides:
   devalue: 5.8.1
   picomatch: 4.0.4
