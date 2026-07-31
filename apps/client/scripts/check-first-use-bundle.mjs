@@ -108,6 +108,20 @@ function readBaseline(value) {
         ),
       };
     })(),
+    editorRuntime: (() => {
+      const contract = requireObject(root.editorRuntime, "baseline editorRuntime");
+      return {
+        module: requireString(contract.module, "baseline editorRuntime module"),
+        requiredModuleSubstrings: requireStringArray(
+          contract.requiredModuleSubstrings,
+          "baseline editorRuntime requiredModuleSubstrings",
+        ),
+        requiredDynamicChunkPrefixes: requireStringArray(
+          contract.requiredDynamicChunkPrefixes,
+          "baseline editorRuntime requiredDynamicChunkPrefixes",
+        ),
+      };
+    })(),
     reviewRuntime: (() => {
       const contract = requireObject(root.reviewRuntime, "baseline reviewRuntime");
       const maxCatalogModulesPerChunk = contract.maxCatalogModulesPerChunk;
@@ -327,6 +341,30 @@ const shellContract = evaluateStaticModuleContract(baseline.shell, "initial shel
 
 const chatShellContract = evaluateStaticModuleContract(baseline.chatShell, "Chat shell");
 
+const editorRuntimeChunk = chunks.find((chunk) => (
+  chunk.modules.includes(baseline.editorRuntime.module)
+));
+if (!editorRuntimeChunk) {
+  failures.push(`Editor runtime module is absent: ${baseline.editorRuntime.module}`);
+} else {
+  if (editorRuntimeChunk.isEntry) failures.push("Editor runtime is present in an entry chunk");
+  const editorRuntimeClosure = staticChunkClosure([editorRuntimeChunk]);
+  const editorRuntimeModules = new Set(editorRuntimeClosure.flatMap((chunk) => chunk.modules));
+  for (const substring of baseline.editorRuntime.requiredModuleSubstrings) {
+    if (![...editorRuntimeModules].some((moduleId) => moduleId.includes(substring))) {
+      failures.push(`Editor runtime does not load required dependency: ${substring}`);
+    }
+  }
+  const editorDynamicImports = new Set(
+    editorRuntimeClosure.flatMap((chunk) => chunk.dynamicImports),
+  );
+  for (const prefix of baseline.editorRuntime.requiredDynamicChunkPrefixes) {
+    if (![...editorDynamicImports].some((fileName) => fileName.startsWith(prefix))) {
+      failures.push(`Editor runtime has no on-demand chunk with prefix: ${prefix}`);
+    }
+  }
+}
+
 const reviewRuntimeChunk = chunks.find((chunk) => (
   chunk.modules.includes(baseline.reviewRuntime.module)
 ));
@@ -488,6 +526,10 @@ console.log(JSON.stringify({
     chunk: reviewRuntimeChunk.fileName,
     dynamicChunks: reviewRuntimeChunk.dynamicImports.length,
     maxCatalogModulesPerChunk: baseline.reviewRuntime.maxCatalogModulesPerChunk,
+  } : null,
+  editorRuntime: editorRuntimeChunk ? {
+    chunk: editorRuntimeChunk.fileName,
+    dynamicChunks: editorRuntimeChunk.dynamicImports.length,
   } : null,
   projectsShell: {
     chunks: projectsShellContract.closure.map((chunk) => chunk.fileName),

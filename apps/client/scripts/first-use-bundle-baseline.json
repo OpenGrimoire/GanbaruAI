@@ -38,14 +38,29 @@
       "src/lib/components/chat/ChatPlainDiff.svelte"
     ],
     "forbiddenModules": [
-      "src/lib/chat/review-diff-runtime.ts"
+      "src/lib/chat/review-diff-runtime.ts",
+      "src/lib/chat/code-editor-runtime.ts"
     ],
     "forbiddenModuleSubstrings": [
       "/node_modules/@pierre/diffs/",
       "/node_modules/@pierre/theme/",
       "/node_modules/@pierre/theming/",
       "/node_modules/@shikijs/",
-      "/node_modules/shiki/"
+      "/node_modules/shiki/",
+      "/node_modules/codemirror/",
+      "/node_modules/@codemirror/",
+      "/node_modules/@lezer/",
+      "/node_modules/@replit/codemirror-lang-svelte/"
+    ]
+  },
+  "editorRuntime": {
+    "module": "src/lib/chat/code-editor-runtime.ts",
+    "requiredModuleSubstrings": [
+      "/node_modules/codemirror/",
+      "/node_modules/@codemirror/language-data/"
+    ],
+    "requiredDynamicChunkPrefixes": [
+      "assets/chat-editor-language-"
     ]
   },
   "reviewRuntime": {
@@ -236,6 +251,7 @@
   },
   "forbiddenEntryModules": [
     "src/lib/chat/review-diff-runtime.ts",
+    "src/lib/chat/code-editor-runtime.ts",
     "src/lib/components/notes/NotesHtmlImportDialog.svelte",
     "src/lib/components/notes/NotesNotionApiImportDialog.svelte",
     "src/lib/components/notes/NotesNotionExportImportDialog.svelte"

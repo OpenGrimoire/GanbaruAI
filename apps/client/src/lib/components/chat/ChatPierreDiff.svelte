@@ -16,9 +16,12 @@
     ReviewDiffRuntime,
     ReviewLineSelection,
   } from "$lib/chat/review-diff-runtime";
+  import { chatSyntaxStyle } from "$lib/chat/syntax-theme";
+  import { getTheme } from "$lib/stores/theme.svelte";
   import ChatPlainDiff from "./ChatPlainDiff.svelte";
 
   let {
+    active = true,
     items,
     selectedFileId,
     diffStyle,
@@ -32,6 +35,7 @@
     onResolveComment,
     onViewport = () => {},
   }: {
+    active?: boolean;
     items: readonly ReviewDiffRenderItem[];
     selectedFileId: string | null;
     diffStyle: "unified" | "split";
@@ -46,6 +50,9 @@
     onViewport?: (viewport: ChatDiffViewport | null) => void;
   } = $props();
 
+  const theme = getTheme();
+  const syntaxStyle = $derived(chatSyntaxStyle(theme.current));
+
   type ReviewDiffRuntimeOptions = import("$lib/chat/review-diff-runtime").ReviewDiffRuntimeOptions;
   let host: HTMLDivElement | undefined = $state();
   let runtime: ReviewDiffRuntime | null = null;
@@ -57,7 +64,6 @@
   let cancelRenderWait: (() => void) | null = null;
 
   onMount(() => {
-    void loadRuntime();
     const observer = new MutationObserver(() => applyOptions());
     observer.observe(document.documentElement, { attributes: true, attributeFilter: ["class"] });
     return () => observer.disconnect();
@@ -65,11 +71,15 @@
 
   onDestroy(() => {
     destroyed = true;
-    cancelRenderWait?.();
-    cancelRenderWait = null;
-    runtime?.cleanUp();
-    runtime = null;
-    onViewport(null);
+    releaseRuntime();
+  });
+
+  $effect(() => {
+    if (!active) {
+      releaseRuntime();
+      return;
+    }
+    void loadRuntime();
   });
 
   $effect(() => {
@@ -90,10 +100,12 @@
   });
 
   async function loadRuntime(): Promise<void> {
-    if (!host || runtime || destroyed) return;
+    if (!active || !host || runtime || destroyed) return;
+    enhancedFailed = false;
+    error = null;
     try {
       const module = await import("$lib/chat/review-diff-runtime");
-      if (!host || destroyed) return;
+      if (!active || !host || destroyed) return;
       runtime = new module.ReviewDiffRuntime(host, runtimeOptions());
       rejectedItems = runtime.setItems(items);
       onViewport({
@@ -106,6 +118,16 @@
     } catch (reason: unknown) {
       if (!destroyed) failEnhanced(reason);
     }
+  }
+
+  function releaseRuntime(): void {
+    cancelRenderWait?.();
+    cancelRenderWait = null;
+    runtime?.cleanUp();
+    runtime = null;
+    enhancedVisible = false;
+    rejectedItems = [];
+    onViewport(null);
   }
 
   function applyOptions(): void {
@@ -187,7 +209,7 @@
   }
 </script>
 
-<div class="diff-stack" class:enhanced={enhancedVisible && !enhancedFailed}>
+<div class="diff-stack" class:enhanced={enhancedVisible && !enhancedFailed} style={syntaxStyle}>
   <div bind:this={host} class="pierre-host" aria-hidden={!enhancedVisible || enhancedFailed}></div>
   {#if !enhancedVisible || enhancedFailed}
     <ChatPlainDiff

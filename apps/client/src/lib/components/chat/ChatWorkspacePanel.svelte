@@ -1174,6 +1174,7 @@
       <ChatBrowserPanel />
     {:else if panelState.tab === "review"}
       <ChatReviewPanel
+        active={visible}
         source={panelState.reviewSource}
         legacyScope={panelState.changeScope}
         legacyTurnId={panelState.changeTurnId}
@@ -1191,6 +1192,7 @@
       />
     {:else}
       <ChatFilesPanel
+        active={visible}
         directoryPath={panelState.fileBrowserPath}
         selectedPath={panelState.filePreviewPath}
         treeVisible={panelState.fileTreeVisible}

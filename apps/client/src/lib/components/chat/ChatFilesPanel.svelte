@@ -43,6 +43,7 @@
   import ChatWorkspaceFileTree from "./ChatWorkspaceFileTree.svelte";
 
   let {
+    active = true,
     directoryPath,
     selectedPath,
     treeVisible,
@@ -50,6 +51,7 @@
     onStateChange,
     onReviewCreated = () => {},
   }: {
+    active?: boolean;
     directoryPath: string;
     selectedPath: string | null;
     treeVisible: boolean;
@@ -120,6 +122,7 @@
   let fileMutationRequestId = 0;
   let treeResizeFrame: number | null = null;
   let treeResizeEndFrame: number | null = null;
+  let activeScopeKey = "";
   const workingFolderId = $derived(chat.selectedWorkingFolderId);
   const treeRows = $derived(flattenChatFileTree(rootEntries, childrenByDirectory, expandedPaths));
   const shownRows = $derived.by<ChatFileTreeRow[]>(() => {
@@ -147,6 +150,21 @@
       if (entry) panelWidth = entry.contentRect.width;
     });
     if (panelElement) observer.observe(panelElement);
+    return () => {
+      filesPanelMounted = false;
+      pendingWorkspaceChange = null;
+      observer.disconnect();
+      if (treeResizeFrame !== null) window.cancelAnimationFrame(treeResizeFrame);
+      if (treeResizeEndFrame !== null) window.cancelAnimationFrame(treeResizeEndFrame);
+    };
+  });
+
+  $effect(() => {
+    if (!active) {
+      pendingWorkspaceChange = null;
+      observerStatus = null;
+      return;
+    }
     const unsubscribeChanges = subscribeChatWorkspaceChanges((batch) => {
       pendingWorkspaceChange = mergeWorkspaceChangeBatches(pendingWorkspaceChange, batch);
       if (!reconcilingWorkspaceChanges) void drainWorkspaceChanges();
@@ -155,13 +173,8 @@
       observerStatus = status;
     });
     return () => {
-      filesPanelMounted = false;
-      pendingWorkspaceChange = null;
-      observer.disconnect();
       unsubscribeChanges();
       unsubscribeStatus();
-      if (treeResizeFrame !== null) window.cancelAnimationFrame(treeResizeFrame);
-      if (treeResizeEndFrame !== null) window.cancelAnimationFrame(treeResizeEndFrame);
     };
   });
 
@@ -205,8 +218,22 @@
     conflictDiskText = null;
     saveCopyPath = "";
     savingFile = false;
-    if (!workspace) return;
+    activeScopeKey = "";
+  });
+
+  $effect(() => {
+    const isActive = active;
+    const workspace = workingFolderId;
+    const executionEnvironmentId = chat.selectedExecutionEnvironmentId;
+    const scopeKey = loadedScope;
+    if (!isActive || !workspace) {
+      activeScopeKey = "";
+      return;
+    }
+    if (scopeKey === activeScopeKey) return;
+    activeScopeKey = scopeKey;
     void loadRoot(workspace, directoryPath, executionEnvironmentId);
+    if (preview && selectedPath) void refreshPreviewFromDisk(selectedPath, false);
   });
 
   $effect(() => {
@@ -214,7 +241,7 @@
     const environmentId = chat.selectedExecutionEnvironmentId;
     const path = selectedPath;
     const key = `${loadedScope}\u0000${path ?? ""}`;
-    if (!workspace || !path || preview?.relativePath === path || selectedPathSyncKey === key) return;
+    if (!active || !workspace || !path || preview?.relativePath === path || selectedPathSyncKey === key) return;
     selectedPathSyncKey = key;
     const previousPath = preview?.relativePath ?? null;
     void selectFile(path, environmentId).then((opened) => {
@@ -231,7 +258,7 @@
     const showIgnored = includeIgnored;
     const executionEnvironmentId = chat.selectedExecutionEnvironmentId;
     const requestedRevision = searchRefreshRevision;
-    if (!workspace || !value) {
+    if (!active || !workspace || !value) {
       searchResults = [];
       return;
     }
@@ -1028,7 +1055,7 @@
         {@const previewPath = preview.relativePath}
         <ChatCodePreview
           text={draftText}
-          language={preview.language}
+          relativePath={preview.relativePath}
           onChange={(text) => {
             draftText = text;
             if (fileDeleted && !saveCopyPath) saveCopyPath = copyPath(previewPath);

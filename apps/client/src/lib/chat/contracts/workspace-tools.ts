@@ -324,7 +324,6 @@ export interface ProjectWorkingFolderDirectoryRead {
 export interface ProjectWorkingFolderFilePreview {
   relativePath: string;
   displayName: string;
-  language: string | null;
   text: string | null;
   lineCount: number | null;
   byteSize: number;

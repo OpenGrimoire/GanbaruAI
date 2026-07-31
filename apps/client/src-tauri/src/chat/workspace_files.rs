@@ -66,7 +66,6 @@ pub struct ProjectWorkingFolderDirectoryRead {
 pub struct ProjectWorkingFolderFilePreview {
     pub relative_path: String,
     pub display_name: String,
-    pub language: Option<String>,
     pub text: Option<String>,
     pub line_count: Option<u64>,
     pub byte_size: u64,
@@ -373,7 +372,6 @@ pub fn preview_workspace_file(
         return Ok(ProjectWorkingFolderFilePreview {
             relative_path: relative_path.to_string(),
             display_name,
-            language: language_for_path(path),
             text: None,
             line_count: None,
             byte_size: metadata.len(),
@@ -417,7 +415,6 @@ pub fn preview_workspace_file(
     Ok(ProjectWorkingFolderFilePreview {
         relative_path: relative_path.to_string(),
         display_name,
-        language: language_for_path(path),
         text,
         line_count,
         byte_size: metadata.len(),
@@ -1043,36 +1040,6 @@ fn git_ignored_paths<'a>(root: &Path, paths: impl Iterator<Item = &'a str>) -> H
         .filter(|value| !value.is_empty())
         .filter_map(|value| std::str::from_utf8(value).ok().map(ToOwned::to_owned))
         .collect()
-}
-
-fn language_for_path(path: &Path) -> Option<String> {
-    let extension = path.extension()?.to_str()?.to_ascii_lowercase();
-    let language = match extension.as_str() {
-        "c" | "h" => "c",
-        "cc" | "cpp" | "cxx" | "hh" | "hpp" | "hxx" => "cpp",
-        "cs" => "csharp",
-        "go" => "go",
-        "java" => "java",
-        "kt" | "kts" => "kotlin",
-        "rs" => "rust",
-        "ts" | "tsx" | "mts" | "cts" => "typescript",
-        "js" | "jsx" | "mjs" | "cjs" => "javascript",
-        "svelte" => "svelte",
-        "vue" => "vue",
-        "json" => "json",
-        "md" | "mdx" => "markdown",
-        "css" | "scss" | "sass" | "less" => "css",
-        "html" | "htm" | "xml" => "html",
-        "py" => "python",
-        "rb" => "ruby",
-        "swift" => "swift",
-        "toml" => "toml",
-        "yaml" | "yml" => "yaml",
-        "sql" => "sql",
-        "sh" | "bash" | "zsh" => "shell",
-        _ => return None,
-    };
-    Some(language.to_string())
 }
 
 fn workspace_file_revision(relative_path: &str, bytes: &[u8]) -> String {
@@ -1923,24 +1890,6 @@ mod tests {
     }
 
     #[test]
-    fn common_code_extensions_receive_editor_languages() {
-        let cases = [
-            ("component.tsx", "typescript"),
-            ("component.jsx", "javascript"),
-            ("styles.scss", "css"),
-            ("main.go", "go"),
-            ("header.hpp", "cpp"),
-            ("view.vue", "vue"),
-        ];
-        for (path, expected) in cases {
-            assert_eq!(
-                language_for_path(Path::new(path)).as_deref(),
-                Some(expected)
-            );
-        }
-    }
-
-    #[test]
     fn listing_is_on_demand_and_respects_common_and_git_ignores() {
         let directory = TestDirectory::new();
         fs::write(directory.0.join("visible.txt"), "visible\n").expect("file should write");
@@ -1996,7 +1945,6 @@ mod tests {
         let authorized = directory.authorized(RepositoryKind::None);
 
         let text = preview_workspace_file(&authorized, "sample.rs").expect("text should preview");
-        assert_eq!(text.language.as_deref(), Some("rust"));
         assert_eq!(text.line_count, Some(1));
         assert!(text.content_revision.is_some());
         assert!(

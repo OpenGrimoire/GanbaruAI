@@ -58,6 +58,7 @@
   const REVIEW_REQUEST_TIMEOUT_MS = 30_000;
 
   let {
+    active = true,
     source = null,
     legacyScope = "current_turn",
     legacyTurnId = null,
@@ -67,6 +68,7 @@
     diffView = "auto",
     onStateChange = () => {},
   }: {
+    active?: boolean;
     source?: ReviewDiffSource | null;
     legacyScope?: "current_turn" | "entire_thread";
     legacyTurnId?: string | null;
@@ -219,6 +221,14 @@
     });
     if (panel) observer.observe(panel);
     if (content) observer.observe(content);
+    return () => {
+      observer.disconnect();
+      if (workspaceRefreshTimer !== null) window.clearTimeout(workspaceRefreshTimer);
+    };
+  });
+
+  $effect(() => {
+    if (!active) return;
     const unsubscribe = subscribeChatWorkspaceChanges((batch) => {
       if (effectiveSource.kind !== "working_tree"
         || batch.workingFolderId !== workingFolderId
@@ -234,9 +244,11 @@
       }, 100);
     });
     return () => {
-      observer.disconnect();
       unsubscribe();
-      if (workspaceRefreshTimer !== null) window.clearTimeout(workspaceRefreshTimer);
+      if (workspaceRefreshTimer !== null) {
+        window.clearTimeout(workspaceRefreshTimer);
+        workspaceRefreshTimer = null;
+      }
     };
   });
 
@@ -246,11 +258,21 @@
     const persistedThreadId = threadId;
     const environmentId = executionEnvironmentId;
     const ignoreWhitespace = whitespaceIgnored;
+    const isActive = active;
     untrack(() => {
       const nextWorkspaceScopeKey = `${folder ?? ""}:${environmentId ?? ""}`;
       if (nextWorkspaceScopeKey !== workspaceScopeKey) {
         workspaceScopeKey = nextWorkspaceScopeKey;
         workspaceGeneration = null;
+      }
+      if (!isActive) {
+        loadedKey = "";
+        requestSequence += 1;
+        patchSequence += 1;
+        loadingInitial = false;
+        refreshing = false;
+        loadingPatchIds = [];
+        return;
       }
       const nextKey = `${persistedThreadId ?? ""}:${folder ?? ""}:${environmentId ?? ""}:${sourceKey}:${ignoreWhitespace}`;
       if (nextKey === loadedKey) return;
@@ -272,14 +294,20 @@
         commentDraft = "";
         return;
       }
-      void openReview(false);
+      void openReview(snapshot !== null);
     });
   });
 
   $effect(() => {
     const thread = threadId;
     const nextKey = `${thread ?? ""}:${includeResolved}`;
+    const isActive = active;
     untrack(() => {
+      if (!isActive) {
+        commentsKey = "";
+        commentsRequest += 1;
+        return;
+      }
       if (nextKey === commentsKey) return;
       commentsKey = nextKey;
       const request = ++commentsRequest;
@@ -295,7 +323,7 @@
     const currentSnapshot = snapshot;
     const currentFile = selectedReviewFile;
     const layout = resolvedLayout;
-    if (!currentSnapshot || !currentFile) return;
+    if (!active || !currentSnapshot || !currentFile) return;
     const fileIds = layout === "file"
       ? [currentFile.fileId]
       : filteredFiles.map((file) => file.fileId);
@@ -321,7 +349,7 @@
   });
 
   $effect(() => {
-    if (reviewRefreshPending && !refreshing && !commentDraft.trim() && !selection) {
+    if (active && reviewRefreshPending && !refreshing && !commentDraft.trim() && !selection) {
       reviewRefreshPending = false;
       queueMicrotask(() => void openReview(true));
     }
@@ -1066,6 +1094,7 @@
 
         {#if renderItems.length > 0}
           <ChatPierreDiff
+            {active}
             items={renderItems}
             selectedFileId={selectedReviewFile?.fileId ?? null}
             diffStyle={resolvedDiffStyle}

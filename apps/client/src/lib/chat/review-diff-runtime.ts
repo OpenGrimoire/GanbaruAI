@@ -2,6 +2,7 @@ import DiffsWorker from "@pierre/diffs/worker/worker.js?worker";
 import {
   CodeView,
   parsePatchFiles,
+  registerCustomCSSVariableTheme,
   type CodeViewDiffItem,
   type CodeViewOptions,
   type DiffLineAnnotation,
@@ -55,6 +56,22 @@ interface ReviewAnnotationData {
 }
 
 const WORKER_IDLE_GRACE_MS = 30_000;
+const CHAT_REVIEW_SYNTAX_THEME = "ganbaru-chat-syntax";
+registerCustomCSSVariableTheme(CHAT_REVIEW_SYNTAX_THEME, {
+  foreground: "var(--chat-syntax-foreground)",
+  background: "var(--chat-syntax-background)",
+  "token-comment": "var(--chat-syntax-comment)",
+  "token-keyword": "var(--chat-syntax-keyword)",
+  "token-constant": "var(--chat-syntax-constant)",
+  "token-string": "var(--chat-syntax-string)",
+  "token-parameter": "var(--chat-syntax-parameter)",
+  "token-function": "var(--chat-syntax-function)",
+  "token-string-expression": "var(--chat-syntax-string-expression)",
+  "token-punctuation": "var(--chat-syntax-punctuation)",
+  "token-link": "var(--chat-syntax-link)",
+  "token-inserted": "var(--chat-syntax-inserted)",
+  "token-deleted": "var(--chat-syntax-deleted)",
+}, true);
 const REVIEW_DIFF_UNSAFE_CSS = `
   .chat-review-inline-comments { display: grid; gap: .35rem; padding: .35rem .5rem; }
   .chat-review-inline-comment { display: grid; gap: .3rem; border: 1px solid var(--border); border-radius: .45rem; background: var(--background); padding: .5rem; color: var(--foreground); font-family: var(--diffs-header-font-family); font-size: .7rem; }
@@ -98,7 +115,7 @@ export class ReviewDiffRuntime {
           totalASTLRUCacheSize: 48,
         },
         highlighterOptions: {
-          theme: { light: "pierre-light", dark: "pierre-dark" },
+          theme: { light: CHAT_REVIEW_SYNTAX_THEME, dark: CHAT_REVIEW_SYNTAX_THEME },
           tokenizeMaxLineLength: 1_000,
           useTokenTransformer: false,
         },
@@ -221,7 +238,7 @@ export class ReviewDiffRuntime {
 
   private codeViewOptions(): CodeViewOptions<ReviewAnnotationData> {
     return {
-      theme: { light: "pierre-light", dark: "pierre-dark" },
+      theme: { light: CHAT_REVIEW_SYNTAX_THEME, dark: CHAT_REVIEW_SYNTAX_THEME },
       themeType: document.documentElement.classList.contains("dark") ? "dark" as const : "light" as const,
       diffStyle: this.options.diffStyle,
       overflow: this.options.wrap ? "wrap" as const : "scroll" as const,

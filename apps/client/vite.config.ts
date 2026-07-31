@@ -53,6 +53,11 @@ function chunkNameForModule(id: string): string | undefined {
   const reviewCatalogChunk = reviewCatalogChunkName(moduleId);
   if (reviewCatalogChunk) return reviewCatalogChunk;
 
+  const codeEditorCatalogChunk = codeEditorCatalogChunkName(moduleId);
+  if (codeEditorCatalogChunk) return codeEditorCatalogChunk;
+
+  if (isCodeEditorCoreModule(moduleId)) return undefined;
+
   if (
     moduleId.includes("/node_modules/@pierre/diffs/") ||
     moduleId.includes("/node_modules/@pierre/theme/") ||
@@ -85,6 +90,48 @@ function chunkNameForModule(id: string): string | undefined {
   }
 
   return "vendor";
+}
+
+function codeEditorCatalogChunkName(moduleId: string): string | undefined {
+  if (moduleId.includes("/node_modules/@replit/codemirror-lang-svelte/")) {
+    return "chat-editor-language-svelte";
+  }
+  const languageMatch = moduleId.match(/\/node_modules\/@codemirror\/lang-([^/]+)\//u);
+  if (languageMatch?.[1]) return `chat-editor-language-${languageMatch[1]}`;
+  const parserMatch = moduleId.match(/\/node_modules\/@lezer\/([^/]+)\//u);
+  if (parserMatch?.[1] && !["common", "highlight", "lr"].includes(parserMatch[1])) {
+    return `chat-editor-parser-${parserMatch[1]}`;
+  }
+  const legacyMarker = "/node_modules/@codemirror/legacy-modes/mode/";
+  const legacyIndex = moduleId.lastIndexOf(legacyMarker);
+  if (legacyIndex >= 0) {
+    const relativeModule = moduleId.slice(legacyIndex + legacyMarker.length).split("?", 1)[0] ?? "mode";
+    const suffix = relativeModule
+      .replace(/\.[^.]+$/u, "")
+      .replace(/[^a-zA-Z0-9]+/gu, "-")
+      .replace(/^-+|-+$/gu, "")
+      .toLowerCase();
+    return `chat-editor-language-legacy-${suffix || "mode"}`;
+  }
+  return undefined;
+}
+
+function isCodeEditorCoreModule(moduleId: string): boolean {
+  return moduleId.includes("/node_modules/codemirror/")
+    || moduleId.includes("/node_modules/@codemirror/autocomplete/")
+    || moduleId.includes("/node_modules/@codemirror/commands/")
+    || moduleId.includes("/node_modules/@codemirror/language-data/")
+    || moduleId.includes("/node_modules/@codemirror/language/")
+    || moduleId.includes("/node_modules/@codemirror/lint/")
+    || moduleId.includes("/node_modules/@codemirror/search/")
+    || moduleId.includes("/node_modules/@codemirror/state/")
+    || moduleId.includes("/node_modules/@codemirror/view/")
+    || moduleId.includes("/node_modules/@lezer/common/")
+    || moduleId.includes("/node_modules/@lezer/highlight/")
+    || moduleId.includes("/node_modules/@lezer/lr/")
+    || moduleId.includes("/node_modules/crelt/")
+    || moduleId.includes("/node_modules/style-mod/")
+    || moduleId.includes("/node_modules/w3c-keyname/");
 }
 
 function reviewCatalogChunkName(moduleId: string): string | undefined {

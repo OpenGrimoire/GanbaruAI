@@ -19,7 +19,7 @@ Package metadata is not evidence that a package is advisory-free. The repository
 | Diff parsing and rendering | `@pierre/diffs` 1.2.12 through its vanilla `CodeView` API | Review workspace | Added for the high-performance review workspace |
 | Workspace file observation | `notify` 8.2.0 behind a bounded Rust observer | Live Files, Review, and source-control updates | Added for the high-performance review workspace |
 | Terminal emulation | `@xterm/xterm` 6.0.0 and `@xterm/addon-fit` 0.11.0 | Terminal | Added in Phase 9 |
-| File editor | CodeMirror 6 through `codemirror` 6.0.2 | Revision-safe file editor | Added for complete local workspace parity |
+| File editor and grammars | CodeMirror 6 through `codemirror` 6.0.2, `@codemirror/language-data` 6.5.2, and `@replit/codemirror-lang-svelte` 6.0.0 | Revision-safe file editor with lazy filename-matched syntax | Added for complete local workspace parity and syntax coverage |
 | ACP protocol types | Official `agent-client-protocol` 2.0.0 crate with ACP v1 negotiation | Cursor and Grok shared driver | Added for negotiated ACP parity |
 | Internal MCP bridge | Official `rmcp` 3.0.0 crate | Durable resources and browser tools | Added for complete local workspace parity |
 
@@ -126,6 +126,19 @@ The high-performance Review workspace replaces the earlier `diff` parser and han
 - Platforms: the vanilla browser API targets the WebView engines used by Tauri. The module worker is same-origin and the content security policy does not permit blob workers.
 - Size: Pierre and Shiki add several megabytes of packaged grammar and theme assets. A lazy Review core, on-demand grammar and theme chunks, one to three workers, bounded caches, and bundle contracts protect startup and normal Chat use.
 - Rejected alternatives: Monaco duplicates the CodeMirror editor and carries a much larger editor runtime. A new custom renderer would recreate virtualization, split alignment, syntax, intraline changes, annotations, and accessibility behavior without an established engine.
+
+## File editor and syntax grammars
+
+Keep CodeMirror 6 as the editable Files surface. Add the official [`@codemirror/language-data` 6.5.2](https://www.npmjs.com/package/%40codemirror/language-data) catalog for filename metadata and on-demand grammar loaders, plus [`@replit/codemirror-lang-svelte` 6.0.0](https://www.npmjs.com/package/%40replit/codemirror-lang-svelte) for explicit Svelte support. The frontend owns presentation-language selection from the already validated relative filename. Rust owns path authorization, bounded content reads, revisions, and writes, but does not maintain a second extension catalog.
+
+The editor runtime, catalog, Svelte integration, and parser packages remain outside the unopened Chat closure. Opening a text file first provides an editable plain-text fallback, then imports CodeMirror and only the matched grammar. A compartment installs that grammar without recreating the editor. Unknown filenames and failed grammar imports stay in plain text. Bundle contracts prohibit CodeMirror, Lezer, and the Svelte parser from entering initial Chat work.
+
+- Maintenance: CodeMirror's language catalog follows the actively maintained CodeMirror 6 package family. The Svelte integration is maintained by Replit and is isolated behind a small exact-version adapter because it is not part of the official catalog.
+- Advisories: exact-pin the catalog and Svelte packages, keep package scripts disabled through the existing pnpm policy, and run the full dependency and audit gate after addition.
+- Permissions: parsers receive local text already admitted by the bounded file-preview contract. They have no filesystem, process, network, credential, or Tauri command capability.
+- Platforms: the browser packages use ordinary JavaScript and Lezer parsers in the Tauri WebView. No native binary, WebAssembly engine, or sidecar is added.
+- Size and resources: CodeMirror parses incrementally and paints only the viewport. The broad catalog contributes separately emitted grammar assets, but normal Chat use loads none of them, and one open file loads only its matching parser graph.
+- Rejected alternatives: Monaco duplicates a larger editor platform. Shiki is retained for worker-isolated diffs, but using its TextMate tokenization for the editable surface would lose CodeMirror's incremental parser and reconfiguration advantages. A handwritten highlighter cannot provide comparable language coverage or embedded Svelte parsing safely.
 
 ## Workspace file observation
 

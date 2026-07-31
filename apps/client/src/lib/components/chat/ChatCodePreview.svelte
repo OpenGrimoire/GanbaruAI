@@ -1,138 +1,98 @@
 <script module lang="ts">
-  export interface ChatCodeSelection {
-    text: string;
-    startLine: number;
-    startColumn: number;
-    endLine: number;
-    endColumn: number;
-  }
+  import type { ChatCodeEditorSelection } from "$lib/chat/code-editor-runtime";
+
+  export type ChatCodeSelection = ChatCodeEditorSelection;
 </script>
 
 <script lang="ts">
   import { onMount } from "svelte";
-  import { basicSetup, EditorView } from "codemirror";
+  import type { ChatCodeEditorRuntime } from "$lib/chat/code-editor-runtime";
+  import { chatSyntaxStyle } from "$lib/chat/syntax-theme";
+  import { getTheme } from "$lib/stores/theme.svelte";
 
   let {
     text,
-    language,
+    relativePath,
     readOnly = false,
     onChange = () => {},
     onSelectionChange = () => {},
     onSave = () => {},
   }: {
     text: string;
-    language: string | null;
+    relativePath: string;
     readOnly?: boolean;
     onChange?: (text: string) => void;
     onSelectionChange?: (selection: ChatCodeSelection) => void;
     onSave?: () => void;
   } = $props();
 
+  const theme = getTheme();
+  const syntaxStyle = $derived(chatSyntaxStyle(theme.current));
   let host: HTMLDivElement | undefined = $state();
-  let editor: EditorView | null = null;
-  let applyingExternalText = false;
+  let runtime: ChatCodeEditorRuntime | null = null;
+  let enhanced = $state(false);
+  let destroyed = false;
 
   onMount(() => {
-    if (!host) return;
-    host.addEventListener("keydown", handleKeydown);
-    editor = new EditorView({
-      doc: text,
-      parent: host,
-      extensions: [
-        basicSetup,
-        EditorView.editable.of(!readOnly),
-        EditorView.lineWrapping,
-        EditorView.updateListener.of((update) => {
-          if (update.docChanged && !applyingExternalText) onChange(update.state.doc.toString());
-          if (update.selectionSet || update.docChanged) {
-            const range = update.state.selection.main;
-            const start = update.state.doc.lineAt(range.from);
-            const end = update.state.doc.lineAt(range.to);
-            onSelectionChange({
-              text: update.state.sliceDoc(range.from, range.to),
-              startLine: start.number,
-              startColumn: range.from - start.from + 1,
-              endLine: end.number,
-              endColumn: range.to - end.from + 1,
-            });
-          }
-        }),
-        EditorView.theme({
-          "&": {
-            height: "100%",
-            color: "var(--foreground)",
-            backgroundColor: "var(--cal-bg)",
-            fontSize: "0.733333rem",
-          },
-          ".cm-scroller": {
-            fontFamily: '"SF Mono", "SFMono-Regular", "JetBrains Mono", "Cascadia Code", Consolas, "Liberation Mono", Menlo, monospace',
-            lineHeight: "21px",
-          },
-          ".cm-content": { caretColor: "var(--foreground)" },
-          ".cm-cursor, .cm-dropCursor": { borderLeftColor: "var(--foreground)" },
-          ".cm-gutters": {
-            color: "var(--muted-foreground)",
-            backgroundColor: "var(--cal-bg)",
-            borderRight: "1px solid var(--border)",
-          },
-          ".cm-activeLine, .cm-activeLineGutter": {
-            backgroundColor: "color-mix(in srgb, var(--accent) 58%, transparent)",
-          },
-          ".cm-selectionBackground, &.cm-focused .cm-selectionBackground, ::selection": {
-            backgroundColor: "color-mix(in srgb, var(--primary) 28%, transparent) !important",
-          },
-          ".cm-panels": {
-            color: "var(--foreground)",
-            backgroundColor: "var(--background)",
-          },
-          ".cm-panels input": {
-            color: "var(--foreground)",
-            backgroundColor: "var(--cal-bg)",
-            border: "1px solid var(--border)",
-          },
-        }),
-      ],
-    });
+    void loadRuntime();
     return () => {
-      host?.removeEventListener("keydown", handleKeydown);
-      editor?.destroy();
-      editor = null;
+      destroyed = true;
+      runtime?.destroy();
+      runtime = null;
     };
   });
 
   $effect(() => {
-    const nextText = text;
-    if (!editor || editor.state.doc.toString() === nextText) return;
-    const view = editor;
-    const currentDocument = view.state.doc;
-    const currentSelection = view.state.selection.main;
-    const anchorLine = currentDocument.lineAt(currentSelection.anchor);
-    const headLine = currentDocument.lineAt(currentSelection.head);
-    const anchor = { line: anchorLine.number, column: currentSelection.anchor - anchorLine.from };
-    const head = { line: headLine.number, column: currentSelection.head - headLine.from };
-    const scrollTop = view.scrollDOM.scrollTop;
-    const scrollLeft = view.scrollDOM.scrollLeft;
-    applyingExternalText = true;
-    view.dispatch({ changes: { from: 0, to: currentDocument.length, insert: nextText } });
-    const nextDocument = view.state.doc;
-    const position = (coordinate: { line: number; column: number }): number => {
-      const line = nextDocument.line(Math.min(coordinate.line, nextDocument.lines));
-      return Math.min(line.to, line.from + coordinate.column);
-    };
-    view.dispatch({ selection: { anchor: position(anchor), head: position(head) } });
-    restoreScroll(view, scrollTop, scrollLeft);
-    window.requestAnimationFrame(() => {
-      if (editor === view) restoreScroll(view, scrollTop, scrollLeft);
-    });
-    applyingExternalText = false;
+    runtime?.setText(text);
   });
 
-  function restoreScroll(view: EditorView, top: number, left: number): void {
-    view.scrollDOM.scrollTop = Math.min(top, Math.max(0, view.scrollDOM.scrollHeight - view.scrollDOM.clientHeight));
-    view.scrollDOM.scrollLeft = Math.min(left, Math.max(0, view.scrollDOM.scrollWidth - view.scrollDOM.clientWidth));
+  $effect(() => {
+    runtime?.setRelativePath(relativePath);
+  });
+
+  $effect(() => {
+    runtime?.setReadOnly(readOnly);
+  });
+
+  async function loadRuntime(): Promise<void> {
+    if (!host || runtime || destroyed) return;
+    try {
+      const module = await import("$lib/chat/code-editor-runtime");
+      if (!host || destroyed) return;
+      runtime = new module.ChatCodeEditorRuntime(host, {
+        text,
+        relativePath,
+        readOnly,
+        onChange: (nextText) => onChange(nextText),
+        onSelectionChange: (selection) => onSelectionChange(selection),
+        onSave: () => onSave(),
+      });
+      enhanced = true;
+    } catch {
+      runtime = null;
+      enhanced = false;
+    }
   }
 
-  function handleKeydown(event: KeyboardEvent): void {
+  function handleFallbackSelection(element: HTMLTextAreaElement): void {
+    const start = positionAt(text, element.selectionStart);
+    const end = positionAt(text, element.selectionEnd);
+    onSelectionChange({
+      text: text.slice(element.selectionStart, element.selectionEnd),
+      startLine: start.line,
+      startColumn: start.column,
+      endLine: end.line,
+      endColumn: end.column,
+    });
+  }
+
+  function positionAt(value: string, offset: number): { line: number; column: number } {
+    const prefix = value.slice(0, offset);
+    const lines = prefix.split("\n");
+    return { line: lines.length, column: (lines.at(-1)?.length ?? 0) + 1 };
+  }
+
+  function handleFallbackKeydown(event: KeyboardEvent): void {
     if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "s") {
       event.preventDefault();
       onSave();
@@ -140,13 +100,27 @@
   }
 </script>
 
-<div
-  bind:this={host}
-  class="code-editor"
-  data-language={language ?? "text"}
-></div>
+<div class="code-editor-shell" style={syntaxStyle} data-language-path={relativePath}>
+  {#if !enhanced}
+    <textarea
+      class="plain-editor"
+      value={text}
+      readonly={readOnly}
+      spellcheck="false"
+      aria-label={relativePath}
+      oninput={(event) => onChange(event.currentTarget.value)}
+      onselect={(event) => handleFallbackSelection(event.currentTarget)}
+      onkeyup={(event) => handleFallbackSelection(event.currentTarget)}
+      onkeydown={handleFallbackKeydown}
+    ></textarea>
+  {/if}
+  <div bind:this={host} class="code-editor" class:hidden={!enhanced}></div>
+</div>
 
 <style>
+  .code-editor-shell { display: flex; min-width: 0; min-height: 0; flex: 1; overflow: hidden; background: var(--chat-syntax-background); }
   .code-editor { min-width: 0; min-height: 0; flex: 1; overflow: hidden; }
+  .code-editor.hidden { display: none; }
   .code-editor :global(.cm-editor) { height: 100%; }
+  .plain-editor { min-width: 0; min-height: 0; flex: 1; resize: none; border: 0; outline: 0; background: var(--chat-syntax-background); padding: 0.3rem 0.5rem; color: var(--chat-syntax-foreground); font-family: "SF Mono", "SFMono-Regular", "JetBrains Mono", "Cascadia Code", Consolas, "Liberation Mono", Menlo, monospace; font-size: 0.733333rem; line-height: 21px; tab-size: 4; white-space: pre; }
 </style>

@@ -137,9 +137,6 @@ export function parseProjectWorkingFolderFilePreview(value: unknown): ProjectWor
       "workspaceFilePreview.displayName",
       MAX_RELATIVE_PATH_CHARS,
     ),
-    language: readNullable(record.language, "workspaceFilePreview.language", (entry, entryLabel) =>
-      boundedString(entry, entryLabel, 128),
-    ),
     text: readNullable(record.text, "workspaceFilePreview.text", (entry, entryLabel) =>
       boundedString(entry, entryLabel, MAX_FILE_PREVIEW_CHARS),
     ),
