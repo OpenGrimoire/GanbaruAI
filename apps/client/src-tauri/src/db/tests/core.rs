@@ -2,7 +2,7 @@ use super::super::run_migrations;
 use super::helpers::{insert_event, insert_open_run, migrated_memory_pool};
 use sqlx::Row;
 
-const EXPECTED_MIGRATION_COUNT: i64 = 18;
+const EXPECTED_MIGRATION_COUNT: i64 = 19;
 
 #[test]
 fn fresh_database_applies_baseline_and_additive_migrations() {
@@ -45,6 +45,8 @@ fn fresh_database_applies_baseline_and_additive_migrations() {
             "chat_command_receipts",
             "chat_checkpoints",
             "chat_cleanup_queue",
+            "chat_channels",
+            "chat_channel_sessions",
             "project_tasks",
             "music_playlists",
             "music_playlist_tracks",
@@ -82,6 +84,7 @@ fn fresh_database_applies_baseline_and_additive_migrations() {
         }
         for obsolete in [
             "chat_workspaces",
+            "idx_chat_drafts_new_working_folder",
             "project_labels",
             "project_task_label_links",
             "project_view_preferences_new",

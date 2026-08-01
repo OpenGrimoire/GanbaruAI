@@ -15,6 +15,7 @@
   import { getPomodoro } from "$lib/stores/pomodoro.svelte";
   import { getNotes } from "$lib/stores/notes.svelte";
   import { getProjects } from "$lib/stores/projects.svelte";
+  import { getChat } from "$lib/stores/chat.svelte";
   import { getZoom } from "$lib/stores/zoom.svelte";
   import { getPreferences } from "$lib/stores/preferences.svelte";
   import { getSettingsLauncher } from "$lib/stores/settingsLauncher.svelte";
@@ -104,6 +105,7 @@
   const pomodoro = getPomodoro();
   const notes = getNotes();
   const projects = getProjects();
+  const chat = getChat();
   const zoom = getZoom();
   const preferences = getPreferences();
   const settingsLauncher = getSettingsLauncher();
@@ -315,9 +317,13 @@
     const unsubscribeHistoryVault = isMainWindow
       ? onActiveVaultIdentityChange((previousVaultId, nextVaultId) => {
           notesProjectHistoryScheduler.switchVault();
+          chat.resetForVault();
           if (!nextVaultId) return;
           const projectsRequest = previousVaultId ? projects.load() : projects.ensureLoaded();
-          void projectsRequest.then(() => previousVaultId ? notes.load() : notes.ensureLoaded()).catch((error) => {
+          void projectsRequest.then(() => Promise.all([
+            previousVaultId ? notes.load() : notes.ensureLoaded(),
+            chat.prewarmForProject(projects.selectedProjectId),
+          ])).catch((error) => {
             console.error("core workspace preload failed", error);
           });
         })
@@ -326,7 +332,10 @@
     if (isMainWindow) {
       void ensureDbUrl()
         .then(() => projects.ensureLoaded())
-        .then(() => notes.ensureLoaded())
+        .then(() => Promise.all([
+          notes.ensureLoaded(),
+          chat.prewarmForProject(projects.selectedProjectId),
+        ]))
         .catch((error) => {
           console.error("core workspace preload failed", error);
         });

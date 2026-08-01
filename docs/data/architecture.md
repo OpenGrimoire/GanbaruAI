@@ -14,6 +14,10 @@ Why markdown on disk and not in SQLite as text columns:
 
 **Structured data and document graphs.** Calendar events, Notes pages and blocks, kanban tasks, work environment configs, pomodoro runs, segments, pauses, playlist definitions, project metadata. These live in SQLite. The database is the source of truth. There is no authoritative markdown file to fall back to.
 
+Chat coordination is structured data. Channels, direct messages, task discussions, replies, participants, memberships, messages, provenance links, manager proposals, context-package manifests, agent runs, budgets, approvals, and execution events require stable identity and relational integrity. SQLite is canonical for this layer. Provider-native history and exported transcripts can help recovery or interoperability, but neither becomes the organizational source of truth.
+
+Organizational conversations and execution sessions remain distinct. A channel can link several provider sessions over time, and one task can link several attempts or reviews. Replacing a provider continuation cannot replace, merge, or delete the channel, task, decision, or approval history around it.
+
 Why SQLite and not markdown:
 
 - Structured data needs relational integrity (foreign keys, cascades, atomic transactions). Markdown does not enforce this.
@@ -64,15 +68,15 @@ The Tauri integration owns SQLite in Rust through focused `sqlx` commands. Highe
 
 ## External tools and the CLI bridge
 
-The app is not the only thing that needs to read this data. AI agents (Codex or another CLI coding agent in the integrated terminal, MCP clients), backup tools, scripts, and human collaborators all interact with the same store.
+The app is not the only thing that needs to read this data. AI agents, external MCP clients, backup tools, scripts, and human collaborators may interact with the same store through different authorization boundaries.
 
-The bridge is the `ganbaru-ai` CLI (Rust binary, reads the same SQLite). It exposes structured commands (`task list`, `event get`, `export kanban`) that AI agents call via Bash. This keeps three properties:
+The local external bridge is the `ganbaru-ai` CLI (Rust binary, reads the same SQLite). It exposes structured commands such as `task list`, `event get`, and `export projects` that authorized AI agents and scripts call through their execution environment. Ganbaru-owned manager actions can use the same Rust service layer through typed internal commands without starting a shell. This keeps three properties:
 
 1. One source of truth. The CLI reads what the app writes. There is no duplicate authoritative store for agents.
 2. Markdown exports stay derivative. The CLI can write kanban snapshots or generated reports to a git repo for collaborators who never install the app, but those files are regenerated from the database; editing them by hand is supported only via an explicit import command where the export type supports imports.
 3. External readers handle dirty state. If the app crashed and a run is mid-write, the CLI applies the same recovery semantics as the app on startup (see `algorithms/pomodoro-state-machine.md`). Aggregations always operate on a consistent view.
 
-The MCP server is for external clients only (ChatGPT, teammate agents, and other MCP-compatible clients). Internal agent flows use the CLI directly. This keeps MCP a thin, documented surface and avoids two parallel paths to the same data.
+The general MCP server is for external clients only. Provider sessions inside Chat can also receive an ephemeral, thread-scoped internal MCP endpoint for bounded resources and browser tools as documented in `features/ai-integration.md`; that endpoint is not the general data API. Local agents normally use the CLI for approved structured operations, while the Ganbaru manager uses typed Rust services. Every path applies the effective participant, conversation, project, context-package, and run permissions rather than trusting possession of an identifier.
 
 ## Source-of-truth checks
 

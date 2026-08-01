@@ -7,6 +7,7 @@ import type {
   ModelOptionDefinition,
   ModelOptionSelection,
   ProviderCapabilities,
+  ProviderInstanceRead,
   ProviderModel,
   ProviderSessionState,
   RateLimitStatusEvent,
@@ -14,6 +15,7 @@ import type {
   UserInputQuestion,
   VersionedJson,
 } from "$lib/chat/contracts";
+import { compareCompanyModels, integrationCompany, modelCompany } from "$lib/chat/model-company";
 
 export const CHAT_IMAGE_LIMIT = 8;
 export const CHAT_IMAGE_BYTE_LIMIT = 20 * 1024 * 1024;
@@ -41,6 +43,133 @@ export interface ComposerSelections {
 export interface ComposerSelectionError {
   field: "workspace" | "provider" | "model" | "safety" | "interaction" | "trust";
   message: string;
+}
+
+export interface DefaultProviderModelSelection {
+  provider: ProviderInstanceRead;
+  model: ProviderModel | null;
+  providerManaged: boolean;
+  options: ModelOptionSelection[];
+}
+
+/** Reports whether a configured provider can currently accept Chat work. */
+export function providerAvailable(provider: ProviderInstanceRead): boolean {
+  return provider.configuration.enabled && provider.lastProbe?.state === "healthy";
+}
+
+/** Orders usable providers by Ganbaru's model-company priority, with OpenAI first. */
+export function availableProvidersInDefaultOrder(
+  providers: readonly ProviderInstanceRead[],
+): ProviderInstanceRead[] {
+  return providers
+    .map((provider, index) => ({ provider, index }))
+    .filter(({ provider }) => providerAvailable(provider))
+    .sort((left, right) => (
+      integrationCompany(left.provider.configuration.familyId).order
+      - integrationCompany(right.provider.configuration.familyId).order
+      || left.index - right.index
+    ))
+    .map(({ provider }) => provider);
+}
+
+/** Selects the strongest visible built-in model exposed by one provider. */
+export function recommendedProviderModel(
+  provider: ProviderInstanceRead,
+  candidates: readonly ProviderModel[] = visibleProviderModels(provider),
+): ProviderModel | null {
+  const selectable = candidates.filter((model) => (
+    model.availability === "available" || model.availability === "stale"
+  ));
+  const builtIn = selectable.filter((model) => !model.custom);
+  const pool = builtIn.length > 0 ? builtIn : selectable;
+  const providerDefault = pool.find((model) => model.id === "default");
+  if (providerDefault) return providerDefault;
+  const first = pool[0];
+  if (!first) return null;
+  const company = modelCompany(provider.configuration.familyId, first);
+  const sameCompany = pool.filter((model) => (
+    modelCompany(provider.configuration.familyId, model).id === company.id
+  ));
+  return [...sameCompany].sort((left, right) => (
+    compareCompanyModels(company.id, left, right)
+  ))[0] ?? first;
+}
+
+/** Resolves default model options, preferring Medium for reasoning when supported. */
+export function defaultModelOptions(
+  definitions: readonly ModelOptionDefinition[],
+): ModelOptionSelection[] {
+  const options: ModelOptionSelection[] = [];
+  for (const definition of definitions) {
+    switch (definition.kind) {
+      case "boolean":
+        if (definition.defaultValue !== null) {
+          options.push({ key: definition.key, value: { kind: "boolean", value: definition.defaultValue } });
+        }
+        break;
+      case "choice": {
+        const medium = modelOptionRole(definition) === "effort"
+          ? definition.options.find((option) => option.value.toLowerCase() === "medium")?.value ?? null
+          : null;
+        const value = medium ?? definition.defaultValue;
+        if (value !== null) options.push({ key: definition.key, value: { kind: "choice", value } });
+        break;
+      }
+      case "multiple_choice":
+        options.push({ key: definition.key, value: { kind: "multiple_choice", value: [...definition.defaultValue] } });
+        break;
+      case "integer_range":
+        if (definition.defaultValue !== null) {
+          options.push({ key: definition.key, value: { kind: "integer", value: definition.defaultValue } });
+        }
+        break;
+      case "text":
+        if (definition.defaultValue !== null) {
+          options.push({ key: definition.key, value: { kind: "text", value: definition.defaultValue } });
+        }
+        break;
+      case "unknown":
+        break;
+    }
+  }
+  return options;
+}
+
+/** Resolves a ready initial provider and model while honoring a healthy folder preference. */
+export function resolveDefaultProviderModel(
+  providers: readonly ProviderInstanceRead[],
+  preferredProviderId: string | null = null,
+): DefaultProviderModelSelection | null {
+  const available = availableProvidersInDefaultOrder(providers);
+  const provider = available.find((entry) => (
+    entry.configuration.instanceId === preferredProviderId
+  )) ?? available[0];
+  if (!provider) return null;
+  const model = recommendedProviderModel(provider);
+  const providerManaged = model === null && (provider.modelCatalog?.models.length ?? 0) === 0;
+  return {
+    provider,
+    model,
+    providerManaged,
+    options: model ? defaultModelOptions(model.options) : [],
+  };
+}
+
+function visibleProviderModels(provider: ProviderInstanceRead): ProviderModel[] {
+  const visibleIds = provider.configuration.visibleModelIds;
+  return provider.modelCatalog?.models.filter((model) => (
+    model.availability !== "deprecated"
+    && (visibleIds.length === 0 || visibleIds.includes(model.id))
+  )) ?? [];
+}
+
+function modelOptionRole(
+  definition: Exclude<ModelOptionDefinition, { kind: "unknown" }>,
+): "effort" | "speed" | "other" {
+  const identity = `${definition.key} ${definition.label}`.toLowerCase();
+  if (identity.includes("effort") || identity.includes("reasoning")) return "effort";
+  if (identity.includes("speed") || identity.includes("fast") || identity.includes("service tier") || identity.includes("service_tier")) return "speed";
+  return "other";
 }
 
 export function interactionModeForPrompt(

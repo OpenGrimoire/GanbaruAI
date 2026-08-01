@@ -46,6 +46,29 @@ describe("ChatComposerController", () => {
     });
   });
 
+  it("keeps channel text but clears folder references when its target folder changes", async () => {
+    const api = fakeApi({
+      read: vi.fn(async () => draft({
+        id: "channel:planning",
+        attachmentIds: ["attachment-1"],
+        mentions: { schemaVersion: 1, value: [{ relativePath: "old.ts", kind: "file", ignored: false }] },
+      })),
+    });
+    const controller = new ChatComposerController(api);
+
+    await controller.bind("workspace-2", "thread-2", null, "channel:planning");
+
+    expect(controller.snapshot()).toMatchObject({
+      draftId: "channel:planning",
+      workingFolderId: "workspace-2",
+      threadId: "thread-2",
+      text: "Saved prompt",
+      attachmentIds: [],
+      mentions: [],
+      dirty: true,
+    });
+  });
+
   it("uses the current thread selection while an empty thread draft loads", async () => {
     let resolveRead: ((value: ChatDraftRead | null) => void) | undefined;
     const api = fakeApi({
@@ -146,6 +169,27 @@ describe("ChatComposerController", () => {
     await stale;
 
     expect(controller.snapshot()).toMatchObject({ workingFolderId: "workspace-2", text: "New" });
+  });
+
+  it("ignores a stale load after the vault binding is reset", async () => {
+    let resolveRead: ((value: ChatDraftRead | null) => void) | undefined;
+    const api = fakeApi({
+      read: vi.fn(() => new Promise<ChatDraftRead | null>((resolve) => { resolveRead = resolve; })),
+    });
+    const controller = new ChatComposerController(api);
+
+    const stale = controller.bind("workspace-1", null);
+    await vi.waitFor(() => expect(api.read).toHaveBeenCalled());
+    controller.reset();
+    resolveRead?.(draft());
+    await stale;
+
+    expect(controller.snapshot()).toMatchObject({
+      draftId: null,
+      workingFolderId: null,
+      threadId: null,
+      text: "",
+    });
   });
 
   it("supersedes a bind that is still flushing the previous draft", async () => {

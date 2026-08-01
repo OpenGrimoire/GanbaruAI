@@ -59,6 +59,7 @@
   import { getChat } from "$lib/stores/chat.svelte";
   import { getProjects } from "$lib/stores/projects.svelte";
   import ChatAccessControl from "./ChatAccessControl.svelte";
+  import ChatWorkingFolderControl from "./ChatWorkingFolderControl.svelte";
   import ChatImageGallery from "./ChatImageGallery.svelte";
   import ChatModelControls from "./ChatModelControls.svelte";
   import ChatRequestPanel from "./ChatRequestPanel.svelte";
@@ -1085,13 +1086,13 @@
         <button type="button" class="format-action" class:active={italicActive} aria-label={t("chat.composer.italic")} aria-pressed={italicActive} title={`${t("chat.composer.italic")} (Ctrl+I)`} disabled={composerDisabled} onpointerdown={(event) => event.preventDefault()} onclick={() => editorController?.toggleMark("italic")}><Italic size={14} /></button>
       </div>
       <div class="toolbar-right">
+        <div class="execution-controls"><ChatWorkingFolderControl /><ChatModelControls /></div>
         {#if action.followup === "retain"}<small>{t("chat.composer.retained")}</small>{/if}
         {#if action.followup === "steer"}<button type="button" class="round-action" title={t("chat.composer.steer")} aria-label={t("chat.composer.steer")} onclick={() => void run(() => chat.steerComposer())}><ArrowUp size={14} /></button>{:else if action.followup === "queue"}<button type="button" class="round-action" title={t("chat.composer.queue")} aria-label={t("chat.composer.queue")} onclick={() => void run(() => chat.queueComposer())}><ArrowUp size={14} /></button>{/if}
         <span class="context-ring" class:warning={meter?.warning} style={`--context-progress:${Math.max(0, Math.min(1, meter?.ratio ?? 0))}`}>
           <svg viewBox="0 0 20 20" role="img" aria-label={contextLabel() ?? t("chat.composer.contextUnavailable")}><circle class="context-track" cx="10" cy="10" r="7"></circle><circle class="context-fill" cx="10" cy="10" r="7"></circle></svg>
           <span class="context-tooltip" role="tooltip"><strong>{t("chat.composer.contextWindow")}</strong>{#if meter?.ratio !== null}<span>{t("chat.composer.contextPercentage", contextPercentage(meter?.ratio ?? 0), contextPercentage(1 - (meter?.ratio ?? 0)))}</span>{/if}<span>{contextLabel() ?? t("chat.composer.contextUnavailable")}</span>{#if chat.interaction?.automaticCompactionReported || meter?.warning}<small>{t("chat.composer.contextCompaction")}</small>{/if}</span>
         </span>
-        <ChatModelControls />
         {#if forceStopAvailable}<button type="button" class="force-stop" title={t("chat.composer.forceStopDescription")} onclick={() => void run(() => chat.stop(true))}>{t("chat.composer.forceStop")}</button>{/if}
         {#if action.primary !== "resolve_request"}<button type="button" class="primary-action" disabled={chat.composer.loading || sendingBlocked || sending || action.primary === "stopping" || (action.primary === "send" && !action.sendEnabled)} aria-label={action.primary === "stop" ? t("chat.composer.stop") : t("chat.composer.send")} title={action.primary === "stop" ? t("chat.composer.stop") : t("chat.composer.send")} onclick={() => void performPrimaryAction()}>{#if sending}<LoaderCircle size={15} class="animate-spin" />{:else if action.primary === "stop"}<Square size={13} />{:else if action.primary === "stopping"}<LoaderCircle size={15} class="animate-spin" />{:else}<ArrowUp size={16} />{/if}</button>{/if}
       </div>
@@ -1114,6 +1115,7 @@
   .toolbar-left { overflow: hidden; }
   .toolbar-left:has(.attachment-menu[open]) { overflow: visible; }
   .toolbar-right { flex: 0 1 auto; justify-content: flex-end; }
+  .execution-controls { display: flex; min-width: 0; align-items: center; gap: 0.25rem; }
   .attachment-menu { position: relative; flex: 0 0 auto; }
   .attachment-menu summary, .round-action, .format-action { display: inline-flex; width: 1.9rem; height: 1.9rem; cursor: pointer; list-style: none; align-items: center; justify-content: center; border-radius: 0.5rem; color: var(--muted-foreground); }
   .attachment-menu summary::-webkit-details-marker { display: none; }

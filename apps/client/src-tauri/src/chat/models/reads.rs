@@ -136,6 +136,8 @@ pub struct ChatTimelineItemRead {
     pub sequence_anchor: u64,
     pub kind: String,
     pub data: VersionedJson,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub source_thread_id: Option<ChatThreadId>,
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]

@@ -1025,7 +1025,7 @@ describe("ChatComposer", () => {
     expect(updateModels).toHaveBeenCalledWith("codex-local", [], []);
   });
 
-  it("selects a provider's recommended model and effort for a fresh composer", async () => {
+  it("selects a provider's recommended model with medium effort for a fresh composer", async () => {
     const chat = getChat();
     chat.settings = claudeModelSettings();
     chat.composer = {
@@ -1047,21 +1047,21 @@ describe("ChatComposer", () => {
     expect(selection.providerManaged).toBe(false);
     expect(selection.options).toEqual([{
       key: "effort",
-      value: { kind: "choice", value: "high" },
+      value: { kind: "choice", value: "medium" },
     }, {
       key: "fastMode",
       value: { kind: "boolean", value: false },
     }]);
     const trigger = target.querySelector<HTMLButtonElement>("[data-chat-model-trigger]");
     expect(trigger?.textContent).toContain("Opus 4.8");
-    expect(trigger?.textContent).toContain("High");
+    expect(trigger?.textContent).toContain("Medium");
 
     trigger?.click();
     await tick();
     expect(target.querySelector(".fast-button")).not.toBeNull();
     const choices = [...target.querySelectorAll<HTMLButtonElement>(".effort-options button")];
     expect(choices).toHaveLength(5);
-    expect(choices[2]?.getAttribute("aria-pressed")).toBe("true");
+    expect(choices[1]?.getAttribute("aria-pressed")).toBe("true");
     expect(choices[0]?.style.left).toContain("0% + 0.875rem");
     expect(choices.at(-1)?.style.left).toContain("100% - 0.875rem");
     const knob = target.querySelector<HTMLElement>(".effort-knob");

@@ -75,6 +75,7 @@ macro_rules! chat_identifier {
 }
 
 chat_identifier!(ProjectWorkingFolderId, "project working folder ID");
+chat_identifier!(ChatChannelId, "Chat channel ID");
 chat_identifier!(ChatThreadId, "Chat thread ID");
 chat_identifier!(ChatTurnId, "Chat turn ID");
 chat_identifier!(ChatMessageId, "Chat message ID");

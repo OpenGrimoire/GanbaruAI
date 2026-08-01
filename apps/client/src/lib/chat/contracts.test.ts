@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 import {
   defaultChatVaultConfig,
   parseChatConfigRoot,
+  parseChatChannel,
+  parseChatChannelTimelinePage,
   parseChatVaultConfig,
   parseCanonicalRuntimeEvent,
   parseCanonicalStoredEvent,
@@ -64,6 +66,38 @@ function runtimeEventFixture(): Record<string, unknown> {
 }
 
 describe("Chat provider contracts", () => {
+  it("validates durable channel summaries and execution targets", () => {
+    const channel = parseChatChannel({
+      id: "channel:general",
+      projectId: "project-1",
+      name: "general",
+      topic: "Project coordination",
+      isDefault: true,
+      target: {
+        workingFolderId: "folder-1",
+        providerInstanceId: "codex-personal",
+        providerManagedModel: false,
+        modelId: "gpt-5",
+        modelOptions: [],
+      },
+      currentThread: null,
+      sessionCount: 2,
+      messageCount: 18,
+      latestPreview: "Review is ready",
+      lastActivityAt: timestamp,
+      unreadAt: timestamp,
+      revision: 4,
+      archivedAt: null,
+      createdAt: timestamp,
+      updatedAt: timestamp,
+    });
+
+    expect(channel.target.workingFolderId).toBe("folder-1");
+    expect(channel.sessionCount).toBe(2);
+    expect(() => parseChatChannel({ ...channel, target: { ...channel.target, providerManagedModel: "yes" } }))
+      .toThrow("providerManagedModel must be a boolean");
+  });
+
   it("removes absolute duplicate file summaries from stored timeline turns", () => {
     const relative = {
       relativePath: "hello.py",
@@ -97,6 +131,28 @@ describe("Chat provider contracts", () => {
     });
 
     expect(page.turns[0]?.changedFiles).toEqual([relative]);
+  });
+
+  it("validates one cross-session channel timeline cursor page", () => {
+    const page = parseChatChannelTimelinePage({
+      channelId: "channel:general",
+      sessions: [],
+      items: [{
+        activityId: "message-1",
+        turnId: null,
+        sequenceAnchor: 2_000_000_001,
+        kind: "message",
+        data: { schemaVersion: 1, value: { role: "assistant", markdown: "Done" } },
+        sourceThreadId: "thread-2",
+      }],
+      turns: [],
+      previousCursor: "{\"sessionOrdinal\":2,\"sequence\":1,\"rowId\":\"message-1\"}",
+      revision: 8,
+    });
+
+    expect(page.items[0]?.sourceThreadId).toBe("thread-2");
+    expect(() => parseChatChannelTimelinePage({ ...page, revision: -1 }))
+      .toThrow("revision must not be negative");
   });
 
   it("parses metadata-only provider registry entries", () => {

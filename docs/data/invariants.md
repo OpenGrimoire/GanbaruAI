@@ -98,15 +98,15 @@ A Notes folder belongs to exactly one project, folder parents stay inside that p
 
 **Enforced by:** SQLite foreign keys and placement triggers, folder create and update validation, the atomic page move command, defensive mixed-tree planning, migration invariant tests, and focused folder and page-movement tests.
 
-## 9. Every Chat thread belongs to one project working folder
+## 9. Every Chat execution session belongs to one project working folder
 
-**Statement:** every project owns exactly one active managed working folder, and every Chat thread has one non-null project id plus one non-null working-folder id that belongs to that project. A thread never changes either owner after creation.
+**Statement:** every project owns exactly one active managed working folder, and every provider thread or agent run that can access project files has one non-null project id plus one non-null working-folder id that belongs to that project. An execution session never changes either owner after creation. Channels, DMs, reply threads, and task discussions are organizational conversations and do not inherit this one-folder restriction.
 
-**Why:** Projects define all working context. Chat, terminals, attachments, checkpoints, and filesystem Notes must authorize against the same stable folder identity.
+**Why:** execution must use one stable filesystem authority, while communication must survive provider replacement and may coordinate work across several authorized resources. Keeping the identities separate prevents an implementation detail from becoming the permanent organizational boundary.
 
-**What would break:** provider continuation could resume in another repository, global search could open a thread under the wrong project, folder-specific drafts or trust could leak across contexts, and archived history could become unreadable.
+**What would break:** a provider continuation could resume in another repository, folder-specific trust could leak across contexts, a channel could become unreadable when one folder disappears, or changing a room default could retarget existing work.
 
-**Enforced by:** the `project_working_folders` managed-row index and triggers, composite SQLite foreign keys, project creation and Routine repair, non-null Chat DTOs, working-folder authorization, and focused schema tests.
+**Enforced by:** the `project_working_folders` managed-row index and triggers, composite SQLite foreign keys for current provider threads, project creation and Routine repair, non-null execution DTOs, working-folder authorization, and focused schema tests. The coordination schema must preserve the same rule for future agent runs without adding a conversation-to-folder ownership shortcut.
 
 ## 10. Working-folder filesystem access stays bounded
 
@@ -117,6 +117,26 @@ A Notes folder belongs to exactly one project, folder parents stay inside that p
 **What would break:** traversal, symbolic-link escapes, stale bindings, folder replacement, Git storage replacement, or vault overlap could expose or modify data outside the selected context.
 
 **Enforced by:** the shared Rust authorization boundary, device-local vault and device scoping, vault-overlap validation, symlink rejection, bounded Markdown scanning, expected revision saves, and authorization tests.
+
+## 11. Organizational conversations outlive provider sessions
+
+**Statement:** a channel, DM, task discussion, or reply thread has stable identity and durable history independently of any provider instance, model, provider continuation, working folder, or agent run. Replacing, forking, archiving, losing, or deleting an execution session cannot silently replace, merge, fork, or delete its organizational conversation.
+
+**Why:** people organize around purposes and participants, while providers and execution contexts are replaceable. Treating both as one record recreates isolated chat navigation and makes long-term project memory depend on a vendor session.
+
+**What would break:** a provider change could create a fake new relationship, context compaction could fragment a channel, unrelated legacy chats could merge into `#general`, or deleting execution artifacts could erase decisions and provenance.
+
+**Enforced by:** separate `chat_channels` and `chat_threads` identities, ordered `chat_channel_sessions` links, atomic first-turn linking, protected `#general` triggers, foreign keys that do not make the run the room owner, and lifecycle tests covering provider replacement and archive. Pre-user development vaults are reset instead of receiving a speculative legacy-thread migration.
+
+## 12. Effective access applies to derived context
+
+**Statement:** if a participant cannot read a resource directly, no search result, mention, backlink, notification, count, dashboard, report, export, summary, manager proposal, or AI context package may reveal its content or existence beyond a permission-safe generic result.
+
+**Why:** AI and aggregated views can leak restricted information without opening the original record. Future channel and Notes restrictions are meaningless if a model can summarize inaccessible content into an authorized room.
+
+**What would break:** a restricted collaborator could infer private Notes, tasks, channels, working folders, personal productivity measurements, or participant activity through generated or aggregated output.
+
+**Enforced by:** future resource grants and membership tables, authorization before query and derivation, permission-scoped indexes or post-query filters with non-leaking counts, context-package manifests, destination-scope checks, revocation tests, and audit records. The local single-user implementation uses the same APIs with one effective owner rather than bypassing the boundary.
 
 ## Adding new invariants
 

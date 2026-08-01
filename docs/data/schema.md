@@ -587,7 +587,35 @@ Project management stores structured work data in SQLite. The user-facing hierar
 
 Fresh databases seed the Routine group and its default routine projects. Routine is stored as a normal group.
 
-Every fresh or repaired built-in project also receives its managed working-folder row. Project creation inserts the project and its managed row in one transaction after creating `projects/{project-id}/`. The obsolete `chat_workspaces` table is absent. `chat_threads.project_id` and `chat_threads.working_folder_id` are non-null, and the composite foreign key requires the folder to belong to that project. Drafts, attachments, checkpoints, cleanup rows, terminals, mentions, provider sessions, and filesystem tools carry the working-folder id.
+Every fresh or repaired built-in project also receives its managed working-folder row. Project creation inserts the project and its managed row in one transaction after creating `projects/{project-id}/`. The obsolete `chat_workspaces` table is absent. Current `chat_threads` rows represent provider continuations and execution timelines. Their `project_id` and `working_folder_id` are non-null, and the composite foreign key requires the folder to belong to that project. Execution drafts, attachments, checkpoints, cleanup rows, terminals, mentions, provider sessions, and filesystem tools carry the working-folder id.
+
+## Chat coordination
+
+The first channel slice adds an organizational layer above the existing execution tables:
+
+- `chat_channels`: project-owned durable channel identity, normalized name, topic, protected default state, current execution defaults, optimistic revision, archive state, and timestamps. The execution target stores a project-owned working-folder foreign key, optional device-local provider-instance identifier, and a bounded versioned model selection. One partial unique index permits exactly one default `#general` per project. Triggers create it with the managed folder and prevent renaming or archiving it.
+- `chat_channel_sessions`: ordered links from one channel to one or more provider-thread execution timelines. A thread can belong to only one channel. A partial unique index permits exactly one current session per channel. Starting a new session demotes the prior current row and links the new thread in the same transaction that persists its first user turn.
+- Channel timeline reads join these ordered links to message, activity, and plan projections behind one cursor. The read returns only source-session shells represented in the bounded page, so navigation and paging do not retain every historical provider session.
+- Channel-scoped drafts reuse `chat_drafts` with a stable channel-derived id. More than one new draft can belong to the same working folder, so the former unique index on new-draft working-folder id is absent. Draft attachment and mention references are cleared when a channel changes folders.
+- Personal sidebar sections and last-selected-channel state are validated device-local presentation preferences. They do not create shared hierarchy or grant access. Channel archive state remains canonical in SQLite.
+
+The later coordination layers retain these required normalized identities and boundaries:
+
+- **Conversations beyond channels:** direct messages and task discussions with participant-derived identity, topic, archive state, and timestamps.
+- **Shared sidebar sections:** personal organization stays device-local unless an explicitly shared organization layer is added later.
+- **Participants and AI roles:** stable human, local-profile, collaborator, and AI-role identities independent of provider instances and models.
+- **Conversation memberships:** participant role, join state, visibility start, notification preference, AI participation policy, and future permission linkage. Membership does not imply access to every resource sharing the project id or permission for an AI role to process every message.
+- **Communication entries:** human and AI-role messages, addressed participants or roles, reply relationships, system notices, edits, deletion or retention state, mentions, attachments, and stable sequence ordering.
+- **Structured links and provenance:** typed links from messages to Projects records, Notes, Calendar events, proposals, approvals, task discussions, context packages, agent runs, reviews, artifacts, and resulting mutations.
+- **Manager proposals:** immutable proposal revisions plus per-change acceptance, rejection, edit, and authority results. Accepted work is copied into canonical Projects or Calendar rows through typed commands; the proposal does not remain a second mutable task model.
+- **Context packages:** versioned manifests of exact source identities, revisions, bounded snapshots or excerpts, permissions, budgets, destination conversation, and intended run.
+- **Agent runs:** bounded execution attempts linked to tasks or explicit objectives, roles, provider continuations, working folders, execution environments, authority, budgets, lifecycle state, usage, deliverables, and review state.
+- **Attention projections:** rebuildable or transactionally maintained views for mentions, approvals, blockers, review-ready work, failed runs, budget risk, and deadline risk. Unread communication remains separate from actionable attention.
+- **Access grants and audit:** future group, project, channel, Notes folder or page, task discussion, and working-folder grants plus invitation, history-visibility, revocation, and derived-read audit data.
+
+A conversation never owns a working folder merely because a linked run uses one. A provider thread never becomes the channel identity. Deleting or forking a continuation cannot delete or fork the organizational history around it. The pre-user development redesign resets old vaults and intentionally does not infer channel membership for legacy provider threads.
+
+Future access enforcement applies before both row reads and derived computation. Search, mentions, backlinks, counts, dashboards, notifications, reports, exports, summaries, and AI context packages cannot reveal inaccessible identities or aggregates.
 
 ## Other features (stub)
 

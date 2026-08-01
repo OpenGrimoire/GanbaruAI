@@ -29,11 +29,11 @@ The flow is meant to be friction-free on the user side: dismiss the alarm, fill 
 The system records the time from when the alarm was set to when it was dismissed. This is a rough proxy for sleep duration (it does not account for time spent falling asleep or for waking and going back to sleep). The value feeds:
 
 - The sleep quality auto-suggestion in the morning diary.
-- The personal baselines that the AI panel can use to understand the user's energy patterns.
+- The personal baselines that an authorized AI role can use to understand the user's energy patterns.
 
 ## Linkage to other systems
 
 - **Diary:** triggers morning and evening entries.
 - **Music:** triggers morning playlist on alarm dismissal.
 - **Doomscrolling:** activates morning rules immediately on dismissal.
-- **AI panel:** sleep duration informs personal energy baselines.
+- **Chat and AI roles:** sleep duration can inform private personal energy baselines and scheduling suggestions. It is not shared with project participants.

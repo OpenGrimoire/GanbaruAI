@@ -145,26 +145,24 @@ Local-first media playback integrated into the productivity workflow.
 
 ---
 
-## Phase 7: CLI and integrated terminal
+## Phase 7: CLI, native Chat execution, and channel foundation
 
-The agent integration layer. The `ganbaru-ai` CLI and an embedded terminal bring AI assistance into the core workflow.
+The local agent execution and communication foundation. Native harness transports make provider work durable and inspectable. Project channels now sit above those provider sessions, so the left rail no longer treats isolated working-folder conversations as the organizational model.
 
 **Includes:**
 
-- `ganbaru-ai` CLI: Rust binary linking to the same SQLite, human-readable and JSON output, commands for projects, tasks, calendar, workspace, pomodoro, import/export
+- `ganbaru-ai` CLI: Rust binary linking to the same SQLite, human-readable and JSON output, commands for projects, tasks, calendar, workspace, pomodoro, import, and export
 - Project-owned working folders: one managed `projects/{project-id}/` folder for every project, optional device-bound external folders, and shared authorization for Chat and filesystem Notes
-- Integrated Chat and terminal: provider-native conversations and xterm.js sessions fixed to one project working folder
-- Context injection: Ganbaru AI assembles project/task context and passes it through the launch prompt or standard input. `AGENTS.md` stays as project-level conventions, per-task context is dynamic.
-- Session management: multiple project conversations in SQLite, each permanently bound to one working folder, with shared project selection across Projects, Notes, and Chat
-- Kanban task activation: clicking "Start" on a task injects its details into the current AI conversation
-- Workflow phase prompts: structured system prompts for brainstorming, evaluation, planning, execution modes
-- Prompt buttons: UI buttons that insert pre-built prompts into the terminal (e.g., "Plan this sprint", "Research competitors")
-- Background agents: non-interactive Codex runs (`codex exec`) or equivalent selected-agent processes for delegated parallel work, results as notifications or kanban updates
-- Markdown export/import: CLI exports project state as markdown to git repos for collaborators and agents without the CLI
+- Native coding-agent execution: Codex app-server, Claude native streaming, Cursor and Grok ACP, and OpenCode HTTP plus events through Rust-owned transports
+- Durable provider threads: normalized canonical events, resume, approvals, questions, plans, usage, recovery, attachments, terminals, review, checkpoints, source control, worktrees, and browser preview
+- Channel foundation: one durable `#general` channel per project, room drafts and history, channel-first navigation, archive and search, and links from channels to one or more bounded provider sessions
+- Left-rail redesign: Channels and later Direct messages replace working-folder groups and New chat as the primary mental model; working folders remain visible where execution requires them
+- Stable vocabulary and pre-release reset: organizational reply threads remain distinct from provider continuations, and development vaults reset instead of silently merging unrelated provider history
+- Markdown export and import: CLI exports approved project state as Markdown to repositories for collaborators and agents without the CLI
 
 **Depends on:** phase 1 (SQLite, Kanban, calendar for context), phase 2 (notes for project docs)
 
-**Out of scope:** BYOK chat widget (phase 11), MCP (phase 11), content-specific blocking (phase 11)
+**Out of scope:** automatic manager planning and task spawning, human collaboration, BYOK general assistant, external MCP, and content-specific blocking
 
 **Complexity:** large
 
@@ -174,7 +172,7 @@ The agent integration layer. The `ganbaru-ai` CLI and an embedded terminal bring
 
 ## Phase 8: project management framework
 
-Structured project lifecycle templates and tools. The AI panel from phase 7 enhances every phase with contextual assistance.
+Structured project lifecycle templates and the first manager-coordination layer. Chat discussions can become reviewable plans and approved Projects commitments without making conversation history the task database.
 
 **Includes:**
 
@@ -182,15 +180,21 @@ Structured project lifecycle templates and tools. The AI panel from phase 7 enha
 - Phase templates: all planning subtemplates (deep brainstorming, market analysis, competitor research, specification, resources, review), MVP subtemplates (PoC, MVP, funding), execution subtemplates (alpha, beta, launch, polish), post-execution subtemplates
 - Actionable methodology templates: reverse brainstorming, value proposition canvas, business model canvas, SWOT analysis, market research frameworks. Structured forms, not static documents
 - Project Kanban boards: per-project boards linked to project phases
-- Requirement version control: timestamped diffs on every task change (what, when, who, why, downstream impact), immutable history, searchable and filterable, exportable
+- Manager planning: reviewable proposals for objectives, tasks, subtasks, dependencies, acceptance criteria, assignments, reviewers, estimates, deadlines, budgets, risks, and scheduling effects
+- Stable AI roles and context packages: project manager identity independent of provider, versioned task context, selected Notes and files, Calendar constraints, authority, and budgets
+- Stable AI participation: explicit role invocation in channels, DMs with durable roles, and focused task discussions without making temporary worker runs permanent sidebar contacts
+- Task-linked agent runs: bounded execution, structured status, deliverables, usage, review-ready state, and links to native provider timelines
+- Requirement version control: timestamped revisions with requester, reason, origin discussion or review, approval, and downstream task, date, budget, Notes, deliverable, and run impact
+- Review workflow: human or AI reviewer assignment, review target and late reason, corrections versus requirement revisions versus related work
+- Sustainable delegation: work-in-progress limits, review-queue limits, dependency-aware parallelism, token and monetary ceilings, and exception digests
 - Calendar date cascade: inserting or extending session blocks shifts downstream blocks, dependency graph propagation, conflict highlighting
 - Automatic report generation: markdown reports from Kanban state, calendar data, Pomodoro history, requirement changes, milestone progress. PDF generation via Typst
 - PDF reading: pdfium-render for importing external documents (text extraction, page rendering)
-- AI-enhanced workflows: the integrated terminal's workflow phase prompts guide users through each project phase. The AI researches competitors, helps fill templates, and validates ideas.
+- AI-enhanced workflows: Chat roles and task agents research competitors, help fill templates, validate ideas, execute approved work, and preserve decisions and discarded approaches with provenance
 
-**Depends on:** phase 1 (Kanban, calendar), phase 2 (notes for project working documents), phase 4 (work environments for project contexts), phase 7 (CLI for exports, terminal for AI-assisted workflows)
+**Depends on:** phase 1 (Projects and Calendar), phase 2 (Notes for project knowledge), phase 4 (work environments for project contexts), phase 7 (native agent execution, channels, CLI, and workspace tools)
 
-**Out of scope:** NPC visual layer (deferred with gamification), conversational AI calendar management (phase 11)
+**Out of scope:** NPC visual layer, human collaboration, unrestricted automatic authority, and general BYOK provider support
 
 **Complexity:** large
 
@@ -198,24 +202,29 @@ Structured project lifecycle templates and tools. The AI panel from phase 7 enha
 
 ---
 
-## Phase 9: sync and collaboration
+## Phase 9: permission-aware sync and human collaboration
 
-Multi-device sync and real-time collaboration via CRDTs and E2E encryption.
+Multi-device sync and real-time collaboration via CRDTs and E2E encryption, with resource-level access boundaries that also constrain Chat, search, reports, exports, and AI context assembly.
 
 **Includes:**
 
-- Yjs CRDT integration: every document type (notes, calendar, Kanban, diary, app state) as Yjs data structures, binary updates that merge in any order
-- Tiptap collaboration: @tiptap/extension-collaboration for real-time note co-editing, @tiptap/extension-collaboration-cursor for live cursor positions and selections
-- Hocuspocus server: apps/server package, persistent document state, presence and awareness, authentication and authorization hooks for workspace access control, self-hostable
-- E2E encryption: libsodium / @noble/ciphers, client-side key derivation, personal Ganbaru AI folder (single key per folder), collaborative workspace (workspace key encrypted per-member), server stores only ciphertext
+- Yjs-compatible CRDT integration: typed operations for Notes, Calendar, Projects, Chat, diary, and other collaborative state that merge without replacing local canonical storage
+- Notes collaboration: real-time editing and cursors over the existing page and block graph rather than introducing a second editor-owned source of truth
+- Hocuspocus server: apps/server package, persistent document state, presence and awareness, authentication and authorization hooks for resource access control, self-hostable
+- E2E encryption: libsodium / @noble/ciphers, client-side personal root context, encrypted resource or subtree keys distributed according to group, project, channel, Notes, task-discussion, and working-folder grants, revocation epochs, server stores only ciphertext
 - Two sync tiers: local-only (scheduled encrypted export to user-specified path), self-hosted (user's own Hocuspocus server with guided setup, automatic cloud backup)
 - Multi-device sync: desktop-to-desktop, desktop-to-mobile (mobile in phase 10)
-- Collaborative workspaces: shared documents, live presence, access control
+- Participant identity and roles: owner, administrator, member, restricted guest, invitation lifecycle, and device authorization
+- Scoped membership: group, project, selected channels, selected Notes folders or pages, selected tasks or task discussions, and explicit project working-folder access
+- Permission-safe derivations: search, mentions, backlinks, notifications, digests, dashboards, reports, exports, summaries, and AI context packages never reveal inaccessible data
+- History and revocation: explicit prior-history visibility when inviting, future-read removal, offline revocation behavior, encrypted key rotation, and audit records
+- Collaborative channels and DMs: human messages, replies, mentions, membership, read state, and durable links to authorized Projects, Notes, Calendar, and agent runs
+- Collaborative workspaces: shared documents, live presence, and conflict handling without replacing local canonical storage
 - Local backup: scheduled encrypted zip export of the Ganbaru AI folder
 
-**Depends on:** phase 2 (Tiptap editor for collaboration extensions), phase 1 (SQLite data model, Ganbaru AI folder structure)
+**Depends on:** phase 2 (canonical Notes page and block graph), phase 1 (SQLite data model and Ganbaru AI folder structure), phase 7 (channels and stable execution identity), phase 8 (participant-ready assignments and reviews)
 
-**Out of scope:** mobile sync client (phase 10), AI features
+**Out of scope:** mobile sync client and hosted Ganbaru infrastructure. AI execution remains opt-in, but every AI read must honor the collaboration permissions introduced here.
 
 **Complexity:** large
 
@@ -237,6 +246,7 @@ Tauri v2 mobile builds delivering a focused subset of the desktop experience.
 - App-level Doomscrolling: iOS Screen Time API (Family Controls framework), Android UsageStatsManager, with graceful degradation when permissions unavailable
 - Mobile Pomodoro: notification-based breaks (no fullscreen overlay), timer continues in background
 - Mobile calendar and notes: full editing capability, synced via phase 9
+- Mobile Chat and review: authorized channels, DMs, attention items, task discussions, proposals, and deliverable review, without local coding-agent processes or desktop workspace tools
 - Mobile sync: connects to Hocuspocus server from phase 9
 - Calendar notifications as calls to action (reminders to return to desktop for upcoming session blocks)
 
@@ -250,16 +260,17 @@ Tauri v2 mobile builds delivering a focused subset of the desktop experience.
 
 ---
 
-## Phase 11: BYOK chat, advanced AI, and MCP
+## Phase 11: BYOK roles, advanced AI, and MCP
 
-The general-user AI path, advanced AI capabilities, and external access layer. Builds on the integrated terminal from phase 7.
+The general-user provider path, advanced AI capabilities, and external access layer. It joins the same channels, DMs, roles, tasks, context packages, permissions, and provenance model established by the local coding-agent path.
 
 **Includes:**
 
-- BYOK chat widget: in-app chat interface with same session management as the terminal (calendar-driven switching, per-project threads)
+- BYOK AI roles: general assistants participate in authorized channels, DMs, and workflows without creating a second isolated per-project chat system
 - LLM provider support: OpenAI API, OpenAI-compatible APIs (Groq, Together, Mistral, and any provider using a compatible chat format), Ollama for local models (Llama, Mistral, Gemma, no API key needed), and other explicitly supported provider APIs when users supply their own credentials
 - BYOK configuration UI: API key management (stored locally), model selection, provider setup with guided instructions, consent controls
-- Natural language calendar management: "move my 3pm session to tomorrow", AI modifies events via CLI
+- Permission-aware context: every request shows or records the role, destination, context package, provider, model, consent, and effective data scope
+- Natural language calendar management: "move my 3pm session to tomorrow", an authorized role proposes the change, accepted changes use typed Calendar operations, and external local agents can use the CLI
 - Mood-aware motivation: using diary mood/energy baselines, AI adapts communication and suggests schedule adjustments
 - Adaptive Pomodoro rhythm decisions: local-only analysis of focus rhythm outcomes, custom cadence experiments, and opt-in automatic tuning bounded by recovery and satisfaction guardrails
 - Content-specific browsing relevance detection: LLM analyzes page content (not just URLs) for task relevance, smarter blocking on YouTube and similar platforms
@@ -269,13 +280,13 @@ The general-user AI path, advanced AI capabilities, and external access layer. B
 - Firefox browser extension: port of Chrome extension to Firefox manifest
 - Edge panel global mouse trigger: rdev / Win32 / X11 polling for cursor position (replaces keyboard shortcut from phase 4), Wayland detection and graceful fallback
 
-**Depends on:** phase 7 (CLI and terminal as foundation), phase 3 (diary for mood baselines), phase 4 (browser extension for content blocking)
+**Depends on:** phase 8 (roles, context packages, proposals, and review), phase 7 (CLI and native provider foundation), phase 3 (diary for mood baselines), phase 4 (browser extension for content blocking)
 
 **Out of scope:** this is the final planned phase
 
 **Complexity:** large
 
-**Platform:** cross-platform (BYOK chat, AI features), desktop only (mouse trigger, Firefox extension, content-specific blocking)
+**Platform:** cross-platform (BYOK roles and AI features), desktop only (mouse trigger, Firefox extension, content-specific blocking)
 
 ---
 
@@ -289,7 +300,7 @@ Every system from the product spec is accounted for:
 | Calendar (session blocks)                                        | 1             |
 | Kanban (personal)                                                | 1             |
 | Pomodoro timer                                                   | 1             |
-| Note-taking (Tiptap, markdown, backlinks)                        | 2             |
+| Note-taking (SQLite block graph, markdown bridges, backlinks)   | 2             |
 | Daily diary (morning/evening)                                    | 3             |
 | Consistency tracking                                             | 3             |
 | Doomscrolling (desktop/browser)                                  | 4             |
@@ -300,23 +311,26 @@ Every system from the product spec is accounted for:
 | Gamification (Will, skill tree, XP, contracts, badges, capsules) | 5 (deferred)  |
 | Music player (local + YouTube)                                   | 6             |
 | `ganbaru-ai` CLI                                                  | 7             |
-| Integrated terminal (xterm.js + Codex)                           | 7             |
-| AI session management (calendar-driven switching)                | 7             |
-| Context injection and workflow phase prompts                     | 7             |
+| Native coding-agent execution and terminal                       | 7             |
+| Project channels and channel-first Chat navigation               | 7             |
+| Provider-session recovery beneath durable channels               | 7             |
 | Markdown export/import for project repos                         | 7             |
-| Background agents                                                | 7             |
 | Project management lifecycle templates                           | 8             |
 | Kanban (project, requirement version control)                    | 8             |
+| Manager plans, context packages, task-linked agent runs           | 8             |
+| Assignment, review, budgets, and sustainable parallelism         | 8             |
 | Methodology templates                                            | 8             |
 | Calendar date cascade                                            | 8             |
 | Report generation (markdown + PDF)                               | 8             |
 | Sync (Yjs + Hocuspocus)                                          | 9             |
 | E2E encryption                                                   | 9             |
-| Collaborative workspaces                                         | 9             |
+| Human identity, scoped membership, channels, and DMs              | 9             |
+| Permission-aware collaboration and AI context                    | 9             |
 | Mobile (Tauri v2, iOS/Android)                                   | 10            |
+| Mobile Chat communication and task review                       | 10            |
 | Sleep alarm (mobile)                                              | 10            |
 | Doomscrolling (mobile/app-level)                                 | 10            |
-| BYOK chat widget (OpenAI, compatible APIs, Ollama)               | 11            |
+| BYOK AI roles (OpenAI, compatible APIs, Ollama)                  | 11            |
 | AI: natural language calendar management                         | 11            |
 | AI: mood-aware motivation                                        | 11            |
 | Adaptive Pomodoro rhythm decisions                               | 11            |

@@ -156,7 +156,7 @@ export function parseChatChangeNotification(value: unknown, label = "Chat change
   };
 }
 
-function parseChatTimelineItem(value: unknown, label: string): ChatTimelineItemRead {
+export function parseChatTimelineItem(value: unknown, label: string): ChatTimelineItemRead {
   const record = readRecord(value, label);
   return {
     activityId: readIdentifier(record.activityId, `${label}.activityId`),
@@ -164,10 +164,13 @@ function parseChatTimelineItem(value: unknown, label: string): ChatTimelineItemR
     sequenceAnchor: readNonNegativeSafeInteger(record.sequenceAnchor, `${label}.sequenceAnchor`),
     kind: readString(record.kind, `${label}.kind`),
     data: readVersionedJson(record.data, `${label}.data`),
+    sourceThreadId: record.sourceThreadId === undefined
+      ? undefined
+      : readIdentifier(record.sourceThreadId, `${label}.sourceThreadId`),
   };
 }
 
-function parseChatTimelineTurn(value: unknown, label: string): ChatTimelineTurnRead {
+export function parseChatTimelineTurn(value: unknown, label: string): ChatTimelineTurnRead {
   const record = readRecord(value, label);
   return {
     turnId: readIdentifier(record.turnId, `${label}.turnId`),

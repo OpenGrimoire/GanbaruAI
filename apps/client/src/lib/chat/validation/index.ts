@@ -1,4 +1,5 @@
 export * from "./config";
+export * from "./channels";
 export * from "./drafts";
 export * from "./diagnostics";
 export * from "./events";

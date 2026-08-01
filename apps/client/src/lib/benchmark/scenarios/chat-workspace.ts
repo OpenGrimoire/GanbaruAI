@@ -2,6 +2,7 @@ import { invoke } from "@tauri-apps/api/core";
 import * as chatApi from "$lib/api/chat";
 import { getChatBenchmarkHandle } from "$lib/components/chat/benchmark-handle.svelte";
 import { getNavigation } from "$lib/stores/navigation.svelte";
+import { getChat } from "$lib/stores/chat.svelte";
 import {
   DEFAULT_BENCHMARK_DATASET,
   type BenchmarkDatasetProfile,
@@ -21,6 +22,7 @@ const IDLE_CPU_WINDOW_MS = 2_000;
 
 interface DenseChatFixtureSummary {
   profile: string;
+  channelCount: number;
   threadCount: number;
   eventCount: number;
 }
@@ -59,7 +61,7 @@ export const chatWorkspaceScenario: BenchmarkScenario = {
   id: "chat-workspace",
   label: "Project Chat",
   description:
-    "Measures dense Chat route activation, thread switching, paged reads, search, streamed paints, idle process CPU, memory, and owned process stop.",
+    "Measures dense Chat route activation, channel switching, paged reads, search, streamed paints, idle process CPU, memory, and owned process stop.",
   workload: {
     kind: "stress-memory",
     question: "Does dense local Chat remain responsive, bounded, and idle when no provider is running?",
@@ -85,24 +87,24 @@ export const chatWorkspaceScenario: BenchmarkScenario = {
     await handle.waitUntilUsable();
     await waitForFrames(1);
     const routeActivationMs = performance.now() - activationStarted;
-    const threadIds = handle.threadIds();
-    if (threadIds.length < 2) throw new Error("Chat benchmark requires at least two threads");
+    const channelIds = handle.channelIds();
+    if (channelIds.length < 2) throw new Error("Chat benchmark requires at least two channels");
 
     const switchSamples: number[] = [];
     for (let index = 0; index < THREAD_SWITCH_RUNS; index++) {
       throwIfAborted(signal);
-      const threadId = threadIds[index % 2];
-      switchSamples.push(await measureMs(() => handle.switchThread(threadId)));
+      const channelId = channelIds[index % 2];
+      switchSamples.push(await measureMs(() => handle.switchChannel(channelId)));
     }
 
-    const denseThreadId = threadIds.at(-1) ?? threadIds[0];
-    await handle.switchThread(denseThreadId);
+    const denseChannelId = channelIds[0];
+    await handle.switchChannel(denseChannelId);
     const pageReadSamples: number[] = [];
     for (let index = 0; index < QUERY_RUNS; index++) {
       throwIfAborted(signal);
       pageReadSamples.push(await measureMs(async () => {
-        const page = await chatApi.readChatTimelinePage(denseThreadId, null, 100);
-        if (page.items.length !== 90) {
+        const page = await chatApi.readChatChannelTimelinePage(denseChannelId, null, 100);
+        if (page.items.length !== 100) {
           throw new Error(`Dense Chat latest page returned ${page.items.length} rows`);
         }
       }));
@@ -111,7 +113,8 @@ export const chatWorkspaceScenario: BenchmarkScenario = {
     const localSearchSamples: number[] = [];
     for (let index = 0; index < QUERY_RUNS; index++) {
       const started = performance.now();
-      const matchCount = handle.localSearch(`conversation ${String(index + 1).padStart(3, "0")}`);
+      const query = ["general", "planning", "implementation", "review"][index % 4];
+      const matchCount = handle.localSearch(query);
       localSearchSamples.push(performance.now() - started);
       if (matchCount === 0) throw new Error("Dense Chat local rail search returned no match");
     }
@@ -120,11 +123,10 @@ export const chatWorkspaceScenario: BenchmarkScenario = {
     for (let index = 0; index < QUERY_RUNS; index++) {
       throwIfAborted(signal);
       indexedSearchSamples.push(await measureMs(async () => {
-        const matches = await chatApi.searchChatThreadTitles(
-          `conversation ${String(index + 1).padStart(3, "0")}`,
-          false,
-          20,
-        );
+        const projectId = getChat().selectedChannel?.projectId;
+        if (!projectId) throw new Error("Dense Chat channel has no project");
+        const query = ["general", "planning", "implementation", "review"][index % 4];
+        const matches = await chatApi.searchChatChannels(projectId, query, false, 20);
         if (matches.length === 0) throw new Error("Dense Chat indexed rail search returned no match");
       }));
     }
@@ -139,7 +141,7 @@ export const chatWorkspaceScenario: BenchmarkScenario = {
 
     return [
       timingStatsMetric("Chat route activation", [routeActivationMs]),
-      timingStatsMetric("recent thread switch", switchSamples),
+      timingStatsMetric("recent channel switch", switchSamples),
       timingStatsMetric("latest page SQLite read and projection", pageReadSamples),
       timingStatsMetric("loaded rail search", localSearchSamples),
       timingStatsMetric("indexed rail search", indexedSearchSamples),
@@ -160,7 +162,7 @@ export const chatWorkspaceScenario: BenchmarkScenario = {
   ): Promise<BenchmarkSeedHandle> {
     await ensureBenchmarkDbReady();
     const summary = await invokeDb<DenseChatFixtureSummary>("benchmark_seed_dense_chat_workspace");
-    if (summary.profile !== "dense-chat-v1" || summary.eventCount !== 10_000) {
+    if (summary.profile !== "dense-chat-v1" || summary.channelCount !== 80 || summary.eventCount !== 10_000) {
       throw new Error("Dense Chat benchmark fixture did not match version 1");
     }
     return {

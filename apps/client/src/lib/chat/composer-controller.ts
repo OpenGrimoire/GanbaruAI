@@ -85,10 +85,11 @@ export class ChatComposerController {
     workingFolderId: ProjectWorkingFolderId,
     threadId: ChatThreadId | null,
     seed: ChatComposerSeed | null = null,
+    draftScopeId: string | null = null,
   ): Promise<void> {
     const pendingFlush = this.flush();
     const generation = ++this.generation;
-    const draftId = chatDraftId(workingFolderId, threadId);
+    const draftId = draftScopeId ?? chatDraftId(workingFolderId, threadId);
     this.state = {
       ...emptySnapshot(),
       draftId,
@@ -106,9 +107,24 @@ export class ChatComposerController {
       if (generation !== this.generation) return;
       const stored = await this.api.read(draftId);
       if (generation !== this.generation) return;
-      this.state = stored === null
-        ? { ...this.state, loading: false }
-        : snapshotFromDraft(stored);
+      if (stored === null) {
+        this.state = { ...this.state, loading: false };
+      } else {
+        const restored = snapshotFromDraft(stored);
+        const folderChanged = draftScopeId !== null && restored.workingFolderId !== workingFolderId;
+        const threadChanged = draftScopeId !== null && restored.threadId !== threadId;
+        this.state = draftScopeId === null
+          ? restored
+          : {
+              ...restored,
+              draftId,
+              workingFolderId,
+              threadId,
+              attachmentIds: folderChanged ? [] : restored.attachmentIds,
+              mentions: folderChanged ? [] : restored.mentions,
+              dirty: folderChanged || threadChanged,
+            };
+      }
       this.revision = 0;
       this.notify();
     } catch (error: unknown) {
@@ -160,6 +176,15 @@ export class ChatComposerController {
       workingFolderId: this.state.workingFolderId,
       threadId: this.state.threadId,
     };
+    this.notify();
+  }
+
+  /** Drops the active vault binding without saving it into a newly activated vault. */
+  public reset(): void {
+    this.cancelTimer();
+    this.generation += 1;
+    this.revision = 0;
+    this.state = emptySnapshot();
     this.notify();
   }
 

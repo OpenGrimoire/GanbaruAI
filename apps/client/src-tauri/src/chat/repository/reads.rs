@@ -168,6 +168,31 @@ pub async fn read_thread_shell(
     .ok_or_else(not_found)
 }
 
+pub(crate) async fn read_thread_shells_by_ids(
+    pool: &SqlitePool,
+    thread_ids: &BTreeSet<String>,
+) -> ChatResult<Vec<ChatThreadShellRead>> {
+    if thread_ids.is_empty() {
+        return Ok(Vec::new());
+    }
+    let encoded_ids = serde_json::to_string(thread_ids).map_err(serialization_error)?;
+    let rows = sqlx::query(
+        "SELECT id, working_folder_id, project_id, title, provider_family_id,
+                provider_instance_id, provider_thread_id, model_selection_data,
+                safety_mode, interaction_mode, state, latest_turn_state,
+                latest_preview, message_count, revision, last_event_sequence,
+                last_activity_at, unread_at, archived_at
+         FROM chat_threads
+         WHERE id IN (SELECT value FROM json_each(?))
+         ORDER BY id",
+    )
+    .bind(encoded_ids)
+    .fetch_all(pool)
+    .await
+    .map_err(persistence_error)?;
+    rows.into_iter().map(row_to_thread_shell).collect()
+}
+
 pub async fn search_thread_titles(
     pool: &SqlitePool,
     query: &str,
@@ -308,36 +333,20 @@ pub async fn read_timeline_page(
                     .map_err(|_| corrupt_data())?,
                     value: serde_json::from_str(&data).map_err(serialization_error)?,
                 },
+                source_thread_id: None,
             })
         })
         .collect::<ChatResult<Vec<_>>>()?;
     items.reverse();
     let turn_ids = items
         .iter()
-        .filter_map(|item| item.turn_id.as_ref().map(|turn_id| turn_id.as_str()))
+        .filter_map(|item| {
+            item.turn_id
+                .as_ref()
+                .map(|turn_id| turn_id.as_str().to_string())
+        })
         .collect::<BTreeSet<_>>();
-    let turns = if turn_ids.is_empty() {
-        Vec::new()
-    } else {
-        let encoded_turn_ids = serde_json::to_string(&turn_ids).map_err(serialization_error)?;
-        sqlx::query(
-            "SELECT id, state, started_at, completed_at, stop_reason,
-                    model_selection_data, safety_mode, interaction_mode,
-                    usage_data, changed_file_summary_data
-             FROM chat_turns
-             WHERE thread_id = ? AND invalidated_at IS NULL
-               AND id IN (SELECT value FROM json_each(?))
-             ORDER BY ordinal, id",
-        )
-        .bind(thread_id.as_str())
-        .bind(encoded_turn_ids)
-        .fetch_all(pool)
-        .await
-        .map_err(persistence_error)?
-        .into_iter()
-        .map(row_to_timeline_turn)
-        .collect::<ChatResult<Vec<_>>>()?
-    };
+    let turns = read_timeline_turns_by_ids(pool, &turn_ids).await?;
     let last = items.last().map(|item| item.sequence_anchor);
     Ok(ChatTimelinePageRead {
         thread_id: thread_id.clone(),
@@ -360,6 +369,32 @@ pub async fn read_timeline_page(
         turns,
         thread_revision: revision,
     })
+}
+
+pub(crate) async fn read_timeline_turns_by_ids(
+    pool: &SqlitePool,
+    turn_ids: &BTreeSet<String>,
+) -> ChatResult<Vec<ChatTimelineTurnRead>> {
+    if turn_ids.is_empty() {
+        return Ok(Vec::new());
+    }
+    let encoded_turn_ids = serde_json::to_string(turn_ids).map_err(serialization_error)?;
+    sqlx::query(
+        "SELECT id, state, started_at, completed_at, stop_reason,
+                model_selection_data, safety_mode, interaction_mode,
+                usage_data, changed_file_summary_data
+         FROM chat_turns
+         WHERE invalidated_at IS NULL
+           AND id IN (SELECT value FROM json_each(?))
+         ORDER BY started_at, id",
+    )
+    .bind(encoded_turn_ids)
+    .fetch_all(pool)
+    .await
+    .map_err(persistence_error)?
+    .into_iter()
+    .map(row_to_timeline_turn)
+    .collect()
 }
 
 fn invalid_cursor() -> ChatError {

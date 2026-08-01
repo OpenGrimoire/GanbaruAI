@@ -5,6 +5,7 @@
   import Check from "@lucide/svelte/icons/check";
   import ChevronDown from "@lucide/svelte/icons/chevron-down";
   import FilePenLine from "@lucide/svelte/icons/file-pen-line";
+  import Folder from "@lucide/svelte/icons/folder";
   import PencilRuler from "@lucide/svelte/icons/pencil-ruler";
   import Settings from "@lucide/svelte/icons/settings";
   import Shield from "@lucide/svelte/icons/shield";
@@ -24,6 +25,7 @@
     | "bot"
     | "brain"
     | "file-pen"
+    | "folder"
     | "pencil-ruler"
     | "shield"
     | "shield-alert"
@@ -184,6 +186,7 @@
   {#if icon === "bot"}<Bot {size} />
   {:else if icon === "brain"}<Brain {size} />
   {:else if icon === "file-pen"}<FilePenLine {size} />
+  {:else if icon === "folder"}<Folder {size} />
   {:else if icon === "pencil-ruler"}<PencilRuler {size} />
   {:else if icon === "settings"}<Settings {size} />
   {:else if icon === "shield-alert"}<ShieldAlert {size} />

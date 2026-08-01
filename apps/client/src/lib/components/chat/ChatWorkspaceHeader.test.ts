@@ -95,6 +95,32 @@ describe("ChatWorkspaceHeader", () => {
     }];
     chat.activeThreads = [];
     chat.archivedThreads = [];
+    chat.activeChannels = [{
+      id: "channel-general",
+      projectId: "project-1",
+      name: "general",
+      topic: "Project coordination",
+      isDefault: true,
+      target: {
+        workingFolderId: "managed",
+        providerInstanceId: null,
+        providerManagedModel: true,
+        modelId: null,
+        modelOptions: [],
+      },
+      currentThread: null,
+      sessionCount: 0,
+      messageCount: 0,
+      latestPreview: null,
+      lastActivityAt: "2026-07-26T12:00:00.000Z",
+      unreadAt: null,
+      revision: 1,
+      archivedAt: null,
+      createdAt: "2026-07-26T12:00:00.000Z",
+      updatedAt: "2026-07-26T12:00:00.000Z",
+    }];
+    chat.archivedChannels = [];
+    chat.selectedChannelId = "channel-general";
     chat.selectedWorkingFolderId = "managed";
     chat.selectedThreadId = null;
     chat.inspectorOpen = false;
@@ -149,48 +175,46 @@ describe("ChatWorkspaceHeader", () => {
     expect(document.querySelector(".project-picker-panel")?.textContent).toContain("Ganbaru");
   });
 
-  it("shows the resource path only when the explorer is collapsed", () => {
+  it("leaves Chat synchronization to the workspace project observer", async () => {
+    const chat = getChat();
+    const syncProjectSelection = vi.spyOn(chat, "syncProjectSelection");
+    const target = setup(true);
+    target.querySelector<HTMLButtonElement>("[data-chat-project-trigger]")?.click();
+    await tick();
+    const projectButton = [...document.querySelectorAll<HTMLButtonElement>(
+      ".project-picker-panel button",
+    )].find((button) => button.textContent?.includes("Ganbaru"));
+
+    projectButton?.click();
+    await vi.waitFor(() => expect(projectState.store.selectProject).toHaveBeenCalledWith("project-1"));
+
+    expect(syncProjectSelection).not.toHaveBeenCalled();
+  });
+
+  it("keeps the organization and channel breadcrumb stable across explorer states", () => {
     const expanded = setup(true);
-    expect(expanded.querySelector("[data-chat-folder-trigger]")).toBeNull();
-    expect(expanded.querySelector("[data-chat-thread-trigger]")).toBeNull();
-    expect(expanded.querySelectorAll("[data-chat-context-chevron]")).toHaveLength(1);
+    expect(expanded.querySelector("[data-chat-group-trigger]")?.textContent).toContain("Work");
+    expect(expanded.querySelector("[data-chat-project-trigger]")?.textContent).toContain("Ganbaru");
+    expect(expanded.querySelector("[data-chat-channel-trigger]")?.textContent).toContain("general");
 
     const collapsed = setup(false);
-    expect(collapsed.querySelector("[data-chat-folder-trigger]")?.textContent).toContain("Ganbaru files");
-    expect(collapsed.querySelector("[data-chat-thread-trigger]")?.textContent).toContain("New chat");
-    expect(collapsed.querySelectorAll("[data-chat-context-chevron]")).toHaveLength(1);
-    expect(collapsed.querySelector("[data-chat-thread-trigger] [data-chat-context-chevron]")).not.toBeNull();
-    expect(collapsed.querySelector("[data-chat-new-button] svg")?.classList.contains("lucide-plus")).toBe(true);
+    expect(collapsed.querySelector("[data-chat-channel-trigger]")?.textContent).toContain("general");
+    expect(collapsed.querySelector("[data-chat-new-channel-button]")).not.toBeNull();
   });
 
   it("reveals the chat segment editor when renaming from an expanded explorer", () => {
     const chat = getChat();
-    chat.activeThreads = [{
-      id: "thread-1",
-      workingFolderId: "managed",
-      projectId: "project-1",
-      title: "Shell redesign",
-      providerFamilyId: "codex",
-      providerInstanceId: "codex-local",
-      providerThreadId: null,
-      modelId: null,
-      modelOptions: [],
-      modes: { safetyMode: "ask_for_approval", interactionMode: "build" },
-      state: "idle",
-      latestTurnState: null,
-      latestPreview: null,
-      messageCount: 1,
-      revision: 1,
-      lastEventSequence: 1,
-      lastActivityAt: "2026-07-26T12:00:00.000Z",
-      unreadAt: null,
-      archivedAt: null,
-    }];
-    chat.selectedThreadId = "thread-1";
+    chat.activeChannels = chat.activeChannels.map((channel) => ({
+      ...channel,
+      id: "channel-shell-redesign",
+      name: "shell-redesign",
+      isDefault: false,
+    }));
+    chat.selectedChannelId = "channel-shell-redesign";
     const target = setup(true, true, true);
 
     expect(target.querySelector("[data-chat-title-editor]")).not.toBeNull();
-    expect(target.querySelector("[data-chat-folder-trigger]")).not.toBeNull();
+    expect(target.querySelector("[data-chat-project-trigger]")).not.toBeNull();
   });
 
 });

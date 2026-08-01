@@ -1,6 +1,6 @@
 # Projects
 
-Projects are the structured work layer for calendar scheduling. The user-facing hierarchy is:
+Projects are the canonical structured work layer for planning, scheduling, delegation, review, and completion. Chat can propose or discuss work, but accepted commitments live here. The user-facing hierarchy is:
 
 1. **Group:** a top-level container for related projects. A company, team, personal routine, or broad life category can be a group.
 2. **Project:** the scheduleable unit selected from the calendar event panel. A product under a company and a routine item such as Eating or Exercise are both projects.
@@ -94,7 +94,7 @@ The project settings panel behaves like a focused toolbar popover with save and 
 
 Every built-in and user-created project owns exactly one managed working folder at `projects/{project-id}/` inside the active Ganbaru AI folder. Project creation creates both the SQLite working-folder row and its directory before returning. Renaming a project does not rename that directory because the stable project id owns its path. Creating a project remains lightweight and offers Add existing folder only as an optional follow-up.
 
-The project header exposes Chat as a primary project action. It opens the shared Chat tab with the project and its last available working folder, falling back to the managed folder. When a project has several folders, the header also exposes a secondary folder choice. Provider setup is handled in Chat, so this action remains available when no provider is installed. Archived projects keep readable Notes and Chat history but must be restored before new AI work can start.
+The project header exposes Chat as a primary project action. In the channel model it opens the shared Chat tab with the project and its last selected channel, falling back to the project's durable `#general` channel. Starting direct coding work or opening an existing agent run then selects the run's authorized working folder, falling back to the managed folder. Provider setup is handled in Chat, so project communication remains available when no provider is installed. Archived projects keep readable Notes, channels, and execution history but must be restored before new work can be committed or started.
 
 Use checklist items for simple steps that only need done or not done. Use subtasks when the work needs separate ownership later, status, dates, scheduling, dependencies, or notes. Both belong to the task detail panel; neither appears in the calendar event project picker.
 
@@ -104,9 +104,39 @@ The calendar event panel includes a compact project selector. It shows groups an
 
 Task scheduling from Projects uses the task title as the event title, the task's project as `project_id`, the project's event color, default event duration, Default Pomodoro mode, idle default, and focus playlist when present. If the project default event duration is All day, scheduling creates all-day task events instead of timed events. Empty project calendar slots use the project's default event name when present. The task and event are then connected through `project_task_event_links`. Bulk quick scheduling creates separate blocks for selected active tasks so each task stays independently linked and visible in task details. Existing project calendar events can also be searched and linked from task details. Links are valid only when the task and calendar event belong to the same project.
 
+## Coordination, delegation, and review
+
+The deeper coordination model is defined in [Agent coordination](agent-coordination.md) and [Project management](project-management.md). Projects remains authoritative when Chat or the Ganbaru manager turns a discussion into committed work.
+
+The mature task model adds or normalizes:
+
+- Stable participant, assignee, reviewer, and AI-role identities instead of local-profile placeholders.
+- Acceptance criteria and explicit deliverable types.
+- Estimate ranges, confidence, and assumptions in addition to the current single-minute estimate.
+- Target dates distinct from hard deadlines and Calendar reservations.
+- Human-effort, scheduled-time, monetary, token, provider-cost, and iteration budgets where relevant.
+- Required review kind, review target date, review state, lateness, and delay reason.
+- Requirement revisions with requester, reason, origin message or review, approval, and downstream impact.
+- Linked context-package revisions, agent runs, worktrees, checkpoints, artifacts, and usage.
+- Review packets with deliverables, acceptance-criteria evidence, verification, deviations, risks, follow-up proposals, and budget usage.
+- Decisions, risks, breaking changes, discarded approaches, and the evidence that can reopen them.
+- Work-in-progress and review-queue limits that prevent delegated work from overwhelming the person responsible for review.
+
+An AI-generated plan remains a proposal until accepted under the project's authority policy. Accepted changes use typed Projects commands and return canonical mutation results. The manager does not treat its own prose as the task database.
+
+Execution and acceptance are different states. A worker can declare a deliverable ready for review, but only the required reviewer or an explicit no-review workflow completes it. Review feedback is classified as a correction to the existing requirement, an approved requirement revision, or related new work so scope growth does not hide inside another prompt.
+
+Task detail eventually includes its focused discussion with the project manager, assigned worker, reviewer, and invited participants. That discussion links to the same task record and agent runs; it does not become another top-level disposable Chat item.
+
+Every project receives one durable `#general` channel in the coordination layer. Project templates may suggest a small number of additional purpose-based channels, but Projects sections, statuses, tasks, and working folders do not automatically become channels.
+
+Future collaboration supports group-wide members, project-only members, and restricted participants who can access selected channels, Notes folders or pages, tasks, task discussions, or project working folders. These are separate grants. Projects queries, dashboards, reports, notifications, search, and AI context assembly must filter unauthorized records and derived facts.
+
 ## Data ownership
 
 Projects, groups, sections, statuses, priorities, tasks, task dates and optional task hours, task tags, custom fields, custom field options, custom field values, task history, task dependencies, project view preferences, reusable custom emoji metadata, and event links are structured data. SQLite is the source of truth for this layer.
+
+Future participant assignments, reviews, budgets, acceptance criteria, requirement revisions, decisions, risks, context-package references, agent-run links, authority policies, and permission grants are also structured data. Chat can display and link them but does not own a second mutable copy.
 
 Every ordinary Projects write commits its SQLite transaction before returning a typed mutation delta. The delta contains authoritative changed rows, explicit removed identities, generated task-history rows, and calendar-event project assignments produced by the transaction. The frontend applies that delta immutably to its loaded snapshot and ignores responses made stale by a newer write or workspace load. Full workspace reloads are reserved for initial loading, explicit refresh, and recovery when the local state may be unknown. A forced reload always remains authoritative over an older in-flight mutation response.
 

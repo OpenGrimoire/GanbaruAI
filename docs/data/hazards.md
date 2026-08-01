@@ -137,3 +137,23 @@ Situations most likely to produce bugs, data corruption, or confusing UX. Every 
 **Mitigation:** project working-folder ids are durable SQLite identity, while external absolute paths, platform filesystem identities, Git storage identities, and verification times are device-local. Rust canonicalizes the path and compares the bound directory's filesystem identity before every filesystem-sensitive operation. Git-sensitive operations separately compare Git's common storage directory identity. This lets branches, remotes, Git configuration, and a first Git initialization change normally without confusing them with folder replacement. Replacing the directory still blocks all access, while replacing only `.git` blocks Git-sensitive behavior without hiding ordinary files. External folders cannot overlap the active Ganbaru AI folder. Managed folders resolve only from the active vault and stable project id, and a missing directory is recreated only by the explicit managed-folder recovery path.
 
 **Governed by:** `features/projects.md`, `features/chat.md`, `features/notes.md`, `data/security.md`, invariants 9 and 10.
+
+## 12. Organizational conversation and provider-session conflation
+
+**Why it is dangerous:** a channel or direct message is a durable place organized around participants and purpose. A provider session is a replaceable execution continuation bound to one authorized working folder. Reusing one identity for both makes a room inherit the provider, model, context window, folder, failure state, and retention lifecycle of one execution attempt.
+
+**Scenario:** a person discusses a release in `#general`, delegates two tasks to separate agents, and later changes the provider behind the Ganbaru manager. If the channel row is also the provider thread row, only one folder can be authoritative, parallel runs collide, changing providers appears to erase the manager's identity, and archiving one failed run can hide the organizational history.
+
+**Mitigation:** channels, direct messages, replies, and task discussions have stable organizational identities. Agent runs link them to one or more provider sessions, context packages, workspaces, and deliverables. Replacing or resuming a session preserves provenance without claiming that provider continuity defines the room. Existing `chat_threads` remain execution-session records. The pre-user redesign resets development vaults instead of inferring organizational relationships from unrelated legacy threads.
+
+**Governed by:** `features/agent-coordination.md`, `features/chat.md`, `features/ai-integration.md`, `data/schema.md`, invariants 9 and 11.
+
+## 13. Permission leaks through derived coordination data
+
+**Why it is dangerous:** checking access only when opening a Note or channel does not protect titles, counts, mentions, summaries, search results, reports, notifications, task descriptions, or AI context assembled from that resource. An agent can also reveal restricted data through an otherwise authorized answer.
+
+**Scenario:** a restricted collaborator can read one project channel but not a private Notes folder. A manager summary generated for that channel mentions a confidential page title and uses its contents to explain a decision. The collaborator learns restricted information even though the Notes page itself correctly denies access.
+
+**Mitigation:** authorization runs before direct reads, aggregation, indexing, notification rendering, export, and context-package assembly. AI receives the intersection of the requesting participant, destination conversation, selected role, and explicit run grants. Access denial does not reveal inaccessible titles, counts, relationships, or participants. Revocation invalidates future derived reads and stale offline writes as well as direct access.
+
+**Governed by:** `features/agent-coordination.md`, `features/notes.md`, `data/sync.md`, `data/security.md`, invariant 12.

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { ProviderCapabilities } from "./contracts";
+import type { ProviderCapabilities, ProviderInstanceRead, ProviderModel } from "./contracts";
 import {
   clipboardImageFiles,
   composerActionState,
@@ -7,6 +7,7 @@ import {
   composerModeCommand,
   composerTokenTrigger,
   contextMeter,
+  defaultModelOptions,
   filterPromptCatalog,
   filterWorkspacePaths,
   interactionModeForPrompt,
@@ -14,6 +15,7 @@ import {
   parseUserInputQuestions,
   queuedFollowupDispatchReady,
   rankedModels,
+  resolveDefaultProviderModel,
   shouldSendComposerKey,
   supportsImagePrompt,
   validateComposerSelections,
@@ -24,6 +26,50 @@ import {
 
 function capabilities(...values: ProviderCapabilities["entries"][number]["capability"][]): ProviderCapabilities {
   return { entries: values.map((capability) => ({ capability, supported: true, explanation: null })) };
+}
+
+function provider(
+  instanceId: string,
+  familyId: string,
+  models: ProviderModel[],
+  state: "healthy" | "transport_unavailable" = "healthy",
+): ProviderInstanceRead {
+  return {
+    configuration: {
+      schemaVersion: 1,
+      instanceId,
+      familyId,
+      label: instanceId,
+      accentColor: null,
+      enabled: true,
+      executable: instanceId,
+      providerHome: null,
+      launchArguments: [],
+      environment: {},
+      credentialReferences: {},
+      visibleModelIds: [],
+      favoriteModelIds: [],
+      providerConfig: { schemaVersion: 1, value: {} },
+    },
+    lastProbe: {
+      instanceId,
+      state,
+      version: null,
+      negotiatedProtocolVersion: null,
+      accountLabel: null,
+      capabilities: capabilities(),
+      checkedAt: "2026-08-01T00:00:00Z",
+      detail: null,
+    },
+    lastSuccessfulProbeAt: state === "healthy" ? "2026-08-01T00:00:00Z" : null,
+    modelCatalog: {
+      instanceId,
+      models,
+      source: "provider",
+      discoveredAt: "2026-08-01T00:00:00Z",
+      stale: false,
+    },
+  };
 }
 
 describe("Chat composer model", () => {
@@ -108,6 +154,49 @@ describe("Chat composer model", () => {
       capabilities: [], options: [], custom: false,
     }));
     expect(rankedModels(models, ["favorite"], ["recent"], "").map((model) => model.id)).toEqual(["favorite", "recent", "z-model"]);
+  });
+
+  it("defaults to the strongest OpenAI model at Medium effort when OpenAI is connected", () => {
+    const effort = {
+      kind: "choice" as const,
+      key: "reasoningEffort",
+      label: "Reasoning effort",
+      description: null,
+      options: [
+        { value: "low", label: "Low", description: null },
+        { value: "medium", label: "Medium", description: null },
+        { value: "high", label: "High", description: null },
+      ],
+      defaultValue: "high",
+    };
+    const model = (id: string): ProviderModel => ({
+      id,
+      displayName: id,
+      description: null,
+      contextLimit: null,
+      availability: "available",
+      capabilities: [],
+      options: [effort],
+      custom: false,
+    });
+    const claude = provider("claude-local", "claude", [model("claude-opus-4-1")]);
+    const codex = provider("codex-local", "codex", [model("gpt-5.5-sol"), model("gpt-5.6-sol")]);
+
+    const resolved = resolveDefaultProviderModel([claude, codex]);
+
+    expect(resolved?.provider.configuration.instanceId).toBe("codex-local");
+    expect(resolved?.model?.id).toBe("gpt-5.6-sol");
+    expect(resolved?.options).toContainEqual({
+      key: "reasoningEffort",
+      value: { kind: "choice", value: "medium" },
+    });
+    expect(defaultModelOptions([effort])).toEqual(resolved?.options);
+    expect(resolveDefaultProviderModel([claude, codex], "claude-local")?.provider.configuration.instanceId)
+      .toBe("claude-local");
+    expect(resolveDefaultProviderModel([
+      provider("codex-offline", "codex", [model("gpt-5.6-sol")], "transport_unavailable"),
+      claude,
+    ])?.provider.configuration.instanceId).toBe("claude-local");
   });
 
   it("parses safe approval and structured-question payloads", () => {

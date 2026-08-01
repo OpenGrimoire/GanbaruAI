@@ -4,6 +4,7 @@
   import ChevronDown from "@lucide/svelte/icons/chevron-down";
   import ChevronRight from "@lucide/svelte/icons/chevron-right";
   import Plus from "@lucide/svelte/icons/plus";
+  import LoaderCircle from "@lucide/svelte/icons/loader-circle";
   import Search from "@lucide/svelte/icons/search";
   import Star from "@lucide/svelte/icons/star";
   import Zap from "@lucide/svelte/icons/zap";
@@ -16,7 +17,15 @@
     ProviderInstanceRead,
     ProviderModel,
   } from "$lib/chat/contracts";
-  import { composerModelSelection, rankedModels, readComposerModelSelection } from "$lib/chat/composer-model";
+  import {
+    availableProvidersInDefaultOrder,
+    composerModelSelection,
+    defaultModelOptions,
+    providerAvailable,
+    rankedModels,
+    readComposerModelSelection,
+    recommendedProviderModel,
+  } from "$lib/chat/composer-model";
   import { compareCompanyModels, integrationCompany, modelCompany, type ModelCompanyIdentity } from "$lib/chat/model-company";
   import * as chatApi from "$lib/api/chat";
   import { formatNumber } from "$lib/i18n/formatters";
@@ -111,7 +120,7 @@
   const effortEndpointInsetRem = effortTrackHeightRem / 2;
   const dummyEffortStops = [0, 1, 2, 3, 4, 5] as const;
   const providers = $derived(chat.settings?.providerInstances ?? []);
-  const healthyProviders = $derived(providers.filter((entry) => providerAvailable(entry)));
+  const healthyProviders = $derived(availableProvidersInDefaultOrder(providers));
   const provider = $derived(providers.find((entry) => entry.configuration.instanceId === chat.composer.providerInstanceId) ?? null);
   const unconfiguredFamilies = $derived((chat.settings?.providerFamilies ?? []).filter((family) => !providers.some((entry) => entry.configuration.familyId === family.familyId)));
   const selection = $derived(readComposerModelSelection(chat.composer.modelSelection));
@@ -199,7 +208,11 @@
       ? healthyProviders.find((entry) => entry.configuration.instanceId === preferred)
       : null;
     const initialProvider = preferredProvider ?? healthyProviders[0];
-    if (initialProvider) chat.setComposerProvider(initialProvider.configuration.instanceId);
+    if (initialProvider) {
+      const unresolvedProviderManagedSelection = selection.providerManaged;
+      chat.setComposerProvider(initialProvider.configuration.instanceId);
+      if (unresolvedProviderManagedSelection) chat.setComposerModel(null);
+    }
   });
 
   $effect(() => {
@@ -231,14 +244,14 @@
   });
 
   $effect(() => {
-    if (!provider || chat.composer.loading || selection.modelId || selection.providerManaged) return;
-    const recommended = recommendedModel(provider, models);
+    if (!provider || chat.composer.loading || selection.modelId) return;
+    const recommended = recommendedProviderModel(provider, models);
     if (recommended) {
-      chat.setComposerModel(composerModelSelection(recommended.id, false, defaultOptions(recommended.options)));
+      chat.setComposerModel(composerModelSelection(recommended.id, false, defaultModelOptions(recommended.options)));
       quickAnchorModelId = recommended.id;
       return;
     }
-    if (provider.modelCatalog?.models.length === 0) {
+    if (!selection.providerManaged && provider.modelCatalog?.models.length === 0) {
       chat.setComposerModel(composerModelSelection(null, true, []));
     }
   });
@@ -359,10 +372,6 @@
     }, modelControlResizeMs);
   }
 
-  function providerAvailable(entry: (typeof providers)[number]): boolean {
-    return entry.configuration.enabled && entry.lastProbe?.state === "healthy";
-  }
-
   function probeStatus(entry: (typeof providers)[number]): string {
     if (!entry.configuration.enabled) return t("chat.composer.providerDisabled");
     if (!entry.lastProbe) return t("chat.composer.providerNotChecked");
@@ -408,7 +417,7 @@
     if (entry.configuration.instanceId !== provider?.configuration.instanceId) {
       chat.setComposerProvider(entry.configuration.instanceId);
     }
-    chat.setComposerModel(composerModelSelection(modelId, providerManaged, model ? defaultOptions(model.options) : []));
+    chat.setComposerModel(composerModelSelection(modelId, providerManaged, model ? defaultModelOptions(model.options) : []));
     quickAnchorModelId = modelId;
   }
 
@@ -417,7 +426,7 @@
     if (!model) return;
     const options = choice.modelId === selection.modelId
       ? selection.options.filter((entry) => entry.key !== choice.effortKey)
-      : defaultOptions(model.options).filter((entry) => entry.key !== choice.effortKey);
+      : defaultModelOptions(model.options).filter((entry) => entry.key !== choice.effortKey);
     options.push({ key: choice.effortKey, value: { kind: "choice", value: choice.effortValue } });
     chat.setComposerModel(composerModelSelection(model.id, false, options));
   }
@@ -787,19 +796,6 @@
     )) ?? [];
   }
 
-  function recommendedModel(entry: ProviderInstanceRead, candidates: ProviderModel[]): ProviderModel | null {
-    const selectable = candidates.filter((model) => model.availability === "available" || model.availability === "stale");
-    const builtIn = selectable.filter((model) => !model.custom);
-    const pool = builtIn.length > 0 ? builtIn : selectable;
-    const providerDefault = pool.find((model) => model.id === "default");
-    if (providerDefault) return providerDefault;
-    const first = pool[0];
-    if (!first) return null;
-    const company = modelCompany(entry.configuration.familyId, first);
-    const sameCompany = pool.filter((model) => modelCompany(entry.configuration.familyId, model).id === company.id);
-    return [...sameCompany].sort((left, right) => compareCompanyModels(company.id, left, right))[0] ?? first;
-  }
-
   function buildFavoriteModelEntries(entries: ProviderInstanceRead[], query: string): FavoriteModelEntry[] {
     const favorites: FavoriteModelEntry[] = [];
     for (const entry of entries) {
@@ -900,21 +896,6 @@
     return "other";
   }
 
-  function defaultOptions(definitions: ModelOptionDefinition[]): ModelOptionSelection[] {
-    const options: ModelOptionSelection[] = [];
-    for (const definition of definitions) {
-      switch (definition.kind) {
-        case "boolean": if (definition.defaultValue !== null) options.push({ key: definition.key, value: { kind: "boolean", value: definition.defaultValue } }); break;
-        case "choice": if (definition.defaultValue !== null) options.push({ key: definition.key, value: { kind: "choice", value: definition.defaultValue } }); break;
-        case "multiple_choice": options.push({ key: definition.key, value: { kind: "multiple_choice", value: [...definition.defaultValue] } }); break;
-        case "integer_range": if (definition.defaultValue !== null) options.push({ key: definition.key, value: { kind: "integer", value: definition.defaultValue } }); break;
-        case "text": if (definition.defaultValue !== null) options.push({ key: definition.key, value: { kind: "text", value: definition.defaultValue } }); break;
-        case "unknown": break;
-      }
-    }
-    return options;
-  }
-
   function modelMetadata(contextLimit: number | null, availability: string): string[] {
     const values: string[] = [];
     if (contextLimit !== null) values.push(t("chat.composer.modelContext", formatNumber(localization.locale, contextLimit)));
@@ -966,8 +947,8 @@
 <div bind:this={pickerRoot} class="model-control" class:measured={modelControlWidth !== null} style:width={modelControlWidth === null ? undefined : `${modelControlWidth}px`}>
   <button bind:this={pickerTrigger} type="button" class="model-trigger" data-chat-model-trigger aria-expanded={pickerOpen} disabled={chat.composer.loading} onclick={togglePicker}>
     <span bind:this={pickerTriggerContent} class="model-trigger-content">
-      <span class="fast-indicator" class:active={isFastSelected()} aria-hidden="true"><Zap size={13} fill="currentColor" /></span>
-      <span class="model-name">{selection.providerManaged ? provider?.configuration.label ?? t("chat.composer.providerManagedModel") : displayModelName(selectedModel)}</span>
+      <span class="fast-indicator" class:active={isFastSelected()} aria-hidden="true">{#if chat.providerDiscoveryLoading && !provider}<LoaderCircle size={13} class="animate-spin" />{:else}<Zap size={13} fill="currentColor" />{/if}</span>
+      <span class="model-name">{chat.providerDiscoveryLoading && !provider ? t("chat.composer.detectingProviders") : selection.providerManaged ? provider?.configuration.label ?? t("chat.composer.providerManagedModel") : displayModelName(selectedModel)}</span>
       {#if selectedOptionLabel(effortDefinition)}<span class="effort-name" class:ultra={isUltraSelected()}>{selectedOptionLabel(effortDefinition)}</span>{/if}
       <ChevronDown size={13} class="model-chevron" />
     </span>

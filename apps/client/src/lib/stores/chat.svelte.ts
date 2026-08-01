@@ -2,6 +2,11 @@ import * as chatApi from "$lib/api/chat";
 import * as workingFolderApi from "$lib/api/project-working-folders";
 import type {
   ChatBehaviorPreferences,
+  ChatChannelId,
+  ChatChannelRead,
+  ChatChannelSessionRead,
+  ChatChannelTimelinePageRead,
+  ChatChannelTarget,
   ChatAttachmentRead,
   ChatDraftMention,
   ChatInteractionStateRead,
@@ -27,16 +32,28 @@ import type {
   VersionedJson,
 } from "$lib/chat/contracts";
 import { evictTimelinePages, mergeTimelineItems } from "$lib/chat/timeline-virtualization";
+import { ChatChannelTimelineCache } from "$lib/chat/channel-timeline-cache";
 import { ChatComposerController, parseDraftMentions, type ChatComposerSeed, type ChatComposerSnapshot } from "$lib/chat/composer-controller";
-import { composerModelSelection, queuedFollowupDispatchReady, readComposerModelSelection } from "$lib/chat/composer-model";
+import {
+  composerModelSelection,
+  queuedFollowupDispatchReady,
+  readComposerModelSelection,
+  resolveDefaultProviderModel,
+  providerAvailable,
+} from "$lib/chat/composer-model";
 import { chatErrorMessage } from "$lib/chat/error-presentation";
 import { AsyncFrameCoalescer } from "$lib/chat/frame-coalescer";
 import type { TimelineMessageRow } from "$lib/chat/timeline-model";
 import { getProjects } from "$lib/stores/projects.svelte";
 import { preferredProjectWorkingFolder } from "$lib/chat/working-folder-selection";
+import { readLastChatChannelId, saveLastChatChannelId } from "$lib/chat/channel-sections";
 
 const projects = getProjects();
 const CHAT_RECENT_THREAD_WINDOW = 200;
+const CHAT_TIMELINE_CACHE_MAX_ENTRIES = 6;
+const CHAT_TIMELINE_CACHE_MAX_BYTES = 8 * 1024 * 1024;
+const CHAT_TIMELINE_MAX_PAGES_PER_CHANNEL = 8;
+type ChatTimelineStorePage = ChatTimelinePageRead | ChatChannelTimelinePageRead;
 
 export interface ChatComposerSendOptions {
   promptOverride?: string;
@@ -53,6 +70,14 @@ class ChatStore {
   sendError = $state<string | null>(null);
   settings = $state<ChatSettingsRead | null>(null);
   workingFolders = $state<ProjectWorkingFolderRead[]>([]);
+  activeChannels = $state<ChatChannelRead[]>([]);
+  archivedChannels = $state<ChatChannelRead[]>([]);
+  archivedChannelsLoading = $state(false);
+  archivedChannelsError = $state<string | null>(null);
+  channelsLoading = $state(true);
+  channelSessions = $state<ChatChannelSessionRead[]>([]);
+  selectedChannelId = $state<ChatChannelId | null>(null);
+  channelArchiveOpen = $state(false);
   activeThreads = $state<ChatThreadShellRead[]>([]);
   archivedThreads = $state<ChatThreadShellRead[]>([]);
   archivedThreadsLoading = $state(false);
@@ -63,7 +88,7 @@ class ChatStore {
   draftWorkingFolderId = $state<ProjectWorkingFolderId | null>(null);
   draftThreadId = $state<ChatThreadId | null>(null);
   selectedExecutionEnvironmentId = $state<string | null>(null);
-  timelinePages = $state<ChatTimelinePageRead[]>([]);
+  timelinePages = $state<ChatTimelineStorePage[]>([]);
   timelineItems = $state<ChatTimelineItemRead[]>([]);
   pendingUserMessage = $state<{ threadId: ChatThreadId; row: TimelineMessageRow } | null>(null);
   timelineLoading = $state(false);
@@ -71,6 +96,12 @@ class ChatStore {
   railOpen = $state(true);
   inspectorOpen = $state(false);
   private loadRequest = 0;
+  private channelLoadRequest = 0;
+  private projectSelectionProjectId: string | null = null;
+  private projectSelectionPromise: Promise<void> | null = null;
+  private archivedChannelsProjectId: string | null = null;
+  private navigationChannels: ChatChannelRead[] = [];
+  private channelSelectionRequest = 0;
   private loadPromise: Promise<void> | null = null;
   private providerDiscoveryPromise: Promise<void> | null = null;
   private archivedThreadsPromise: Promise<void> | null = null;
@@ -81,11 +112,16 @@ class ChatStore {
   private interactionRequest = 0;
   private attachmentKey = "";
   private failedSendOptions: ChatComposerSendOptions | null = null;
+  private readonly channelTimelineCache = new ChatChannelTimelineCache(
+    CHAT_TIMELINE_CACHE_MAX_ENTRIES,
+    CHAT_TIMELINE_CACHE_MAX_BYTES,
+  );
   private readonly queuedDispatches = new Set<string>();
   private readonly nativeChanges = new AsyncFrameCoalescer<string>(
     (threadId) => this.refreshNativeChange(threadId),
   );
   private loaded = false;
+  private vaultGeneration = 0;
 
   constructor() {
     this.composerController.subscribe((snapshot) => {
@@ -102,7 +138,15 @@ class ChatStore {
     return this.workingFolders.find((entry) => entry.workingFolder.id === this.selectedWorkingFolderId) ?? null;
   }
 
+  get selectedChannel(): ChatChannelRead | null {
+    return [...this.activeChannels, ...this.archivedChannels]
+      .find((entry) => entry.id === this.selectedChannelId) ?? null;
+  }
+
   get selectedThread(): ChatThreadShellRead | null {
+    if (this.selectedChannel?.currentThread?.id === this.selectedThreadId) {
+      return this.selectedChannel.currentThread;
+    }
     return [...this.activeThreads, ...this.archivedThreads]
       .find((entry) => entry.id === this.selectedThreadId) ?? null;
   }
@@ -115,36 +159,98 @@ class ChatStore {
     await this.loadPromise;
   }
 
+  /** Starts the bounded Chat working set before the route is opened. */
+  async prewarmForProject(projectId: string | null): Promise<void> {
+    await this.ensureLoaded();
+    if (projectId && this.selectedChannel?.projectId !== projectId) {
+      await this.syncProjectSelection(projectId);
+    }
+  }
+
+  /** Invalidates vault-scoped Chat state before prewarming another vault. */
+  resetForVault(): void {
+    this.vaultGeneration += 1;
+    this.loadRequest += 1;
+    this.channelLoadRequest += 1;
+    this.channelSelectionRequest += 1;
+    this.timelineRequest += 1;
+    this.loaded = false;
+    this.loadPromise = null;
+    this.navigationChannels = [];
+    this.channelTimelineCache.clear();
+    this.projectSelectionProjectId = null;
+    this.projectSelectionPromise = null;
+    this.settings = null;
+    this.providerDiscoveryPromise = null;
+    this.providerDiscoveryLoading = false;
+    this.workingFolders = [];
+    this.activeChannels = [];
+    this.archivedChannels = [];
+    this.archivedChannelsProjectId = null;
+    this.archivedChannelsLoading = false;
+    this.archivedChannelsError = null;
+    this.channelsLoading = true;
+    this.channelSessions = [];
+    this.selectedChannelId = null;
+    this.activeThreads = [];
+    this.archivedThreads = [];
+    this.selectedWorkingFolderId = null;
+    this.selectedThreadId = null;
+    this.timelinePages = [];
+    this.timelineItems = [];
+    this.timelineError = null;
+    this.error = null;
+    this.loading = false;
+    this.composerController.reset();
+  }
+
   async reload(): Promise<void> {
     const request = ++this.loadRequest;
+    const vaultGeneration = this.vaultGeneration;
     this.loading = true;
     this.error = null;
     try {
-      const [settings, workingFolders, activeThreads] = await Promise.all([
+      const [settings, workingFolders, navigationChannels] = await Promise.all([
         chatApi.readChatSettings(),
         workingFolderApi.listCachedProjectWorkingFolders(),
-        chatApi.listChatThreadWindow(null, false, CHAT_RECENT_THREAD_WINDOW),
+        chatApi.listChatNavigationChannels(),
       ]);
-      if (request !== this.loadRequest) return;
+      if (request !== this.loadRequest || vaultGeneration !== this.vaultGeneration) return;
       this.settings = settings;
       this.workingFolders = workingFolders;
-      this.activeThreads = activeThreads;
+      this.activeThreads = [];
+      this.navigationChannels = navigationChannels;
       this.archivedThreads = [];
       this.archivedThreadsLoaded = false;
+      void this.discoverProviders().catch((error: unknown) => {
+        console.error("Automatic Chat provider discovery failed", error);
+      });
       await projects.ensureLoaded();
-      await this.restoreSelection(settings);
+      if (request !== this.loadRequest || vaultGeneration !== this.vaultGeneration) return;
+      const projectId = projects.selectedProjectId;
+      if (projectId) {
+        await this.loadProjectChannels(projectId);
+        const rememberedChannelId = readLastChatChannelId(projectId);
+        const initial = this.activeChannels.find((channel) => channel.id === rememberedChannelId)
+          ?? this.activeChannels.find((channel) => channel.isDefault)
+          ?? this.activeChannels[0]
+          ?? null;
+        if (initial) await this.selectChannel(initial.id);
+        else await this.restoreSelection(settings);
+      } else {
+        this.channelsLoading = false;
+        await this.restoreSelection(settings);
+      }
       const workingFolderId = this.selectedWorkingFolderId;
-      if (workingFolderId) await this.composerController.bind(
+      if (workingFolderId && !this.selectedChannel) await this.composerController.bind(
         workingFolderId,
         this.selectedThreadId,
         this.composerSeed(this.selectedThread),
       );
+      if (request !== this.loadRequest || vaultGeneration !== this.vaultGeneration) return;
       this.loaded = true;
       void this.refreshWorkingFolders().catch((error: unknown) => {
         console.error("Chat working folder reconciliation failed", error);
-      });
-      void this.discoverProviders().catch((error: unknown) => {
-        console.error("Automatic Chat provider discovery failed", error);
       });
     } catch (error: unknown) {
       if (request !== this.loadRequest) return;
@@ -185,16 +291,52 @@ class ChatStore {
 
   private async discoverProviders(): Promise<void> {
     if (this.providerDiscoveryPromise) return this.providerDiscoveryPromise;
+    const vaultGeneration = this.vaultGeneration;
     this.providerDiscoveryLoading = true;
-    this.providerDiscoveryPromise = chatApi.discoverDefaultChatProviders()
+    const discovery = chatApi.discoverDefaultChatProviders()
       .then((settings) => {
+        if (vaultGeneration !== this.vaultGeneration) return;
         this.settings = settings;
+        this.applyDiscoveredComposerDefaults(settings);
       })
       .finally(() => {
-        this.providerDiscoveryLoading = false;
-        this.providerDiscoveryPromise = null;
+        if (this.providerDiscoveryPromise === discovery) {
+          this.providerDiscoveryLoading = false;
+          this.providerDiscoveryPromise = null;
+        }
       });
-    return this.providerDiscoveryPromise;
+    this.providerDiscoveryPromise = discovery;
+    return discovery;
+  }
+
+  private applyDiscoveredComposerDefaults(settings: ChatSettingsRead): void {
+    const channel = this.selectedChannel;
+    if (!channel || !this.composer.workingFolderId) return;
+    const currentProviderId = this.composer.providerInstanceId;
+    if (currentProviderId) {
+      const currentProvider = settings.providerInstances.find((provider) => (
+        provider.configuration.instanceId === currentProviderId
+      ));
+      if (!currentProvider || !providerAvailable(currentProvider)) return;
+      const currentModel = readComposerModelSelection(this.composer.modelSelection);
+      const catalog = currentProvider.modelCatalog?.models ?? [];
+      const explicitModelValid = currentModel.modelId !== null && catalog.some((model) => (
+        model.id === currentModel.modelId && model.availability !== "deprecated"
+      ));
+      const providerManagedValid = currentModel.providerManaged && catalog.length === 0;
+      if (explicitModelValid || providerManagedValid) return;
+    }
+    const seed = this.channelComposerSeed(channel);
+    if (!seed.providerInstanceId || !seed.modelSelection) return;
+    this.composerController.setProvider(seed.providerInstanceId);
+    this.composerController.setModelSelection(seed.modelSelection);
+    this.composerController.setModes(
+      this.composer.safetyMode ?? seed.safetyMode,
+      this.composer.interactionMode ?? seed.interactionMode,
+    );
+    void this.composerController.flush().catch((error: unknown) => {
+      console.error("Chat composer defaults could not be saved", error);
+    });
   }
 
   private async refreshWorkingFolders(): Promise<void> {
@@ -209,12 +351,211 @@ class ChatStore {
     return this.workingFolderRefreshPromise;
   }
 
-  async syncProjectSelection(projectId: string | null): Promise<void> {
-    if (!projectId || !this.loaded) return;
-    if (this.selectedThread?.projectId === projectId) return;
-    const remembered = await workingFolderApi.lastProjectWorkingFolder(projectId);
-    const selected = preferredProjectWorkingFolder(this.workingFolders, projectId, remembered);
-    if (selected) this.selectWorkingFolder(selected.workingFolder.id);
+  syncProjectSelection(projectId: string | null): Promise<void> {
+    if (!projectId || !this.loaded) return Promise.resolve();
+    if (this.selectedChannel?.projectId === projectId) return Promise.resolve();
+    if (this.projectSelectionProjectId === projectId && this.projectSelectionPromise) {
+      return this.projectSelectionPromise;
+    }
+    const selection = this.performProjectSelection(projectId);
+    const tracked = selection.finally(() => {
+      if (this.projectSelectionPromise !== tracked) return;
+      this.projectSelectionProjectId = null;
+      this.projectSelectionPromise = null;
+    });
+    this.projectSelectionProjectId = projectId;
+    this.projectSelectionPromise = tracked;
+    return tracked;
+  }
+
+  private async performProjectSelection(projectId: string): Promise<void> {
+    if (!await this.loadProjectChannels(projectId)) return;
+    if (projects.selectedProjectId !== projectId) return;
+    const rememberedChannelId = readLastChatChannelId(projectId);
+    const selected = this.activeChannels.find((channel) => channel.id === rememberedChannelId)
+      ?? this.activeChannels.find((channel) => channel.isDefault)
+      ?? this.activeChannels[0]
+      ?? null;
+    if (selected) await this.selectChannel(selected.id);
+  }
+
+  async loadProjectChannels(projectId: string): Promise<boolean> {
+    const request = ++this.channelLoadRequest;
+    this.channelsLoading = true;
+    this.activeChannels = [];
+    this.archivedChannels = [];
+    this.archivedChannelsProjectId = null;
+    this.archivedChannelsError = null;
+    try {
+      const cached = this.navigationChannels.filter((channel) => channel.projectId === projectId);
+      const active = cached.length > 0
+        ? cached
+        : await chatApi.listChatChannels(projectId, false);
+      if (request !== this.channelLoadRequest) return false;
+      this.activeChannels = active;
+      if (cached.length === 0) this.mergeNavigationChannels(active);
+      const linkedThreads = active
+        .flatMap((channel) => channel.currentThread ? [channel.currentThread] : []);
+      for (const thread of linkedThreads) this.upsertThread(thread);
+      return true;
+    } finally {
+      if (request === this.channelLoadRequest) {
+        this.channelsLoading = false;
+      }
+    }
+  }
+
+  private async loadArchivedChannels(projectId: string): Promise<void> {
+    if (this.archivedChannelsProjectId === projectId) return;
+    this.archivedChannelsLoading = true;
+    this.archivedChannelsError = null;
+    try {
+      const archived = await chatApi.listChatChannels(projectId, true);
+      if (projects.selectedProjectId !== projectId) return;
+      this.archivedChannels = archived;
+      this.archivedChannelsProjectId = projectId;
+      for (const channel of archived) {
+        if (channel.currentThread) this.upsertThread(channel.currentThread);
+      }
+    } catch (error: unknown) {
+      if (projects.selectedProjectId === projectId) {
+        this.archivedChannelsError = chatErrorMessage(
+          error,
+          "Archived Chat channels could not be loaded",
+        );
+      }
+      throw error;
+    } finally {
+      if (projects.selectedProjectId === projectId) this.archivedChannelsLoading = false;
+    }
+  }
+
+  private mergeNavigationChannels(channels: readonly ChatChannelRead[]): void {
+    const byId = new Map(this.navigationChannels.map((channel) => [channel.id, channel]));
+    for (const channel of channels) {
+      if (channel.archivedAt) byId.delete(channel.id);
+      else byId.set(channel.id, channel);
+    }
+    this.navigationChannels = [...byId.values()];
+  }
+
+  async selectChannel(channelId: ChatChannelId): Promise<void> {
+    const request = ++this.channelSelectionRequest;
+    const channel = [...this.activeChannels, ...this.archivedChannels]
+      .find((entry) => entry.id === channelId)
+      ?? await chatApi.readChatChannel(channelId);
+    if (request !== this.channelSelectionRequest) return;
+    this.upsertChannel(channel);
+    if (this.selectedChannelId !== channelId) {
+      this.rememberSelectedChannelTimeline();
+      this.timelinePages = [];
+      this.timelineItems = [];
+      this.timelineError = null;
+    }
+    this.selectedChannelId = channelId;
+    saveLastChatChannelId(channel.projectId, channelId);
+    this.channelArchiveOpen = false;
+    await projects.selectProject(channel.projectId);
+    if (request !== this.channelSelectionRequest) return;
+    const thread = channel.currentThread;
+    const workingFolderId = channel.target.workingFolderId ?? thread?.workingFolderId ?? null;
+    this.selectedWorkingFolderId = workingFolderId;
+    this.selectedThreadId = thread?.id ?? null;
+    this.selectedExecutionEnvironmentId = null;
+    if (thread) {
+      this.upsertThread(thread);
+      void chatApi.readChatThreadExecutionEnvironment(thread.id)
+        .then((environmentId) => {
+          if (this.selectedChannelId === channelId && this.selectedThreadId === thread.id) {
+            this.selectedExecutionEnvironmentId = environmentId;
+          }
+        })
+        .catch(() => undefined);
+    }
+    if (workingFolderId) {
+      await this.composerController.bind(
+        workingFolderId,
+        thread?.id ?? null,
+        this.channelComposerSeed(channel),
+        `channel:${channel.id}`,
+      );
+      if (request !== this.channelSelectionRequest) return;
+    }
+    await this.loadChannelTimeline(channel.id);
+    if (request !== this.channelSelectionRequest) return;
+    if (thread) await this.refreshInteraction(thread.id);
+    else this.interaction = null;
+    if (channel.unreadAt) {
+      void chatApi.setChatChannelRead(channel.id, true)
+        .then((updated) => this.upsertChannel(updated))
+        .catch(() => undefined);
+    }
+  }
+
+  async createChannel(request: import("$lib/chat/contracts").CreateChatChannelRequest): Promise<ChatChannelRead> {
+    const channel = await chatApi.createChatChannel(request);
+    this.activeChannels = [...this.activeChannels, channel].sort(channelSort);
+    await this.selectChannel(channel.id);
+    return channel;
+  }
+
+  async updateChannelDetails(channel: ChatChannelRead, name: string, topic: string): Promise<ChatChannelRead> {
+    const updated = await chatApi.updateChatChannelDetails({
+      channelId: channel.id,
+      name,
+      topic,
+      expectedRevision: channel.revision,
+    });
+    this.upsertChannel(updated);
+    return updated;
+  }
+
+  async updateChannelTarget(channel: ChatChannelRead, target: ChatChannelTarget): Promise<ChatChannelRead> {
+    const updated = await chatApi.updateChatChannelTarget({
+      channelId: channel.id,
+      target,
+      expectedRevision: channel.revision,
+    });
+    this.upsertChannel(updated);
+    if (this.selectedChannelId === updated.id) {
+      await this.selectChannel(updated.id);
+      this.composerController.setProvider(updated.target.providerInstanceId);
+      this.composerController.setModelSelection(composerModelSelection(
+        updated.target.modelId,
+        updated.target.providerManagedModel,
+        updated.target.modelOptions,
+      ));
+      await this.composerController.flush();
+    }
+    return updated;
+  }
+
+  async archiveChannel(channel: ChatChannelRead): Promise<void> {
+    const archived = await chatApi.archiveChatChannel(channel.id, channel.revision);
+    this.mergeNavigationChannels([archived]);
+    this.activeChannels = this.activeChannels.filter((entry) => entry.id !== channel.id);
+    this.archivedChannels = [archived, ...this.archivedChannels.filter((entry) => entry.id !== channel.id)];
+    if (this.selectedChannelId === channel.id) {
+      const fallback = this.activeChannels.find((entry) => entry.isDefault) ?? this.activeChannels[0];
+      if (fallback) await this.selectChannel(fallback.id);
+    }
+  }
+
+  async restoreChannel(channel: ChatChannelRead): Promise<void> {
+    const restored = await chatApi.restoreChatChannel(channel.id, channel.revision);
+    this.archivedChannels = this.archivedChannels.filter((entry) => entry.id !== channel.id);
+    this.activeChannels = [...this.activeChannels, restored].sort(channelSort);
+    this.mergeNavigationChannels([restored]);
+  }
+
+  openChannelArchive(): void {
+    this.channelArchiveOpen = true;
+    const projectId = projects.selectedProjectId;
+    if (projectId) void this.loadArchivedChannels(projectId).catch(() => undefined);
+  }
+
+  closeChannelArchive(): void {
+    this.channelArchiveOpen = false;
   }
 
   async saveProvider(configuration: ProviderInstanceConfig): Promise<ProviderInstanceRead> {
@@ -384,10 +725,30 @@ class ChatStore {
   }
 
   async loadOlderTimeline(selectedSequence: number | null = null): Promise<void> {
+    if (this.selectedChannelId) {
+      await this.loadOlderChannelTimeline(selectedSequence);
+      return;
+    }
     const threadId = this.selectedThreadId;
     const cursor = this.timelinePages[0]?.previousCursor;
     if (!threadId || !cursor || this.timelineLoading) return;
     await this.loadTimeline(threadId, cursor, true, selectedSequence);
+  }
+
+  async startNewChannelSession(): Promise<void> {
+    const channel = this.selectedChannel;
+    if (!channel || !this.selectedWorkingFolderId) return;
+    this.selectedThreadId = null;
+    this.selectedExecutionEnvironmentId = null;
+    this.draftWorkingFolderId = null;
+    this.draftThreadId = null;
+    this.interaction = null;
+    await this.composerController.bind(
+      this.selectedWorkingFolderId,
+      null,
+      this.channelComposerSeed(channel),
+      `channel:${channel.id}`,
+    );
   }
 
   newDraft(workingFolderId: ProjectWorkingFolderId): void {
@@ -448,7 +809,26 @@ class ChatStore {
       : this.composer.mentions.map((mention) => ({ relativePath: mention.relativePath, kind: mention.kind }));
     this.sendError = null;
     this.failedSendOptions = null;
-    const current = this.selectedThread;
+    let channel = this.selectedChannel;
+    const desiredTarget: ChatChannelTarget = {
+      workingFolderId,
+      providerInstanceId,
+      providerManagedModel: model.providerManaged,
+      modelId: model.modelId,
+      modelOptions: model.options,
+    };
+    if (channel && !sameChannelTarget(channel.target, desiredTarget)) {
+      channel = await chatApi.updateChatChannelTarget({
+        channelId: channel.id,
+        target: desiredTarget,
+        expectedRevision: channel.revision,
+      });
+      this.upsertChannel(channel);
+    }
+    const selectedCurrent = this.selectedThread;
+    const current = channel && selectedCurrent && !threadMatchesTarget(selectedCurrent, desiredTarget)
+      ? null
+      : selectedCurrent;
     const newThreadId = current ? null : this.ensureDraftThread(workingFolderId);
     const threadId = current?.id ?? newThreadId;
     if (!threadId) throw new Error("A Chat thread ID is required before sending");
@@ -481,6 +861,7 @@ class ChatStore {
           preCheckpointId: null,
         },
         metadata: null,
+        sourceThreadId: threadId,
       },
     };
     this.composerController.markSent();
@@ -496,6 +877,8 @@ class ChatStore {
       await this.composerController.flush();
       result = await chatApi.sendChatTurn({
         command: { clientCommandId: crypto.randomUUID(), expectedThreadRevision: current?.revision ?? null },
+        channelId: channel?.id ?? null,
+        expectedChannelRevision: channel?.revision ?? null,
         workingFolderId,
         threadId: current?.id ?? null,
         newThreadId,
@@ -522,11 +905,16 @@ class ChatStore {
       this.draftWorkingFolderId = null;
       this.draftThreadId = null;
     }
-    this.selectThread(result.thread.id);
+    this.selectedThreadId = result.thread.id;
+    if (result.channel) {
+      channel = result.channel;
+      this.upsertChannel(result.channel);
+    }
     this.sendError = result.launchError?.message ?? null;
     this.failedSendOptions = result.launchError ? { ...options } : null;
     try {
-      await this.loadTimeline(result.thread.id);
+      if (channel) await this.loadChannelTimeline(channel.id, true);
+      else await this.loadTimeline(result.thread.id);
     } finally {
       this.pendingUserMessage = null;
     }
@@ -706,11 +1094,11 @@ class ChatStore {
   }
 
   private async refreshNativeChange(threadId: string): Promise<void> {
+    const channelId = this.selectedChannelId;
+    if (channelId) await this.loadChannelTimeline(channelId, true);
+    else if (threadId === this.selectedThreadId) await this.loadTimeline(threadId);
     if (threadId !== this.selectedThreadId) return;
-    await this.loadTimeline(threadId);
-    if (threadId !== this.selectedThreadId) return;
-    const active = await chatApi.listChatThreadWindow(null, false, CHAT_RECENT_THREAD_WINDOW);
-    this.activeThreads = active;
+    if (channelId) this.upsertChannel(await chatApi.readChatChannel(channelId));
     await this.refreshInteraction(threadId);
   }
 
@@ -822,6 +1210,8 @@ class ChatStore {
       const mentions = parseDraftMentions(queued.mentions);
       const result = await chatApi.sendChatTurn({
         command: { clientCommandId: `queue-dispatch:${queued.id}`, expectedThreadRevision: null },
+        channelId: this.selectedChannel?.currentThread?.id === thread.id ? this.selectedChannel.id : null,
+        expectedChannelRevision: this.selectedChannel?.currentThread?.id === thread.id ? this.selectedChannel.revision : null,
         workingFolderId,
         threadId: thread.id,
         newThreadId: null,
@@ -839,8 +1229,10 @@ class ChatStore {
       });
       await chatApi.markChatQueuedFollowupDispatched(thread.id, queued.id);
       this.upsertThread(result.thread);
+      if (result.channel) this.upsertChannel(result.channel);
       this.sendError = result.launchError?.message ?? null;
-      await this.loadTimeline(thread.id);
+      if (result.channel) await this.loadChannelTimeline(result.channel.id, true);
+      else await this.loadTimeline(thread.id);
       await this.refreshInteraction(thread.id);
     } finally {
       this.queuedDispatches.delete(queued.id);
@@ -881,6 +1273,57 @@ class ChatStore {
     };
   }
 
+  private channelComposerSeed(channel: ChatChannelRead): ChatComposerSeed {
+    const thread = channel.currentThread;
+    const workingFolderId = channel.target.workingFolderId ?? thread?.workingFolderId ?? null;
+    const configuredProviderId = channel.target.providerInstanceId ?? thread?.providerInstanceId ?? null;
+    if (!configuredProviderId) {
+      const preferredProviderId = workingFolderId
+        ? this.settings?.configuration.workingFolderProviderPreferences[workingFolderId] ?? null
+        : null;
+      const resolved = resolveDefaultProviderModel(
+        this.settings?.providerInstances ?? [],
+        preferredProviderId,
+      );
+      if (resolved) {
+        const remembered = workingFolderId
+          ? this.settings?.configuration.rememberedSelections.find((entry) => (
+              entry.workingFolderId === workingFolderId
+              && entry.providerInstanceId === resolved.provider.configuration.instanceId
+            )) ?? null
+          : null;
+        return {
+          providerInstanceId: resolved.provider.configuration.instanceId,
+          modelSelection: remembered
+            ? composerModelSelection(
+                remembered.modelId,
+                remembered.providerManagedModel,
+                remembered.modelOptions,
+              )
+            : resolved.model || resolved.providerManaged
+              ? composerModelSelection(
+                  resolved.model?.id ?? null,
+                  resolved.providerManaged,
+                  resolved.options,
+                )
+              : null,
+          safetyMode: remembered?.safetyMode ?? "ask_for_approval",
+          interactionMode: remembered?.interactionMode ?? "build",
+        };
+      }
+    }
+    return {
+      providerInstanceId: configuredProviderId,
+      modelSelection: composerModelSelection(
+        channel.target.modelId,
+        channel.target.providerManagedModel,
+        channel.target.modelOptions,
+      ),
+      safetyMode: thread?.modes.safetyMode ?? "ask_for_approval",
+      interactionMode: thread?.modes.interactionMode ?? "build",
+    };
+  }
+
   private workingFolder(workingFolderId: ProjectWorkingFolderId): ProjectWorkingFolderRead {
     const workingFolder = this.workingFolders.find((entry) => entry.workingFolder.id === workingFolderId);
     if (!workingFolder) throw new Error("Project working folder was not found");
@@ -905,6 +1348,108 @@ class ChatStore {
       : [thread, ...target];
     if (thread.archivedAt) this.archivedThreads = next;
     else this.activeThreads = next;
+  }
+
+  private upsertChannel(channel: ChatChannelRead): void {
+    this.mergeNavigationChannels([channel]);
+    const target = channel.archivedAt ? this.archivedChannels : this.activeChannels;
+    const next = target.some((entry) => entry.id === channel.id)
+      ? target.map((entry) => entry.id === channel.id ? channel : entry)
+      : [...target, channel];
+    if (channel.archivedAt) {
+      this.activeChannels = this.activeChannels.filter((entry) => entry.id !== channel.id);
+      this.archivedChannels = next.sort(channelSort);
+    } else {
+      this.archivedChannels = this.archivedChannels.filter((entry) => entry.id !== channel.id);
+      this.activeChannels = next.sort(channelSort);
+    }
+    if (channel.currentThread) this.upsertThread(channel.currentThread);
+  }
+
+  private async loadChannelTimeline(channelId: ChatChannelId, force = false): Promise<void> {
+    if (!force) {
+      const cached = this.channelTimelineCache.get(channelId);
+      if (cached) {
+        this.timelineLoading = false;
+        this.timelineError = null;
+        this.timelinePages = cached.pages;
+        this.timelineItems = cached.items;
+        this.channelSessions = cached.sessions;
+        return;
+      }
+    }
+    const channel = [...this.activeChannels, ...this.archivedChannels]
+      .find((entry) => entry.id === channelId);
+    if (channel?.sessionCount === 0) {
+      this.timelineLoading = false;
+      this.timelineError = null;
+      this.timelinePages = [];
+      this.timelineItems = [];
+      this.channelSessions = [];
+      this.rememberSelectedChannelTimeline();
+      return;
+    }
+    const request = ++this.timelineRequest;
+    this.timelineLoading = true;
+    this.timelineError = null;
+    try {
+      const page = await chatApi.readChatChannelTimelinePage(channelId);
+      if (request !== this.timelineRequest || this.selectedChannelId !== channelId) return;
+      this.channelSessions = page.sessions;
+      for (const session of page.sessions) this.upsertThread(session.thread);
+      this.timelinePages = [page];
+      this.timelineItems = mergeTimelineItems([], page.items);
+      this.rememberSelectedChannelTimeline();
+    } catch (error: unknown) {
+      if (request !== this.timelineRequest) return;
+      this.timelineError = chatErrorMessage(error, "Chat channel could not be loaded");
+      throw error;
+    } finally {
+      if (request === this.timelineRequest) this.timelineLoading = false;
+    }
+  }
+
+  private async loadOlderChannelTimeline(selectedSequence: number | null): Promise<void> {
+    const channelId = this.selectedChannelId;
+    if (!channelId || this.timelineLoading) return;
+    const currentPage = this.timelinePages[0];
+    if (!currentPage?.previousCursor) return;
+    const request = ++this.timelineRequest;
+    this.timelineLoading = true;
+    this.timelineError = null;
+    try {
+      const page = await chatApi.readChatChannelTimelinePage(channelId, currentPage.previousCursor);
+      if (request !== this.timelineRequest || this.selectedChannelId !== channelId) return;
+      this.channelSessions = mergeChannelSessions(this.channelSessions, page.sessions);
+      for (const session of page.sessions) this.upsertThread(session.thread);
+      this.timelinePages = evictTimelinePages(
+        [page, ...this.timelinePages],
+        selectedSequence,
+        CHAT_TIMELINE_MAX_PAGES_PER_CHANNEL,
+      );
+      this.timelineItems = mergeTimelineItems([], this.timelinePages.flatMap((entry) => entry.items));
+      this.rememberSelectedChannelTimeline();
+    } catch (error: unknown) {
+      if (request !== this.timelineRequest) return;
+      this.timelineError = chatErrorMessage(error, "Older channel history could not be loaded");
+      throw error;
+    } finally {
+      if (request === this.timelineRequest) this.timelineLoading = false;
+    }
+  }
+
+  private rememberSelectedChannelTimeline(): void {
+    const channelId = this.selectedChannelId;
+    if (!channelId) return;
+    const pages = this.timelinePages.filter(
+      (page): page is ChatChannelTimelinePageRead => "channelId" in page,
+    );
+    if (pages.length !== this.timelinePages.length) return;
+    this.channelTimelineCache.set(channelId, {
+      pages,
+      sessions: this.channelSessions,
+      items: this.timelineItems,
+    });
   }
 
   private async loadTimeline(
@@ -932,6 +1477,38 @@ class ChatStore {
       if (request === this.timelineRequest) this.timelineLoading = false;
     }
   }
+}
+
+function channelSort(left: ChatChannelRead, right: ChatChannelRead): number {
+  if (left.isDefault !== right.isDefault) return left.isDefault ? -1 : 1;
+  return left.name.localeCompare(right.name) || left.id.localeCompare(right.id);
+}
+
+function sameChannelTarget(left: ChatChannelTarget, right: ChatChannelTarget): boolean {
+  return left.workingFolderId === right.workingFolderId
+    && left.providerInstanceId === right.providerInstanceId
+    && left.providerManagedModel === right.providerManagedModel
+    && left.modelId === right.modelId
+    && JSON.stringify(left.modelOptions) === JSON.stringify(right.modelOptions);
+}
+
+function threadMatchesTarget(thread: ChatThreadShellRead, target: ChatChannelTarget): boolean {
+  return thread.workingFolderId === target.workingFolderId
+    && thread.providerInstanceId === target.providerInstanceId
+    && thread.modelId === target.modelId
+    && (thread.modelId === null) === target.providerManagedModel
+    && JSON.stringify(thread.modelOptions) === JSON.stringify(target.modelOptions);
+}
+
+function mergeChannelSessions(
+  current: readonly ChatChannelSessionRead[],
+  incoming: readonly ChatChannelSessionRead[],
+): ChatChannelSessionRead[] {
+  const byThreadId = new Map(current.map((session) => [session.thread.id, session]));
+  for (const session of incoming) byThreadId.set(session.thread.id, session);
+  return [...byThreadId.values()].sort((left, right) => (
+    left.ordinal - right.ordinal || left.thread.id.localeCompare(right.thread.id)
+  ));
 }
 
 let store: ChatStore | null = null;

@@ -10,6 +10,7 @@ import type {
   CanonicalStoredEvent,
   ChangedFileSummary,
   ChatTimelineItemRead,
+  ChatThreadId,
   ChatTimelineTurnRead,
   ChatTurnId,
   ChatTurnState,
@@ -71,6 +72,7 @@ export interface TimelineMessageRow {
   phase: TimelineMessagePhase | null;
   userContext: TimelineUserContext | null;
   metadata: TimelineAssistantMetadata | null;
+  sourceThreadId?: ChatThreadId;
 }
 
 export interface TimelineActivityRow {
@@ -79,11 +81,12 @@ export interface TimelineActivityRow {
   turnId: ChatTurnId | null;
   sequence: number;
   createdAt: UtcTimestamp;
-  activityKind: CanonicalItemKind | ContentStreamKind | "task" | "hook" | "tool" | "mcp" | "notice";
+  activityKind: CanonicalItemKind | ContentStreamKind | "task" | "hook" | "tool" | "mcp" | "notice" | "channel_session_boundary";
   status: ActivityStatus;
   title: string;
   detail: string | null;
   metadata: VersionedJson | null;
+  sourceThreadId?: ChatThreadId;
 }
 
 export interface TimelinePlanRow {
@@ -96,6 +99,7 @@ export interface TimelinePlanRow {
   markdown: string;
   steps: PlanStep[];
   state: "streaming" | "complete";
+  sourceThreadId?: ChatThreadId;
 }
 
 export type TimelineRow = TimelineMessageRow | TimelineActivityRow | TimelinePlanRow;
@@ -145,6 +149,7 @@ export interface TimelineActivityGroupRow {
   latest: TimelineActivityRow;
   earlierRows: TimelineActivityRow[];
   expanded: boolean;
+  sourceThreadId?: ChatThreadId;
 }
 
 export interface TimelineTurnFoldRow {
@@ -157,6 +162,7 @@ export interface TimelineTurnFoldRow {
   durationMs: number | null;
   hiddenRows: (TimelineActivityRow | TimelineMessageRow | TimelineActivityGroupRow)[];
   expanded: boolean;
+  sourceThreadId?: ChatThreadId;
 }
 
 export type TimelineDisplayRow = TimelineRow | TimelineTurnFoldRow | TimelineActivityGroupRow;
@@ -494,6 +500,7 @@ export function projectTimelineReadModel(
         phase: parseMessagePhase(data.metadata),
         userContext: role === "user" ? parseTimelineUserContext(data.metadata) : null,
         metadata: null,
+        sourceThreadId: item.sourceThreadId,
       });
       continue;
     }
@@ -502,7 +509,9 @@ export function projectTimelineReadModel(
       const status = jsonString(data.status);
       const title = jsonString(data.title);
       if (!activityKind || !status || title === null || !isKnownValue(ACTIVITY_STATUSES, status)) continue;
-      const knownKind = isKnownValue(CANONICAL_ITEM_KINDS, activityKind) || isKnownValue(CONTENT_STREAM_KINDS, activityKind)
+      const knownKind = activityKind === "channel_session_boundary"
+        ? activityKind
+        : isKnownValue(CANONICAL_ITEM_KINDS, activityKind) || isKnownValue(CONTENT_STREAM_KINDS, activityKind)
         ? activityKind
         : "unknown";
       if (knownKind === "user_message") continue;
@@ -522,6 +531,7 @@ export function projectTimelineReadModel(
           phase: parseMessagePhase(data.metadata),
           userContext: null,
           metadata: current?.kind === "message" ? current.metadata : null,
+          sourceThreadId: item.sourceThreadId,
         });
         continue;
       }
@@ -536,6 +546,7 @@ export function projectTimelineReadModel(
         title,
         detail: jsonNullableString(data.detail),
         metadata: data.metadata === undefined ? null : { schemaVersion: item.data.schemaVersion, value: data.metadata },
+        sourceThreadId: item.sourceThreadId,
       });
       continue;
     }
@@ -552,6 +563,7 @@ export function projectTimelineReadModel(
         markdown,
         steps: parseProjectedPlanSteps(data.steps),
         state: data.state === "proposed" ? "streaming" : "complete",
+        sourceThreadId: item.sourceThreadId,
       });
     }
   }
@@ -663,6 +675,7 @@ export function buildTimelineDisplayRows(
         durationMs: turn.durationMs,
         hiddenRows: groupConsecutiveActivities(hiddenRows, expandedGroupIds),
         expanded: hiddenRows.length > 0 && expandedTurnIds.has(row.turnId),
+        sourceThreadId: processRows[0]?.sourceThreadId,
       });
       emittedFolds.add(row.turnId);
     }
@@ -1030,6 +1043,7 @@ function groupConsecutiveActivities(
       latest,
       earlierRows: run.slice(0, -1),
       expanded: expandedGroupIds.has(id),
+      sourceThreadId: first.sourceThreadId,
     });
     run = [];
   };

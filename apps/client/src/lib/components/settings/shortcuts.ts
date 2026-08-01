@@ -68,11 +68,11 @@ export const SHORTCUT_GROUPS: readonly ShortcutGroup[] = Object.freeze([
   {
     title: "Chat",
     items: [
-      { keys: ["Mod + N"], action: "New chat" },
-      { keys: ["Mod + F"], action: "Focus thread search" },
+      { keys: ["Mod + N"], action: "New channel" },
+      { keys: ["Mod + F"], action: "Focus channel search" },
       { keys: ["Mod + L"], action: "Focus composer" },
-      { keys: ["Alt + Arrow up", "Alt + Arrow down"], action: "Previous or next thread" },
-      { keys: ["Mod + B"], action: "Toggle chat explorer" },
+      { keys: ["Alt + Arrow up", "Alt + Arrow down"], action: "Previous or next channel" },
+      { keys: ["Mod + B"], action: "Toggle channel explorer" },
       { keys: ["Mod + Shift + J"], action: "Toggle Chat inspector" },
       { keys: ["Mod + ."], action: "Stop active turn" },
       { keys: ["Enter", "Mod + Enter"], action: "Send Chat message" },
@@ -126,15 +126,15 @@ function localizedAction(action: string, t: Translate): string {
       return t("settings.shortcuts.action.openNotes");
     case "Open Chat":
       return t("settings.shortcuts.action.openChat");
-    case "New chat":
+    case "New channel":
       return t("settings.shortcuts.action.newChat");
-    case "Focus thread search":
+    case "Focus channel search":
       return t("settings.shortcuts.action.focusThreadSearch");
     case "Focus composer":
       return t("settings.shortcuts.action.focusComposer");
-    case "Previous or next thread":
+    case "Previous or next channel":
       return t("settings.shortcuts.action.previousNextThread");
-    case "Toggle chat explorer":
+    case "Toggle channel explorer":
       return t("settings.shortcuts.action.toggleThreadRail");
     case "Toggle Chat inspector":
       return t("settings.shortcuts.action.toggleChatInspector");

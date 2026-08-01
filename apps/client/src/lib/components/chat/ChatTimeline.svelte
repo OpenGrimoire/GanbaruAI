@@ -60,6 +60,7 @@
   let unreadEvents = $state(0);
   let operationError = $state<string | null>(null);
   let loadingOlder = $state(false);
+  let initialTimelineLoadingVisible = $state(false);
   let previousItemCount = $state(0);
   let restoredThreadId = $state<string | null>(null);
   let reducedMotion = $state(false);
@@ -79,6 +80,7 @@
   const pageTurns = $derived(chat.timelinePages.flatMap((page) => page.turns));
   const projection = $derived(projectTimelineReadModel(chat.timelineItems, pageTurns));
   const selectedThread = $derived(chat.selectedThread);
+  const timelineIdentity = $derived(chat.selectedChannelId ?? selectedThread?.id ?? null);
   const optimisticMessage = $derived(chat.pendingUserMessage?.threadId === (selectedThread?.id ?? chat.draftThreadId)
     ? chat.pendingUserMessage.row
     : null);
@@ -91,11 +93,29 @@
   const selectedProvider = $derived(chat.settings?.providerInstances.find((provider) => provider.configuration.instanceId === selectedThread?.providerInstanceId) ?? null);
   const minimapRows = $derived(timelineMinimapRows(displayRows));
   const showMinimap = $derived(displayRows.length >= 80 && viewportWidth >= 900 && minimapRows.length > 0);
-  const timelineRevision = $derived(`${chat.timelinePages.at(-1)?.threadRevision ?? 0}:${chat.pendingUserMessage?.row.id ?? ""}`);
+  const latestTimelinePage = $derived(chat.timelinePages.at(-1));
+  const timelineRevision = $derived(`${latestTimelinePage
+    ? "revision" in latestTimelinePage
+      ? latestTimelinePage.revision
+      : latestTimelinePage.threadRevision
+    : 0}:${chat.pendingUserMessage?.row.id ?? ""}`);
   const bottomPadding = $derived(
     virtualWindow.paddingBottom
       + (bottomInsetPx > 0 ? bottomInsetPx + COMPOSER_READING_GAP_PX : TIMELINE_EDGE_PADDING_PX),
   );
+
+  $effect(() => {
+    if (!chat.timelineLoading || displayRows.length > 0) {
+      initialTimelineLoadingVisible = false;
+      return;
+    }
+    const timer = window.setTimeout(() => {
+      if (chat.timelineLoading && displayRows.length === 0) {
+        initialTimelineLoadingVisible = true;
+      }
+    }, 180);
+    return () => window.clearTimeout(timer);
+  });
 
   onMount(() => {
     const observer = new ResizeObserver(([entry]) => {
@@ -154,12 +174,12 @@
   });
 
   $effect(() => {
-    const threadId = selectedThread?.id;
-    if (!threadId || chat.timelineLoading || restoredThreadId === threadId) return;
-    restoredThreadId = threadId;
+    const identity = timelineIdentity;
+    if (!identity || chat.timelineLoading || restoredThreadId === identity) return;
+    restoredThreadId = identity;
     void tick().then(() => {
-      if (!scroller || selectedThread?.id !== threadId) return;
-      scroller.scrollTop = THREAD_SCROLL_OFFSETS.get(threadId) ?? scroller.scrollHeight;
+      if (!scroller || timelineIdentity !== identity) return;
+      scroller.scrollTop = THREAD_SCROLL_OFFSETS.get(identity) ?? scroller.scrollHeight;
       scrollTop = scroller.scrollTop;
       intent = timelineScrollIntent(scroller.scrollHeight - scroller.clientHeight - scroller.scrollTop, "anchored");
     });
@@ -169,14 +189,14 @@
     if (!scroller) return;
     scrollTop = scroller.scrollTop;
     updateTimelineScrollbar();
-    if (selectedThread) THREAD_SCROLL_OFFSETS.set(selectedThread.id, scrollTop);
+    if (timelineIdentity) THREAD_SCROLL_OFFSETS.set(timelineIdentity, scrollTop);
     intent = timelineScrollIntent(scroller.scrollHeight - scroller.clientHeight - scroller.scrollTop, intent);
     if (intent === "following") unreadEvents = 0;
     if (scroller.scrollTop < 240) void loadOlder();
   }
 
   async function loadOlder(): Promise<void> {
-    if (!scroller || loadingOlder || !chat.timelinePages[0]?.previousCursor) return;
+    if (!scroller || loadingOlder || !chat.timelinePages.some((page) => page.previousCursor !== null)) return;
     loadingOlder = true;
     const anchor = scroller.querySelector<HTMLElement>("[data-timeline-row-id]");
     const anchorId = anchor?.dataset.timelineRowId;
@@ -226,7 +246,7 @@
           const restoredOffset = restored.getBoundingClientRect().top - scroller.getBoundingClientRect().top;
           scroller.scrollTop = scrollTopForPreservedAnchor(scroller.scrollTop, anchorOffset, restoredOffset);
           scrollTop = scroller.scrollTop;
-          if (selectedThread) THREAD_SCROLL_OFFSETS.set(selectedThread.id, scrollTop);
+          if (timelineIdentity) THREAD_SCROLL_OFFSETS.set(timelineIdentity, scrollTop);
         });
       }
     }
@@ -419,6 +439,7 @@
   }
 
   function activityTitle(activity: TimelineActivityRow): string {
+    if (activity.activityKind === "channel_session_boundary") return t("chat.timeline.sessionBoundary", activity.title);
     if (activityIsThinking(activity)) return transientActivitySummary(activity) ?? t("chat.timeline.thinking");
     if (activity.title === "thread_reverted") return t("chat.timeline.threadRestored");
     const active = activity.status === "pending" || activity.status === "active" || activity.status === "waiting";
@@ -614,14 +635,30 @@
   }
 
   function participantForRow(row: TimelineDisplayRow): ChatModelParticipant {
+    const sourceThreadId = row.kind === "activity_group"
+      ? row.latest.sourceThreadId
+      : row.kind === "turn_fold"
+        ? row.hiddenRows[0]?.sourceThreadId
+        : row.sourceThreadId;
+    const sourceThread = chat.channelSessions.find((session) => session.thread.id === sourceThreadId)?.thread
+      ?? selectedThread;
+    const sourceProvider = chat.settings?.providerInstances.find((provider) => (
+      provider.configuration.instanceId === sourceThread?.providerInstanceId
+    )) ?? selectedProvider;
     const turn = row.turnId ? turnsById.get(row.turnId) : null;
     const modelId = row.kind === "message" && row.metadata?.modelId
       ? row.metadata.modelId
-      : turn?.effectiveModelId ?? turn?.modelId ?? selectedThread?.modelId ?? null;
-    const familyId = selectedThread?.providerFamilyId
-      ?? selectedProvider?.configuration.familyId
+      : turn?.effectiveModelId ?? turn?.modelId ?? sourceThread?.modelId ?? null;
+    const familyId = sourceThread?.providerFamilyId
+      ?? sourceProvider?.configuration.familyId
       ?? "opencode";
-    return chatModelParticipant(familyId, modelId, selectedProvider?.modelCatalog ?? null);
+    return chatModelParticipant(familyId, modelId, sourceProvider?.modelCatalog ?? null);
+  }
+
+  async function retryTimeline(): Promise<void> {
+    operationError = null;
+    if (chat.selectedChannelId) await chat.selectChannel(chat.selectedChannelId);
+    else if (selectedThread) chat.selectThread(selectedThread.id);
   }
 </script>
 
@@ -678,7 +715,7 @@
     {@const message = row as TimelineMessageRow}
     <article class="chat-assistant-message">
       <ChatMarkdown markdown={message.markdown} onError={reportError} />
-      {#if message.turnId && message.metadata?.changedFiles.length}
+      {#if message.turnId && message.metadata?.changedFiles.length && (!message.sourceThreadId || message.sourceThreadId === chat.selectedThreadId)}
         <ChatChangedFilesSummary turnId={message.turnId} files={message.metadata.changedFiles} />
       {/if}
       {#if message.metadata}
@@ -746,12 +783,12 @@
   {#if selectedThread?.archivedAt}<div class="chat-timeline-banner"><span>{t("chat.firstUse.archivedDescription")}</span><button type="button" onclick={() => void chat.restoreThread(selectedThread).catch(reportError)}><RotateCcw size={13} />{t("chat.restore")}</button></div>{/if}
   {#if selectedWorkingFolder?.workingFolder.archivedAt}<div class="chat-timeline-banner text-status-tentative"><CircleAlert size={14} /><span>{t("chat.timeline.workingFolderArchived")}</span><button type="button" onclick={() => void chat.restoreWorkingFolder(selectedWorkingFolder.workingFolder.id).catch(reportError)}>{t("chat.restore")}</button></div>{:else if selectedWorkingFolder && selectedWorkingFolder.bindingStatus !== "available"}<div class="chat-timeline-banner text-status-tentative"><CircleAlert size={14} /><span>{t("chat.timeline.workspaceMissing")}</span>{#if selectedWorkingFolder.workingFolder.kind === "managed"}<button type="button" onclick={() => void chat.recreateManagedWorkingFolder(selectedWorkingFolder.workingFolder.id).catch(reportError)}>{t("chat.firstUse.recreateFolder")}</button>{:else}<button type="button" onclick={() => void chat.rebindWorkingFolder(selectedWorkingFolder.workingFolder.id, t("chat.firstUse.chooseWorkingFolder")).catch(reportError)}>{t("chat.timeline.rebind")}</button>{/if}</div>{/if}
   {#if selectedProvider && (!selectedProvider.configuration.enabled || selectedProvider.lastProbe?.state !== "healthy")}<div class="chat-timeline-banner text-status-tentative"><CircleAlert size={14} /><span>{selectedProvider.lastProbe?.detail ?? t("chat.status.providerUnavailable")}</span><button type="button" onclick={() => void chat.probeProvider(selectedProvider.configuration.instanceId).catch(reportError)}>{t("chat.timeline.retry")}</button><button type="button" onclick={() => settings.open("chat", { chatSubsection: "providers" })}><Settings size={13} />{t("chat.timeline.openSettings")}</button></div>{/if}
-  {#if selectedThread?.state === "error"}<div class="chat-timeline-banner text-destructive"><CircleAlert size={14} /><span>{t("chat.timeline.threadError")}</span><button type="button" onclick={() => chat.newDraft(selectedThread.workingFolderId)}><MessageSquare size={13} />{t("chat.timeline.startNewThread")}</button></div>{/if}
-  {#if operationError || chat.timelineError}<div role="alert" class="chat-timeline-banner text-destructive"><span>{operationError ?? chat.timelineError}</span>{#if selectedThread}<button type="button" onclick={() => { operationError = null; chat.selectThread(selectedThread.id); }}>{t("chat.timeline.retry")}</button>{/if}</div>{/if}
+  {#if selectedThread?.state === "error"}<div class="chat-timeline-banner text-destructive"><CircleAlert size={14} /><span>{t("chat.timeline.threadError")}</span><button type="button" onclick={() => void chat.startNewChannelSession().catch(reportError)}><MessageSquare size={13} />{t("chat.timeline.startNewThread")}</button></div>{/if}
+  {#if operationError || chat.timelineError}<div role="alert" class="chat-timeline-banner text-destructive"><span>{operationError ?? chat.timelineError}</span>{#if selectedThread || chat.selectedChannelId}<button type="button" onclick={() => void retryTimeline().catch(reportError)}>{t("chat.timeline.retry")}</button>{/if}</div>{/if}
   <div bind:this={scroller} class="chat-timeline-scroller h-full overflow-y-auto" role="feed" aria-busy={chat.timelineLoading || undefined} aria-label={t("chat.title")} onscroll={handleScroll}>
     <div bind:this={timelineContent} class="chat-timeline-content mx-auto flex min-h-full flex-col justify-end py-4" style={`padding-top:${virtualWindow.paddingTop + TIMELINE_EDGE_PADDING_PX}px;padding-bottom:${bottomPadding}px`}>
       {#if loadingOlder}<div class="mb-3 flex justify-center text-xs text-muted-foreground"><LoaderCircle size={14} class="animate-spin" />{t("chat.timeline.loadingOlder")}</div>{/if}
-      {#if chat.timelineLoading && displayRows.length === 0}<div class="py-12 text-center text-sm text-muted-foreground">{t("common.loading")}</div>{/if}
+      {#if initialTimelineLoadingVisible}<div class="py-12 text-center text-sm text-muted-foreground">{t("common.loading")}</div>{/if}
       {#each virtualWindow.items as virtual (virtual.row.id)}
         {@const row = virtual.row}
         <div data-timeline-row-id={row.id} class="chat-timeline-row" class:optimistic={row.id === optimisticMessage?.id} class:participant-start={row.kind === "message" && row.role === "user" || modelGroupStartIds.has(row.id)} role="article" aria-label={rowAriaLabel(row)} aria-posinset={virtual.index + 1} aria-setsize={displayRows.length} tabindex="-1">
@@ -768,7 +805,7 @@
                     <div use:measureExpandableHeight class="chat-message-expandable" class:collapsed={message.markdown.length > 1200 && !messageExpanded} class:expanded={messageExpanded}><div><p class="wrap-break-word whitespace-pre-wrap">{message.markdown}</p></div></div>
                     {#if messageImages(message).length > 0}<ChatImageGallery images={messageImages(message)} />{/if}
                     {#if message.userContext && hasMessageContextChips(message)}<div class="chat-user-context">{#each message.userContext.attachments.filter((attachment) => attachment.kind !== "image" || !attachment.id) as attachment}<button type="button" title={attachment.status ?? t("chat.timeline.attachment")} onclick={() => copy(attachment.displayName)}><FileText size={12} /><span>{attachment.displayName}</span>{#if attachment.byteSize !== null}<small>{formatNumber(localization.locale, attachment.byteSize)} B</small>{/if}</button>{/each}{#each message.userContext.mentions as mention}<button type="button" title={t("chat.timeline.mention")} onclick={() => copy(mention.relativePath)}><span>@</span><span>{mention.relativePath}</span></button>{/each}{#each message.userContext.terminalContext as context}<button type="button" title={t("chat.timeline.terminalContext")} onclick={() => copy(context)}><Terminal size={12} /><span>{context}</span></button>{/each}</div>{/if}
-                    <div class="chat-message-meta mt-2 flex flex-wrap items-center gap-2 text-muted-foreground"><button type="button" class="inline-flex items-center gap-1" onclick={() => copy(message.markdown, message.id)}><Copy size={11} />{copiedMessageId === message.id ? t("chat.timeline.copied") : t("chat.timeline.copy")}</button>{#if message.markdown.length > 1200}<button type="button" data-timeline-disclosure-expanded={messageExpanded} aria-expanded={messageExpanded} onclick={() => { expandedMessages = toggle(expandedMessages, message.id); }}>{messageExpanded ? t("chat.timeline.showLess") : t("chat.timeline.showMore")}</button>{/if}{#if message.userContext?.preCheckpointId}<button type="button" class="inline-flex items-center gap-1" onclick={() => window.dispatchEvent(new CustomEvent("ganbaru-ai:chat-revert-message", { detail: { threadId: chat.selectedThreadId, checkpointId: message.userContext?.preCheckpointId, turnId: message.turnId } }))}><RotateCcw size={11} />{t("chat.timeline.revert")}</button>{/if}</div>
+                    <div class="chat-message-meta mt-2 flex flex-wrap items-center gap-2 text-muted-foreground"><button type="button" class="inline-flex items-center gap-1" onclick={() => copy(message.markdown, message.id)}><Copy size={11} />{copiedMessageId === message.id ? t("chat.timeline.copied") : t("chat.timeline.copy")}</button>{#if message.markdown.length > 1200}<button type="button" data-timeline-disclosure-expanded={messageExpanded} aria-expanded={messageExpanded} onclick={() => { expandedMessages = toggle(expandedMessages, message.id); }}>{messageExpanded ? t("chat.timeline.showLess") : t("chat.timeline.showMore")}</button>{/if}{#if message.userContext?.preCheckpointId && (!message.sourceThreadId || message.sourceThreadId === chat.selectedThreadId)}<button type="button" class="inline-flex items-center gap-1" onclick={() => window.dispatchEvent(new CustomEvent("ganbaru-ai:chat-revert-message", { detail: { threadId: message.sourceThreadId ?? chat.selectedThreadId, checkpointId: message.userContext?.preCheckpointId, turnId: message.turnId } }))}><RotateCcw size={11} />{t("chat.timeline.revert")}</button>{/if}</div>
                   </article>
                 </div>
               </div>

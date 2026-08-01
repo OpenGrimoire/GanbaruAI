@@ -163,11 +163,11 @@ export function mergeTimelineItems(
 /**
  * Evicts distant loaded pages while retaining the page that owns the selected sequence.
  */
-export function evictTimelinePages(
-  pages: readonly ChatTimelinePageRead[],
+export function evictTimelinePages<Page extends Pick<ChatTimelinePageRead, "items">>(
+  pages: readonly Page[],
   selectedSequence: number | null,
   maximumPages: number,
-): ChatTimelinePageRead[] {
+): Page[] {
   const limit = Math.max(1, Math.floor(maximumPages));
   if (pages.length <= limit) return [...pages];
   const ordered = [...pages].sort((left, right) => pageStart(left) - pageStart(right));
@@ -220,11 +220,11 @@ function lowerBound(offsets: readonly number[], target: number, rowCount: number
   return low;
 }
 
-function pageStart(page: ChatTimelinePageRead): number {
+function pageStart(page: Pick<ChatTimelinePageRead, "items">): number {
   return page.items[0]?.sequenceAnchor ?? Number.MAX_SAFE_INTEGER;
 }
 
-function pageContains(page: ChatTimelinePageRead, sequence: number): boolean {
+function pageContains(page: Pick<ChatTimelinePageRead, "items">, sequence: number): boolean {
   const first = page.items[0]?.sequenceAnchor;
   const last = page.items.at(-1)?.sequenceAnchor;
   return first !== undefined && last !== undefined && sequence >= first && sequence <= last;

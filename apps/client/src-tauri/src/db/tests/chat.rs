@@ -137,6 +137,8 @@ fn schema_creates_chat_tables_indexes_and_no_device_paths() {
             "chat_provider_cleanup_jobs",
             "chat_terminal_layouts",
             "chat_source_control_state",
+            "chat_channels",
+            "chat_channel_sessions",
             "idx_chat_threads_active_project",
             "idx_chat_threads_active_working_folder",
             "idx_chat_threads_archived",
@@ -161,6 +163,11 @@ fn schema_creates_chat_tables_indexes_and_no_device_paths() {
             "idx_chat_resources_workspace_kind",
             "idx_chat_browser_artifacts_thread",
             "idx_chat_provider_cleanup_jobs_retry",
+            "idx_chat_channels_project_name",
+            "idx_chat_channels_project_default",
+            "idx_chat_channels_active_project",
+            "idx_chat_channel_sessions_current",
+            "idx_chat_channel_sessions_thread",
         ] {
             let exists: Option<i64> =
                 sqlx::query_scalar("SELECT 1 FROM sqlite_schema WHERE name = ?")

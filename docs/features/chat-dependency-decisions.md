@@ -1,6 +1,8 @@
 # Chat dependency decisions
 
-This document freezes the minimum dependency direction for project-owned coding-agent Chat. It was reviewed on 2026-07-30. A reviewed dependency is not added until the phase that imports it. This keeps unused process, credential, terminal, and rendering code out of the application while preserving an explicit implementation choice.
+This document freezes the minimum dependency direction for project-owned coding-agent execution beneath Chat. It was reviewed on 2026-07-30. A reviewed dependency is not added until the phase that imports it. This keeps unused process, credential, terminal, and rendering code out of the application while preserving an explicit implementation choice.
+
+These decisions cover provider sessions and workspace tools, not the organizational identity of channels, direct messages, task discussions, or AI roles. The coordination layer should first reuse SQLite, Svelte, and typed Rust commands. Any new dependency still requires a separate review when its concrete need is known.
 
 Package metadata is not evidence that a package is advisory-free. The repository audits are the authoritative advisory gate. Run `pnpm -w run audit` when a reviewed package is first added, and run `pnpm -w run validate:full` for that dependency-sensitive phase. Keep package-security protections enabled.
 

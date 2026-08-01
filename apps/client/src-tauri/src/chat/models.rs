@@ -1,5 +1,6 @@
 //! Shared Chat wire models.
 
+mod channels;
 mod commands;
 mod common;
 mod error;
@@ -7,6 +8,7 @@ mod ids;
 mod provider;
 mod reads;
 
+pub use channels::*;
 pub use commands::*;
 pub use common::*;
 pub use error::*;

@@ -4,6 +4,7 @@
 //! and workspace authorization boundaries before runtime processes exist.
 
 pub mod benchmark;
+pub mod channel_commands;
 pub mod checkpoint_commands;
 pub mod checkpoints;
 pub mod config;

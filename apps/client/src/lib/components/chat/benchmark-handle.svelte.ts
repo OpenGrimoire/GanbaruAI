@@ -3,9 +3,9 @@
  * Project Chat surface through the same store and DOM paths as user interaction.
  */
 export interface ChatBenchmarkMeasurements {
-  threadIds(): string[];
+  channelIds(): string[];
   waitUntilUsable(): Promise<void>;
-  switchThread(threadId: string): Promise<void>;
+  switchChannel(channelId: string): Promise<void>;
   localSearch(query: string): number;
   streamFrames(frameCount: number): Promise<number[]>;
 }
@@ -24,8 +24,8 @@ class ChatBenchmarkHandle {
     return this.#measurements !== null;
   }
 
-  threadIds(): string[] {
-    return this.#measurements?.threadIds() ?? [];
+  channelIds(): string[] {
+    return this.#measurements?.channelIds() ?? [];
   }
 
   waitUntilUsable(): Promise<void> {
@@ -33,8 +33,8 @@ class ChatBenchmarkHandle {
       ?? Promise.reject(new Error("Project Chat is not mounted"));
   }
 
-  switchThread(threadId: string): Promise<void> {
-    return this.#measurements?.switchThread(threadId)
+  switchChannel(channelId: string): Promise<void> {
+    return this.#measurements?.switchChannel(channelId)
       ?? Promise.reject(new Error("Project Chat is not mounted"));
   }
 

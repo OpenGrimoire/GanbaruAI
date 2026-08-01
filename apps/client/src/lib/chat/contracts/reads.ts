@@ -101,6 +101,7 @@ export interface ChatTimelineItemRead {
   sequenceAnchor: number;
   kind: string;
   data: VersionedJson;
+  sourceThreadId?: ChatThreadId;
 }
 
 export interface ChatTimelineTurnRead {

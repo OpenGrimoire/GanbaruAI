@@ -37,6 +37,10 @@ const MAX_PROVIDER_CHANGED_FILE_PATH_BYTES: usize = 4_096;
 #[serde(rename_all = "camelCase")]
 pub struct SendChatTurnCommand {
     pub command: ChatCommandContext,
+    #[serde(default)]
+    pub channel_id: Option<ChatChannelId>,
+    #[serde(default)]
+    pub expected_channel_revision: Option<u64>,
     pub working_folder_id: ProjectWorkingFolderId,
     pub thread_id: Option<ChatThreadId>,
     pub new_thread_id: Option<ChatThreadId>,
@@ -57,6 +61,8 @@ pub struct SendChatTurnCommand {
 #[serde(rename_all = "camelCase")]
 pub struct SendChatTurnResult {
     pub thread: ChatThreadShellRead,
+    #[serde(default)]
+    pub channel: Option<ChatChannelRead>,
     pub dispatch: Option<TurnDispatchReceipt>,
     pub launch_error: Option<ChatError>,
 }
@@ -124,6 +130,7 @@ pub async fn chat_send_turn(
     };
     let logical_workspace = workspaces::read_workspace(&pool, &request.working_folder_id).await?;
     require_project_accepts_ai_work(&pool, &logical_workspace.project_id).await?;
+    validate_channel_send(&pool, &logical_workspace.project_id, &request).await?;
     let scope = read_active_device_scope(&app).map_err(device_state_error)?;
     let authorized = super::workspace_commands::authorize_working_folder(
         &app,
@@ -315,6 +322,12 @@ pub async fn chat_send_turn(
     };
     let result = SendChatTurnResult {
         thread: reads::read_thread_shell(&pool, &thread_id).await?,
+        channel: match request.channel_id.as_ref() {
+            Some(channel_id) => {
+                Some(super::channel_commands::read_channel(&pool, channel_id).await?)
+            }
+            None => None,
+        },
         dispatch,
         launch_error,
     };
@@ -356,6 +369,69 @@ async fn require_project_accepts_ai_work(pool: &SqlitePool, project_id: &str) ->
             true,
         )),
     }
+}
+
+async fn validate_channel_send(
+    pool: &SqlitePool,
+    project_id: &str,
+    request: &SendChatTurnCommand,
+) -> ChatResult<()> {
+    let (channel_id, expected_revision) = match (
+        request.channel_id.as_ref(),
+        request.expected_channel_revision,
+    ) {
+        (None, None) => return Ok(()),
+        (Some(channel_id), Some(expected_revision)) => (channel_id, expected_revision),
+        _ => {
+            return Err(ChatError::validation(
+                "channelId",
+                "A channel ID and expected channel revision must be provided together",
+            ))
+        }
+    };
+    let channel = super::channel_commands::read_channel(pool, channel_id).await?;
+    if channel.project_id != project_id {
+        return Err(ChatError::validation(
+            "channelId",
+            "The channel belongs to another project",
+        ));
+    }
+    if channel.archived_at.is_some() {
+        return Err(ChatError::new(
+            ChatErrorCode::Conflict,
+            "Restore the channel before sending a message",
+            true,
+        ));
+    }
+    if channel.revision != expected_revision {
+        return Err(ChatError::new(
+            ChatErrorCode::StaleRevision,
+            "The channel changed before send",
+            true,
+        ));
+    }
+    if channel.target.working_folder_id.as_ref() != Some(&request.working_folder_id)
+        || channel.target.provider_instance_id.as_ref() != Some(&request.provider_instance_id)
+        || channel.target.provider_managed_model != request.provider_managed_model
+        || channel.target.model_id != request.model_id
+        || channel.target.model_options != request.model_options
+    {
+        return Err(ChatError::new(
+            ChatErrorCode::Conflict,
+            "The channel execution target changed before send",
+            true,
+        ));
+    }
+    if let Some(thread_id) = request.thread_id.as_ref() {
+        if channel.current_thread.as_ref().map(|thread| &thread.id) != Some(thread_id) {
+            return Err(ChatError::new(
+                ChatErrorCode::Conflict,
+                "Only the channel's current execution session can be continued",
+                true,
+            ));
+        }
+    }
+    Ok(())
 }
 
 #[tauri::command]
@@ -1364,6 +1440,20 @@ async fn persist_user_turn(context: PersistUserTurnContext<'_>) -> ChatResult<()
     .execute(&mut *transaction)
     .await
     .map_err(persistence_error)?;
+    if let (Some(channel_id), Some(expected_channel_revision)) = (
+        request.channel_id.as_ref(),
+        request.expected_channel_revision,
+    ) {
+        super::channel_commands::link_channel_thread_in_transaction(
+            &mut transaction,
+            channel_id,
+            thread_id,
+            &workspace.project_id,
+            expected_channel_revision,
+            now,
+        )
+        .await?;
+    }
     transaction.commit().await.map_err(persistence_error)
 }
 
@@ -2073,11 +2163,22 @@ mod tests {
                 .await
                 .unwrap();
             let existing = read_thread_runtime_data(&pool, &thread_id).await.unwrap();
+            let channel_id = ChatChannelId::new(
+                sqlx::query_scalar::<_, String>(
+                    "SELECT id FROM chat_channels WHERE is_default = 1",
+                )
+                .fetch_one(&pool)
+                .await
+                .unwrap(),
+            )
+            .unwrap();
             let request = SendChatTurnCommand {
                 command: ChatCommandContext {
                     client_command_id: ChatCommandId::new("send-before-dispatch").unwrap(),
                     expected_thread_revision: Some(existing.revision),
                 },
+                channel_id: Some(channel_id.clone()),
+                expected_channel_revision: Some(1),
                 working_folder_id,
                 thread_id: Some(thread_id.clone()),
                 new_thread_id: None,
@@ -2148,6 +2249,13 @@ mod tests {
             .fetch_one(&pool)
             .await
             .unwrap();
+            let linked_thread: String = sqlx::query_scalar(
+                "SELECT thread_id FROM chat_channel_sessions WHERE channel_id = ? AND is_current = 1",
+            )
+            .bind(channel_id.as_str())
+            .fetch_one(&pool)
+            .await
+            .unwrap();
             assert_eq!(stored, "  Preserve this exact prompt\n");
             assert_eq!(
                 serde_json::from_str::<serde_json::Value>(&context).unwrap()["attachments"][0]
@@ -2156,6 +2264,7 @@ mod tests {
             );
             assert_eq!(receipt_state, "accepted");
             assert_eq!(turn_state, "pending");
+            assert_eq!(linked_thread, "thread-1");
         });
     }
 

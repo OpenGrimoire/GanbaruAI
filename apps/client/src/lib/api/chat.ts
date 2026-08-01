@@ -2,6 +2,10 @@ import { invoke } from "@tauri-apps/api/core";
 import { ensureDbUrl } from "$lib/api/db";
 import type {
   ChatBehaviorPreferences,
+  ChatChannelId,
+  ChatChannelRead,
+  ChatChannelSessionRead,
+  ChatChannelTimelinePageRead,
   ChatDiagnosticPreferences,
   ChatDiagnosticsRead,
   ChatStopAllResult,
@@ -33,6 +37,9 @@ import type {
   ApplyChatReviewActionResult,
   ChatExecutionEnvironmentRead,
   CreateChatWorktreeRequest,
+  CreateChatChannelRequest,
+  UpdateChatChannelDetailsRequest,
+  UpdateChatChannelTargetRequest,
   CreateChatReviewCommentRequest,
   ChatRestorePreviewRead,
   ChatRestoreResultRead,
@@ -76,6 +83,10 @@ import type {
 } from "$lib/chat/contracts";
 import {
   parseChatProjectShells,
+  parseChatChannel,
+  parseChatChannels,
+  parseChatChannelSessions,
+  parseChatChannelTimelinePage,
   parseChatDiagnosticPreferences,
   parseChatDiagnosticsRead,
   parseChatStopAllResult,
@@ -961,6 +972,97 @@ export async function listChatProjectShells(): Promise<ChatProjectShellRead[]> {
   return parseChatProjectShells(await invoke<unknown>("chat_list_project_shells", { dbUrl: await ensureDbUrl() }));
 }
 
+export async function listChatChannels(projectId: string, archived = false): Promise<ChatChannelRead[]> {
+  return parseChatChannels(await invoke<unknown>("chat_list_channels", {
+    dbUrl: await ensureDbUrl(), projectId, archived,
+  }));
+}
+
+export async function listChatNavigationChannels(): Promise<ChatChannelRead[]> {
+  return parseChatChannels(await invoke<unknown>("chat_list_navigation_channels", {
+    dbUrl: await ensureDbUrl(),
+  }));
+}
+
+export async function searchChatChannels(
+  projectId: string,
+  query: string,
+  archived = false,
+  limit = 100,
+): Promise<ChatChannelRead[]> {
+  return parseChatChannels(await invoke<unknown>("chat_search_channels", {
+    dbUrl: await ensureDbUrl(), projectId, query, archived, limit,
+  }));
+}
+
+export async function readChatChannel(channelId: ChatChannelId): Promise<ChatChannelRead> {
+  return parseChatChannel(await invoke<unknown>("chat_read_channel", {
+    dbUrl: await ensureDbUrl(), channelId,
+  }));
+}
+
+export async function createChatChannel(request: CreateChatChannelRequest): Promise<ChatChannelRead> {
+  return parseChatChannel(await invoke<unknown>("chat_create_channel", {
+    dbUrl: await ensureDbUrl(), request,
+  }));
+}
+
+export async function updateChatChannelDetails(
+  request: UpdateChatChannelDetailsRequest,
+): Promise<ChatChannelRead> {
+  return parseChatChannel(await invoke<unknown>("chat_update_channel_details", {
+    dbUrl: await ensureDbUrl(), request,
+  }));
+}
+
+export async function updateChatChannelTarget(
+  request: UpdateChatChannelTargetRequest,
+): Promise<ChatChannelRead> {
+  return parseChatChannel(await invoke<unknown>("chat_update_channel_target", {
+    dbUrl: await ensureDbUrl(), request,
+  }));
+}
+
+export async function archiveChatChannel(
+  channelId: ChatChannelId,
+  expectedRevision: number,
+): Promise<ChatChannelRead> {
+  return parseChatChannel(await invoke<unknown>("chat_archive_channel", {
+    dbUrl: await ensureDbUrl(), channelId, expectedRevision,
+  }));
+}
+
+export async function restoreChatChannel(
+  channelId: ChatChannelId,
+  expectedRevision: number,
+): Promise<ChatChannelRead> {
+  return parseChatChannel(await invoke<unknown>("chat_restore_channel", {
+    dbUrl: await ensureDbUrl(), channelId, expectedRevision,
+  }));
+}
+
+export async function setChatChannelRead(channelId: ChatChannelId, read: boolean): Promise<ChatChannelRead> {
+  return parseChatChannel(await invoke<unknown>("chat_set_channel_read", {
+    dbUrl: await ensureDbUrl(), channelId, read,
+  }));
+}
+
+export async function listChatChannelSessions(channelId: ChatChannelId): Promise<ChatChannelSessionRead[]> {
+  return parseChatChannelSessions(await invoke<unknown>("chat_list_channel_sessions", {
+    dbUrl: await ensureDbUrl(), channelId,
+  }));
+}
+
+export async function readChatChannelTimelinePage(
+  channelId: ChatChannelId,
+  cursor: string | null = null,
+  limit = 100,
+): Promise<ChatChannelTimelinePageRead> {
+  return parseChatChannelTimelinePage(await invoke<unknown>("chat_read_channel_timeline_page", {
+    dbUrl: await ensureDbUrl(), channelId, cursor, limit,
+  }));
+}
+
 export async function listChatThreads(
   workingFolderId: ProjectWorkingFolderId | null,
   archived: boolean,
@@ -1210,6 +1312,7 @@ export async function sendChatTurn(request: SendChatTurnCommand): Promise<SendCh
   const record = value as Record<string, unknown>;
   return {
     thread: parseChatThreadShell(record.thread),
+    channel: record.channel === null ? null : parseChatChannel(record.channel),
     dispatch: record.dispatch === null ? null : parseTurnDispatchReceipt(record.dispatch, "Chat send response.dispatch"),
     launchError: record.launchError === null ? null : parseChatError(record.launchError),
   };

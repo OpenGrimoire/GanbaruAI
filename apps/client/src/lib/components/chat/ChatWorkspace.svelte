@@ -1,15 +1,19 @@
 <script lang="ts">
-  import { onMount, tick } from "svelte";
+  import { onMount, tick, untrack } from "svelte";
   import { quintOut } from "svelte/easing";
   import { slide } from "svelte/transition";
   import { listen } from "@tauri-apps/api/event";
+  import Archive from "@lucide/svelte/icons/archive";
+  import ArchiveRestore from "@lucide/svelte/icons/archive-restore";
+  import ArrowLeft from "@lucide/svelte/icons/arrow-left";
   import Command from "@lucide/svelte/icons/command";
+  import Hash from "@lucide/svelte/icons/hash";
   import MessageSquarePlus from "@lucide/svelte/icons/message-square-plus";
   import PanelBottom from "@lucide/svelte/icons/panel-bottom";
   import PanelRight from "@lucide/svelte/icons/panel-right";
   import Search from "@lucide/svelte/icons/search";
   import Settings from "@lucide/svelte/icons/settings";
-  import { chatHeaderActionInset, filterThreadTitles, nextThreadIndex } from "$lib/chat/shell-model";
+  import { chatHeaderActionInset, nextThreadIndex } from "$lib/chat/shell-model";
   import { loadChatCodeEditorRuntime } from "$lib/chat/code-editor-loader";
   import { inspectorFocusAction } from "$lib/chat/inspector-model";
   import {
@@ -23,9 +27,10 @@
     panelWidthFromKey,
     type ChatLayoutDecision,
   } from "$lib/chat/responsive-layout";
-  import type { ChatPanelPreferences } from "$lib/chat/contracts";
+  import type { ChatChannelRead, ChatPanelPreferences } from "$lib/chat/contracts";
   import { parseChatChangeNotification } from "$lib/chat/validation";
   import { hasOnlyShortcutModifier } from "$lib/keyboard-shortcuts";
+  import { formatDateTime } from "$lib/i18n/formatters";
   import { getLocalization } from "$lib/i18n/translator.svelte";
   import { getChat } from "$lib/stores/chat.svelte";
   import { getProjects } from "$lib/stores/projects.svelte";
@@ -35,13 +40,14 @@
   import ChatComposer from "./ChatComposer.svelte";
   import ChatFirstUse from "./ChatFirstUse.svelte";
   import ChatHeaderActions from "./ChatHeaderActions.svelte";
-  import ChatThreadRail from "./ChatThreadRail.svelte";
+  import ChatChannelRail from "./ChatChannelRail.svelte";
   import ChatTimeline from "./ChatTimeline.svelte";
   import ChatWorkspaceObserver from "./ChatWorkspaceObserver.svelte";
   import ChatWorkspacePanel from "./ChatWorkspacePanel.svelte";
   import { getChatBenchmarkHandle } from "./benchmark-handle.svelte";
 
-  const { t } = getLocalization();
+  const localization = getLocalization();
+  const { t } = localization;
   const chat = getChat();
   const projects = getProjects();
   const settings = getSettingsLauncher();
@@ -101,6 +107,15 @@
     bottomPanelOpen && layout.variant !== "minimum_recovery",
   );
   let loadError = $state<string | null>(null);
+  let archiveQuery = $state("");
+  let archiveRestoringId = $state<string | null>(null);
+  let archiveError = $state<string | null>(null);
+  const filteredArchivedChannels = $derived(chat.archivedChannels.filter((channel) => {
+    const normalized = archiveQuery.trim().toLocaleLowerCase();
+    return !normalized
+      || channel.name.toLocaleLowerCase().includes(normalized)
+      || channel.topic.toLocaleLowerCase().includes(normalized);
+  }));
   let initialLoadingVisible = $state(false);
   let layoutError = $state<string | null>(null);
   let politeAnnouncement = $state("");
@@ -179,21 +194,24 @@
     window.addEventListener("ganbaru-ai:chat-open-review", openWorkspaceTool);
     window.addEventListener("ganbaru-ai:chat-open-file", openWorkspaceTool);
     const unregisterBenchmark = getChatBenchmarkHandle().register({
-      threadIds: () => chat.activeThreads.map((thread) => thread.id),
-      waitUntilUsable: () => waitForBenchmarkState(() => !chat.loading && chat.activeThreads.length > 0),
-      switchThread: async (threadId) => {
-        chat.selectThread(threadId);
+      channelIds: () => chat.activeChannels.map((channel) => channel.id),
+      waitUntilUsable: () => waitForBenchmarkState(() => !chat.loading && chat.activeChannels.length > 0),
+      switchChannel: async (channelId) => {
+        await chat.selectChannel(channelId);
         await waitForBenchmarkState(() => (
-          chat.selectedThreadId === threadId
+          chat.selectedChannelId === channelId
           && !chat.timelineLoading
           && chat.timelineItems.length > 0
         ));
         await nextAnimationFrame();
       },
-      localSearch: (query) => filterThreadTitles(
-        [...chat.activeThreads, ...chat.archivedThreads],
-        query,
-      ).length,
+      localSearch: (query) => {
+        const normalized = query.trim().toLocaleLowerCase();
+        return [...chat.activeChannels, ...chat.archivedChannels].filter((channel) => (
+          channel.name.toLocaleLowerCase().includes(normalized)
+          || channel.topic.toLocaleLowerCase().includes(normalized)
+        )).length;
+      },
       streamFrames: (frameCount) => measureBenchmarkStreamFrames(frameCount),
     });
     return () => {
@@ -220,7 +238,14 @@
 
   $effect(() => {
     const projectId = projects.selectedProjectId;
-    if (!chat.loading) void chat.syncProjectSelection(projectId);
+    if (chat.loading) return;
+    untrack(() => {
+      void chat.syncProjectSelection(projectId).catch((error: unknown) => {
+        if (projects.selectedProjectId === projectId) {
+          loadError = error instanceof Error ? error.message : String(error);
+        }
+      });
+    });
   });
 
   $effect(() => {
@@ -239,6 +264,18 @@
 
   function nextAnimationFrame(): Promise<number> {
     return new Promise((resolve) => requestAnimationFrame(resolve));
+  }
+
+  async function restoreArchivedChannel(channel: ChatChannelRead): Promise<void> {
+    archiveRestoringId = channel.id;
+    archiveError = null;
+    try {
+      await chat.restoreChannel(channel);
+    } catch (cause: unknown) {
+      archiveError = cause instanceof Error ? cause.message : String(cause);
+    } finally {
+      archiveRestoringId = null;
+    }
   }
 
   function refreshHeaderActionInset(): void {
@@ -449,8 +486,8 @@
     if (isEditingTarget(event.target)) return;
     if (hasOnlyShortcutModifier(event) && event.key.toLowerCase() === "n") {
       event.preventDefault();
-      if (chat.selectedWorkingFolderId) chat.newDraft(chat.selectedWorkingFolderId);
-      else chat.railOpen = true;
+      chat.railOpen = true;
+      window.dispatchEvent(new Event("ganbaru-ai:chat-new-channel"));
       return;
     }
     if (hasOnlyShortcutModifier(event) && event.key.toLowerCase() === "f") {
@@ -466,9 +503,10 @@
     }
     if (event.altKey && !event.ctrlKey && !event.metaKey && ["ArrowDown", "ArrowUp"].includes(event.key)) {
       event.preventDefault();
-      const index = chat.activeThreads.findIndex((thread) => thread.id === chat.selectedThreadId);
-      const next = nextThreadIndex(index, chat.activeThreads.length, event.key === "ArrowDown" ? "next" : "previous");
-      if (next >= 0) chat.selectThread(chat.activeThreads[next].id);
+      const index = chat.activeChannels.findIndex((channel) => channel.id === chat.selectedChannelId);
+      const next = nextThreadIndex(index, chat.activeChannels.length, event.key === "ArrowDown" ? "next" : "previous");
+      const channel = chat.activeChannels[next];
+      if (channel) void chat.selectChannel(channel.id);
       return;
     }
     if (hasOnlyShortcutModifier(event) && event.key.toLowerCase() === "b") {
@@ -915,24 +953,61 @@
     />
   </div>
   <div bind:this={railShell} class="chat-rail-shell" class:closed={!chat.railOpen} role={layout.railPresentation === "sheet" && chat.railOpen ? "dialog" : undefined} aria-modal={layout.railPresentation === "sheet" && chat.railOpen ? "true" : undefined} aria-label={layout.railPresentation === "sheet" && chat.railOpen ? t("chat.title") : undefined} onkeydown={(event) => { if (layout.railPresentation === "sheet") handleSheetKeydown(event, () => { chat.railOpen = false; }); }}>
-    <ChatThreadRail expanded={chat.railOpen} showCollapsedStrip={layout.railPresentation === "column"} onExpand={() => { chat.railOpen = true; }} onCollapse={() => { chat.railOpen = false; }} />
+    <ChatChannelRail expanded={chat.railOpen} showCollapsedStrip={layout.railPresentation === "column"} onExpand={() => { chat.railOpen = true; }} onCollapse={() => { chat.railOpen = false; }} />
   </div>
   <main class="main-shell relative flex min-w-0 flex-col">
         {#if loadError}
           <div role="alert" class="m-auto max-w-md p-4 text-center text-sm text-destructive">{loadError}<div><button type="button" class="chat-secondary-button mt-3" onclick={() => { loadError = null; void chat.reload().catch((error) => { loadError = error instanceof Error ? error.message : String(error); }); }}>{t("common.retry")}</button></div></div>
-        {:else if chat.selectedThread}
+        {:else if chat.channelArchiveOpen}
+          <section class="flex min-w-0 flex-1 flex-col overflow-hidden">
+            <div class="flex shrink-0 items-center gap-2 border-b border-border px-4 py-3 sm:px-6">
+              <button type="button" class="rounded-md p-1.5 text-muted-foreground hover:bg-accent hover:text-foreground" aria-label={t("chat.channels.backToChannel")} onclick={() => chat.closeChannelArchive()}><ArrowLeft size={16} /></button>
+              <Archive size={16} class="text-muted-foreground" />
+              <h2 class="min-w-0 flex-1 truncate text-[1.05rem] font-semibold">{t("chat.channels.archive")}</h2>
+            </div>
+            <div class="shrink-0 px-4 py-3 sm:px-6">
+              <label class="flex max-w-xl items-center gap-1.5 rounded-md border border-border bg-background px-2 py-1.5"><Search size={16} class="text-muted-foreground" /><input class="min-w-0 flex-1 bg-transparent text-[0.866667rem] outline-none" type="search" bind:value={archiveQuery} placeholder={t("chat.channels.searchArchive")} aria-label={t("chat.channels.searchArchive")} /></label>
+            </div>
+            <div class="min-h-0 flex-1 overflow-auto px-4 pb-5 sm:px-6">
+              {#if archiveError}<p class="py-2 text-sm text-destructive" role="alert">{archiveError}</p>{/if}
+              {#if chat.archivedChannelsError}<p class="py-2 text-sm text-destructive" role="alert">{chat.archivedChannelsError}</p>{/if}
+              {#if chat.archivedChannelsLoading}
+                <p class="py-2 text-sm text-muted-foreground" role="status">{t("common.loading")}</p>
+              {:else if filteredArchivedChannels.length === 0}
+                <p class="py-2 text-sm text-muted-foreground">{archiveQuery.trim() ? t("chat.channels.noArchiveResults") : t("chat.channels.emptyArchive")}</p>
+              {:else}
+                <div class="flex max-w-3xl flex-col gap-1">
+                  {#each filteredArchivedChannels as channel (channel.id)}
+                    <div class="flex min-w-0 flex-wrap items-start gap-3 rounded-md px-2 py-2 hover:bg-accent/70">
+                      <Hash size={16} class="mt-0.5 shrink-0 text-muted-foreground" />
+                      <div class="min-w-32 flex-1"><div class="truncate text-sm font-medium">{channel.name}</div><div class="mt-0.5 truncate text-xs text-muted-foreground">{channel.topic || t("chat.channels.noTopic")} · {formatDateTime(localization.locale, Date.parse(channel.archivedAt ?? channel.updatedAt), { dateStyle: "medium", timeStyle: "short" })}</div></div>
+                      <button type="button" class="flex shrink-0 items-center gap-1.5 rounded-md border border-border bg-background px-2 py-1.5 text-xs hover:bg-accent disabled:opacity-60" disabled={archiveRestoringId === channel.id} onclick={() => void restoreArchivedChannel(channel)}><ArchiveRestore size={15} />{t("chat.restore")}</button>
+                    </div>
+                  {/each}
+                </div>
+              {/if}
+            </div>
+          </section>
+        {:else if chat.selectedChannel}
           <div class="chat-conversation-shell">
             <ChatTimeline bottomInsetPx={composerDockHeight} />
-            {#if !chat.selectedThread.archivedAt}
+            {#if chat.timelineItems.length === 0 && !chat.timelineLoading}
+              <div class="pointer-events-none absolute inset-x-0 top-[18%] z-1 mx-auto flex max-w-lg flex-col items-center px-6 text-center">
+                <span class="grid size-11 place-items-center rounded-xl bg-accent text-muted-foreground"><Hash size={21} /></span>
+                <h2 class="mt-3 text-base font-semibold">{t("chat.channels.welcomeTitle", chat.selectedChannel.name)}</h2>
+                <p class="mt-1 text-sm leading-relaxed text-muted-foreground">{chat.selectedChannel.topic || t("chat.channels.welcomeDescription")}</p>
+              </div>
+            {/if}
+            {#if !chat.selectedChannel.archivedAt}
               <div bind:this={composerDockElement} class="chat-composer-dock">
                 <div class="chat-composer-backdrop" aria-hidden="true"></div>
                 <ChatComposer />
               </div>
             {/if}
           </div>
-        {:else if !chat.loading}
+        {:else if !chat.loading && !chat.channelsLoading}
           <ChatFirstUse />
-        {:else if initialLoadingVisible}
+        {:else if initialLoadingVisible || chat.channelsLoading}
           <div class="m-auto text-sm text-muted-foreground" role="status">{t("common.loading")}</div>
         {/if}
   </main>
@@ -960,7 +1035,7 @@
       <button type="button" class="absolute inset-0" aria-label={t("chat.commandMenu.close")} onclick={() => { commandMenuOpen = false; }}></button>
       <div bind:this={commandDialog} class="relative w-full max-w-md rounded-lg border border-border bg-popover p-2 shadow-2xl" role="dialog" aria-modal="true" aria-label={t("chat.commandMenu.title")} tabindex="-1" onkeydown={(event) => trapFocus(event)}>
         <div class="flex items-center gap-2 border-b border-border px-2 py-2 text-xs text-muted-foreground"><Command size={14} />{t("chat.commandMenu.title")}</div>
-        <button type="button" class="chat-command" onclick={() => { commandMenuOpen = false; if (chat.selectedWorkingFolderId) chat.newDraft(chat.selectedWorkingFolderId); }}><MessageSquarePlus size={14} />{t("chat.newChat")}</button>
+        <button type="button" class="chat-command" onclick={() => { commandMenuOpen = false; chat.railOpen = true; window.dispatchEvent(new Event("ganbaru-ai:chat-new-channel")); }}><MessageSquarePlus size={14} />{t("chat.channels.createTitle")}</button>
         <button type="button" class="chat-command" onclick={() => { commandMenuOpen = false; chat.railOpen = true; window.dispatchEvent(new Event("ganbaru-ai:chat-focus-search")); }}><Search size={14} />{t("chat.search")}</button>
         <button type="button" class="chat-command" onclick={() => { commandMenuOpen = false; toggleBottomPanel(); }}><PanelBottom size={14} />{bottomPanelOpen ? t("chat.closeBottomPanel") : t("chat.openBottomPanel")}</button>
         <button type="button" class="chat-command" onclick={() => { commandMenuOpen = false; chat.inspectorOpen = !chat.inspectorOpen; }}><PanelRight size={14} />{t("chat.openInspector")}</button>
