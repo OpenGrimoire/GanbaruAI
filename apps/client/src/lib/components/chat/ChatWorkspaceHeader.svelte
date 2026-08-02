@@ -20,6 +20,7 @@
   import ProjectNavigator from "$lib/components/projects/ProjectNavigator.svelte";
   import WorkspaceBreadcrumbTerminalIcon from "$lib/components/WorkspaceBreadcrumbTerminalIcon.svelte";
   import ChatTitleEditor from "./ChatTitleEditor.svelte";
+  import ChatParticipantAvatar from "./ChatParticipantAvatar.svelte";
 
   let {
     explorerExpanded: _explorerExpanded,
@@ -58,6 +59,7 @@
   const selectedGroup = $derived(projects.selectedGroup);
   const selectedChannel = $derived(chat.selectedChannel);
   const selectedFolder = $derived(chat.selectedWorkingFolder);
+  const channelMembers = $derived(selectedChannel?.memberships.filter((membership) => membership.removedAt === null) ?? []);
 
   function triggerForMode(mode: ProjectNavigatorPanelMode): HTMLButtonElement | null {
     return mode === "groups" ? groupTriggerElement : projectTriggerElement;
@@ -156,6 +158,12 @@
   <div class="flex-1"></div>
   {#if actionError}<p role="alert" class="max-w-40 truncate text-[0.666667rem] text-destructive">{actionError}</p>{/if}
   <div class="flex shrink-0 items-center gap-1">
+    {#if selectedChannel}
+      <button type="button" class="member-action" aria-label={t("chat.organization.manageMembers")} onclick={() => window.dispatchEvent(new Event("ganbaru-ai:chat-manage-members"))}>
+        <span class="member-avatars">{#each channelMembers.slice(0, 3) as membership (membership.participant.id)}<ChatParticipantAvatar participant={membership.participant} size={20} />{/each}</span>
+        <span>{t("chat.organization.members", channelMembers.length)}</span>
+      </button>
+    {/if}
     {#if selectedFolder?.bindingStatus === "available"}<button type="button" class="chat-header-action" title={t("chat.openFolder")} onclick={() => run(() => chat.openWorkingFolder(selectedFolder.workingFolder.id))}><FolderOpen size={14} /><span class="hidden @min-[760px]:inline">{t("chat.header.open")}</span></button>{/if}
     {#if selectedFolder?.currentBranch}<span class="chat-branch" title={t("chat.header.branch", selectedFolder.currentBranch)}><GitBranch size={13} /><span>{selectedFolder.currentBranch}</span></span>{/if}
   </div>
@@ -171,5 +179,7 @@
   .chat-header-action:hover { background:var(--accent);color:var(--foreground); }
   .chat-branch { display:none;min-width:0;max-width:9rem;align-items:center;gap:0.3rem;border-radius:0.375rem;padding:0.25rem 0.4rem;color:var(--muted-foreground);font-size:0.666667rem; }
   .chat-branch span { overflow:hidden;text-overflow:ellipsis;white-space:nowrap; }
+  .member-action { display:flex; min-height:1.75rem; align-items:center; gap:0.35rem; border-radius:0.375rem; padding-inline:0.4rem; color:var(--muted-foreground); font-size:0.68rem; }.member-action:hover { background:var(--accent); color:var(--foreground); }
+  .member-avatars { display:flex; }.member-avatars :global(.participant-avatar + .participant-avatar) { margin-left:-0.35rem; }
   @container chat-shell (min-width:760px) { .chat-branch { display:inline-flex; } }
 </style>

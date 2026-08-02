@@ -110,7 +110,7 @@ The deeper coordination model is defined in [Agent coordination](agent-coordinat
 
 The mature task model adds or normalizes:
 
-- Stable participant, assignee, reviewer, and AI-role identities instead of local-profile placeholders.
+- Stable participant, assignee, reviewer, and AI-teammate identities instead of local-profile placeholders.
 - Acceptance criteria and explicit deliverable types.
 - Estimate ranges, confidence, and assumptions in addition to the current single-minute estimate.
 - Target dates distinct from hard deadlines and Calendar reservations.

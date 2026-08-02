@@ -33,7 +33,7 @@ The project lifecycle is presented as a sequential set of phases. NPCs in the ev
 
 Free-form ideation with structured prompts: write ideas, choose the best ones or combine them, iterate until a sufficiently attractive idea emerges, and preserve why alternatives were discarded. Discard reasons can include outside current capabilities, too expensive, already exists, poor fit, weak demand, excessive risk, wrong timing, or replaced by a stronger approach.
 
-Ideas remain Notes or structured candidates until the person promotes one into a project objective. An AI role can research and compare candidates, but it does not silently discard a user-authored idea or turn it into committed work.
+Ideas remain Notes or structured candidates until the person promotes one into a project objective. An AI teammate can research and compare candidates, but it does not silently discard a user-authored idea or turn it into committed work.
 
 ### Phase 2: Forging the idea (evaluation)
 
@@ -88,7 +88,7 @@ Review-ready work includes a structured packet with deliverables, acceptance-cri
 
 ## Assignment and review
 
-Assignments can target the local person, a future human collaborator, a stable AI role, or a bounded agent run. Reviewer assignment is separate from worker assignment. A task can require a human reviewer, an AI reviewer, both in sequence, or no separate review.
+Assignments can target the local person, a future human collaborator, a persistent AI teammate, or a bounded agent run. Reviewer assignment is separate from worker assignment. A task can require a human reviewer, an AI reviewer, both in sequence, or no separate review.
 
 The manager tracks work waiting for review as capacity, not as an invisible final step. It records a review target date, current reviewer, late state, and reason when known. Reasons can include reviewer unavailable, requested changes, failing acceptance criteria, dependency changed, breaking change discovered, missing evidence, environment failure, or scope expansion.
 
@@ -140,7 +140,7 @@ Chat and Projects expose attention views for approvals, blockers, review-ready w
 
 Beyond the lifecycle, the system includes guided forms for established methodologies such as reverse brainstorming, value proposition canvas, business model canvas, SWOT analysis, and market research frameworks. Each is structured and actionable rather than a static template that the user has to interpret.
 
-Templates can suggest channels, Notes, roles, tasks, review requirements, and project defaults, but they create only the minimum useful structure. They do not create a channel for every phase, task, or status.
+Templates can suggest channels, Notes, teammates, tasks, review requirements, and project defaults, but they create only the minimum useful structure. They do not create a channel for every phase, task, or status.
 
 ## Software repository integration
 

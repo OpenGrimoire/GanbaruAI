@@ -61,6 +61,9 @@
   let {
     active = true,
     source = null,
+    sourceThreadId = null,
+    sourceWorkingFolderId = null,
+    sourceExecutionEnvironmentId = null,
     legacyScope = "current_turn",
     legacyTurnId = null,
     selectedFile = null,
@@ -71,6 +74,9 @@
   }: {
     active?: boolean;
     source?: ReviewDiffSource | null;
+    sourceThreadId?: string | null;
+    sourceWorkingFolderId?: string | null;
+    sourceExecutionEnvironmentId?: string | null;
     legacyScope?: "current_turn" | "entire_thread";
     legacyTurnId?: string | null;
     selectedFile?: string | null;
@@ -125,10 +131,15 @@
   let workspaceScopeKey = "";
   let reviewRefreshPending = false;
   let commentAttachmentIds: Record<string, string> = $state({});
+  let destroyed = false;
 
-  const threadId = $derived(chat.selectedThreadId);
-  const workingFolderId = $derived(chat.selectedWorkingFolderId ?? chat.draftWorkingFolderId);
-  const executionEnvironmentId = $derived(chat.selectedExecutionEnvironmentId);
+  const threadId = $derived(sourceThreadId ?? chat.selectedThreadId);
+  const workingFolderId = $derived(sourceThreadId
+    ? sourceWorkingFolderId
+    : chat.selectedWorkingFolderId ?? chat.draftWorkingFolderId);
+  const executionEnvironmentId = $derived(sourceThreadId
+    ? sourceExecutionEnvironmentId
+    : chat.selectedExecutionEnvironmentId);
   const effectiveSource = $derived.by<ReviewDiffSource>(() => source
     ?? (threadId
       ? legacyReviewSource(legacyScope, legacyTurnId)
@@ -223,6 +234,7 @@
     if (panel) observer.observe(panel);
     if (content) observer.observe(content);
     return () => {
+      destroyed = true;
       observer.disconnect();
       if (workspaceRefreshTimer !== null) window.clearTimeout(workspaceRefreshTimer);
     };
@@ -573,11 +585,11 @@
   async function loadComments(persistedThreadId: string, key: string, request: number): Promise<void> {
     try {
       const nextComments = await chatApi.listChatReviewComments(persistedThreadId, includeResolved);
-      if (request === commentsRequest && commentsKey === key && threadId === persistedThreadId) {
+      if (!destroyed && request === commentsRequest && commentsKey === key && threadId === persistedThreadId) {
         comments = nextComments;
       }
     } catch (reason: unknown) {
-      if (request === commentsRequest && commentsKey === key && threadId === persistedThreadId) {
+      if (!destroyed && request === commentsRequest && commentsKey === key && threadId === persistedThreadId) {
         error = message(reason);
       }
     }
@@ -916,7 +928,7 @@
   }
 
   function reviewScopeMatches(scope: string): boolean {
-    return reviewScopeToken() === scope;
+    return !destroyed && reviewScopeToken() === scope;
   }
 
   function stableHash(value: string): number {

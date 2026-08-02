@@ -2,7 +2,7 @@
   import { untrack } from "svelte";
   import Hash from "@lucide/svelte/icons/hash";
   import LoaderCircle from "@lucide/svelte/icons/loader-circle";
-  import type { ChatChannelRead, ChatChannelTarget } from "$lib/chat/contracts";
+  import type { ChatChannelRead } from "$lib/chat/contracts";
   import type { ChatSidebarSection } from "$lib/chat/channel-sections";
   import CustomSelect from "$lib/components/settings/CustomSelect.svelte";
   import { getLocalization } from "$lib/i18n/translator.svelte";
@@ -28,40 +28,15 @@
   const { t } = getLocalization();
   let currentChannel = $state(untrack(() => channel));
   const projectId = $derived(currentChannel?.projectId ?? projects.selectedProjectId ?? "");
-  const projectFolders = $derived(chat.workingFolders.filter((entry) => (
-    entry.workingFolder.projectId === projectId && entry.workingFolder.archivedAt === null
-  )));
   const sectionOptions = $derived([
     { value: "", label: t("chat.channels.defaultSection") },
     ...sections.map((section) => ({ value: section.id, label: section.name })),
   ]);
-  const folderOptions = $derived(projectFolders.map((folder) => ({
-    value: folder.workingFolder.id,
-    label: folder.workingFolder.displayName,
-  })));
   let name = $state(untrack(() => channel?.name ?? ""));
   let topic = $state(untrack(() => channel?.topic ?? ""));
   let sectionId = $state(untrack(() => initialSectionId ?? ""));
-  let workingFolderId = $state(untrack(() => channel?.target.workingFolderId ?? ""));
   let saving = $state(false);
   let error = $state<string | null>(null);
-
-  $effect(() => {
-    if (workingFolderId || projectFolders.length === 0) return;
-    const managed = projectFolders.find((entry) => entry.workingFolder.kind === "managed") ?? projectFolders[0];
-    workingFolderId = managed?.workingFolder.id ?? "";
-  });
-
-  function target(): ChatChannelTarget {
-    const existing = currentChannel?.target;
-    return {
-      workingFolderId: workingFolderId || null,
-      providerInstanceId: existing?.providerInstanceId ?? null,
-      providerManagedModel: existing?.providerManagedModel ?? true,
-      modelId: existing?.modelId ?? null,
-      modelOptions: existing?.modelOptions ?? [],
-    };
-  }
 
   async function save(): Promise<void> {
     if (!projectId || saving) return;
@@ -70,9 +45,7 @@
     try {
       let saved: ChatChannelRead;
       if (currentChannel) {
-        const details = await chat.updateChannelDetails(currentChannel, name, topic);
-        currentChannel = details;
-        saved = await chat.updateChannelTarget(details, target());
+        saved = await chat.updateChannelDetails(currentChannel, name, topic);
         currentChannel = saved;
       } else {
         saved = await chat.createChannel({
@@ -80,7 +53,6 @@
           projectId,
           name,
           topic,
-          target: target(),
         });
       }
       onSaved(saved, sectionId || null);
@@ -113,20 +85,16 @@
         <span>{t("chat.channels.topic")}</span>
         <textarea class="min-h-18 resize-y rounded-md border border-border bg-background px-2 py-1.5 font-normal outline-none" bind:value={topic} maxlength="250"></textarea>
       </label>
-      <div class="grid gap-1 text-xs font-medium">
+      <div class="grid gap-1 text-xs font-medium sm:col-span-2">
         <span>{t("chat.channels.section")}</span>
         <CustomSelect inline class="w-full" value={sectionId} options={sectionOptions} ariaLabel={t("chat.channels.section")} onChange={(value) => { sectionId = value; }} />
-      </div>
-      <div class="grid gap-1 text-xs font-medium">
-        <span>{t("chat.channels.workingFolder")}</span>
-        <CustomSelect inline class="w-full" value={workingFolderId} options={folderOptions} ariaLabel={t("chat.channels.workingFolder")} onChange={(value) => { workingFolderId = value; }} />
       </div>
     </div>
 
     {#if error}<p class="text-xs text-destructive" role="alert">{error}</p>{/if}
     <footer class="flex justify-end gap-2">
       <button type="button" class="chat-secondary-button" onclick={onCancel}>{t("chat.channels.cancel")}</button>
-      <button type="submit" class="chat-primary-button" disabled={saving || !name.trim() || !workingFolderId}>{#if saving}<LoaderCircle size={14} class="animate-spin" />{/if}{currentChannel ? t("chat.channels.save") : t("chat.channels.create")}</button>
+      <button type="submit" class="chat-primary-button" disabled={saving || !name.trim()}>{#if saving}<LoaderCircle size={14} class="animate-spin" />{/if}{currentChannel ? t("chat.channels.save") : t("chat.channels.create")}</button>
     </footer>
   </form>
 </div>

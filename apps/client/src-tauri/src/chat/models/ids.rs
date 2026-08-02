@@ -76,6 +76,17 @@ macro_rules! chat_identifier {
 
 chat_identifier!(ProjectWorkingFolderId, "project working folder ID");
 chat_identifier!(ChatChannelId, "Chat channel ID");
+chat_identifier!(ChatParticipantId, "Chat participant ID");
+chat_identifier!(ChatConversationId, "Chat conversation ID");
+chat_identifier!(ChatConversationItemId, "Chat conversation item ID");
+chat_identifier!(ChatMessageRevisionId, "Chat message revision ID");
+chat_identifier!(ChatReplyThreadId, "Chat reply thread ID");
+chat_identifier!(
+    ChatTeammatePolicyRevisionId,
+    "Chat teammate policy revision ID"
+);
+chat_identifier!(ChatWorkAssignmentId, "Chat work assignment ID");
+chat_identifier!(ChatAgentRunId, "Chat agent run ID");
 chat_identifier!(ChatThreadId, "Chat thread ID");
 chat_identifier!(ChatTurnId, "Chat turn ID");
 chat_identifier!(ChatMessageId, "Chat message ID");

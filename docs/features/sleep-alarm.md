@@ -36,4 +36,4 @@ The system records the time from when the alarm was set to when it was dismissed
 - **Diary:** triggers morning and evening entries.
 - **Music:** triggers morning playlist on alarm dismissal.
 - **Doomscrolling:** activates morning rules immediately on dismissal.
-- **Chat and AI roles:** sleep duration can inform private personal energy baselines and scheduling suggestions. It is not shared with project participants.
+- **Chat and AI teammates:** sleep duration can inform private personal energy baselines and scheduling suggestions. It is not shared with project participants.

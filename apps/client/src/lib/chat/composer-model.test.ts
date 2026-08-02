@@ -7,6 +7,8 @@ import {
   composerModeCommand,
   composerTokenTrigger,
   contextMeter,
+  copyModelOptionSelections,
+  copyVersionedJson,
   defaultModelOptions,
   filterPromptCatalog,
   filterWorkspacePaths,
@@ -197,6 +199,22 @@ describe("Chat composer model", () => {
       provider("codex-offline", "codex", [model("gpt-5.6-sol")], "transport_unavailable"),
       claude,
     ])?.provider.configuration.instanceId).toBe("claude-local");
+  });
+
+  it("copies reactive model option proxies before sending setup commands", () => {
+    const selections = new Proxy([new Proxy({
+      key: "tools",
+      value: new Proxy({ kind: "multiple_choice" as const, value: new Proxy(["shell"], {}) }, {}),
+    }, {})], {});
+
+    const copied = copyModelOptionSelections(selections);
+
+    expect(copied).toEqual([{ key: "tools", value: { kind: "multiple_choice", value: ["shell"] } }]);
+    expect(() => structuredClone(copied)).not.toThrow();
+    expect(() => structuredClone(copyVersionedJson(new Proxy({
+      schemaVersion: 1,
+      value: new Proxy({ kind: "initials" }, {}),
+    }, {})))).not.toThrow();
   });
 
   it("parses safe approval and structured-question payloads", () => {

@@ -1,5 +1,4 @@
 <script lang="ts">
-  import { readComposerModelSelection } from "$lib/chat/composer-model";
   import { getLocalization } from "$lib/i18n/translator.svelte";
   import { getChat } from "$lib/stores/chat.svelte";
   import ChatControlMenu from "./ChatControlMenu.svelte";
@@ -25,7 +24,7 @@
   })));
   const busy = $derived([
     "pending", "dispatching", "active", "waiting_for_approval", "waiting_for_user_input",
-  ].includes(channel?.currentThread?.latestTurnState ?? ""));
+  ].includes(chat.selectedThread?.latestTurnState ?? ""));
 
   async function selectFolder(workingFolderId: string): Promise<void> {
     if (!channel || saving || busy || workingFolderId === chat.composer.workingFolderId) return;
@@ -38,14 +37,7 @@
     saving = true;
     error = null;
     try {
-      const model = readComposerModelSelection(chat.composer.modelSelection);
-      await chat.updateChannelTarget(channel, {
-        workingFolderId,
-        providerInstanceId: chat.composer.providerInstanceId,
-        providerManagedModel: model.providerManaged,
-        modelId: model.modelId,
-        modelOptions: model.options,
-      });
+      chat.newDraft(workingFolderId);
     } catch (cause: unknown) {
       error = cause instanceof Error ? cause.message : String(cause);
     } finally {

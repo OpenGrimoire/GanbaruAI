@@ -495,7 +495,7 @@ The skill tree visualization, visual novel NPC interactions, Will system, contra
 
 Tauri v2 has official iOS and Android support. The mobile app shares the Svelte frontend, Notes page and block graph, Yjs sync layer, and SQLite database with the desktop app. It is not a separate product; it is the same app with a mobile-appropriate layout and a focused subset of features.
 
-Features available on mobile: note editor, calendar view and editing, Pomodoro timer (with notification-based breaks instead of fullscreen overlay), daily diary (morning and evening entries), sleep alarm (triggers diary flows and morning playlist), Doomscrolling (app-level blocking during scheduled focus times and mornings), authorized Chat channels and direct messages, task review, BYOK AI roles, collaborative workspaces, and sync.
+Features available on mobile: note editor, calendar view and editing, Pomodoro timer (with notification-based breaks instead of fullscreen overlay), daily diary (morning and evening entries), sleep alarm (triggers diary flows and morning playlist), Doomscrolling (app-level blocking during scheduled focus times and mornings), authorized Chat channels and direct messages, task review, BYOK AI teammates, collaborative workspaces, and sync.
 
 Features unavailable on mobile due to OS sandboxing: native coding-agent processes, terminals, desktop working folders and execution tools, work environment switching (opening/closing desktop apps, arranging browser tabs), edge panel, fullscreen break overlay, always-on-top windows, and desktop activity monitoring.
 
@@ -519,13 +519,13 @@ The project management framework generates automatic status reports from Kanban 
 
 ## AI integration architecture
 
-All AI features are opt-in. The app is fully functional with no provider configured. Ganbaru has one coordination model and three provider-access paths: local coding-agent harnesses, a future general BYOK path, and external clients. Channels, roles, tasks, and decisions do not change identity when the provider path changes.
+All AI features are opt-in. The app is fully functional with no provider configured. Ganbaru has one coordination model and three provider-access paths: local coding-agent harnesses, a future general BYOK path, and external clients. Channels, teammates, tasks, and decisions do not change identity when the provider path changes.
 
 ### Coordination layer
 
-Chat channels, direct messages, task discussions, stable AI roles, manager proposals, context packages, agent runs, reviews, budgets, and provenance are structured SQLite data. Projects owns accepted work. Notes owns durable knowledge. Calendar owns time and capacity. The coordination layer chooses an authorized execution path but is not itself a provider protocol.
+Chat channels, direct messages, reply threads, task discussions, persistent AI teammates, work assignments, manager proposals, context packages, agent runs, reviews, budgets, and provenance are structured SQLite data. Projects owns accepted work. Notes owns durable knowledge. Calendar owns time and capacity. The coordination layer chooses an authorized execution path but is not itself a provider protocol.
 
-The first stable AI role is the Ganbaru manager. Its durable memory comes from canonical records, selected Notes, bounded conversation context, decisions, and run summaries. It does not depend on one infinite provider conversation. A manager proposal applies only to exact source revisions and becomes canonical work through typed Rust commands after the applicable approval.
+The first persistent AI teammate is the Ganbaru manager. Its durable memory comes from canonical records, selected Notes, bounded conversation context, scoped memory, decisions, and run summaries. It does not depend on one infinite provider conversation. A manager proposal applies only to exact source revisions and becomes canonical work through typed Rust commands after the applicable approval.
 
 ### Local coding-agent path
 
@@ -544,19 +544,19 @@ xterm.js renders thread-scoped terminal sessions created by narrow Rust commands
 
 ### Organizational conversations and execution sessions
 
-A channel or DM is a durable organizational conversation. A provider thread is a replaceable execution session. The current `chat_channels` and `chat_channel_sessions` tables place project channels above ordered hidden execution sessions. The `chat_threads` schema represents those sessions and keeps every one permanently bound to one project working folder. Later DMs and task discussions reuse the same identity boundary without making a room inherit one provider, model, or folder.
+A channel or future DM is a durable organizational conversation. A provider thread is replaceable execution machinery. `chat_conversations` and `chat_channels` own organizational identity, while messages and reply threads link to work assignments and exact agent runs. An agent run optionally links to a hidden `chat_thread`, and every run remains permanently bound to one project working folder and immutable teammate policy revision. No channel owns a provider, model, folder, or current provider session.
 
-Calendar can select the linked project and suggest a channel or task while preserving drafts, reviews, and live execution. It never retargets a running provider continuation. Working folders remain execution resources selected by a task, role policy, or direct-agent action instead of the left-rail hierarchy.
+Calendar can select the linked project and suggest a channel or task while preserving drafts, reviews, and live execution. It never retargets a running provider continuation. Working folders remain execution resources selected by a task, teammate policy, or direct-agent action instead of the left-rail hierarchy.
 
 ### Context packages and agent runs
 
 Every manager action and delegated run receives a versioned context package with exact task and requirement revisions, selected Notes or files, dependencies, Calendar constraints, relevant conversation context, prior summaries, instructions, effective permissions, and budgets. Package construction is permission-aware and auditable.
 
-An agent run records the objective, role, provider, model, workspace, execution environment, context package, authority, budgets, lifecycle state, usage, deliverables, review state, and provider continuation. Parallel mutable work uses separate worktrees or execution environments. Work-in-progress, review capacity, dependencies, quotas, and cost ceilings constrain scheduling.
+An agent run records the objective, teammate or task-agent identity, role-policy revision, provider, model, workspace, execution environment, context package, authority, budgets, lifecycle state, usage, deliverables, review state, and provider continuation. Parallel mutable work uses separate worktrees or execution environments. Work-in-progress, review capacity, dependencies, quotas, and cost ceilings constrain scheduling.
 
 ### General BYOK path
 
-The future general path supports OpenAI API, explicitly supported OpenAI-compatible providers, Ollama, and other reviewed integrations. General roles participate in the same authorized channels, DMs, tasks, and context-package model. They can use typed Ganbaru data operations but cannot edit arbitrary files or execute shell commands.
+The future general path supports OpenAI API, explicitly supported OpenAI-compatible providers, Ollama, and other reviewed integrations. General AI teammates participate in the same authorized channels, DMs, tasks, and context-package model. They can use typed Ganbaru data operations but cannot edit arbitrary files or execute shell commands.
 
 Credentials stay in the operating-system credential store behind opaque references. Each request records the provider, model, destination, consent, effective context scope, usage, and result needed for provenance and cost controls.
 
@@ -620,10 +620,10 @@ Everything is free. The project is sustained by donations via GitHub Sponsors.
 | PDF generation            | Typst                                                | Rust-native typesetting, structured data → high-quality PDF reports                |
 | PDF reading               | `pdfium-render`                                      | Google PDFium Rust bindings for text extraction and page rendering                 |
 | Visual novel layer (deferred) | Custom Svelte components                         | JSON-driven dialogue state machine, NPC interactions in project management         |
-| Chat coordination         | SQLite + Svelte + typed Rust commands                | Channels, roles, proposals, context packages, agent runs, review, and provenance   |
+| Chat coordination         | SQLite + Svelte + typed Rust commands                | Channels, teammates, work assignments, context packages, agent runs, and review    |
 | Coding-agent execution    | Native provider protocols + Rust process ownership  | Durable provider sessions beneath channels and task-linked runs                    |
 | Execution terminal        | xterm.js + Rust pseudoterminals                      | Thread-scoped terminal tool in an authorized working folder                        |
-| BYOK AI roles             | OpenAI / reviewed compatible APIs / Ollama          | General assistants in the same permission-aware coordination model                 |
+| BYOK AI teammates         | OpenAI / reviewed compatible APIs / Ollama          | General assistants in the same permission-aware coordination model                 |
 | Mobile alarm              | iOS `UNNotificationRequest` / Android `AlarmManager` | Sleep alarm triggering diary flows and morning routines                            |
 | Mobile app blocking       | iOS Screen Time API / Android UsageStatsManager      | App-level blocking during focus times within platform sandbox constraints          |
 | Agent integration (CRUD)  | `ganbaru-ai` CLI (Rust)                               | Typed local operations over canonical data with explicit authorization             |

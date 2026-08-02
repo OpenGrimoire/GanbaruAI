@@ -4,6 +4,7 @@ export * from "./drafts";
 export * from "./diagnostics";
 export * from "./events";
 export * from "./interactions";
+export * from "./organizational";
 export * from "./provider";
 export * from "./workspace";
 export * from "./workspace-tools";

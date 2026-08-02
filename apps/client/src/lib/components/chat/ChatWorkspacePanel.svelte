@@ -61,6 +61,10 @@
   import { legacyReviewSource } from "$lib/chat/review-model";
   import { terminalErrorMessage } from "$lib/chat/terminal-model";
   import {
+    CHAT_OPEN_BOTTOM_WORKSPACE_EVENT,
+    isChatBottomWorkspaceRequest,
+  } from "$lib/chat/workspace-events";
+  import {
     pickSelectPopoverGeometry,
     type SelectPopoverGeometry,
     type SelectPopoverRect,
@@ -134,6 +138,8 @@
   let terminalScopeKey = "";
   let tabDragListenersAttached = false;
   let terminalLayoutSaveTimer: number | null = null;
+  let reviewOpenRequest = 0;
+  let destroyed = false;
   let splitTerminals = $state(false);
   let tabDragGesture = $state<{
     key: ChatWorkspacePanelTabKey;
@@ -191,44 +197,72 @@
   });
 
   onMount(() => {
-    if (placement !== "inspector") return;
-    const openChanges = (event: Event) => {
-      openPanel("review");
-      if (!(event instanceof CustomEvent) || !isOpenChangesDetail(event.detail)) {
-        update({
-          reviewSource: chat.selectedThreadId
-            ? { kind: "checkpoint", range: "turn", turnId: null }
-            : { kind: "working_tree", mode: "all" },
-          selectedFile: null,
-        });
-        return;
+    if (placement !== "bottom") return;
+    const openBottomWorkspace = (event: Event) => {
+      if (!(event instanceof CustomEvent) || !isChatBottomWorkspaceRequest(event.detail)) return;
+      switch (event.detail.source) {
+        case "changes": openChanges(event.detail.detail); break;
+        case "review": openReview(event.detail.detail); break;
+        case "file": openFile(event.detail.detail); break;
       }
-      update({
-        changeScope: "current_turn",
-        changeTurnId: event.detail.turnId,
-        selectedFile: event.detail.relativePath,
-        reviewSource: { kind: "checkpoint", range: "turn", turnId: event.detail.turnId },
-      });
     };
-    const openReview = (event: Event) => {
-      if (!(event instanceof CustomEvent) || !isOpenReviewDetail(event.detail)) return;
-      openPanel("review");
-      update({ reviewSource: event.detail.source, selectedFile: event.detail.relativePath });
-    };
-    const openFile = (event: Event) => {
-      if (!(event instanceof CustomEvent) || !isOpenFileDetail(event.detail)) return;
-      openPanel("files");
-      update({ filePreviewPath: event.detail.relativePath });
-    };
-    window.addEventListener("ganbaru-ai:chat-open-changes", openChanges);
-    window.addEventListener("ganbaru-ai:chat-open-review", openReview);
-    window.addEventListener("ganbaru-ai:chat-open-file", openFile);
+    window.addEventListener(CHAT_OPEN_BOTTOM_WORKSPACE_EVENT, openBottomWorkspace);
     return () => {
-      window.removeEventListener("ganbaru-ai:chat-open-changes", openChanges);
-      window.removeEventListener("ganbaru-ai:chat-open-review", openReview);
-      window.removeEventListener("ganbaru-ai:chat-open-file", openFile);
+      window.removeEventListener(CHAT_OPEN_BOTTOM_WORKSPACE_EVENT, openBottomWorkspace);
     };
   });
+
+  function openChanges(detail: unknown): void {
+    openPanel("review");
+    if (!isOpenChangesDetail(detail)) {
+      update({
+        reviewSource: chat.selectedThreadId
+          ? { kind: "checkpoint", range: "turn", turnId: null }
+          : { kind: "working_tree", mode: "all" },
+        selectedFile: null,
+        reviewThreadId: null,
+        reviewWorkingFolderId: null,
+        reviewExecutionEnvironmentId: null,
+      });
+      return;
+    }
+    update({
+      changeScope: "current_turn",
+      changeTurnId: detail.turnId,
+      selectedFile: detail.relativePath,
+      reviewSource: { kind: "checkpoint", range: "turn", turnId: detail.turnId },
+      reviewThreadId: null,
+      reviewWorkingFolderId: null,
+      reviewExecutionEnvironmentId: null,
+    });
+  }
+
+  function openReview(detail: unknown): void {
+    if (!isOpenReviewDetail(detail)) return;
+    if (detail.sourceThreadId && detail.sourceWorkingFolderId) {
+      void openSessionReview({
+        ...detail,
+        sourceThreadId: detail.sourceThreadId,
+        sourceWorkingFolderId: detail.sourceWorkingFolderId,
+      });
+      return;
+    }
+    reviewOpenRequest += 1;
+    openPanel("review");
+    update({
+      reviewSource: detail.source,
+      selectedFile: detail.relativePath,
+      reviewThreadId: null,
+      reviewWorkingFolderId: null,
+      reviewExecutionEnvironmentId: null,
+    });
+  }
+
+  function openFile(detail: unknown): void {
+    if (!isOpenFileDetail(detail)) return;
+    openPanel("files");
+    update({ filePreviewPath: detail.relativePath });
+  }
 
   function isOpenChangesDetail(value: unknown): value is {
     turnId: string;
@@ -243,11 +277,47 @@
   function isOpenReviewDetail(value: unknown): value is {
     source: ReviewDiffSource;
     relativePath: string | null;
+    sourceThreadId?: string;
+    sourceWorkingFolderId?: string;
   } {
     if (typeof value !== "object" || value === null || Array.isArray(value)) return false;
     const detail = value as Record<string, unknown>;
     return isReviewDiffSource(detail.source)
-      && (detail.relativePath === null || typeof detail.relativePath === "string");
+      && (detail.relativePath === null || typeof detail.relativePath === "string")
+      && (detail.sourceThreadId === undefined || typeof detail.sourceThreadId === "string")
+      && (detail.sourceWorkingFolderId === undefined || typeof detail.sourceWorkingFolderId === "string")
+      && (detail.sourceThreadId === undefined) === (detail.sourceWorkingFolderId === undefined);
+  }
+
+  async function openSessionReview(detail: {
+    source: ReviewDiffSource;
+    relativePath: string | null;
+    sourceThreadId: string;
+    sourceWorkingFolderId: string;
+  }): Promise<void> {
+    const request = ++reviewOpenRequest;
+    const selectedThreadId = chat.selectedThreadId;
+    const selectedEnvironmentId = chat.selectedExecutionEnvironmentId;
+    let executionEnvironmentId = selectedThreadId === detail.sourceThreadId
+      ? selectedEnvironmentId
+      : null;
+    if (executionEnvironmentId === null) {
+      try {
+        executionEnvironmentId = await chatApi.readChatThreadExecutionEnvironment(detail.sourceThreadId);
+      } catch (reason: unknown) {
+        if (request === reviewOpenRequest && !destroyed) error = message(reason);
+        return;
+      }
+    }
+    if (request !== reviewOpenRequest || destroyed) return;
+    openPanel("review");
+    update({
+      reviewSource: detail.source,
+      selectedFile: detail.relativePath,
+      reviewThreadId: detail.sourceThreadId,
+      reviewWorkingFolderId: detail.sourceWorkingFolderId,
+      reviewExecutionEnvironmentId: executionEnvironmentId,
+    });
   }
 
   function isReviewDiffSource(value: unknown): value is ReviewDiffSource {
@@ -336,7 +406,7 @@
     terminalLayoutSaveTimer = window.setTimeout(() => {
       terminalLayoutSaveTimer = null;
       const thread = threadId;
-      if (!thread || terminals.length === 0) return;
+      if (!thread || chat.selectedThreadId !== thread || terminals.length === 0) return;
       const terminalNames = terminals.map((terminal) => workspacePanelTabLabel(terminalWorkspacePanelTabKey(terminal.id)));
       const selectedIndex = selectedTerminalId === null
         ? -1
@@ -470,7 +540,7 @@
         const snapshot = await createTerminal(thread, workspace);
         return { terminals: [snapshot.terminal], layout };
       });
-      if (thread !== threadId || workspace !== workingFolderId) return;
+      if (destroyed || terminalScopeKey !== scopeKey) return;
       terminals = loaded.terminals;
       const savedPanel = loaded.layout.groups.find((group) => group.placement === placement);
       if (savedPanel) {
@@ -498,9 +568,9 @@
         ? remembered ?? null
         : savedSelection ?? loaded.terminals[0]?.id ?? null);
     } catch (reason: unknown) {
-      error = message(reason);
+      if (!destroyed && terminalScopeKey === scopeKey) error = message(reason);
     } finally {
-      if (thread === threadId && workspace === workingFolderId) terminalsLoading = false;
+      if (!destroyed && terminalScopeKey === scopeKey) terminalsLoading = false;
     }
   }
 
@@ -520,9 +590,12 @@
   }
 
   async function addTerminal(): Promise<void> {
-    if (!threadId || !workingFolderId) return;
+    const thread = threadId;
+    const workspace = workingFolderId;
+    if (!thread || !workspace) return;
     panelPickerOpen = false;
-    const snapshot = await createTerminal(threadId, workingFolderId);
+    const snapshot = await createTerminal(thread, workspace);
+    if (destroyed || terminalScopeKey !== `${thread}:${workspace}`) return;
     const previousOrder = orderedTabKeys;
     terminals = [...terminals, snapshot.terminal];
     update({
@@ -569,11 +642,16 @@
   }
 
   async function closeTerminal(terminal: ChatTerminalRead): Promise<void> {
-    if (!threadId || !workingFolderId) return;
-    let result = await chatApi.closeChatTerminal(terminal.id, threadId, workingFolderId, false);
+    const thread = threadId;
+    const workspace = workingFolderId;
+    if (!thread || !workspace) return;
+    const scopeKey = `${thread}:${workspace}`;
+    let result = await chatApi.closeChatTerminal(terminal.id, thread, workspace, false);
+    if (destroyed || terminalScopeKey !== scopeKey) return;
     if (result.confirmationRequired) {
       if (!window.confirm(t("chat.inspector.confirmCloseTerminal"))) return;
-      result = await chatApi.closeChatTerminal(terminal.id, threadId, workingFolderId, true);
+      result = await chatApi.closeChatTerminal(terminal.id, thread, workspace, true);
+      if (destroyed || terminalScopeKey !== scopeKey) return;
     }
     if (!result.closed) return;
     terminalPanels.release(terminal.id);
@@ -639,7 +717,7 @@
     try {
       await operation();
     } catch (reason: unknown) {
-      error = message(reason);
+      if (!destroyed) error = message(reason);
     }
   }
 
@@ -881,6 +959,8 @@
   }
 
   onDestroy(() => {
+    destroyed = true;
+    reviewOpenRequest += 1;
     resetTabDrag();
     if (terminalLayoutSaveTimer !== null) window.clearTimeout(terminalLayoutSaveTimer);
   });
@@ -1143,6 +1223,9 @@
         <ChatReviewPanel
           active={visible && panelState.tab === "review"}
           source={panelState.reviewSource}
+          sourceThreadId={panelState.reviewThreadId}
+          sourceWorkingFolderId={panelState.reviewWorkingFolderId}
+          sourceExecutionEnvironmentId={panelState.reviewExecutionEnvironmentId}
           legacyScope={panelState.changeScope}
           legacyTurnId={panelState.changeTurnId}
           selectedFile={panelState.selectedFile}

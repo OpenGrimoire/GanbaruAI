@@ -103,9 +103,9 @@ export const chatWorkspaceScenario: BenchmarkScenario = {
     for (let index = 0; index < QUERY_RUNS; index++) {
       throwIfAborted(signal);
       pageReadSamples.push(await measureMs(async () => {
-        const page = await chatApi.readChatChannelTimelinePage(denseChannelId, null, 100);
-        if (page.items.length !== 100) {
-          throw new Error(`Dense Chat latest page returned ${page.items.length} rows`);
+        const page = await chatApi.readChatChannelPage(denseChannelId, null, 100);
+        if (page.messages.length !== 100) {
+          throw new Error(`Dense Chat latest page returned ${page.messages.length} messages`);
         }
       }));
     }
@@ -126,8 +126,8 @@ export const chatWorkspaceScenario: BenchmarkScenario = {
         const projectId = getChat().selectedChannel?.projectId;
         if (!projectId) throw new Error("Dense Chat channel has no project");
         const query = ["general", "planning", "implementation", "review"][index % 4];
-        const matches = await chatApi.searchChatChannels(projectId, query, false, 20);
-        if (matches.length === 0) throw new Error("Dense Chat indexed rail search returned no match");
+        const matches = await chatApi.searchChatMessages(query, projectId, 20);
+        if (matches.length === 0) throw new Error("Dense Chat message search returned no match");
       }));
     }
 

@@ -1,7 +1,12 @@
 <script lang="ts">
   import ChevronRight from "@lucide/svelte/icons/chevron-right";
   import FileDiff from "@lucide/svelte/icons/file-diff";
-  import type { ChangedFileSummary, ChatTurnId } from "$lib/chat/contracts";
+  import type {
+    ChangedFileSummary,
+    ChatThreadId,
+    ChatTurnId,
+    ProjectWorkingFolderId,
+  } from "$lib/chat/contracts";
   import { formatNumber } from "$lib/i18n/formatters";
   import { onDestroy } from "svelte";
   import { loadChatReviewDiffRuntime } from "$lib/chat/review-diff-loader";
@@ -10,7 +15,17 @@
   import { getChat } from "$lib/stores/chat.svelte";
   import ChatFileIcon from "./ChatFileIcon.svelte";
 
-  let { turnId, files }: { turnId: ChatTurnId; files: ChangedFileSummary[] } = $props();
+  let {
+    turnId,
+    files,
+    sourceThreadId,
+    sourceWorkingFolderId,
+  }: {
+    turnId: ChatTurnId;
+    files: ChangedFileSummary[];
+    sourceThreadId: ChatThreadId | null;
+    sourceWorkingFolderId: ProjectWorkingFolderId | null;
+  } = $props();
   const localization = getLocalization();
   const { t } = localization;
   const chat = getChat();
@@ -21,8 +36,14 @@
   onDestroy(() => cancelPrefetch());
 
   function openChanges(relativePath: string | null): void {
+    if (!sourceThreadId || !sourceWorkingFolderId) return;
     window.dispatchEvent(new CustomEvent("ganbaru-ai:chat-open-review", {
-      detail: { source: { kind: "provider_turn", turnId }, relativePath },
+      detail: {
+        source: { kind: "provider_turn", turnId },
+        relativePath,
+        sourceThreadId,
+        sourceWorkingFolderId,
+      },
     }));
   }
 
@@ -35,9 +56,11 @@
   }
 
   function runPrefetch(relativePath: string | null): void {
-    const threadId = chat.selectedThreadId;
-    const workingFolderId = chat.selectedWorkingFolderId;
-    if (!threadId || !workingFolderId) return;
+    const threadId = sourceThreadId;
+    const workingFolderId = sourceWorkingFolderId;
+    if (!threadId || !workingFolderId
+      || threadId !== chat.selectedThreadId
+      || workingFolderId !== chat.selectedWorkingFolderId) return;
     void loadChatReviewDiffRuntime().catch(() => undefined);
     prefetchChatReview({
       threadId,

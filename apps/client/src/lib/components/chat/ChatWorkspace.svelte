@@ -17,6 +17,10 @@
   import { loadChatCodeEditorRuntime } from "$lib/chat/code-editor-loader";
   import { inspectorFocusAction } from "$lib/chat/inspector-model";
   import {
+    CHAT_OPEN_BOTTOM_WORKSPACE_EVENT,
+    chatBottomWorkspaceRequest,
+  } from "$lib/chat/workspace-events";
+  import {
     alignPanelSizeToDevicePixel,
     chatBottomPanelResizeMaximum,
     chatLayoutDecision,
@@ -37,11 +41,11 @@
   import { getSettingsLauncher } from "$lib/stores/settingsLauncher.svelte";
   import * as chatApi from "$lib/api/chat";
   import ChatWorkspaceHeader from "./ChatWorkspaceHeader.svelte";
-  import ChatComposer from "./ChatComposer.svelte";
   import ChatFirstUse from "./ChatFirstUse.svelte";
   import ChatHeaderActions from "./ChatHeaderActions.svelte";
   import ChatChannelRail from "./ChatChannelRail.svelte";
-  import ChatTimeline from "./ChatTimeline.svelte";
+  import ChatChannelFeed from "./ChatChannelFeed.svelte";
+  import ChatReplyThreadPanel from "./ChatReplyThreadPanel.svelte";
   import ChatWorkspaceObserver from "./ChatWorkspaceObserver.svelte";
   import ChatWorkspacePanel from "./ChatWorkspacePanel.svelte";
   import { getChatBenchmarkHandle } from "./benchmark-handle.svelte";
@@ -85,6 +89,7 @@
   let headerEditingTitle = $state(false);
   let inspectorWasOpen = false;
   let inspectorReturnFocus: HTMLElement | null = null;
+  let replyThreadReturnFocus: HTMLElement | null = null;
   let railModalWasOpen = false;
   let railReturnFocus: HTMLElement | null = null;
   let commandMenuWasOpen = false;
@@ -105,6 +110,9 @@
   }));
   const bottomPanelVisible = $derived(
     bottomPanelOpen && layout.variant !== "minimum_recovery",
+  );
+  const threadFullSurface = $derived(
+    chat.openReplyThreadId !== null && (layout.variant === "minimum_recovery" || shellWidth < 560 * fontScale),
   );
   let loadError = $state<string | null>(null);
   let archiveQuery = $state("");
@@ -186,13 +194,16 @@
       if (!(event instanceof CustomEvent) || !isRevertMessageDetail(event.detail)) return;
       void restoreMessageCheckpoint(event.detail.threadId, event.detail.checkpointId);
     };
-    const openWorkspaceTool = () => {
-      chat.inspectorOpen = true;
+    const openWorkspaceTool = (event: Event) => { openBottomWorkspaceForEvent(event); };
+    const openTeammates = () => {
+      settings.open("chat", { chatSubsection: "teammates" });
     };
     window.addEventListener("ganbaru-ai:chat-revert-message", revertMessage);
     window.addEventListener("ganbaru-ai:chat-open-changes", openWorkspaceTool);
     window.addEventListener("ganbaru-ai:chat-open-review", openWorkspaceTool);
     window.addEventListener("ganbaru-ai:chat-open-file", openWorkspaceTool);
+    window.addEventListener("ganbaru-ai:chat-configure-teammate", openTeammates);
+    window.addEventListener("ganbaru-ai:chat-manage-members", openTeammates);
     const unregisterBenchmark = getChatBenchmarkHandle().register({
       channelIds: () => chat.activeChannels.map((channel) => channel.id),
       waitUntilUsable: () => waitForBenchmarkState(() => !chat.loading && chat.activeChannels.length > 0),
@@ -200,8 +211,8 @@
         await chat.selectChannel(channelId);
         await waitForBenchmarkState(() => (
           chat.selectedChannelId === channelId
-          && !chat.timelineLoading
-          && chat.timelineItems.length > 0
+          && !chat.channelMessagesLoading
+          && chat.channelMessages.length > 0
         ));
         await nextAnimationFrame();
       },
@@ -232,6 +243,8 @@
       window.removeEventListener("ganbaru-ai:chat-open-changes", openWorkspaceTool);
       window.removeEventListener("ganbaru-ai:chat-open-review", openWorkspaceTool);
       window.removeEventListener("ganbaru-ai:chat-open-file", openWorkspaceTool);
+      window.removeEventListener("ganbaru-ai:chat-configure-teammate", openTeammates);
+      window.removeEventListener("ganbaru-ai:chat-manage-members", openTeammates);
       void unlisten.then((dispose) => dispose());
     };
   });
@@ -247,6 +260,25 @@
       });
     });
   });
+
+  $effect(() => {
+    if (!chat.openReplyThreadId) return;
+    if (threadFullSurface && chat.inspectorOpen) chat.inspectorOpen = false;
+    else if (!threadFullSurface && !chat.inspectorOpen) chat.inspectorOpen = true;
+  });
+
+  function threadOpened(trigger: HTMLElement): void {
+    replyThreadReturnFocus = trigger;
+    if (!threadFullSurface) chat.inspectorOpen = true;
+  }
+
+  function closeReplyThread(): void {
+    chat.closeReplyThread();
+    chat.inspectorOpen = false;
+    const target = replyThreadReturnFocus;
+    replyThreadReturnFocus = null;
+    queueMicrotask(() => target?.isConnected && target.focus());
+  }
 
   $effect(() => {
     if (!chat.loading || chat.settings) {
@@ -313,36 +345,26 @@
   }
 
   async function measureBenchmarkStreamFrames(frameCount: number): Promise<number[]> {
-    const targetIndex = chat.timelineItems.findLastIndex((item) => item.kind === "message");
-    const original = chat.timelineItems[targetIndex];
+    const targetIndex = chat.channelMessages.length - 1;
+    const original = chat.channelMessages[targetIndex];
     if (!original || targetIndex < 0) throw new Error("Chat benchmark requires a loaded message");
-    const originalValue = original.data.value;
-    if (!originalValue || typeof originalValue !== "object" || Array.isArray(originalValue)) {
-      throw new Error("Chat benchmark message payload is invalid");
-    }
-    const markdown = typeof originalValue.markdown === "string" ? originalValue.markdown : "";
+    const markdown = original.normalizedMarkdown;
     const samples: number[] = [];
     let previous = await nextAnimationFrame();
     try {
       for (let index = 0; index < frameCount; index++) {
-        chat.timelineItems = chat.timelineItems.map((item, itemIndex) => itemIndex === targetIndex
-          ? {
-              ...item,
-              data: {
-                ...item.data,
-                value: { ...originalValue, markdown: `${markdown}\nstream-${index}` },
-              },
-            }
-          : item);
+        chat.channelMessages = chat.channelMessages.map((message, messageIndex) => messageIndex === targetIndex
+          ? { ...message, normalizedMarkdown: `${markdown}\nstream-${index}` }
+          : message);
         await tick();
         const painted = await nextAnimationFrame();
         samples.push(painted - previous);
         previous = painted;
       }
     } finally {
-      chat.timelineItems = chat.timelineItems.map((item, itemIndex) => itemIndex === targetIndex
-        ? { ...item, data: { ...item.data, value: originalValue } }
-        : item);
+      chat.channelMessages = chat.channelMessages.map((message, messageIndex) => messageIndex === targetIndex
+        ? original
+        : message);
       await tick();
     }
     return samples;
@@ -828,6 +850,22 @@
     bottomPanelOpen = true;
   }
 
+  function openBottomWorkspaceForEvent(event: Event): void {
+    const request = chatBottomWorkspaceRequest(
+      event.type,
+      event instanceof CustomEvent ? event.detail : null,
+    );
+    if (!request) return;
+    bottomPanelSkipCloseTransition = false;
+    bottomPanelMounted = true;
+    bottomPanelOpen = true;
+    void tick().then(() => {
+      window.dispatchEvent(new CustomEvent(CHAT_OPEN_BOTTOM_WORKSPACE_EVENT, {
+        detail: request,
+      }));
+    });
+  }
+
   function closeBottomPanel(skipTransition = false): void {
     bottomPanelSkipCloseTransition = skipTransition;
     bottomPanelOpen = false;
@@ -939,7 +977,7 @@
   <div class="sr-only" aria-live="assertive" aria-atomic="true">{assertiveAnnouncement}</div>
   {#if layoutError}<div role="alert" class="absolute inset-x-2 top-2 z-50 rounded border border-destructive/40 bg-background p-2 text-xs text-destructive">{layoutError}</div>{/if}
   {#if layout.inspectorPresentation === "sheet" && chat.inspectorOpen}
-    <button type="button" class="chat-sheet-backdrop chat-inspector-backdrop" aria-label={t("chat.closeInspector")} onclick={() => { chat.inspectorOpen = false; }}></button>
+    <button type="button" class="chat-sheet-backdrop chat-inspector-backdrop" aria-label={t("chat.closeInspector")} onclick={() => { if (chat.openReplyThreadId) closeReplyThread(); else chat.inspectorOpen = false; }}></button>
   {:else if layout.railPresentation === "sheet" && chat.railOpen}
     <button type="button" class="chat-sheet-backdrop chat-rail-backdrop" aria-label={t("chat.collapseRail")} onclick={() => { chat.railOpen = false; }}></button>
   {/if}
@@ -989,22 +1027,11 @@
             </div>
           </section>
         {:else if chat.selectedChannel}
-          <div class="chat-conversation-shell">
-            <ChatTimeline bottomInsetPx={composerDockHeight} />
-            {#if chat.timelineItems.length === 0 && !chat.timelineLoading}
-              <div class="pointer-events-none absolute inset-x-0 top-[18%] z-1 mx-auto flex max-w-lg flex-col items-center px-6 text-center">
-                <span class="grid size-11 place-items-center rounded-xl bg-accent text-muted-foreground"><Hash size={21} /></span>
-                <h2 class="mt-3 text-base font-semibold">{t("chat.channels.welcomeTitle", chat.selectedChannel.name)}</h2>
-                <p class="mt-1 text-sm leading-relaxed text-muted-foreground">{chat.selectedChannel.topic || t("chat.channels.welcomeDescription")}</p>
-              </div>
-            {/if}
-            {#if !chat.selectedChannel.archivedAt}
-              <div bind:this={composerDockElement} class="chat-composer-dock">
-                <div class="chat-composer-backdrop" aria-hidden="true"></div>
-                <ChatComposer />
-              </div>
-            {/if}
-          </div>
+          {#if threadFullSurface && chat.openReplyThreadId}
+            <ChatReplyThreadPanel presentation="main" onClose={closeReplyThread} />
+          {:else}
+            <ChatChannelFeed onThreadOpened={threadOpened} />
+          {/if}
         {:else if !chat.loading && !chat.channelsLoading}
           <ChatFirstUse />
         {:else if initialLoadingVisible || chat.channelsLoading}
@@ -1013,9 +1040,13 @@
   </main>
 
   <div class="chat-panel-separator chat-inspector-separator" class:hidden={!chat.inspectorOpen || layout.inspectorPresentation !== "column"} class:active={resizingInspector}><input type="range" min={MIN_INSPECTOR_WIDTH} max={inspectorResizeMaximum()} step="any" value={inspectorWidth} aria-label={t("chat.resizeInspector")} onpointerdown={beginInspectorResize} onkeydown={resizeInspectorFromKey} ondblclick={(event) => { event.preventDefault(); fitInspectorToAvailableSpace(); }} /><span class="chat-panel-separator-line" aria-hidden="true"></span></div>
-  <aside bind:this={inspectorShell} class="chat-inspector-shell" class:open={chat.inspectorOpen} class:resizing={resizingInspector} class:snap-transition={snapTransitioning.inspector} data-presentation={layout.inspectorPresentation} inert={!chat.inspectorOpen} role={layout.inspectorPresentation === "sheet" && chat.inspectorOpen ? "dialog" : undefined} aria-modal={layout.inspectorPresentation === "sheet" && chat.inspectorOpen ? "true" : undefined} aria-label={t("chat.openInspector")} onkeydown={(event) => { if (layout.inspectorPresentation === "sheet") handleSheetKeydown(event, () => { chat.inspectorOpen = false; }); }}>
+  <aside bind:this={inspectorShell} class="chat-inspector-shell" class:open={chat.inspectorOpen} class:resizing={resizingInspector} class:snap-transition={snapTransitioning.inspector} data-presentation={layout.inspectorPresentation} inert={!chat.inspectorOpen} role={layout.inspectorPresentation === "sheet" && chat.inspectorOpen ? "dialog" : undefined} aria-modal={layout.inspectorPresentation === "sheet" && chat.inspectorOpen ? "true" : undefined} aria-label={chat.openReplyThreadId ? t("chat.organization.thread") : t("chat.openInspector")} onkeydown={(event) => { if (layout.inspectorPresentation === "sheet") handleSheetKeydown(event, () => { if (chat.openReplyThreadId) closeReplyThread(); else chat.inspectorOpen = false; }); }}>
     <div class="chat-inspector-content-shell">
-      <ChatWorkspacePanel placement="inspector" visible={chat.inspectorOpen} onClose={() => { chat.inspectorOpen = false; }} />
+      {#if chat.openReplyThreadId}
+        <ChatReplyThreadPanel presentation={layout.inspectorPresentation === "sheet" ? "dialog" : "complementary"} onClose={closeReplyThread} />
+      {:else}
+        <ChatWorkspacePanel placement="inspector" visible={chat.inspectorOpen} onClose={() => { chat.inspectorOpen = false; }} />
+      {/if}
     </div>
   </aside>
 
@@ -1093,10 +1124,6 @@
   .chat-bottom-transition-shell.snap-transition { transition: height var(--chat-panel-transition-duration) cubic-bezier(0.22, 1, 0.36, 1); }
   .chat-sheet-backdrop { position: absolute; inset: 0; z-index: 30; background: rgb(0 0 0 / 0.28); }
   .chat-rail-backdrop { top: var(--cal-header-row-h); }
-  .chat-conversation-shell { --chat-scrollbar-gutter: 8px; position: relative; display: flex; min-height: 0; flex: 1; flex-direction: column; overflow: hidden; }
-  .chat-composer-dock { pointer-events: none; position: absolute; inset-inline: 0; bottom: 0; z-index: 20; padding: 0.5rem 0.75rem 0.75rem; }
-  .chat-composer-backdrop { position: absolute; inset: -1.5rem var(--chat-scrollbar-gutter) -2rem 0; background: linear-gradient(to bottom, transparent, color-mix(in srgb, var(--cal-bg) 72%, transparent) 35%, var(--cal-bg) 74%); -webkit-mask-image: linear-gradient(to bottom, transparent, black 35%); mask-image: linear-gradient(to bottom, transparent, black 35%); }
-  .chat-composer-dock :global(.chat-composer) { pointer-events: auto; }
   .chat-command { display: flex; width: 100%; min-height: 2.25rem; align-items: center; gap: 0.5rem; border-radius: 0.375rem; padding: 0.375rem 0.5rem; font-size: 0.8rem; }
   .chat-command:hover { background: var(--accent); }
   .chat-workspace[data-rail-presentation="sheet"] .chat-rail-shell { position: absolute; top: var(--cal-header-row-h); bottom: 0; left: 0; z-index: 40; width: min(16rem, 88cqw); min-width: min(16rem, 88cqw); box-shadow: 8px 0 28px rgb(0 0 0 / 0.22); }

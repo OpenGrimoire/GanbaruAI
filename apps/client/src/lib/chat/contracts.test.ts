@@ -3,7 +3,7 @@ import {
   defaultChatVaultConfig,
   parseChatConfigRoot,
   parseChatChannel,
-  parseChatChannelTimelinePage,
+  parseChatChannelPage,
   parseChatVaultConfig,
   parseCanonicalRuntimeEvent,
   parseCanonicalStoredEvent,
@@ -66,36 +66,30 @@ function runtimeEventFixture(): Record<string, unknown> {
 }
 
 describe("Chat provider contracts", () => {
-  it("validates durable channel summaries and execution targets", () => {
+  it("validates organizational channel summaries without execution targets", () => {
     const channel = parseChatChannel({
       id: "channel:general",
+      conversationId: "conversation:general",
       projectId: "project-1",
       name: "general",
       topic: "Project coordination",
       isDefault: true,
-      target: {
-        workingFolderId: "folder-1",
-        providerInstanceId: "codex-personal",
-        providerManagedModel: false,
-        modelId: "gpt-5",
-        modelOptions: [],
-      },
-      currentThread: null,
-      sessionCount: 2,
+      memberships: [],
       messageCount: 18,
+      unreadCount: 2,
       latestPreview: "Review is ready",
       lastActivityAt: timestamp,
-      unreadAt: timestamp,
+      attentionState: "ready_for_review",
       revision: 4,
       archivedAt: null,
       createdAt: timestamp,
       updatedAt: timestamp,
     });
 
-    expect(channel.target.workingFolderId).toBe("folder-1");
-    expect(channel.sessionCount).toBe(2);
-    expect(() => parseChatChannel({ ...channel, target: { ...channel.target, providerManagedModel: "yes" } }))
-      .toThrow("providerManagedModel must be a boolean");
+    expect(channel.conversationId).toBe("conversation:general");
+    expect(channel.attentionState).toBe("ready_for_review");
+    expect(() => parseChatChannel({ ...channel, unreadCount: -1 }))
+      .toThrow("unreadCount must not be negative");
   });
 
   it("removes absolute duplicate file summaries from stored timeline turns", () => {
@@ -133,25 +127,40 @@ describe("Chat provider contracts", () => {
     expect(page.turns[0]?.changedFiles).toEqual([relative]);
   });
 
-  it("validates one cross-session channel timeline cursor page", () => {
-    const page = parseChatChannelTimelinePage({
+  it("validates one organizational channel cursor page", () => {
+    const page = parseChatChannelPage({
       channelId: "channel:general",
-      sessions: [],
-      items: [{
-        activityId: "message-1",
-        turnId: null,
-        sequenceAnchor: 2_000_000_001,
-        kind: "message",
-        data: { schemaVersion: 1, value: { role: "assistant", markdown: "Done" } },
-        sourceThreadId: "thread-2",
+      messages: [{
+        itemId: "message-1",
+        conversationId: "conversation:general",
+        replyThreadId: null,
+        revisionId: "revision-1",
+        revision: 1,
+        author: {
+          id: "participant:local-owner",
+          kind: "local_user",
+          displayName: "You",
+          handle: null,
+          avatar: { schemaVersion: 1, value: {} },
+          revision: 1,
+          archivedAt: null,
+        },
+        normalizedMarkdown: "Done",
+        richContent: { schemaVersion: 1, value: {} },
+        mentions: [],
+        attachmentIds: [],
+        resourceReferences: [],
+        replyThread: null,
+        ordinal: 1,
+        editedAt: null,
+        createdAt: timestamp,
       }],
-      turns: [],
-      previousCursor: "{\"sessionOrdinal\":2,\"sequence\":1,\"rowId\":\"message-1\"}",
+      previousCursor: "1",
       revision: 8,
     });
 
-    expect(page.items[0]?.sourceThreadId).toBe("thread-2");
-    expect(() => parseChatChannelTimelinePage({ ...page, revision: -1 }))
+    expect(page.messages[0]?.normalizedMarkdown).toBe("Done");
+    expect(() => parseChatChannelPage({ ...page, revision: -1 }))
       .toThrow("revision must not be negative");
   });
 

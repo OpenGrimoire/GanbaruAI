@@ -907,26 +907,6 @@
       editorController?.insertPlainText(event.clipboardData?.getData("text/plain") ?? "");
       return;
     }
-    event.preventDefault();
-    void importClipboardImages();
-  }
-
-  async function importClipboardImages(): Promise<void> {
-    try {
-      if (typeof navigator.clipboard?.read !== "function") return;
-      const items = await navigator.clipboard.read();
-      const files: File[] = [];
-      for (const [index, item] of items.entries()) {
-        const mimeType = item.types.find((type) => type.startsWith("image/"));
-        if (!mimeType) continue;
-        const blob = await item.getType(mimeType);
-        const extension = mimeType === "image/jpeg" ? "jpg" : mimeType.split("/")[1] ?? "png";
-        files.push(new File([blob], `pasted-image-${index + 1}.${extension}`, { type: mimeType }));
-      }
-      if (files.length > 0) await importFiles(files);
-    } catch (cause: unknown) {
-      operationError = chatErrorMessage(cause, t("chat.composer.clipboardImageUnavailable"));
-    }
   }
 
   function handleDrop(event: DragEvent): void {

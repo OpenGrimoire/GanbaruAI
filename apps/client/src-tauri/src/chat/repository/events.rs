@@ -126,7 +126,7 @@ pub async fn append_canonical_event(
     .await
     .map_err(persistence_error)?;
 
-    let changed_projection_keys =
+    let mut changed_projection_keys =
         apply_projection(&mut transaction, sequence, &request.runtime).await?;
     let next_revision = revision.checked_add(1).ok_or_else(|| {
         ChatError::new(
@@ -158,6 +158,14 @@ pub async fn append_canonical_event(
             "Chat thread changed while the event was being appended",
             true,
         ));
+    }
+    if crate::chat::coordination_commands::project_provider_event_in_transaction(
+        &mut transaction,
+        &request.runtime,
+    )
+    .await?
+    {
+        changed_projection_keys.push("organizational".to_string());
     }
     transaction.commit().await.map_err(persistence_error)?;
     let notification_thread_id = request.runtime.thread_id.clone();

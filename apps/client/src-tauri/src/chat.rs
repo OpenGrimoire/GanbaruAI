@@ -8,6 +8,7 @@ pub mod channel_commands;
 pub mod checkpoint_commands;
 pub mod checkpoints;
 pub mod config;
+pub mod coordination_commands;
 pub mod credentials;
 pub mod device_state;
 pub mod diagnostics_commands;

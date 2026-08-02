@@ -137,8 +137,34 @@ fn schema_creates_chat_tables_indexes_and_no_device_paths() {
             "chat_provider_cleanup_jobs",
             "chat_terminal_layouts",
             "chat_source_control_state",
+            "chat_participants",
+            "chat_ai_teammates",
+            "chat_teammate_policy_revisions",
+            "chat_conversations",
             "chat_channels",
-            "chat_channel_sessions",
+            "chat_conversation_memberships",
+            "chat_teammate_working_folder_grants",
+            "chat_reply_threads",
+            "chat_conversation_items",
+            "chat_communication_messages",
+            "chat_communication_message_revisions",
+            "chat_participant_mentions",
+            "chat_communication_attachment_references",
+            "chat_communication_resource_references",
+            "chat_conversation_read_cursors",
+            "chat_reply_thread_read_cursors",
+            "chat_organizational_drafts",
+            "chat_organizational_command_receipts",
+            "chat_work_assignments",
+            "chat_work_assignment_inputs",
+            "chat_work_semantic_updates",
+            "chat_assignment_context_packages",
+            "chat_assignment_context_sources",
+            "chat_assignment_authorization_decisions",
+            "chat_agent_runs",
+            "chat_assignment_dispatch_jobs",
+            "chat_project_primary_working_folders",
+            "chat_communication_search_fts",
             "idx_chat_threads_active_project",
             "idx_chat_threads_active_working_folder",
             "idx_chat_threads_archived",
@@ -166,8 +192,12 @@ fn schema_creates_chat_tables_indexes_and_no_device_paths() {
             "idx_chat_channels_project_name",
             "idx_chat_channels_project_default",
             "idx_chat_channels_active_project",
-            "idx_chat_channel_sessions_current",
-            "idx_chat_channel_sessions_thread",
+            "idx_chat_participants_handle",
+            "idx_chat_teammate_folder_default",
+            "idx_chat_conversation_items_root_ordinal",
+            "idx_chat_conversation_items_reply_ordinal",
+            "idx_chat_work_assignments_one_active",
+            "idx_chat_assignment_dispatch_jobs_ready",
         ] {
             let exists: Option<i64> =
                 sqlx::query_scalar("SELECT 1 FROM sqlite_schema WHERE name = ?")
@@ -203,6 +233,67 @@ fn schema_creates_chat_tables_indexes_and_no_device_paths() {
                     || column.contains("secret")
             }));
         }
+
+        let channel_columns = sqlx::query("SELECT name FROM pragma_table_info('chat_channels')")
+            .fetch_all(&pool)
+            .await
+            .unwrap()
+            .into_iter()
+            .map(|row| row.get::<String, _>("name"))
+            .collect::<Vec<_>>();
+        for removed in [
+            "working_folder_id",
+            "provider_instance_id",
+            "model_selection_data",
+        ] {
+            assert!(
+                !channel_columns.iter().any(|column| column == removed),
+                "chat_channels.{removed} should not exist"
+            );
+        }
+        let legacy_sessions: Option<i64> =
+            sqlx::query_scalar("SELECT 1 FROM sqlite_schema WHERE name = 'chat_channel_sessions'")
+                .fetch_optional(&pool)
+                .await
+                .unwrap();
+        assert_eq!(legacy_sessions, None);
+    });
+}
+
+#[test]
+fn fresh_projects_create_general_owner_membership_and_primary_folder() {
+    tauri::async_runtime::block_on(async {
+        let pool = migrated_memory_pool().await;
+        let projects: i64 = sqlx::query_scalar("SELECT count(*) FROM projects")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        let general_channels: i64 = sqlx::query_scalar(
+            "SELECT count(*) FROM chat_channels WHERE is_default = 1 AND name = 'general'",
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        let owner_memberships: i64 = sqlx::query_scalar(
+            "SELECT count(*)
+             FROM chat_channels channel
+             JOIN chat_conversation_memberships membership
+               ON membership.conversation_id = channel.conversation_id
+             WHERE channel.is_default = 1
+               AND membership.participant_id = 'participant:local-owner'
+               AND membership.membership_role = 'owner'",
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        let primary_folders: i64 =
+            sqlx::query_scalar("SELECT count(*) FROM chat_project_primary_working_folders")
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        assert_eq!(general_channels, projects);
+        assert_eq!(owner_memberships, projects);
+        assert_eq!(primary_folders, projects);
     });
 }
 

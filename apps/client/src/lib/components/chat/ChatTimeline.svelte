@@ -37,7 +37,19 @@
   import ChatModelAvatar from "./ChatModelAvatar.svelte";
   import ProfileAvatar from "$lib/components/profile/ProfileAvatar.svelte";
 
-  const { bottomInsetPx = 0 } = $props<{ bottomInsetPx?: number }>();
+  const {
+    bottomInsetPx = 0,
+    embedded = false,
+    hideUserMessages = false,
+    teammateName = null,
+    effort = null,
+  } = $props<{
+    bottomInsetPx?: number;
+    embedded?: boolean;
+    hideUserMessages?: boolean;
+    teammateName?: string | null;
+    effort?: string | null;
+  }>();
   const COMPOSER_READING_GAP_PX = 8;
   const TIMELINE_EDGE_PADDING_PX = 16;
   const localization = getLocalization();
@@ -67,6 +79,7 @@
   let copiedMessageId = $state<string | null>(null);
   let copiedMessageTimer: ReturnType<typeof setTimeout> | null = null;
   let disclosureMeasureFrame: number | null = null;
+  let destroyed = false;
   let pendingDisclosureAnchor: { rowId: string; viewportOffset: number } | null = null;
   let scrollbarGeometry = $state<TimelineScrollbarThumbGeometry | null>(null);
   let scrollbarTrackTop = $state(0);
@@ -84,15 +97,19 @@
   const optimisticMessage = $derived(chat.pendingUserMessage?.threadId === (selectedThread?.id ?? chat.draftThreadId)
     ? chat.pendingUserMessage.row
     : null);
-  const timelineRows = $derived(includeOptimisticTimelineMessage(projection.rows, optimisticMessage));
+  const timelineRows = $derived(includeOptimisticTimelineMessage(projection.rows, optimisticMessage)
+    .filter((row) => !hideUserMessages || row.kind !== "message" || row.role !== "user"));
   const displayRows = $derived(buildTimelineDisplayRows(timelineRows.filter((row) => row.kind !== "plan" || !dismissedPlans.includes(row.id)), projection.turns, new Set(expandedTurns), new Set(expandedGroups)));
   const turnsById = $derived(new Map(projection.turns.map((turn) => [turn.id, turn])));
   const modelGroupStartIds = $derived(timelineModelGroupStartIds(displayRows));
   const virtualWindow = $derived(computeTimelineVirtualWindow(displayRows, measuredHeights, scrollTop, viewportHeight));
+  const renderedRows = $derived(embedded
+    ? displayRows.map((row, index) => ({ row, index }))
+    : virtualWindow.items);
   const selectedWorkingFolder = $derived(chat.selectedWorkingFolder);
   const selectedProvider = $derived(chat.settings?.providerInstances.find((provider) => provider.configuration.instanceId === selectedThread?.providerInstanceId) ?? null);
   const minimapRows = $derived(timelineMinimapRows(displayRows));
-  const showMinimap = $derived(displayRows.length >= 80 && viewportWidth >= 900 && minimapRows.length > 0);
+  const showMinimap = $derived(!embedded && displayRows.length >= 80 && viewportWidth >= 900 && minimapRows.length > 0);
   const latestTimelinePage = $derived(chat.timelinePages.at(-1));
   const timelineRevision = $derived(`${latestTimelinePage
     ? "revision" in latestTimelinePage
@@ -100,7 +117,7 @@
       : latestTimelinePage.threadRevision
     : 0}:${chat.pendingUserMessage?.row.id ?? ""}`);
   const bottomPadding = $derived(
-    virtualWindow.paddingBottom
+    (embedded ? 0 : virtualWindow.paddingBottom)
       + (bottomInsetPx > 0 ? bottomInsetPx + COMPOSER_READING_GAP_PX : TIMELINE_EDGE_PADDING_PX),
   );
 
@@ -124,10 +141,10 @@
       viewportWidth = entry.contentRect.width;
       updateTimelineScrollbar();
     });
-    if (scroller) observer.observe(scroller);
+    if (!embedded && scroller) observer.observe(scroller);
     const contentObserver = new ResizeObserver(updateTimelineScrollbar);
-    if (timelineContent) contentObserver.observe(timelineContent);
-    updateTimelineScrollbar();
+    if (!embedded && timelineContent) contentObserver.observe(timelineContent);
+    if (!embedded) updateTimelineScrollbar();
     const motion = window.matchMedia("(prefers-reduced-motion: reduce)");
     const updateMotion = () => { reducedMotion = motion.matches; };
     updateMotion();
@@ -144,12 +161,14 @@
   });
 
   onDestroy(() => {
+    destroyed = true;
     if (copiedMessageTimer) clearTimeout(copiedMessageTimer);
     if (disclosureMeasureFrame !== null) cancelAnimationFrame(disclosureMeasureFrame);
   });
 
   $effect(() => {
-    virtualWindow.items;
+    renderedRows;
+    if (embedded) return;
     void tick().then(measureRows);
   });
 
@@ -163,22 +182,22 @@
 
   $effect(() => {
     timelineRevision;
-    if (intent !== "following") return;
+    if (embedded || intent !== "following") return;
     void tick().then(pinToLatest);
   });
 
   $effect(() => {
     bottomInsetPx;
-    if (intent !== "following") return;
+    if (embedded || intent !== "following") return;
     void tick().then(pinToLatest);
   });
 
   $effect(() => {
     const identity = timelineIdentity;
-    if (!identity || chat.timelineLoading || restoredThreadId === identity) return;
+    if (embedded || !identity || chat.timelineLoading || restoredThreadId === identity) return;
     restoredThreadId = identity;
     void tick().then(() => {
-      if (!scroller || timelineIdentity !== identity) return;
+      if (destroyed || !scroller || timelineIdentity !== identity) return;
       scroller.scrollTop = THREAD_SCROLL_OFFSETS.get(identity) ?? scroller.scrollHeight;
       scrollTop = scroller.scrollTop;
       intent = timelineScrollIntent(scroller.scrollHeight - scroller.clientHeight - scroller.scrollTop, "anchored");
@@ -186,7 +205,7 @@
   });
 
   function handleScroll(): void {
-    if (!scroller) return;
+    if (embedded || !scroller) return;
     scrollTop = scroller.scrollTop;
     updateTimelineScrollbar();
     if (timelineIdentity) THREAD_SCROLL_OFFSETS.set(timelineIdentity, scrollTop);
@@ -215,7 +234,7 @@
   }
 
   function measureRows(): void {
-    if (!scroller) return;
+    if (embedded || destroyed || !scroller) return;
     const scrollerTop = scroller.getBoundingClientRect().top;
     const disclosureAnchor = pendingDisclosureAnchor;
     pendingDisclosureAnchor = null;
@@ -240,7 +259,7 @@
         void tick().then(pinToLatest);
       } else if (anchorId) {
         void tick().then(() => {
-          if (!scroller) return;
+          if (destroyed || !scroller) return;
           const restored = scroller.querySelector<HTMLElement>(`[data-timeline-row-id="${CSS.escape(anchorId)}"]`);
           if (!restored) return;
           const restoredOffset = restored.getBoundingClientRect().top - scroller.getBoundingClientRect().top;
@@ -253,7 +272,7 @@
   }
 
   function handleTimelineClick(event: MouseEvent): void {
-    if (!scroller || !(event.target instanceof Element)) return;
+    if (embedded || !scroller || !(event.target instanceof Element)) return;
     const disclosure = event.target.closest<HTMLElement>("[data-timeline-disclosure-expanded]");
     if (!disclosure || !scroller.contains(disclosure)) return;
     const expanding = disclosure.dataset.timelineDisclosureExpanded === "false";
@@ -274,6 +293,7 @@
   }
 
   function handleTimelineTransitionEnd(event: TransitionEvent): void {
+    if (embedded) return;
     if (!(event.target instanceof HTMLElement)) return;
     if (event.propertyName !== "grid-template-rows" && event.propertyName !== "max-height") return;
     if (!event.target.matches(".chat-disclosure-region, .chat-message-expandable, .file-change-region")) return;
@@ -281,7 +301,7 @@
   }
 
   function updateTimelineScrollbar(): void {
-    if (!scroller) return;
+    if (embedded || !scroller) return;
     scrollbarTrackTop = scroller.offsetTop;
     scrollbarTrackHeight = scroller.clientHeight;
     scrollbarGeometry = timelineScrollbarThumbGeometry(scroller.scrollHeight, scroller.clientHeight, scroller.scrollTop);
@@ -339,8 +359,11 @@
 
   function measureExpandableHeight(node: HTMLElement): { destroy(): void } {
     const content = node.firstElementChild;
+    let measuredHeight = -1;
     const update = () => {
       const height = content instanceof HTMLElement ? content.scrollHeight : node.scrollHeight;
+      if (height === measuredHeight) return;
+      measuredHeight = height;
       node.style.setProperty("--chat-expanded-height", `${Math.ceil(height)}px`);
     };
     update();
@@ -351,7 +374,7 @@
   }
 
   function pinToLatest(): void {
-    if (!scroller || intent !== "following") return;
+    if (destroyed || !scroller || intent !== "following") return;
     scroller.scrollTop = scroller.scrollHeight;
     scrollTop = scroller.scrollTop;
   }
@@ -640,7 +663,8 @@
       : row.kind === "turn_fold"
         ? row.hiddenRows[0]?.sourceThreadId
         : row.sourceThreadId;
-    const sourceThread = chat.channelSessions.find((session) => session.thread.id === sourceThreadId)?.thread
+    const sourceThread = [...chat.activeThreads, ...chat.archivedThreads]
+      .find((thread) => thread.id === sourceThreadId)
       ?? selectedThread;
     const sourceProvider = chat.settings?.providerInstances.find((provider) => (
       provider.configuration.instanceId === sourceThread?.providerInstanceId
@@ -713,10 +737,21 @@
 {#snippet modelRowContent(row: TimelineDisplayRow)}
   {#if row.kind === "message"}
     {@const message = row as TimelineMessageRow}
+    {@const sourceThreadId = message.sourceThreadId ?? chat.selectedThreadId}
+    {@const sourceWorkingFolderId = sourceThreadId
+      ? [...chat.activeThreads, ...chat.archivedThreads]
+        .find((thread) => thread.id === sourceThreadId)?.workingFolderId
+        ?? (sourceThreadId === chat.selectedThreadId ? chat.selectedWorkingFolderId : null)
+      : null}
     <article class="chat-assistant-message">
       <ChatMarkdown markdown={message.markdown} onError={reportError} />
-      {#if message.turnId && message.metadata?.changedFiles.length && (!message.sourceThreadId || message.sourceThreadId === chat.selectedThreadId)}
-        <ChatChangedFilesSummary turnId={message.turnId} files={message.metadata.changedFiles} />
+      {#if message.turnId && message.metadata?.changedFiles.length}
+        <ChatChangedFilesSummary
+          turnId={message.turnId}
+          files={message.metadata.changedFiles}
+          {sourceThreadId}
+          {sourceWorkingFolderId}
+        />
       {/if}
       {#if message.metadata}
         <div class="chat-message-meta mt-2 flex flex-wrap items-center gap-2 text-muted-foreground">
@@ -779,17 +814,17 @@
   {/if}
 {/snippet}
 
-<div class="relative min-h-0 flex-1">
+<div class="chat-execution-timeline relative min-h-0 flex-1" class:embedded>
   {#if selectedThread?.archivedAt}<div class="chat-timeline-banner"><span>{t("chat.firstUse.archivedDescription")}</span><button type="button" onclick={() => void chat.restoreThread(selectedThread).catch(reportError)}><RotateCcw size={13} />{t("chat.restore")}</button></div>{/if}
   {#if selectedWorkingFolder?.workingFolder.archivedAt}<div class="chat-timeline-banner text-status-tentative"><CircleAlert size={14} /><span>{t("chat.timeline.workingFolderArchived")}</span><button type="button" onclick={() => void chat.restoreWorkingFolder(selectedWorkingFolder.workingFolder.id).catch(reportError)}>{t("chat.restore")}</button></div>{:else if selectedWorkingFolder && selectedWorkingFolder.bindingStatus !== "available"}<div class="chat-timeline-banner text-status-tentative"><CircleAlert size={14} /><span>{t("chat.timeline.workspaceMissing")}</span>{#if selectedWorkingFolder.workingFolder.kind === "managed"}<button type="button" onclick={() => void chat.recreateManagedWorkingFolder(selectedWorkingFolder.workingFolder.id).catch(reportError)}>{t("chat.firstUse.recreateFolder")}</button>{:else}<button type="button" onclick={() => void chat.rebindWorkingFolder(selectedWorkingFolder.workingFolder.id, t("chat.firstUse.chooseWorkingFolder")).catch(reportError)}>{t("chat.timeline.rebind")}</button>{/if}</div>{/if}
   {#if selectedProvider && (!selectedProvider.configuration.enabled || selectedProvider.lastProbe?.state !== "healthy")}<div class="chat-timeline-banner text-status-tentative"><CircleAlert size={14} /><span>{selectedProvider.lastProbe?.detail ?? t("chat.status.providerUnavailable")}</span><button type="button" onclick={() => void chat.probeProvider(selectedProvider.configuration.instanceId).catch(reportError)}>{t("chat.timeline.retry")}</button><button type="button" onclick={() => settings.open("chat", { chatSubsection: "providers" })}><Settings size={13} />{t("chat.timeline.openSettings")}</button></div>{/if}
   {#if selectedThread?.state === "error"}<div class="chat-timeline-banner text-destructive"><CircleAlert size={14} /><span>{t("chat.timeline.threadError")}</span><button type="button" onclick={() => void chat.startNewChannelSession().catch(reportError)}><MessageSquare size={13} />{t("chat.timeline.startNewThread")}</button></div>{/if}
   {#if operationError || chat.timelineError}<div role="alert" class="chat-timeline-banner text-destructive"><span>{operationError ?? chat.timelineError}</span>{#if selectedThread || chat.selectedChannelId}<button type="button" onclick={() => void retryTimeline().catch(reportError)}>{t("chat.timeline.retry")}</button>{/if}</div>{/if}
   <div bind:this={scroller} class="chat-timeline-scroller h-full overflow-y-auto" role="feed" aria-busy={chat.timelineLoading || undefined} aria-label={t("chat.title")} onscroll={handleScroll}>
-    <div bind:this={timelineContent} class="chat-timeline-content mx-auto flex min-h-full flex-col justify-end py-4" style={`padding-top:${virtualWindow.paddingTop + TIMELINE_EDGE_PADDING_PX}px;padding-bottom:${bottomPadding}px`}>
+    <div bind:this={timelineContent} class="chat-timeline-content mx-auto flex min-h-full flex-col justify-end py-4" style={`padding-top:${embedded ? 8 : virtualWindow.paddingTop + TIMELINE_EDGE_PADDING_PX}px;padding-bottom:${bottomPadding}px`}>
       {#if loadingOlder}<div class="mb-3 flex justify-center text-xs text-muted-foreground"><LoaderCircle size={14} class="animate-spin" />{t("chat.timeline.loadingOlder")}</div>{/if}
       {#if initialTimelineLoadingVisible}<div class="py-12 text-center text-sm text-muted-foreground">{t("common.loading")}</div>{/if}
-      {#each virtualWindow.items as virtual (virtual.row.id)}
+      {#each renderedRows as virtual (virtual.row.id)}
         {@const row = virtual.row}
         <div data-timeline-row-id={row.id} class="chat-timeline-row" class:optimistic={row.id === optimisticMessage?.id} class:participant-start={row.kind === "message" && row.role === "user" || modelGroupStartIds.has(row.id)} role="article" aria-label={rowAriaLabel(row)} aria-posinset={virtual.index + 1} aria-setsize={displayRows.length} tabindex="-1">
           {#if row.kind === "message"}
@@ -813,7 +848,7 @@
               {@const participant = participantForRow(row)}
               <div class="chat-participant-row">
                 <ChatModelAvatar familyId={participant.company.iconFamilyId} label={participant.company.name} size={36} />
-                <div class="chat-participant-content"><div class="chat-participant-header"><strong>{participant.displayName}</strong><span>{timestampLabel(row.createdAt)}</span></div>{@render modelRowContent(row)}</div>
+                <div class="chat-participant-content"><div class="chat-participant-header"><strong>{teammateName ?? participant.displayName}{#if teammateName}<small> ({participant.displayName}{#if effort}, {effort}{/if})</small>{/if}</strong><span>{timestampLabel(row.createdAt)}</span></div>{@render modelRowContent(row)}</div>
               </div>
             {:else}
               <div class="chat-participant-followup">{@render modelRowContent(row)}</div>
@@ -823,7 +858,7 @@
               {@const participant = participantForRow(row)}
               <div class="chat-participant-row">
                 <ChatModelAvatar familyId={participant.company.iconFamilyId} label={participant.company.name} size={36} />
-                <div class="chat-participant-content"><div class="chat-participant-header"><strong>{participant.displayName}</strong><span>{timestampLabel(row.createdAt)}</span></div>{@render modelRowContent(row)}</div>
+                <div class="chat-participant-content"><div class="chat-participant-header"><strong>{teammateName ?? participant.displayName}{#if teammateName}<small> ({participant.displayName}{#if effort}, {effort}{/if})</small>{/if}</strong><span>{timestampLabel(row.createdAt)}</span></div>{@render modelRowContent(row)}</div>
               </div>
             {:else}
               <div class="chat-participant-followup">{@render modelRowContent(row)}</div>
@@ -858,10 +893,13 @@
     {/if}
   </div>
   {#if showMinimap}<nav class="chat-timeline-minimap" aria-label={t("chat.timeline.minimap")}>{#each minimapRows as row}<button type="button" class:user={row.kind === "message" && row.role === "user"} class:assistant={row.kind === "message" && row.role === "assistant"} class:error={row.kind === "activity"} class:current={row.sequence >= (virtualWindow.items[0]?.row.sequence ?? Number.MAX_SAFE_INTEGER) && row.sequence <= (virtualWindow.items.at(-1)?.row.sequence ?? Number.MIN_SAFE_INTEGER)} title={minimapLabel(row)} aria-label={t("chat.timeline.minimapRow", minimapLabel(row))} onclick={() => scrollToMinimapRow(row.id)}></button>{/each}</nav>{/if}
-  {#if intent !== "following"}<button type="button" class="chat-jump-latest" onclick={jumpToLatest}><ArrowDown size={13} />{t("chat.timeline.jumpLatest")}{#if unreadEvents > 0}<span>{unreadEvents}</span>{/if}</button>{/if}
+  {#if !embedded && intent !== "following"}<button type="button" class="chat-jump-latest" onclick={jumpToLatest}><ArrowDown size={13} />{t("chat.timeline.jumpLatest")}{#if unreadEvents > 0}<span>{unreadEvents}</span>{/if}</button>{/if}
 </div>
 
 <style>
+  .chat-execution-timeline.embedded { min-height:0; flex:none; overflow:visible; }
+  .chat-execution-timeline.embedded .chat-timeline-scroller { height:auto; overflow:visible; }
+  .chat-execution-timeline.embedded .chat-timeline-content { min-height:0; justify-content:flex-start; }
   .chat-timeline-content { width: calc(100% - 1.5rem); max-width: 54rem; }
   .chat-timeline-scroller { overflow-anchor: none; scrollbar-width: none; }
   .chat-timeline-scroller::-webkit-scrollbar { display: none; width: 0; height: 0; }
@@ -878,6 +916,7 @@
   .chat-participant-followup { min-width: 0; margin-left: calc(36px + var(--chat-participant-gap)); }
   .chat-participant-header { display: flex; min-height: 1.25rem; min-width: 0; align-items: baseline; gap: 0.45rem; margin-bottom: 0.12rem; line-height: 1.25rem; }
   .chat-participant-header strong { min-width: 0; overflow: hidden; color: var(--foreground); font-size: var(--chat-conversation-font-size, 0.933333rem); font-weight: 650; text-overflow: ellipsis; white-space: nowrap; }
+  .chat-participant-header strong small { color:var(--muted-foreground); font-size:0.7rem; font-weight:400; }
   .chat-participant-header span { flex: 0 0 auto; color: var(--muted-foreground); font-size: 0.7rem; font-weight: 400; }
   .chat-timeline-banner { display: flex; min-height: 2.25rem; align-items: center; justify-content: center; gap: 0.5rem; border-bottom: 1px solid var(--border); background: var(--background); padding: 0.4rem 0.75rem; font-size: 0.733333rem; }
   .chat-timeline-banner button { display: inline-flex; align-items: center; gap: 0.25rem; border-radius: 0.25rem; border: 1px solid var(--border); padding: 0.2rem 0.45rem; }

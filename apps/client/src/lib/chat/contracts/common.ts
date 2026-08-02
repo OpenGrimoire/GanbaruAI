@@ -3,6 +3,14 @@ export type JsonValue = JsonPrimitive | JsonValue[] | { [key: string]: JsonValue
 
 export type ProjectWorkingFolderId = string;
 export type ChatChannelId = string;
+export type ChatParticipantId = string;
+export type ChatConversationId = string;
+export type ChatConversationItemId = string;
+export type ChatMessageRevisionId = string;
+export type ChatReplyThreadId = string;
+export type ChatTeammatePolicyRevisionId = string;
+export type ChatWorkAssignmentId = string;
+export type ChatAgentRunId = string;
 export type ChatThreadId = string;
 export type ChatTurnId = string;
 export type ChatMessageId = string;

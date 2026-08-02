@@ -181,16 +181,17 @@ Structured project lifecycle templates and the first manager-coordination layer.
 - Actionable methodology templates: reverse brainstorming, value proposition canvas, business model canvas, SWOT analysis, market research frameworks. Structured forms, not static documents
 - Project Kanban boards: per-project boards linked to project phases
 - Manager planning: reviewable proposals for objectives, tasks, subtasks, dependencies, acceptance criteria, assignments, reviewers, estimates, deadlines, budgets, risks, and scheduling effects
-- Stable AI roles and context packages: project manager identity independent of provider, versioned task context, selected Notes and files, Calendar constraints, authority, and budgets
-- Stable AI participation: explicit role invocation in channels, DMs with durable roles, and focused task discussions without making temporary worker runs permanent sidebar contacts
-- Task-linked agent runs: bounded execution, structured status, deliverables, usage, review-ready state, and links to native provider timelines
+- Persistent AI teammates and context packages: user-created teammate identity independent of provider, versioned thread and task context, selected Notes and files, Calendar constraints, scoped memory, authority, and budgets
+- Mention-led participation: actionable `@teammate` invocation, channel membership, shared reply threads, human steering, semantic work state, and DMs without making temporary worker runs permanent sidebar contacts
+- Teammate permissions and routing: separate channel addressability from code, shell, Notes, Calendar, external-service, memory, and budget grants; provider, model, effort, and fallback policy remain execution settings behind the teammate
+- Task-linked agent runs: bounded execution, structured status, deliverables, usage, review-ready state, and links to exact provider execution timelines
 - Requirement version control: timestamped revisions with requester, reason, origin discussion or review, approval, and downstream task, date, budget, Notes, deliverable, and run impact
 - Review workflow: human or AI reviewer assignment, review target and late reason, corrections versus requirement revisions versus related work
 - Sustainable delegation: work-in-progress limits, review-queue limits, dependency-aware parallelism, token and monetary ceilings, and exception digests
 - Calendar date cascade: inserting or extending session blocks shifts downstream blocks, dependency graph propagation, conflict highlighting
 - Automatic report generation: markdown reports from Kanban state, calendar data, Pomodoro history, requirement changes, milestone progress. PDF generation via Typst
 - PDF reading: pdfium-render for importing external documents (text extraction, page rendering)
-- AI-enhanced workflows: Chat roles and task agents research competitors, help fill templates, validate ideas, execute approved work, and preserve decisions and discarded approaches with provenance
+- AI-enhanced workflows: Chat teammates and task agents research competitors, help fill templates, validate ideas, execute approved work, and preserve decisions and discarded approaches with provenance
 
 **Depends on:** phase 1 (Projects and Calendar), phase 2 (Notes for project knowledge), phase 4 (work environments for project contexts), phase 7 (native agent execution, channels, CLI, and workspace tools)
 
@@ -218,7 +219,7 @@ Multi-device sync and real-time collaboration via CRDTs and E2E encryption, with
 - Scoped membership: group, project, selected channels, selected Notes folders or pages, selected tasks or task discussions, and explicit project working-folder access
 - Permission-safe derivations: search, mentions, backlinks, notifications, digests, dashboards, reports, exports, summaries, and AI context packages never reveal inaccessible data
 - History and revocation: explicit prior-history visibility when inviting, future-read removal, offline revocation behavior, encrypted key rotation, and audit records
-- Collaborative channels and DMs: human messages, replies, mentions, membership, read state, and durable links to authorized Projects, Notes, Calendar, and agent runs
+- Collaborative channels and DMs: human and AI-teammate messages, work threads, replies, mentions, membership, read state, and durable links to authorized Projects, Notes, Calendar, and agent runs
 - Collaborative workspaces: shared documents, live presence, and conflict handling without replacing local canonical storage
 - Local backup: scheduled encrypted zip export of the Ganbaru AI folder
 
@@ -260,17 +261,17 @@ Tauri v2 mobile builds delivering a focused subset of the desktop experience.
 
 ---
 
-## Phase 11: BYOK roles, advanced AI, and MCP
+## Phase 11: BYOK teammates, advanced AI, and MCP
 
-The general-user provider path, advanced AI capabilities, and external access layer. It joins the same channels, DMs, roles, tasks, context packages, permissions, and provenance model established by the local coding-agent path.
+The general-user provider path, advanced AI capabilities, and external access layer. It joins the same channels, DMs, teammates, tasks, context packages, permissions, and provenance model established by the local coding-agent path.
 
 **Includes:**
 
-- BYOK AI roles: general assistants participate in authorized channels, DMs, and workflows without creating a second isolated per-project chat system
+- BYOK AI teammates: general assistants participate in authorized channels, DMs, and workflows without creating a second isolated per-project chat system
 - LLM provider support: OpenAI API, OpenAI-compatible APIs (Groq, Together, Mistral, and any provider using a compatible chat format), Ollama for local models (Llama, Mistral, Gemma, no API key needed), and other explicitly supported provider APIs when users supply their own credentials
 - BYOK configuration UI: API key management (stored locally), model selection, provider setup with guided instructions, consent controls
-- Permission-aware context: every request shows or records the role, destination, context package, provider, model, consent, and effective data scope
-- Natural language calendar management: "move my 3pm session to tomorrow", an authorized role proposes the change, accepted changes use typed Calendar operations, and external local agents can use the CLI
+- Permission-aware context: every request shows or records the teammate, destination, context package, provider, model, consent, and effective data scope
+- Natural language calendar management: "move my 3pm session to tomorrow", an authorized teammate proposes the change, accepted changes use typed Calendar operations, and external local agents can use the CLI
 - Mood-aware motivation: using diary mood/energy baselines, AI adapts communication and suggests schedule adjustments
 - Adaptive Pomodoro rhythm decisions: local-only analysis of focus rhythm outcomes, custom cadence experiments, and opt-in automatic tuning bounded by recovery and satisfaction guardrails
 - Content-specific browsing relevance detection: LLM analyzes page content (not just URLs) for task relevance, smarter blocking on YouTube and similar platforms
@@ -280,13 +281,13 @@ The general-user provider path, advanced AI capabilities, and external access la
 - Firefox browser extension: port of Chrome extension to Firefox manifest
 - Edge panel global mouse trigger: rdev / Win32 / X11 polling for cursor position (replaces keyboard shortcut from phase 4), Wayland detection and graceful fallback
 
-**Depends on:** phase 8 (roles, context packages, proposals, and review), phase 7 (CLI and native provider foundation), phase 3 (diary for mood baselines), phase 4 (browser extension for content blocking)
+**Depends on:** phase 8 (teammates, context packages, proposals, and review), phase 7 (CLI and native provider foundation), phase 3 (diary for mood baselines), phase 4 (browser extension for content blocking)
 
 **Out of scope:** this is the final planned phase
 
 **Complexity:** large
 
-**Platform:** cross-platform (BYOK roles and AI features), desktop only (mouse trigger, Firefox extension, content-specific blocking)
+**Platform:** cross-platform (BYOK teammates and AI features), desktop only (mouse trigger, Firefox extension, content-specific blocking)
 
 ---
 
@@ -317,6 +318,7 @@ Every system from the product spec is accounted for:
 | Markdown export/import for project repos                         | 7             |
 | Project management lifecycle templates                           | 8             |
 | Kanban (project, requirement version control)                    | 8             |
+| Persistent AI teammates, mentions, and shared work threads       | 8             |
 | Manager plans, context packages, task-linked agent runs           | 8             |
 | Assignment, review, budgets, and sustainable parallelism         | 8             |
 | Methodology templates                                            | 8             |
@@ -330,7 +332,7 @@ Every system from the product spec is accounted for:
 | Mobile Chat communication and task review                       | 10            |
 | Sleep alarm (mobile)                                              | 10            |
 | Doomscrolling (mobile/app-level)                                 | 10            |
-| BYOK AI roles (OpenAI, compatible APIs, Ollama)                  | 11            |
+| BYOK AI teammates (OpenAI, compatible APIs, Ollama)              | 11            |
 | AI: natural language calendar management                         | 11            |
 | AI: mood-aware motivation                                        | 11            |
 | Adaptive Pomodoro rhythm decisions                               | 11            |

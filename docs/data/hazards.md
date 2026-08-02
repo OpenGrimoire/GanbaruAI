@@ -154,6 +154,16 @@ Situations most likely to produce bugs, data corruption, or confusing UX. Every 
 
 **Scenario:** a restricted collaborator can read one project channel but not a private Notes folder. A manager summary generated for that channel mentions a confidential page title and uses its contents to explain a decision. The collaborator learns restricted information even though the Notes page itself correctly denies access.
 
-**Mitigation:** authorization runs before direct reads, aggregation, indexing, notification rendering, export, and context-package assembly. AI receives the intersection of the requesting participant, destination conversation, selected role, and explicit run grants. Access denial does not reveal inaccessible titles, counts, relationships, or participants. Revocation invalidates future derived reads and stale offline writes as well as direct access.
+**Mitigation:** authorization runs before direct reads, aggregation, indexing, notification rendering, export, and context-package assembly. AI receives the intersection of the requesting participant, destination conversation, teammate principal, explicit resource grants, and run grants. Access denial does not reveal inaccessible titles, counts, relationships, or participants. Revocation invalidates future derived reads and stale offline writes as well as direct access.
 
 **Governed by:** `features/agent-coordination.md`, `features/notes.md`, `data/sync.md`, `data/security.md`, invariant 12.
+
+## 14. AI teammate identity used as an authority bridge
+
+**Why it is dangerous:** a persistent teammate can appear in several channels, which makes it tempting to reuse its broadest resource access or memory everywhere. A visible name and channel membership are not proof that every participant or destination may use every capability associated with that teammate.
+
+**Scenario:** the same teammate appears in `#legal` and `#engineering`. It can read contracts in the first scope and edit a codebase in the second. A legal-channel participant asks it to change code, or an engineering question causes a contract summary to enter the reply thread. If dispatch uses the union of grants attached to the display identity, the teammate crosses both boundaries.
+
+**Mitigation:** every actionable mention creates a typed work assignment and computes the intersection of requester invocation authority, destination visibility, teammate principal grants, explicit resource grants, run grants, budgets, and provider safety. Memory namespaces and context packages retain scope and provenance. A shared display identity never merges access profiles. Denials remain permission-safe, and proactive subscriptions name one bounded readable scope.
+
+**Governed by:** `features/agent-coordination.md`, `features/chat.md`, `data/security.md`, invariants 12 and 13.

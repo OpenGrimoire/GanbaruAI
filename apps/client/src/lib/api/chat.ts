@@ -4,8 +4,22 @@ import type {
   ChatBehaviorPreferences,
   ChatChannelId,
   ChatChannelRead,
-  ChatChannelSessionRead,
-  ChatChannelTimelinePageRead,
+  ChatParticipantId,
+  ChatReplyThreadId,
+  ChatWorkAssignmentId,
+  ChatAiTeammateRead,
+  ChatTeammatePolicyRead,
+  ChatConversationMembershipRead,
+  ChatProjectPrimaryWorkingFolderRead,
+  ChatChannelPageRead,
+  ChatReplyThreadPageRead,
+  ChatMessageSearchResultRead,
+  CreateChatTeammateRequest,
+  UpdateChatTeammateProfileRequest,
+  PublishChatTeammatePolicyRequest,
+  UpsertChatTeammateMembershipRequest,
+  PostChatMessageRequest,
+  PostChatMessageResult,
   ChatDiagnosticPreferences,
   ChatDiagnosticsRead,
   ChatStopAllResult,
@@ -39,7 +53,6 @@ import type {
   CreateChatWorktreeRequest,
   CreateChatChannelRequest,
   UpdateChatChannelDetailsRequest,
-  UpdateChatChannelTargetRequest,
   CreateChatReviewCommentRequest,
   ChatRestorePreviewRead,
   ChatRestoreResultRead,
@@ -85,8 +98,16 @@ import {
   parseChatProjectShells,
   parseChatChannel,
   parseChatChannels,
-  parseChatChannelSessions,
-  parseChatChannelTimelinePage,
+  parseChatAiTeammate,
+  parseChatAiTeammates,
+  parseChatTeammatePolicy,
+  parseChatConversationMemberships,
+  parseChatProjectPrimaryWorkingFolder,
+  parseChatChannelPage,
+  parseChatReplyThreadPage,
+  parseChatMessageSearchResults,
+  parsePostChatMessageResult,
+  parseChatWorkAssignment,
   parseChatDiagnosticPreferences,
   parseChatDiagnosticsRead,
   parseChatStopAllResult,
@@ -1015,14 +1036,6 @@ export async function updateChatChannelDetails(
   }));
 }
 
-export async function updateChatChannelTarget(
-  request: UpdateChatChannelTargetRequest,
-): Promise<ChatChannelRead> {
-  return parseChatChannel(await invoke<unknown>("chat_update_channel_target", {
-    dbUrl: await ensureDbUrl(), request,
-  }));
-}
-
 export async function archiveChatChannel(
   channelId: ChatChannelId,
   expectedRevision: number,
@@ -1047,20 +1060,156 @@ export async function setChatChannelRead(channelId: ChatChannelId, read: boolean
   }));
 }
 
-export async function listChatChannelSessions(channelId: ChatChannelId): Promise<ChatChannelSessionRead[]> {
-  return parseChatChannelSessions(await invoke<unknown>("chat_list_channel_sessions", {
+export async function listChatTeammates(archived = false): Promise<ChatAiTeammateRead[]> {
+  return parseChatAiTeammates(await invoke<unknown>("chat_list_teammates", {
+    dbUrl: await ensureDbUrl(), archived,
+  }));
+}
+
+export async function readChatTeammate(teammateId: ChatParticipantId): Promise<ChatAiTeammateRead> {
+  return parseChatAiTeammate(await invoke<unknown>("chat_read_teammate", {
+    dbUrl: await ensureDbUrl(), teammateId,
+  }));
+}
+
+export async function createChatTeammate(request: CreateChatTeammateRequest): Promise<ChatAiTeammateRead> {
+  return parseChatAiTeammate(await invoke<unknown>("chat_create_teammate", {
+    dbUrl: await ensureDbUrl(), request,
+  }));
+}
+
+export async function updateChatTeammateProfile(
+  request: UpdateChatTeammateProfileRequest,
+): Promise<ChatAiTeammateRead> {
+  return parseChatAiTeammate(await invoke<unknown>("chat_update_teammate_profile", {
+    dbUrl: await ensureDbUrl(), request,
+  }));
+}
+
+export async function archiveChatTeammate(
+  teammateId: ChatParticipantId,
+  expectedRevision: number,
+  archived: boolean,
+): Promise<ChatAiTeammateRead> {
+  return parseChatAiTeammate(await invoke<unknown>("chat_archive_teammate", {
+    dbUrl: await ensureDbUrl(), teammateId, expectedRevision, archived,
+  }));
+}
+
+export async function publishChatTeammatePolicy(
+  request: PublishChatTeammatePolicyRequest,
+): Promise<ChatTeammatePolicyRead> {
+  return parseChatTeammatePolicy(await invoke<unknown>("chat_publish_teammate_policy", {
+    dbUrl: await ensureDbUrl(), request,
+  }));
+}
+
+export async function listChatChannelMemberships(
+  channelId: ChatChannelId,
+): Promise<ChatConversationMembershipRead[]> {
+  return parseChatConversationMemberships(await invoke<unknown>("chat_list_channel_memberships", {
     dbUrl: await ensureDbUrl(), channelId,
   }));
 }
 
-export async function readChatChannelTimelinePage(
+export async function readChatProjectPrimaryWorkingFolder(
+  projectId: string,
+): Promise<ChatProjectPrimaryWorkingFolderRead> {
+  return parseChatProjectPrimaryWorkingFolder(await invoke<unknown>(
+    "chat_read_project_primary_working_folder",
+    { dbUrl: await ensureDbUrl(), projectId },
+  ));
+}
+
+export async function setChatProjectPrimaryWorkingFolder(
+  projectId: string,
+  workingFolderId: ProjectWorkingFolderId,
+  expectedRevision: number,
+): Promise<ChatProjectPrimaryWorkingFolderRead> {
+  return parseChatProjectPrimaryWorkingFolder(await invoke<unknown>(
+    "chat_set_project_primary_working_folder",
+    { dbUrl: await ensureDbUrl(), projectId, workingFolderId, expectedRevision },
+  ));
+}
+
+export async function upsertChatTeammateMembership(
+  request: UpsertChatTeammateMembershipRequest,
+): Promise<ChatConversationMembershipRead> {
+  const memberships = parseChatConversationMemberships([
+    await invoke<unknown>("chat_upsert_teammate_membership", {
+      dbUrl: await ensureDbUrl(), request,
+    }),
+  ]);
+  return memberships[0];
+}
+
+export async function removeChatTeammateMembership(
+  teammateId: ChatParticipantId,
+  channelId: ChatChannelId,
+  expectedRevision: number,
+  stopActiveWork: boolean,
+): Promise<void> {
+  await invoke("chat_remove_teammate_membership", {
+    dbUrl: await ensureDbUrl(), teammateId, channelId, expectedRevision, stopActiveWork,
+  });
+}
+
+export async function postChatMessage(request: PostChatMessageRequest): Promise<PostChatMessageResult> {
+  return parsePostChatMessageResult(await invoke<unknown>("chat_post_message", {
+    dbUrl: await ensureDbUrl(), request,
+  }));
+}
+
+export async function readChatChannelPage(
   channelId: ChatChannelId,
   cursor: string | null = null,
-  limit = 100,
-): Promise<ChatChannelTimelinePageRead> {
-  return parseChatChannelTimelinePage(await invoke<unknown>("chat_read_channel_timeline_page", {
+  limit = 50,
+): Promise<ChatChannelPageRead> {
+  return parseChatChannelPage(await invoke<unknown>("chat_read_channel_page", {
     dbUrl: await ensureDbUrl(), channelId, cursor, limit,
   }));
+}
+
+export async function readChatReplyThreadPage(
+  replyThreadId: ChatReplyThreadId,
+  cursor: string | null = null,
+  limit = 50,
+): Promise<ChatReplyThreadPageRead> {
+  return parseChatReplyThreadPage(await invoke<unknown>("chat_read_reply_thread_page", {
+    dbUrl: await ensureDbUrl(), replyThreadId, cursor, limit,
+  }));
+}
+
+export async function searchChatMessages(
+  query: string,
+  projectId: string | null = null,
+  limit = 50,
+): Promise<ChatMessageSearchResultRead[]> {
+  return parseChatMessageSearchResults(await invoke<unknown>("chat_search_messages", {
+    dbUrl: await ensureDbUrl(), query, projectId, limit,
+  }));
+}
+
+export async function cancelChatAssignment(
+  assignmentId: ChatWorkAssignmentId,
+  expectedRevision: number,
+): Promise<import("$lib/chat/contracts").ChatWorkAssignmentRead> {
+  return parseChatWorkAssignment(await invoke<unknown>("chat_cancel_assignment", {
+    dbUrl: await ensureDbUrl(), assignmentId, expectedRevision,
+  }));
+}
+
+export async function retryChatAssignment(
+  assignmentId: ChatWorkAssignmentId,
+  expectedRevision: number,
+): Promise<import("$lib/chat/contracts").ChatWorkAssignmentRead> {
+  return parseChatWorkAssignment(await invoke<unknown>("chat_retry_assignment", {
+    dbUrl: await ensureDbUrl(), assignmentId, expectedRevision,
+  }));
+}
+
+export async function recoverChatAssignmentDispatchJobs(): Promise<number> {
+  return invoke<number>("chat_recover_assignment_dispatch_jobs", { dbUrl: await ensureDbUrl() });
 }
 
 export async function listChatThreads(
@@ -1312,7 +1461,6 @@ export async function sendChatTurn(request: SendChatTurnCommand): Promise<SendCh
   const record = value as Record<string, unknown>;
   return {
     thread: parseChatThreadShell(record.thread),
-    channel: record.channel === null ? null : parseChatChannel(record.channel),
     dispatch: record.dispatch === null ? null : parseTurnDispatchReceipt(record.dispatch, "Chat send response.dispatch"),
     launchError: record.launchError === null ? null : parseChatError(record.launchError),
   };

@@ -22,6 +22,9 @@ const PLANS_PER_THREAD: usize = 10;
 const ATTACHMENTS_PER_THREAD: usize = 5;
 const CHECKPOINTS_PER_THREAD: usize = 2;
 const EVENTS_PER_THREAD: usize = 100;
+const ORGANIZATIONAL_MESSAGES_PER_CHANNEL: usize = 100;
+const ORGANIZATIONAL_REPLY_THREADS_PER_CHANNEL: usize = 10;
+const ORGANIZATIONAL_REPLIES_PER_THREAD: usize = 3;
 const BENCHMARK_CHILD_ENV: &str = "GANBARU_CHAT_BENCHMARK_CHILD";
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -50,9 +53,9 @@ pub async fn seed_dense_chat_fixture(
     let mut tx = pool.begin().await?;
     clear_previous_fixture(&mut tx).await?;
     seed_projects_and_workspaces(&mut tx).await?;
+    seed_organizational_messages(&mut tx).await?;
     for thread_index in 0..THREAD_COUNT {
         seed_thread(&mut tx, thread_index).await?;
-        link_thread_to_channel(&mut tx, thread_index).await?;
         seed_turns(&mut tx, thread_index).await?;
         seed_messages(&mut tx, thread_index).await?;
         seed_activities(&mut tx, thread_index).await?;
@@ -269,9 +272,6 @@ async fn clear_previous_fixture(tx: &mut Transaction<'_, Sqlite>) -> Result<(), 
         "DELETE FROM chat_cleanup_queue WHERE id LIKE 'benchmark-chat-%'",
         "DELETE FROM chat_attachment_references WHERE id LIKE 'benchmark-chat-%'",
         "DELETE FROM chat_attachments WHERE id LIKE 'benchmark-chat-%'",
-        "DELETE FROM chat_channel_sessions WHERE channel_id IN (
-            SELECT id FROM chat_channels WHERE project_id LIKE 'benchmark-chat-%'
-         )",
         "DELETE FROM chat_channels WHERE project_id LIKE 'benchmark-chat-%'",
         "DELETE FROM chat_threads WHERE id LIKE 'benchmark-chat-%'",
         "DELETE FROM projects WHERE id LIKE 'benchmark-chat-%'",
@@ -329,38 +329,187 @@ async fn seed_projects_and_workspaces(tx: &mut Transaction<'_, Sqlite>) -> Resul
         .bind(&created_at)
         .execute(&mut **tx)
         .await?;
-        sqlx::query(
-            "INSERT OR IGNORE INTO chat_channels
-                (id, project_id, name, topic, is_default, working_folder_id, created_at, updated_at)
-             VALUES (?, ?, 'general', 'Dense benchmark general coordination', 1, ?, ?, ?)",
-        )
-        .bind(channel_id(project_index, 0))
-        .bind(&project_id)
-        .bind(&working_folder_id)
-        .bind(&created_at)
-        .bind(&created_at)
-        .execute(&mut **tx)
-        .await?;
         for channel_slot in 1..CHANNELS_PER_PROJECT {
+            let conversation_id = conversation_id(project_index, channel_slot);
+            sqlx::query(
+                "INSERT INTO chat_conversations
+                    (id, project_id, conversation_kind, last_activity_at, created_at, updated_at)
+                 VALUES (?, ?, 'channel', ?, ?, ?)",
+            )
+            .bind(&conversation_id)
+            .bind(&project_id)
+            .bind(&created_at)
+            .bind(&created_at)
+            .bind(&created_at)
+            .execute(&mut **tx)
+            .await?;
             sqlx::query(
                 "INSERT INTO chat_channels
-                    (id, project_id, name, topic, working_folder_id, created_at, updated_at)
+                    (id, project_id, conversation_id, name, topic, created_at, updated_at)
                  VALUES (?, ?, ?, ?, ?, ?, ?)",
             )
             .bind(channel_id(project_index, channel_slot))
             .bind(&project_id)
+            .bind(&conversation_id)
             .bind(channel_name(channel_slot))
             .bind(format!(
                 "Dense benchmark {} coordination",
                 channel_name(channel_slot)
             ))
-            .bind(&working_folder_id)
+            .bind(&created_at)
+            .bind(&created_at)
+            .execute(&mut **tx)
+            .await?;
+            sqlx::query(
+                "INSERT INTO chat_conversation_memberships
+                    (conversation_id, participant_id, membership_role, addressable,
+                     approval_policy, created_at, updated_at)
+                 VALUES (?, 'participant:local-owner', 'owner', 0,
+                         'ask_for_approval', ?, ?)",
+            )
+            .bind(&conversation_id)
             .bind(&created_at)
             .bind(&created_at)
             .execute(&mut **tx)
             .await?;
         }
     }
+    Ok(())
+}
+
+async fn seed_organizational_messages(tx: &mut Transaction<'_, Sqlite>) -> Result<(), sqlx::Error> {
+    for project_index in 0..PROJECT_COUNT {
+        let channels = sqlx::query_as::<_, (String, String)>(
+            "SELECT conversation_id, name FROM chat_channels
+             WHERE project_id = ? ORDER BY is_default DESC, name",
+        )
+        .bind(project_id(project_index))
+        .fetch_all(&mut **tx)
+        .await?;
+        for (conversation_id, name) in channels {
+            let channel_slot = match name.as_str() {
+                "planning" => 1,
+                "implementation" => 2,
+                "review" => 3,
+                _ => 0,
+            };
+            for message_index in 0..ORGANIZATIONAL_MESSAGES_PER_CHANNEL {
+                let created_at = timestamp(
+                    30_000
+                        + project_index
+                            * CHANNELS_PER_PROJECT
+                            * ORGANIZATIONAL_MESSAGES_PER_CHANNEL
+                        + channel_slot * ORGANIZATIONAL_MESSAGES_PER_CHANNEL
+                        + message_index,
+                );
+                let item_id = organizational_message_id(project_index, channel_slot, message_index);
+                insert_organizational_message(
+                    tx,
+                    &conversation_id,
+                    None,
+                    &item_id,
+                    i64::try_from(message_index + 1).unwrap_or(i64::MAX),
+                    &format!(
+                        "Benchmark {name} message {:03} covers general planning implementation review.",
+                        message_index + 1
+                    ),
+                    &created_at,
+                )
+                .await?;
+                if message_index
+                    % (ORGANIZATIONAL_MESSAGES_PER_CHANNEL
+                        / ORGANIZATIONAL_REPLY_THREADS_PER_CHANNEL)
+                    != 0
+                {
+                    continue;
+                }
+                let reply_thread_id =
+                    organizational_reply_thread_id(project_index, channel_slot, message_index);
+                sqlx::query(
+                    "INSERT INTO chat_reply_threads
+                        (id, conversation_id, root_item_id, reply_count,
+                         last_activity_at, created_at, updated_at)
+                     VALUES (?, ?, ?, ?, ?, ?, ?)",
+                )
+                .bind(&reply_thread_id)
+                .bind(&conversation_id)
+                .bind(&item_id)
+                .bind(i64::try_from(ORGANIZATIONAL_REPLIES_PER_THREAD).unwrap_or(i64::MAX))
+                .bind(&created_at)
+                .bind(&created_at)
+                .bind(&created_at)
+                .execute(&mut **tx)
+                .await?;
+                for reply_index in 0..ORGANIZATIONAL_REPLIES_PER_THREAD {
+                    insert_organizational_message(
+                        tx,
+                        &conversation_id,
+                        Some(&reply_thread_id),
+                        &organizational_reply_id(
+                            project_index,
+                            channel_slot,
+                            message_index,
+                            reply_index,
+                        ),
+                        i64::try_from(reply_index + 1).unwrap_or(i64::MAX),
+                        &format!("Benchmark reply {} in the {name} thread.", reply_index + 1),
+                        &created_at,
+                    )
+                    .await?;
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
+async fn insert_organizational_message(
+    tx: &mut Transaction<'_, Sqlite>,
+    conversation_id: &str,
+    reply_thread_id: Option<&str>,
+    item_id: &str,
+    ordinal: i64,
+    markdown: &str,
+    created_at: &str,
+) -> Result<(), sqlx::Error> {
+    let revision_id = format!("{item_id}:revision:1");
+    sqlx::query(
+        "INSERT INTO chat_conversation_items
+            (id, conversation_id, reply_thread_id, item_kind, ordinal, created_at)
+         VALUES (?, ?, ?, 'message', ?, ?)",
+    )
+    .bind(item_id)
+    .bind(conversation_id)
+    .bind(reply_thread_id)
+    .bind(ordinal)
+    .bind(created_at)
+    .execute(&mut **tx)
+    .await?;
+    sqlx::query(
+        "INSERT INTO chat_communication_messages
+            (item_id, author_participant_id, created_at)
+         VALUES (?, 'participant:local-owner', ?)",
+    )
+    .bind(item_id)
+    .bind(created_at)
+    .execute(&mut **tx)
+    .await?;
+    sqlx::query(
+        "INSERT INTO chat_communication_message_revisions
+            (id, message_item_id, revision, normalized_markdown, created_at)
+         VALUES (?, ?, 1, ?, ?)",
+    )
+    .bind(&revision_id)
+    .bind(item_id)
+    .bind(markdown)
+    .bind(created_at)
+    .execute(&mut **tx)
+    .await?;
+    sqlx::query("UPDATE chat_communication_messages SET current_revision_id = ? WHERE item_id = ?")
+        .bind(&revision_id)
+        .bind(item_id)
+        .execute(&mut **tx)
+        .await?;
     Ok(())
 }
 
@@ -409,66 +558,6 @@ async fn seed_thread(
     .bind(&timestamp)
     .bind(&timestamp)
     .bind(&timestamp)
-    .execute(&mut **tx)
-    .await?;
-    Ok(())
-}
-
-async fn link_thread_to_channel(
-    tx: &mut Transaction<'_, Sqlite>,
-    thread_index: usize,
-) -> Result<(), sqlx::Error> {
-    let project_index = thread_index % PROJECT_COUNT;
-    let project_thread_slot = thread_index / PROJECT_COUNT;
-    let channel_slot = if project_thread_slot == CHANNELS_PER_PROJECT {
-        0
-    } else {
-        project_thread_slot
-    };
-    let channel_id = if channel_slot == 0 {
-        sqlx::query_scalar::<_, String>(
-            "SELECT id FROM chat_channels WHERE project_id = ? AND is_default = 1",
-        )
-        .bind(project_id(project_index))
-        .fetch_one(&mut **tx)
-        .await?
-    } else {
-        channel_id(project_index, channel_slot)
-    };
-    let ordinal: i64 = sqlx::query_scalar(
-        "SELECT COALESCE(MAX(ordinal), 0) + 1
-         FROM chat_channel_sessions WHERE channel_id = ?",
-    )
-    .bind(&channel_id)
-    .fetch_one(&mut **tx)
-    .await?;
-    sqlx::query("UPDATE chat_channel_sessions SET is_current = 0 WHERE channel_id = ?")
-        .bind(&channel_id)
-        .execute(&mut **tx)
-        .await?;
-    sqlx::query(
-        "INSERT INTO chat_channel_sessions
-            (channel_id, thread_id, ordinal, is_current, created_at)
-         VALUES (?, ?, ?, 1, ?)",
-    )
-    .bind(&channel_id)
-    .bind(thread_id(thread_index))
-    .bind(ordinal)
-    .bind(timestamp(1_000 + thread_index))
-    .execute(&mut **tx)
-    .await?;
-    let provider = provider_family(thread_index);
-    sqlx::query(
-        "UPDATE chat_channels
-         SET provider_instance_id = ?, model_selection_data = ?, revision = revision + 1,
-             updated_at = ? WHERE id = ?",
-    )
-    .bind(format!("benchmark-{provider}-instance"))
-    .bind(format!(
-        r#"{{"providerManagedModel":false,"modelId":"benchmark-{provider}-model","modelOptions":[]}}"#
-    ))
-    .bind(timestamp(1_000 + thread_index))
-    .bind(channel_id)
     .execute(&mut **tx)
     .await?;
     Ok(())
@@ -805,6 +894,9 @@ fn thread_id(index: usize) -> String {
 fn channel_id(project: usize, slot: usize) -> String {
     format!("{FIXTURE_PREFIX}channel-{project:02}-{slot}")
 }
+fn conversation_id(project: usize, slot: usize) -> String {
+    format!("{FIXTURE_PREFIX}conversation-{project:02}-{slot}")
+}
 fn channel_name(slot: usize) -> &'static str {
     match slot {
         1 => "planning",
@@ -818,6 +910,15 @@ fn turn_id(thread: usize, turn: usize) -> String {
 }
 fn message_id(thread: usize, message: usize) -> String {
     format!("{FIXTURE_PREFIX}message-{thread:03}-{message:02}")
+}
+fn organizational_message_id(project: usize, channel: usize, message: usize) -> String {
+    format!("{FIXTURE_PREFIX}organization-{project:02}-{channel}-{message:03}")
+}
+fn organizational_reply_thread_id(project: usize, channel: usize, message: usize) -> String {
+    format!("{FIXTURE_PREFIX}reply-thread-{project:02}-{channel}-{message:03}")
+}
+fn organizational_reply_id(project: usize, channel: usize, message: usize, reply: usize) -> String {
+    format!("{FIXTURE_PREFIX}reply-{project:02}-{channel}-{message:03}-{reply}")
 }
 fn activity_id(thread: usize, activity: usize) -> String {
     format!("{FIXTURE_PREFIX}activity-{thread:03}-{activity:02}")
@@ -870,14 +971,24 @@ mod tests {
             .fetch_one(&pool)
             .await
             .unwrap();
-            let session_count: i64 = sqlx::query_scalar(
-                "SELECT COUNT(*) FROM chat_channel_sessions WHERE thread_id LIKE 'benchmark-chat-%'",
+            let organizational_message_count: i64 = sqlx::query_scalar(
+                "SELECT COUNT(*) FROM chat_communication_messages
+                 WHERE item_id LIKE 'benchmark-chat-organization-%'
+                    OR item_id LIKE 'benchmark-chat-reply-%'",
             )
             .fetch_one(&pool)
             .await
             .unwrap();
             assert_eq!(channel_count, 80);
-            assert_eq!(session_count, 100);
+            assert_eq!(organizational_message_count, 10_400);
+            let fts_match_count: i64 = sqlx::query_scalar(
+                "SELECT COUNT(*) FROM chat_communication_search_fts
+                 WHERE chat_communication_search_fts MATCH 'planning'",
+            )
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+            assert_eq!(fts_match_count, 8_600);
 
             let thread = ChatThreadId::new(thread_id(99)).unwrap();
             let latest = read_timeline_page(&pool, &thread, None, 50).await.unwrap();

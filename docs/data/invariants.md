@@ -106,7 +106,7 @@ A Notes folder belongs to exactly one project, folder parents stay inside that p
 
 **What would break:** a provider continuation could resume in another repository, folder-specific trust could leak across contexts, a channel could become unreadable when one folder disappears, or changing a room default could retarget existing work.
 
-**Enforced by:** the `project_working_folders` managed-row index and triggers, composite SQLite foreign keys for current provider threads, project creation and Routine repair, non-null execution DTOs, working-folder authorization, and focused schema tests. The coordination schema must preserve the same rule for future agent runs without adding a conversation-to-folder ownership shortcut.
+**Enforced by:** the `project_working_folders` managed-row index and triggers, composite SQLite foreign keys for provider threads and agent runs, project creation and Routine repair, non-null execution DTOs, membership-scoped folder grants, working-folder authorization, and focused schema tests. No conversation row owns or inherits an execution folder.
 
 ## 10. Working-folder filesystem access stays bounded
 
@@ -126,7 +126,7 @@ A Notes folder belongs to exactly one project, folder parents stay inside that p
 
 **What would break:** a provider change could create a fake new relationship, context compaction could fragment a channel, unrelated legacy chats could merge into `#general`, or deleting execution artifacts could erase decisions and provenance.
 
-**Enforced by:** separate `chat_channels` and `chat_threads` identities, ordered `chat_channel_sessions` links, atomic first-turn linking, protected `#general` triggers, foreign keys that do not make the run the room owner, and lifecycle tests covering provider replacement and archive. Pre-user development vaults are reset instead of receiving a speculative legacy-thread migration.
+**Enforced by:** separate conversation, assignment, agent-run, and provider-thread identities; immutable materialized communication revisions; exact run provenance; protected `#general` creation; foreign keys that do not make a run the room owner; and lifecycle tests covering provider replacement and archive. Pre-user development vaults are reset instead of receiving a speculative legacy-thread migration.
 
 ## 12. Effective access applies to derived context
 
@@ -137,6 +137,16 @@ A Notes folder belongs to exactly one project, folder parents stay inside that p
 **What would break:** a restricted collaborator could infer private Notes, tasks, channels, working folders, personal productivity measurements, or participant activity through generated or aggregated output.
 
 **Enforced by:** future resource grants and membership tables, authorization before query and derivation, permission-scoped indexes or post-query filters with non-leaking counts, context-package manifests, destination-scope checks, revocation tests, and audit records. The local single-user implementation uses the same APIs with one effective owner rather than bypassing the boundary.
+
+## 13. An AI mention never expands authority
+
+**Statement:** mentioning or adding an AI teammate can invoke only the intersection of the requester's invocation authority, destination visibility, teammate principal grants, explicit resource grants, run grants, budgets, and provider safety policy. Channel membership and a shared teammate display identity cannot widen filesystem, Notes, Calendar, provider, external-service, or cross-conversation access.
+
+**Why:** a mention is a communication action, not a credential delegation or permission grant. Persistent teammates must remain useful across channels without becoming a bridge between otherwise separate resources.
+
+**What would break:** a teammate addressed in a legal channel could edit an engineering codebase, a restricted collaborator could cause private Notes to enter a shared thread, one channel could spend another channel's budget, or an organizational teammate could act with the tagger's personal credentials.
+
+**Enforced by:** separate participant membership and resource-grant records, teammate principals, typed work-assignment preflight, context-package manifests, layered budget checks, provider safety mappings, permission-safe denial results, scoped memory namespaces, and audit tests covering cross-channel and cross-resource invocation.
 
 ## Adding new invariants
 

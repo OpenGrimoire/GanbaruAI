@@ -1,6 +1,5 @@
 import type {
   ChatAttachmentId,
-  ChatChannelId,
   ChatThreadId,
   ProjectWorkingFolderId,
   ProviderSessionState,
@@ -113,8 +112,6 @@ export interface SaveQueuedFollowupRequest {
 
 export interface SendChatTurnCommand {
   command: import("./commands").ChatCommandContext;
-  channelId: ChatChannelId | null;
-  expectedChannelRevision: number | null;
   workingFolderId: ProjectWorkingFolderId;
   threadId: ChatThreadId | null;
   newThreadId: ChatThreadId | null;
@@ -133,7 +130,6 @@ export interface SendChatTurnCommand {
 
 export interface SendChatTurnResult {
   thread: import("./reads").ChatThreadShellRead;
-  channel: import("./channels").ChatChannelRead | null;
   dispatch: import("./reads").TurnDispatchReceipt | null;
   launchError: import("./common").ChatError | null;
 }

@@ -17,6 +17,7 @@
   import ChatModelsSettings from "./chat/ChatModelsSettings.svelte";
   import ChatPermissionsSettings from "./chat/ChatPermissionsSettings.svelte";
   import ChatBehaviorSettings from "./chat/ChatBehaviorSettings.svelte";
+  import ChatTeammatesSettings from "./chat/ChatTeammatesSettings.svelte";
 
   let {
     initialSubsection,
@@ -33,13 +34,14 @@
   let refreshResult = $state<ProviderRefreshResult | null>(null);
   let error = $state<string | null>(null);
   let removeId = $state<string | null>(null);
-  let activeTab = $state<ChatSettingsSubsection>("providers");
+  let activeTab = $state<ChatSettingsSubsection>("teammates");
   const removeProvider = $derived(chat.settings?.providerInstances.find((entry) => entry.configuration.instanceId === removeId) ?? null);
   const tabs: ReadonlyArray<{
     id: ChatSettingsSubsection;
     label: () => string;
     icon: Component;
   }> = [
+    { id: "teammates", label: () => t("settings.chat.teammates.heading"), icon: Bot },
     { id: "providers", label: () => t("settings.chat.providers.heading"), icon: Bot },
     { id: "models", label: () => t("settings.chat.models.heading"), icon: Boxes },
     { id: "permissions", label: () => t("settings.chat.permissions.heading"), icon: ShieldCheck },
@@ -130,6 +132,8 @@
 
   {#if chat.loading}
     <div class="rounded-lg border border-dashed border-border p-6 text-center text-sm text-muted-foreground">{t("common.loading")}</div>
+  {:else if activeTab === "teammates"}
+    <ChatTeammatesSettings />
   {:else if activeTab === "providers"}
     <section class="flex flex-col gap-4" data-chat-settings-subsection="providers">
       <div class="flex flex-wrap items-start justify-between gap-3">

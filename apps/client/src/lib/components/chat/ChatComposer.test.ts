@@ -728,6 +728,27 @@ describe("ChatComposer", () => {
     expect(target.querySelector('[role="alert"]')?.textContent).toContain("Image signature is invalid");
   });
 
+  it("leaves unsupported clipboard payloads to the editor without requesting platform permission", async () => {
+    const { target, editor } = setup(false);
+    await tick();
+    const paste = new Event("paste", { bubbles: true, cancelable: true }) as ClipboardEvent;
+    Object.defineProperty(paste, "clipboardData", {
+      configurable: true,
+      value: {
+        files: [],
+        items: [],
+        types: [],
+        getData: () => "",
+      },
+    });
+
+    editor.dispatchEvent(paste);
+    await tick();
+
+    expect(paste.defaultPrevented).toBe(false);
+    expect(target.querySelector('[role="alert"]')).toBeNull();
+  });
+
   it("keeps model, effort, and speed inside the compact model control", async () => {
     const chat = getChat();
     chat.settings = modelSettings();

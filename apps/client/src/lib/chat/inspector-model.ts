@@ -1,6 +1,7 @@
 import type {
   ChatChangedFileRead,
   ChatInspectorTab,
+  ProjectWorkingFolderId,
   ChatThreadId,
   ChatTurnId,
   ReviewDiffSource,
@@ -23,6 +24,9 @@ export interface ChatInspectorThreadState {
   whitespaceIgnored: boolean;
   diffView: "auto" | "unified" | "split";
   reviewSource: ReviewDiffSource | null;
+  reviewThreadId: ChatThreadId | null;
+  reviewWorkingFolderId: ProjectWorkingFolderId | null;
+  reviewExecutionEnvironmentId: string | null;
   reviewLayoutPreference: ReviewLayoutPreference;
 }
 
@@ -50,6 +54,9 @@ const DEFAULT_STATE: ChatInspectorThreadState = {
   whitespaceIgnored: false,
   diffView: "auto",
   reviewSource: null,
+  reviewThreadId: null,
+  reviewWorkingFolderId: null,
+  reviewExecutionEnvironmentId: null,
   reviewLayoutPreference: "auto",
 };
 

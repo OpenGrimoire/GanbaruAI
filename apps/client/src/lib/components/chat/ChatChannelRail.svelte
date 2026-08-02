@@ -12,7 +12,7 @@
   import LoaderCircle from "@lucide/svelte/icons/loader-circle";
   import Plus from "@lucide/svelte/icons/plus";
   import Search from "@lucide/svelte/icons/search";
-  import type { ChatChannelRead } from "$lib/chat/contracts";
+  import type { ChatChannelRead, ChatMessageSearchResultRead } from "$lib/chat/contracts";
   import {
     moveChatChannelToSection,
     normalizeChatSidebarSections,
@@ -23,6 +23,7 @@
   import { getLocalization } from "$lib/i18n/translator.svelte";
   import { getChat } from "$lib/stores/chat.svelte";
   import { getProjects } from "$lib/stores/projects.svelte";
+  import { onActiveVaultIdentityChange } from "$lib/vault/active-vault";
   import ConfirmDialog from "$lib/components/ui/ConfirmDialog.svelte";
   import ChatChannelSetupDialog from "./ChatChannelSetupDialog.svelte";
 
@@ -53,6 +54,9 @@
   let archiveCandidate = $state<ChatChannelRead | null>(null);
   let deleteSectionCandidate = $state<ChatSidebarSection | null>(null);
   let railError = $state<string | null>(null);
+  let messageSearchResults = $state<ChatMessageSearchResultRead[]>([]);
+  let messageSearchLoading = $state(false);
+  let messageSearchRequest = 0;
   const matchingChannels = $derived(chat.activeChannels.filter(matchesQuery));
   const assignedChannelIds = $derived(new Set(sections.flatMap((section) => section.channelIds)));
   const unsectionedChannels = $derived(matchingChannels.filter((channel) => !assignedChannelIds.has(channel.id)));
@@ -64,6 +68,33 @@
     if (projectChannels.length === 0 && chat.activeChannels.length > 0) return;
     loadedProjectId = projectId;
     sections = normalizeChatSidebarSections(readChatSidebarSections(projectId), projectChannels.map((channel) => channel.id));
+  });
+
+  $effect(() => {
+    const normalized = query.trim();
+    if (!searchOpen || normalized.length < 2) {
+      messageSearchRequest += 1;
+      messageSearchResults = [];
+      messageSearchLoading = false;
+      return;
+    }
+    const request = ++messageSearchRequest;
+    messageSearchLoading = true;
+    const timeout = window.setTimeout(() => {
+      void chat.searchOrganizationalMessages(normalized)
+        .then((results) => {
+          if (request === messageSearchRequest) messageSearchResults = results;
+        })
+        .catch((cause: unknown) => {
+          if (request === messageSearchRequest) {
+            railError = cause instanceof Error ? cause.message : String(cause);
+          }
+        })
+        .finally(() => {
+          if (request === messageSearchRequest) messageSearchLoading = false;
+        });
+    }, 180);
+    return () => window.clearTimeout(timeout);
   });
 
   $effect(() => {
@@ -139,12 +170,14 @@
   }
 
   function channelStatus(channel: ChatChannelRead): { label: string; kind: "working" | "attention" | "error" | "unread" | "idle" } {
-    const state = channel.currentThread?.latestTurnState;
-    if (state === "waiting_for_user_input") return { label: t("chat.status.waitingAnswer"), kind: "attention" };
-    if (state === "waiting_for_approval") return { label: t("chat.status.waitingApproval"), kind: "attention" };
-    if (state === "pending" || state === "dispatching" || state === "active") return { label: t("chat.status.working"), kind: "working" };
+    const state = channel.attentionState;
+    if (state === "waiting_for_answer") return { label: t("chat.status.waitingAnswer"), kind: "attention" };
+    if (state === "waiting_for_approval" || state === "ready_for_review") {
+      return { label: state === "waiting_for_approval" ? t("chat.status.waitingApproval") : t("chat.status.readyForReview"), kind: "attention" };
+    }
+    if (state === "queued" || state === "working") return { label: t("chat.status.working"), kind: "working" };
     if (state === "failed") return { label: t("chat.status.error"), kind: "error" };
-    if (channel.unreadAt) return { label: t("chat.status.unread"), kind: "unread" };
+    if (channel.unreadCount > 0) return { label: t("chat.status.unread"), kind: "unread" };
     return { label: t("chat.status.idle"), kind: "idle" };
   }
 
@@ -186,6 +219,25 @@
     }
   }
 
+  async function openMessageResult(result: ChatMessageSearchResultRead): Promise<void> {
+    railError = null;
+    try {
+      await chat.openMessageSearchResult(result);
+      query = "";
+      searchOpen = false;
+    } catch (cause: unknown) {
+      railError = cause instanceof Error ? cause.message : String(cause);
+    }
+  }
+
+  function searchExcerpt(result: ChatMessageSearchResultRead): string {
+    return result.excerpt.replace(/<\/?mark>/g, "");
+  }
+
+  function projectName(projectId: string): string {
+    return projects.projects.find((project) => project.id === projectId)?.name ?? t("chat.title");
+  }
+
   onMount(() => {
     const createChannel = () => openCreate();
     const focusSearch = () => {
@@ -194,9 +246,14 @@
     };
     window.addEventListener("ganbaru-ai:chat-new-channel", createChannel);
     window.addEventListener("ganbaru-ai:chat-focus-search", focusSearch);
+    const unsubscribeVault = onActiveVaultIdentityChange(() => {
+      loadedProjectId = null;
+      sections = [];
+    });
     return () => {
       window.removeEventListener("ganbaru-ai:chat-new-channel", createChannel);
       window.removeEventListener("ganbaru-ai:chat-focus-search", focusSearch);
+      unsubscribeVault();
     };
   });
 </script>
@@ -218,6 +275,18 @@
     {#if railError}<p class="mx-2 mb-1 rounded bg-destructive/10 px-2 py-1 text-xs text-destructive" role="alert">{railError}</p>{/if}
 
     <div class="min-h-0 flex-1 overflow-y-auto px-1.5 pb-3">
+      {#if searchOpen && query.trim().length >= 2}
+        <section class="message-results" aria-label={t("chat.organization.messageSearchResults")}>
+          <div class="section-heading"><span>{t("chat.organization.messages")}</span>{#if messageSearchLoading}<LoaderCircle size={12} class="animate-spin" aria-label={t("common.loading")} />{/if}</div>
+          {#each messageSearchResults as result (result.messageItemId)}
+            <button type="button" class="message-result" onclick={() => void openMessageResult(result)}>
+              <span><strong>{result.authorDisplayName}</strong><small>{projectName(result.projectId)} · #{result.channelName}{#if result.replyThreadId} · {t("chat.organization.thread")}{/if}</small></span>
+              <span>{searchExcerpt(result)}</span>
+            </button>
+          {/each}
+          {#if !messageSearchLoading && messageSearchResults.length === 0}<p class="px-2 py-1 text-xs text-muted-foreground">{t("chat.organization.noMessageSearchResults")}</p>{/if}
+        </section>
+      {/if}
       <section class="channel-section" role="group" ondragover={(event) => event.preventDefault()} ondrop={(event) => handleDrop(event, null)}>
         <div class="section-heading"><span>{t("chat.channels.defaultSection")}</span><button type="button" aria-label={t("chat.channels.createTitle")} onclick={() => openCreate()}><Plus size={13} /></button></div>
         {#if chat.channelsLoading && projects.selectedProjectId}
@@ -306,6 +375,13 @@
   .rail-icon { display: grid; width: 1.75rem; height: 1.75rem; flex: 0 0 auto; place-items: center; border-radius: 0.375rem; color: var(--muted-foreground); }
   .rail-icon:hover { background: var(--accent); color: var(--foreground); }
   .channel-section { padding-top: 0.35rem; }
+  .message-results { margin-block:0.3rem 0.45rem; border-bottom:1px solid var(--border); padding-bottom:0.45rem; }
+  .message-result { display:grid; width:100%; gap:0.18rem; border-radius:0.4rem; padding:0.42rem 0.5rem; text-align:left; }
+  .message-result:hover,.message-result:focus-visible { background:var(--accent); }
+  .message-result > span:first-child { display:flex; min-width:0; align-items:baseline; gap:0.35rem; }
+  .message-result strong { flex:0 0 auto; font-size:0.72rem; }
+  .message-result small { min-width:0; overflow:hidden; color:var(--muted-foreground); font-size:0.6rem; text-overflow:ellipsis; white-space:nowrap; }
+  .message-result > span:last-child { display:-webkit-box; overflow:hidden; color:var(--muted-foreground); font-size:0.68rem; line-height:1rem; -webkit-box-orient:vertical; -webkit-line-clamp:2; line-clamp:2; }
   .section-heading { display: flex; min-height: 1.75rem; align-items: center; gap: 0.2rem; padding-inline: 0.45rem; color: var(--muted-foreground); font-size: 0.7rem; font-weight: 600; }
   .section-heading > span:first-child { min-width: 0; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .section-heading > button { display: flex; min-width: 1.35rem; min-height: 1.35rem; align-items: center; justify-content: center; gap: 0.2rem; border-radius: 0.3rem; }

@@ -8,10 +8,13 @@
   import Link2 from "@lucide/svelte/icons/link-2";
   import Pencil from "@lucide/svelte/icons/pencil";
   import RefreshCw from "@lucide/svelte/icons/refresh-cw";
+  import Star from "@lucide/svelte/icons/star";
   import Trash2 from "@lucide/svelte/icons/trash-2";
   import { getLocalization } from "$lib/i18n/translator.svelte";
   import type { ProjectWorkingFolderRead } from "$lib/chat/contracts";
   import { getChat } from "$lib/stores/chat.svelte";
+  import * as chatApi from "$lib/api/chat";
+  import type { ChatProjectPrimaryWorkingFolderRead } from "$lib/chat/contracts";
   import { orderProjectWorkingFolders } from "$lib/projects/working-folder-order";
   import { cn } from "$lib/utils";
   import ProjectSettingsSectionHeading from "./ProjectSettingsSectionHeading.svelte";
@@ -21,6 +24,7 @@
   const { t } = getLocalization();
   let operationId = $state<string | null>(null);
   let error = $state<string | null>(null);
+  let primaryFolder = $state<ChatProjectPrimaryWorkingFolderRead | null>(null);
   const folders = $derived(orderProjectWorkingFolders(
     chat.workingFolders.filter((entry) => entry.workingFolder.projectId === projectId),
   ));
@@ -32,6 +36,9 @@
     void chat.ensureLoaded().catch((reason) => {
       error = errorMessage(reason);
     });
+    void chatApi.readChatProjectPrimaryWorkingFolder(selectedProjectId)
+      .then((primary) => { if (projectId === selectedProjectId) primaryFolder = primary; })
+      .catch((reason: unknown) => { error = errorMessage(reason); });
   });
 
   async function run(id: string, operation: () => Promise<void>): Promise<void> {
@@ -83,6 +90,19 @@
     void run(folder.workingFolder.id, () => chat.removeWorkingFolder(folder.workingFolder.id));
   }
 
+  async function makePrimary(folder: ProjectWorkingFolderRead): Promise<void> {
+    if (!primaryFolder) throw new Error(t("projects.settings.workingFolders.primaryUnavailable"));
+    primaryFolder = await chatApi.setChatProjectPrimaryWorkingFolder(
+      projectId,
+      folder.workingFolder.id,
+      primaryFolder.revision,
+    );
+    if (chat.selectedChannel?.projectId === projectId) {
+      chat.primaryWorkingFolder = primaryFolder;
+      chat.selectedWorkingFolderId = folder.workingFolder.id;
+    }
+  }
+
   function errorMessage(reason: unknown): string {
     return reason instanceof Error ? reason.message : String(reason);
   }
@@ -117,6 +137,9 @@
               {#if folder.workingFolder.archivedAt}
                 <span class="rounded border border-border px-1.5 py-0.5 text-[0.65rem] text-muted-foreground">{t("projects.settings.workingFolders.archived")}</span>
               {/if}
+              {#if primaryFolder?.workingFolderId === folder.workingFolder.id}
+                <span class="rounded border border-primary/30 bg-primary/5 px-1.5 py-0.5 text-[0.65rem] text-primary">{t("projects.settings.workingFolders.primary")}</span>
+              {/if}
             </div>
             <p class="mt-1 truncate font-mono text-[0.68rem] text-muted-foreground" title={pathLabel(folder)}>{pathLabel(folder)}</p>
             <div class="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-[0.68rem] text-muted-foreground">
@@ -150,6 +173,9 @@
           </label>
           {#if folder.bindingStatus === "available"}
             <button type="button" class="working-folder-action" disabled={busy} onclick={() => { void run(folder.workingFolder.id, () => chat.openWorkingFolder(folder.workingFolder.id)); }}><ExternalLink class="size-3.5" />{t("projects.settings.workingFolders.open")}</button>
+          {/if}
+          {#if !folder.workingFolder.archivedAt && primaryFolder?.workingFolderId !== folder.workingFolder.id}
+            <button type="button" class="working-folder-action" disabled={busy || !primaryFolder} onclick={() => { void run(folder.workingFolder.id, () => makePrimary(folder)); }}><Star class="size-3.5" />{t("projects.settings.workingFolders.makePrimary")}</button>
           {/if}
           {#if folder.workingFolder.kind === "managed" && folder.bindingStatus !== "available"}
             <button type="button" class="working-folder-action" disabled={busy} onclick={() => { void run(folder.workingFolder.id, () => chat.recreateManagedWorkingFolder(folder.workingFolder.id)); }}><RefreshCw class="size-3.5" />{t("projects.settings.workingFolders.recreate")}</button>

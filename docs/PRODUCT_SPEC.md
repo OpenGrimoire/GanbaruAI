@@ -141,19 +141,23 @@ Chat is Ganbaru AI's communication and coordination workspace. It combines the d
 
 **Communication instead of isolated sessions.** The primary Chat objects are channels, direct messages, task discussions, and replies. A project starts with one durable `#general` channel. Working folders, provider threads, tools, terminals, and checkpoints remain available, but they belong to bounded agent runs beneath the visible organizational history. The room is permanent even when Ganbaru compacts, forks, replaces, or changes the provider session used for later work.
 
-**AI as a delegable workforce.** A stable Ganbaru manager role helps turn objectives and discussion into reviewable plans. Approved plans create canonical Projects tasks, subtasks, dependencies, acceptance criteria, assignments, reviewers, estimates, deadlines, budgets, risks, and Calendar proposals. Task agents receive narrow context and authority, perform bounded work, and report structured status. The person normally reviews tasks and deliverables rather than reading every raw agent conversation.
+**Mention-led delegation.** AI appears as persistent teammates created and configured by the user, not as disposable model chats. An actionable `@teammate` mention on a message creates or continues a shared reply thread. The thread contains human steering, teammate questions, meaningful status, results, and review. Provider sessions, model handoffs, tools, terminals, and detailed execution remain inspectable beneath it without creating `AI session` or generic tool rows in the organizational conversation.
+
+**AI as a delegable workforce.** The persistent Ganbaru manager teammate helps turn objectives and discussion into reviewable plans. Approved plans create canonical Projects tasks, subtasks, dependencies, acceptance criteria, assignments, reviewers, estimates, deadlines, budgets, risks, and Calendar proposals. Task agents receive narrow context and authority, perform bounded work, and report structured status. The person normally reviews tasks and deliverables rather than reading every raw agent conversation.
 
 **Canonical boundaries.** Chat owns communication and provenance. Projects owns committed work, assignment, review, budgets, and requirement history. Notes owns durable specifications and research. Calendar owns time, capacity, and hard scheduling constraints. Execution sessions own provider events, workspaces, tools, artifacts, and checkpoints. A message can create or change another record only through a typed, auditable transition.
 
-**Stable roles and replaceable providers.** Human participants and AI roles have stable identity independently of a provider or model. The Ganbaru manager can use one provider now and another later without becoming a different participant. Durable organizational memory comes from structured records, selected Notes, decisions, bounded conversation context, and run summaries rather than one infinite model transcript.
+**Stable teammates and replaceable providers.** Human participants and AI teammates have stable identity independently of a provider or model. A teammate owns its name, purpose, instructions, memberships, memory scope, authority, budgets, and execution policy. The Ganbaru manager can use one provider now and another later without becoming a different participant. Durable organizational memory comes from structured records, selected Notes, decisions, bounded conversation context, scoped memories, and run summaries rather than one infinite model transcript.
 
 **Context packages.** Every manager action and task run receives a versioned context package containing only the objective, task, acceptance criteria, dependencies, selected Notes and files, Calendar constraints, prior decisions, relevant messages, workspace, instructions, budgets, and permissions it needs. Package sources and revisions are inspectable. Later project edits do not silently change a running agent's objective.
+
+**Scoped identity and permissions.** Adding a teammate to a channel makes it addressable but grants no code, shell, Notes, Calendar, external-service, or cross-channel access. Each assignment uses the intersection of requester authority, destination visibility, teammate grants, explicit resource grants, run grants, budgets, and provider safety. A shared teammate name never merges memory or capabilities across legal, engineering, private, or guest scopes.
 
 **Review and sustainable capacity.** Ganbaru accounts for human review as constrained work. Work-in-progress limits, review-queue limits, dependencies, provider quotas, token and monetary ceilings, workspace isolation, and hard deadlines constrain parallel execution. Routine progress appears in digests. Mentions, approvals, blockers, review-ready work, budget risk, and deadline risk form separate attention views.
 
 **Local coding-agent path.** Codex, Claude Code, Cursor Agent, Grok, and OpenCode run through Rust-owned native harness transports. The user installs and authenticates them. Ganbaru preserves provider-native models, approvals, questions, plans, safety behavior, usage, and continuation identity while owning durable normalized history, working-folder authorization, terminals, Git checkpoints, review, worktrees, and process cleanup.
 
-**General BYOK path.** A later general assistant connects to the user's chosen provider, including OpenAI API, explicitly supported OpenAI-compatible providers, and local Ollama models. It can use authorized Ganbaru data through typed operations but cannot edit arbitrary files or execute shell commands. It participates through the same channel, role, task, permission, and provenance model rather than creating a second unrelated chat product.
+**General BYOK path.** A later general assistant connects to the user's chosen provider, including OpenAI API, explicitly supported OpenAI-compatible providers, and local Ollama models. It can use authorized Ganbaru data through typed operations but cannot edit arbitrary files or execute shell commands. It participates through the same channel, teammate, task, permission, and provenance model rather than creating a second unrelated chat product.
 
 **Contextual actions.** Actions such as "Plan this sprint," "Research competitors," and "Create calendar events for these tasks" create a reviewable message or structured proposal. Selecting an action does not automatically dispatch agents, spend a budget, or commit Projects and Calendar changes.
 
@@ -269,7 +273,7 @@ The system can generate project status reports automatically from Projects state
 
 ## NPC characters and narrative layer (deferred)
 
-Three NPCs are planned as an aesthetic layer on top of the project management workflows: the Fairy (Sparkweaver) for brainstorming, the Dwarf (Bearer of Great Promise) for idea evaluation, and Drasil (The Eternal Wayfinder) for planning and execution. They appear in visual novel style during guided workflows. The NPC layer is purely visual; all project management functionality works without it. AI assistance comes from Chat roles, manager actions, and task agents rather than from the NPC identity itself.
+Three NPCs are planned as an aesthetic layer on top of the project management workflows: the Fairy (Sparkweaver) for brainstorming, the Dwarf (Bearer of Great Promise) for idea evaluation, and Drasil (The Eternal Wayfinder) for planning and execution. They appear in visual novel style during guided workflows. The NPC layer is purely visual; all project management functionality works without it. AI assistance comes from Chat teammates, manager actions, and task agents rather than from the NPC identity itself.
 
 ---
 
@@ -313,9 +317,9 @@ Project Kanban boards are the task layer of the project management framework. Re
 
 Notes can be linked to project phases, tasks, and research. Project templates generate notes for each phase that serve as working documents.
 
-### Daily diary → private AI roles
+### Daily diary → private AI teammates
 
-Mood and energy data from diary entries create private personal baselines. Over time, an authorized AI role can provide context-aware motivation and schedule suggestions without exposing those measurements to project collaborators or team managers.
+Mood and energy data from diary entries create private personal baselines. Over time, an authorized private AI teammate can provide context-aware motivation and schedule suggestions without exposing those measurements to project collaborators or team managers.
 
 ### Sleep alarm → Daily diary
 
@@ -355,7 +359,7 @@ The manager can propose work sessions, review blocks, deadline responses, and de
 
 ### Chat and coordination → Notes
 
-Authorized roles and agents can read selected SQLite Notes through typed operations and can read or write file-authoritative Markdown inside an authorized project working folder. Context packages identify exact Notes pages, folders, files, revisions, and excerpts. Generated research or specifications become durable Notes only through an explicit typed write with provenance.
+Authorized teammates and agents can read selected SQLite Notes through typed operations and can read or write file-authoritative Markdown inside an authorized project working folder. Context packages identify exact Notes pages, folders, files, revisions, and excerpts. Generated research or specifications become durable Notes only through an explicit typed write with provenance.
 
 ### Chat and coordination → Project management
 
@@ -388,7 +392,7 @@ The data split: diary entries, project working documents, and reports are files 
 
 ## Mobile experience
 
-Mobile is a focused subset: note editor, calendar view and editing, Pomodoro timer, daily diary, sleep alarm, Doomscrolling (app-level blocking), authorized Chat channels and direct messages, task review, BYOK AI roles, and sync. Native coding-agent processes, terminals, desktop working folders, and other desktop execution tools remain desktop-only.
+Mobile is a focused subset: note editor, calendar view and editing, Pomodoro timer, daily diary, sleep alarm, Doomscrolling (app-level blocking), authorized Chat channels and direct messages, task review, BYOK AI teammates, and sync. Native coding-agent processes, terminals, desktop working folders, and other desktop execution tools remain desktop-only.
 
 Mobile does not include: work environment management, edge panel, fullscreen break overlay, browser extension, always-on-top windows. These features require desktop OS-level access that mobile sandboxing prohibits.
 
@@ -400,7 +404,7 @@ The mobile app's primary roles are: anti-procrastination enforcement (app blocki
 
 Chat coordination, native coding-agent execution, and the future BYOK path provide the foundation. These additional features build on them:
 
-**Natural language calendar management:** "move my 3pm session to tomorrow", "schedule a 2-hour deep work block for project X on Wednesday". An authorized role creates a reviewable proposal, and accepted changes use typed Calendar operations. External local agents can reach the same validated service through the CLI.
+**Natural language calendar management:** "move my 3pm session to tomorrow", "schedule a 2-hour deep work block for project X on Wednesday". An authorized teammate creates a reviewable proposal, and accepted changes use typed Calendar operations. External local agents can reach the same validated service through the CLI.
 
 **Mood-aware motivation:** using diary mood/energy baselines, the AI adapts its communication style and suggests schedule adjustments on low-energy days.
 
@@ -419,7 +423,7 @@ Chat coordination, native coding-agent execution, and the future BYOK path provi
 3. **Interconnection over isolation:** every module feeds data to and receives data from other modules. The value of the app comes from the connections, not any single feature.
 4. **Progressive disclosure:** new users see a guided, constrained experience. Complexity reveals itself as confidence grows.
 5. **Gamification as structure (planned):** the gamification layer (Will, Contracts, skill tree, NPCs) is designed to be structurally integrated into how the app measures and motivates productivity, not as a skin on a task list.
-6. **AI as coordinated infrastructure, not an isolated chat:** Chat roles, Projects commitments, Notes knowledge, Calendar capacity, context packages, reviews, and bounded agent runs form one system. Provider sessions are replaceable execution tools beneath stable organizational identity.
+6. **AI as coordinated infrastructure, not an isolated chat:** Chat teammates, Projects commitments, Notes knowledge, Calendar capacity, context packages, reviews, and bounded agent runs form one system. Provider sessions are replaceable execution tools beneath stable organizational identity.
 7. **Minimal friction:** the edge panel, automatic environment switching, calendar-driven automation, and 10-second diary entries all serve the same goal: reducing the number of decisions and clicks required to stay productive.
 8. **Ethical engagement (planned):** gacha-inspired mechanics (Skill Capsules) will use earned currency only, never real money. Loss aversion (skill decay, Contract penalties) will be visible but not punitive.
 9. **Privacy-first:** E2E encryption for sync, local storage as default, BYOK for AI, no ads, no tracking beyond what the user explicitly configures for their own productivity measurement.

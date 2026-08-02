@@ -135,6 +135,39 @@ export function defaultModelOptions(
   return options;
 }
 
+/** Copies model options without retaining reactive collection proxies. */
+export function copyModelOptionSelections(
+  selections: readonly ModelOptionSelection[],
+): ModelOptionSelection[] {
+  return selections.map((selection) => {
+    switch (selection.value.kind) {
+      case "multiple_choice":
+        return {
+          key: selection.key,
+          value: { kind: "multiple_choice", value: [...selection.value.value] },
+        };
+      case "unknown":
+        return {
+          key: selection.key,
+          value: {
+            kind: "unknown",
+            value: copyVersionedJson(selection.value.value),
+          },
+        };
+      default:
+        return { key: selection.key, value: { ...selection.value } };
+    }
+  });
+}
+
+/** Copies versioned JSON without retaining reactive object proxies. */
+export function copyVersionedJson(value: VersionedJson): VersionedJson {
+  return {
+    schemaVersion: value.schemaVersion,
+    value: copyJsonValue(value.value),
+  };
+}
+
 /** Resolves a ready initial provider and model while honoring a healthy folder preference. */
 export function resolveDefaultProviderModel(
   providers: readonly ProviderInstanceRead[],
@@ -170,6 +203,16 @@ function modelOptionRole(
   if (identity.includes("effort") || identity.includes("reasoning")) return "effort";
   if (identity.includes("speed") || identity.includes("fast") || identity.includes("service tier") || identity.includes("service_tier")) return "speed";
   return "other";
+}
+
+function copyJsonValue(value: JsonValue): JsonValue {
+  if (Array.isArray(value)) return value.map(copyJsonValue);
+  if (value !== null && typeof value === "object") {
+    return Object.fromEntries(
+      Object.entries(value).map(([key, entry]) => [key, copyJsonValue(entry)]),
+    );
+  }
+  return value;
 }
 
 export function interactionModeForPrompt(

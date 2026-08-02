@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 
-import { beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { setActiveVaultIdentity } from "$lib/vault/active-vault";
 import {
   moveChatChannelToSection,
   normalizeChatSidebarSections,
@@ -11,7 +12,12 @@ import {
 } from "./channel-sections";
 
 describe("Chat channel sections", () => {
-  beforeEach(() => localStorage.clear());
+  beforeEach(() => {
+    localStorage.clear();
+    setActiveVaultIdentity("vault-a");
+  });
+
+  afterEach(() => setActiveVaultIdentity(null));
 
   it("round trips validated personal sections", () => {
     saveChatSidebarSections("project", [{ id: "section", name: "Work", collapsed: true, channelIds: ["a"] }]);
@@ -41,5 +47,32 @@ describe("Chat channel sections", () => {
     saveLastChatChannelId("two", "channel:b");
     expect(readLastChatChannelId("one")).toBe("channel:a");
     expect(readLastChatChannelId("two")).toBe("channel:b");
+  });
+
+  it("isolates stable project IDs between vaults", () => {
+    saveChatSidebarSections("project-routine-learning", [
+      { id: "section-a", name: "Vault A", collapsed: false, channelIds: [] },
+    ]);
+    saveLastChatChannelId("project-routine-learning", "channel:a");
+
+    setActiveVaultIdentity("vault-b");
+    expect(readChatSidebarSections("project-routine-learning")).toEqual([]);
+    expect(readLastChatChannelId("project-routine-learning")).toBeNull();
+
+    setActiveVaultIdentity("vault-a");
+    expect(readChatSidebarSections("project-routine-learning")).toEqual([
+      { id: "section-a", name: "Vault A", collapsed: false, channelIds: [] },
+    ]);
+    expect(readLastChatChannelId("project-routine-learning")).toBe("channel:a");
+  });
+
+  it("removes obsolete unscoped preferences instead of assigning them to a new vault", () => {
+    const legacyKey = "ganbaru.chat.channel-sections.v1:project-routine-learning";
+    localStorage.setItem(legacyKey, JSON.stringify([
+      { id: "section-old", name: "Old vault", collapsed: false, channelIds: [] },
+    ]));
+
+    expect(readChatSidebarSections("project-routine-learning")).toEqual([]);
+    expect(localStorage.getItem(legacyKey)).toBeNull();
   });
 });
