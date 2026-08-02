@@ -12,6 +12,8 @@ export interface ChatLayoutInput {
   railOpen: boolean;
   inspectorOpen: boolean;
   inspectorWidth: number;
+  replyThreadOpen?: boolean;
+  replyThreadWidth?: number;
   previousVariant?: ChatLayoutVariant;
 }
 
@@ -19,10 +21,13 @@ export interface ChatLayoutDecision {
   variant: ChatLayoutVariant;
   railPresentation: "column" | "sheet";
   inspectorPresentation: "closed" | "column" | "sheet";
+  replyThreadPresentation: "closed" | "column" | "main";
   activeSurface: "conversation" | "rail" | "inspector";
 }
 
-const BASE_CONVERSATION_MIN = 440;
+export const CHAT_CONVERSATION_MIN_PX = 440;
+export const CHAT_REPLY_THREAD_WIDTH_PX = 440;
+export const CHAT_AUXILIARY_CONVERSATION_MIN_PX = 320;
 export const CHAT_RAIL_WIDTH_PX = 256;
 export const CHAT_RAIL_COLLAPSED_WIDTH_PX = 44;
 const BASE_MINIMUM_ENTER_WIDTH = 320;
@@ -46,6 +51,9 @@ export interface ChatInspectorResizeInput {
   fontScale?: number;
   minimum: number;
   maximum: number;
+  railReservedWidth?: number;
+  conversationMinimum?: number;
+  additionalReservedWidth?: number;
 }
 
 export interface ChatBottomPanelResizeInput {
@@ -78,10 +86,12 @@ export function preferredPanelWidth(
  * @returns The largest inspector width that keeps the conversation usable.
  */
 export function chatInspectorResizeMaximum(input: ChatInspectorResizeInput): number {
-  const occupiedByRail = input.railVisible ? CHAT_RAIL_WIDTH_PX : CHAT_RAIL_COLLAPSED_WIDTH_PX;
+  const occupiedByRail = input.railReservedWidth
+    ?? (input.railVisible ? CHAT_RAIL_WIDTH_PX : CHAT_RAIL_COLLAPSED_WIDTH_PX);
   const available = input.containerWidth
     - occupiedByRail
-    - scaledConversationWidth(input.fontScale);
+    - (input.conversationMinimum ?? scaledConversationWidth(input.fontScale))
+    - (input.additionalReservedWidth ?? 0);
   return clampPanelSizeToWholePixel(
     available,
     input.minimum,
@@ -167,6 +177,8 @@ export function panelSizeWithCollapseSnap(
 export function chatLayoutDecision(input: ChatLayoutInput): ChatLayoutDecision {
   const scale = Math.max(1, Math.min(2, input.fontScale));
   const previous = input.previousVariant;
+  const replyThreadOpen = input.replyThreadOpen ?? false;
+  const replyThreadWidth = input.replyThreadWidth ?? CHAT_REPLY_THREAD_WIDTH_PX * scale;
   const minimum = previous === "minimum_recovery"
     ? input.containerWidth < BASE_MINIMUM_EXIT_WIDTH * scale
       || input.containerHeight < BASE_MINIMUM_EXIT_HEIGHT * scale
@@ -177,11 +189,45 @@ export function chatLayoutDecision(input: ChatLayoutInput): ChatLayoutDecision {
       variant: "minimum_recovery",
       railPresentation: "sheet",
       inspectorPresentation: input.inspectorOpen ? "sheet" : "closed",
+      replyThreadPresentation: replyThreadOpen ? "main" : "closed",
       activeSurface: input.inspectorOpen ? "inspector" : input.railOpen ? "rail" : "conversation",
     };
   }
 
-  const conversationMin = BASE_CONVERSATION_MIN * scale;
+  if (replyThreadOpen) {
+    const conversationMin = CHAT_AUXILIARY_CONVERSATION_MIN_PX * scale;
+    const threadColumnRequired = conversationMin
+      + replyThreadWidth
+      + (input.inspectorOpen ? input.inspectorWidth : 0);
+    const replyThreadPresentation = input.containerWidth >= threadColumnRequired
+      ? "column"
+      : "main";
+    const contentRequired = replyThreadPresentation === "column"
+      ? conversationMin + replyThreadWidth
+      : CHAT_CONVERSATION_MIN_PX * scale;
+    const inspectorFits = input.inspectorOpen
+      && input.containerWidth >= contentRequired + input.inspectorWidth;
+    const inspectorPresentation = !input.inspectorOpen
+      ? "closed"
+      : inspectorFits ? "column" : "sheet";
+    const railWidth = input.railOpen ? CHAT_RAIL_WIDTH_PX : CHAT_RAIL_COLLAPSED_WIDTH_PX;
+    const railFits = !input.inspectorOpen
+      && input.containerWidth >= contentRequired + railWidth;
+    const railPresentation = input.inspectorOpen || !railFits ? "sheet" : "column";
+    return {
+      variant: inspectorPresentation === "column"
+        ? "three_column"
+        : inspectorPresentation === "sheet"
+          ? "inspector_sheet"
+          : railPresentation === "sheet" ? "rail_sheet" : "no_inspector",
+      railPresentation,
+      inspectorPresentation,
+      replyThreadPresentation,
+      activeSurface: inspectorPresentation === "sheet" ? "inspector" : "conversation",
+    };
+  }
+
+  const conversationMin = CHAT_CONVERSATION_MIN_PX * scale;
   const railWidth = input.railOpen ? CHAT_RAIL_WIDTH_PX : CHAT_RAIL_COLLAPSED_WIDTH_PX;
   const railRequired = railWidth + conversationMin;
   const railWasColumn = previous === "three_column"
@@ -193,6 +239,7 @@ export function chatLayoutDecision(input: ChatLayoutInput): ChatLayoutDecision {
       variant: "rail_sheet",
       railPresentation: "sheet",
       inspectorPresentation: input.inspectorOpen ? "sheet" : "closed",
+      replyThreadPresentation: "closed",
       activeSurface: input.inspectorOpen ? "inspector" : "conversation",
     };
   }
@@ -202,6 +249,7 @@ export function chatLayoutDecision(input: ChatLayoutInput): ChatLayoutDecision {
       variant: "no_inspector",
       railPresentation: "column",
       inspectorPresentation: "closed",
+      replyThreadPresentation: "closed",
       activeSurface: "conversation",
     };
   }
@@ -218,12 +266,14 @@ export function chatLayoutDecision(input: ChatLayoutInput): ChatLayoutDecision {
         variant: "three_column",
         railPresentation: "column",
         inspectorPresentation: "column",
+        replyThreadPresentation: "closed",
         activeSurface: "conversation",
       }
     : {
         variant: "inspector_sheet",
         railPresentation: "column",
         inspectorPresentation: "sheet",
+        replyThreadPresentation: "closed",
         activeSurface: "inspector",
       };
 }
@@ -363,7 +413,7 @@ function boundedFontScale(fontScale = 1): number {
 }
 
 function scaledConversationWidth(fontScale = 1): number {
-  return BASE_CONVERSATION_MIN * boundedFontScale(fontScale);
+  return CHAT_CONVERSATION_MIN_PX * boundedFontScale(fontScale);
 }
 
 function fittedPanelSize(

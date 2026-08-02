@@ -97,6 +97,64 @@ describe("Chat responsive layout", () => {
     }
   });
 
+  it("keeps reply threads independent from the workspace inspector", () => {
+    const both = chatLayoutDecision({
+      containerWidth: 1_240,
+      containerHeight: 700,
+      fontScale: 1,
+      railOpen: false,
+      inspectorOpen: true,
+      inspectorWidth: 480,
+      replyThreadOpen: true,
+      replyThreadWidth: 440,
+    });
+    expect(both.railPresentation).toBe("sheet");
+    expect(both.replyThreadPresentation).toBe("column");
+    expect(both.inspectorPresentation).toBe("column");
+
+    const threadOnly = chatLayoutDecision({
+      containerWidth: 900,
+      containerHeight: 700,
+      fontScale: 1,
+      railOpen: true,
+      inspectorOpen: false,
+      inspectorWidth: 520,
+      replyThreadOpen: true,
+      replyThreadWidth: 440,
+    });
+    expect(threadOnly.railPresentation).toBe("sheet");
+    expect(threadOnly.replyThreadPresentation).toBe("column");
+    expect(threadOnly.inspectorPresentation).toBe("closed");
+  });
+
+  it("promotes a reply thread to the main surface before auxiliary panels overflow", () => {
+    const constrained = chatLayoutDecision({
+      containerWidth: 900,
+      containerHeight: 700,
+      fontScale: 1,
+      railOpen: false,
+      inspectorOpen: true,
+      inspectorWidth: 460,
+      replyThreadOpen: true,
+      replyThreadWidth: 440,
+    });
+    expect(constrained.replyThreadPresentation).toBe("main");
+    expect(constrained.inspectorPresentation).toBe("column");
+
+    const narrow = chatLayoutDecision({
+      containerWidth: 620,
+      containerHeight: 700,
+      fontScale: 1,
+      railOpen: false,
+      inspectorOpen: true,
+      inspectorWidth: 240,
+      replyThreadOpen: true,
+      replyThreadWidth: 440,
+    });
+    expect(narrow.replyThreadPresentation).toBe("main");
+    expect(narrow.inspectorPresentation).toBe("sheet");
+  });
+
   it("shows one selected surface at the minimum recovery floor", () => {
     const inspector = layout(280, 180);
     expect(inspector.activeSurface).toBe("inspector");
@@ -200,6 +258,15 @@ describe("Chat responsive layout", () => {
     expect(maximum(2_000)).toBe(960);
     expect(maximum(700)).toBe(240);
     expect(maximum(1_399.75)).toBe(703);
+    expect(chatInspectorResizeMaximum({
+      containerWidth: 1_240,
+      railVisible: false,
+      railReservedWidth: 0,
+      conversationMinimum: 320,
+      additionalReservedWidth: 440,
+      minimum: 240,
+      maximum: 960,
+    })).toBe(480);
   });
 
   it("fits each outer panel to its content role and available space", () => {

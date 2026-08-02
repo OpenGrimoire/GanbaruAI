@@ -17,11 +17,13 @@
   import { loadChatCodeEditorRuntime } from "$lib/chat/code-editor-loader";
   import { inspectorFocusAction } from "$lib/chat/inspector-model";
   import {
-    CHAT_OPEN_BOTTOM_WORKSPACE_EVENT,
-    chatBottomWorkspaceRequest,
+    CHAT_OPEN_WORKSPACE_PANEL_EVENT,
+    chatWorkspaceRequest,
   } from "$lib/chat/workspace-events";
   import {
     alignPanelSizeToDevicePixel,
+    CHAT_AUXILIARY_CONVERSATION_MIN_PX,
+    CHAT_REPLY_THREAD_WIDTH_PX,
     chatBottomPanelResizeMaximum,
     chatLayoutDecision,
     chatInspectorResizeMaximum,
@@ -89,7 +91,10 @@
   let headerEditingTitle = $state(false);
   let inspectorWasOpen = false;
   let inspectorReturnFocus: HTMLElement | null = null;
+  let replyThreadWasOpen = false;
   let replyThreadReturnFocus: HTMLElement | null = null;
+  let transientRailOpen = $state(false);
+  let auxiliaryPairWasOpen = false;
   let railModalWasOpen = false;
   let railReturnFocus: HTMLElement | null = null;
   let commandMenuWasOpen = false;
@@ -107,13 +112,22 @@
     railOpen: chat.railOpen,
     inspectorOpen: chat.inspectorOpen,
     inspectorWidth: initialInspectorWidth,
+    replyThreadOpen: chat.openReplyThreadId !== null,
+    replyThreadWidth: CHAT_REPLY_THREAD_WIDTH_PX,
   }));
   const bottomPanelVisible = $derived(
     bottomPanelOpen && layout.variant !== "minimum_recovery",
   );
-  const threadFullSurface = $derived(
-    chat.openReplyThreadId !== null && (layout.variant === "minimum_recovery" || shellWidth < 560 * fontScale),
-  );
+  const auxiliaryPairOpen = $derived(chat.openReplyThreadId !== null && chat.inspectorOpen);
+  const visibleRailOpen = $derived(auxiliaryPairOpen ? transientRailOpen : chat.railOpen);
+  const replyThreadWidth = $derived(CHAT_REPLY_THREAD_WIDTH_PX * fontScale);
+  const displayedInspectorWidth = $derived.by(() => {
+    if (!auxiliaryPairOpen) return inspectorWidth;
+    const reservedWidth = CHAT_AUXILIARY_CONVERSATION_MIN_PX * fontScale + replyThreadWidth;
+    return Math.min(inspectorWidth, Math.max(MIN_INSPECTOR_WIDTH, shellWidth - reservedWidth));
+  });
+  const threadFullSurface = $derived(layout.replyThreadPresentation === "main");
+  const threadColumnOpen = $derived(layout.replyThreadPresentation === "column");
   let loadError = $state<string | null>(null);
   let archiveQuery = $state("");
   let archiveRestoringId = $state<string | null>(null);
@@ -194,7 +208,7 @@
       if (!(event instanceof CustomEvent) || !isRevertMessageDetail(event.detail)) return;
       void restoreMessageCheckpoint(event.detail.threadId, event.detail.checkpointId);
     };
-    const openWorkspaceTool = (event: Event) => { openBottomWorkspaceForEvent(event); };
+    const openWorkspaceTool = (event: Event) => { openInspectorWorkspaceForEvent(event); };
     const openTeammates = () => {
       settings.open("chat", { chatSubsection: "teammates" });
     };
@@ -262,22 +276,35 @@
   });
 
   $effect(() => {
-    if (!chat.openReplyThreadId) return;
-    if (threadFullSurface && chat.inspectorOpen) chat.inspectorOpen = false;
-    else if (!threadFullSurface && !chat.inspectorOpen) chat.inspectorOpen = true;
+    const open = auxiliaryPairOpen;
+    if (open && !auxiliaryPairWasOpen) transientRailOpen = false;
+    auxiliaryPairWasOpen = open;
   });
 
   function threadOpened(trigger: HTMLElement): void {
     replyThreadReturnFocus = trigger;
-    if (!threadFullSurface) chat.inspectorOpen = true;
   }
 
   function closeReplyThread(): void {
     chat.closeReplyThread();
-    chat.inspectorOpen = false;
     const target = replyThreadReturnFocus;
     replyThreadReturnFocus = null;
     queueMicrotask(() => target?.isConnected && target.focus());
+  }
+
+  function openRail(): void {
+    if (auxiliaryPairOpen) transientRailOpen = true;
+    else chat.railOpen = true;
+  }
+
+  function closeRail(): void {
+    if (auxiliaryPairOpen) transientRailOpen = false;
+    else chat.railOpen = false;
+  }
+
+  function toggleRail(): void {
+    if (visibleRailOpen) closeRail();
+    else openRail();
   }
 
   $effect(() => {
@@ -422,9 +449,11 @@
       containerWidth: shellWidth,
       containerHeight: shellHeight,
       fontScale,
-      railOpen: chat.railOpen,
+      railOpen: visibleRailOpen,
       inspectorOpen: chat.inspectorOpen,
-      inspectorWidth,
+      inspectorWidth: displayedInspectorWidth,
+      replyThreadOpen: chat.openReplyThreadId !== null,
+      replyThreadWidth,
       previousVariant: layout.variant,
     });
     if (!sameLayout(layout, next)) layout = next;
@@ -470,7 +499,15 @@
   });
 
   $effect(() => {
-    const open = layout.railPresentation === "sheet" && chat.railOpen;
+    const open = chat.openReplyThreadId !== null;
+    if (open && !replyThreadWasOpen) {
+      queueMicrotask(() => document.querySelector<HTMLElement>("[data-chat-reply-thread] [data-thread-tab]")?.focus());
+    }
+    replyThreadWasOpen = open;
+  });
+
+  $effect(() => {
+    const open = layout.railPresentation === "sheet" && visibleRailOpen;
     if (open && !railModalWasOpen) {
       railReturnFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
       queueMicrotask(() => firstFocusable(railShell)?.focus());
@@ -508,13 +545,13 @@
     if (isEditingTarget(event.target)) return;
     if (hasOnlyShortcutModifier(event) && event.key.toLowerCase() === "n") {
       event.preventDefault();
-      chat.railOpen = true;
+      openRail();
       window.dispatchEvent(new Event("ganbaru-ai:chat-new-channel"));
       return;
     }
     if (hasOnlyShortcutModifier(event) && event.key.toLowerCase() === "f") {
       event.preventDefault();
-      chat.railOpen = true;
+      openRail();
       window.dispatchEvent(new Event("ganbaru-ai:chat-focus-search"));
       return;
     }
@@ -533,7 +570,7 @@
     }
     if (hasOnlyShortcutModifier(event) && event.key.toLowerCase() === "b") {
       event.preventDefault();
-      chat.railOpen = !chat.railOpen;
+      toggleRail();
       return;
     }
     if (hasOnlyShortcutModifier(event, { shift: true }) && event.key.toLowerCase() === "j") {
@@ -596,6 +633,7 @@
     return left.variant === right.variant
       && left.railPresentation === right.railPresentation
       && left.inspectorPresentation === right.inspectorPresentation
+      && left.replyThreadPresentation === right.replyThreadPresentation
       && left.activeSurface === right.activeSurface;
   }
 
@@ -692,7 +730,7 @@
     inspectorResizeEndFrame = null;
     resizingInspector = true;
     const startX = event.clientX;
-    const startWidth = inspectorWidth;
+    const startWidth = displayedInspectorWidth;
     const target = event.currentTarget as HTMLElement;
     target.focus();
     target.setPointerCapture(event.pointerId);
@@ -790,7 +828,7 @@
       return;
     }
     const next = panelWidthFromKey({
-      current: inspectorWidth,
+      current: displayedInspectorWidth,
       minimum: MIN_INSPECTOR_WIDTH,
       maximum: inspectorResizeMaximum(),
       defaultValue: DEFAULT_INSPECTOR_WIDTH,
@@ -809,10 +847,15 @@
     if (layout.inspectorPresentation !== "column") return MAX_INSPECTOR_WIDTH;
     return chatInspectorResizeMaximum({
       containerWidth: shellWidth,
-      railVisible: layout.railPresentation === "column" && chat.railOpen,
+      railVisible: layout.railPresentation === "column" && visibleRailOpen,
       fontScale,
       minimum: MIN_INSPECTOR_WIDTH,
       maximum: MAX_INSPECTOR_WIDTH,
+      ...(auxiliaryPairOpen ? {
+        railReservedWidth: 0,
+        conversationMinimum: CHAT_AUXILIARY_CONVERSATION_MIN_PX * fontScale,
+        additionalReservedWidth: replyThreadWidth,
+      } : {}),
     });
   }
 
@@ -820,10 +863,15 @@
     refreshWorkspacePixelGeometry();
     const fitted = fittedChatInspectorWidth({
       containerWidth: shellWidth,
-      railVisible: layout.railPresentation === "column" && chat.railOpen,
+      railVisible: layout.railPresentation === "column" && visibleRailOpen,
       fontScale,
       minimum: MIN_INSPECTOR_WIDTH,
       maximum: MAX_INSPECTOR_WIDTH,
+      ...(auxiliaryPairOpen ? {
+        railReservedWidth: 0,
+        conversationMinimum: CHAT_AUXILIARY_CONVERSATION_MIN_PX * fontScale,
+        additionalReservedWidth: replyThreadWidth,
+      } : {}),
     });
     inspectorWidth = alignInspectorWidthToDisplay(fitted);
     persistPanelWidths();
@@ -850,17 +898,15 @@
     bottomPanelOpen = true;
   }
 
-  function openBottomWorkspaceForEvent(event: Event): void {
-    const request = chatBottomWorkspaceRequest(
+  function openInspectorWorkspaceForEvent(event: Event): void {
+    const request = chatWorkspaceRequest(
       event.type,
       event instanceof CustomEvent ? event.detail : null,
     );
     if (!request) return;
-    bottomPanelSkipCloseTransition = false;
-    bottomPanelMounted = true;
-    bottomPanelOpen = true;
+    chat.inspectorOpen = true;
     void tick().then(() => {
-      window.dispatchEvent(new CustomEvent(CHAT_OPEN_BOTTOM_WORKSPACE_EVENT, {
+      window.dispatchEvent(new CustomEvent(CHAT_OPEN_WORKSPACE_PANEL_EVENT, {
         detail: request,
       }));
     });
@@ -971,27 +1017,27 @@
 
 <svelte:window onkeydown={handleKeydown} />
 
-<div bind:this={rootElement} class="chat-workspace @container/chat-shell relative grid h-full min-h-0 overflow-hidden" class:resizing-panels={resizingInspector || resizingBottomPanel} class:panel-transitions-enabled={panelTransitionsEnabled} data-chat-workspace data-layout={layout.variant} data-rail-presentation={layout.railPresentation} data-inspector-presentation={layout.inspectorPresentation} data-active-surface={layout.activeSurface} data-rail-open={chat.railOpen} style={`background-color:var(--cal-bg);container-type:inline-size;container-name:chat-shell;--chat-panel-transition-duration:${PANEL_TRANSITION_MS}ms;--chat-bottom-min-height:${MIN_BOTTOM_PANEL_HEIGHT}px;--chat-inspector-width:${inspectorWidth}px;`}>
+<div bind:this={rootElement} class="chat-workspace @container/chat-shell relative grid h-full min-h-0 overflow-hidden" class:resizing-panels={resizingInspector || resizingBottomPanel} class:panel-transitions-enabled={panelTransitionsEnabled} data-chat-workspace data-layout={layout.variant} data-rail-presentation={layout.railPresentation} data-inspector-presentation={layout.inspectorPresentation} data-reply-thread-presentation={layout.replyThreadPresentation} data-active-surface={layout.activeSurface} data-rail-open={visibleRailOpen} style={`background-color:var(--cal-bg);container-type:inline-size;container-name:chat-shell;--chat-panel-transition-duration:${PANEL_TRANSITION_MS}ms;--chat-bottom-min-height:${MIN_BOTTOM_PANEL_HEIGHT}px;--chat-inspector-width:${displayedInspectorWidth}px;--chat-reply-thread-width:${replyThreadWidth}px;`}>
   <ChatWorkspaceObserver />
   <div class="sr-only" aria-live="polite" aria-atomic="true">{politeAnnouncement}</div>
   <div class="sr-only" aria-live="assertive" aria-atomic="true">{assertiveAnnouncement}</div>
   {#if layoutError}<div role="alert" class="absolute inset-x-2 top-2 z-50 rounded border border-destructive/40 bg-background p-2 text-xs text-destructive">{layoutError}</div>{/if}
   {#if layout.inspectorPresentation === "sheet" && chat.inspectorOpen}
-    <button type="button" class="chat-sheet-backdrop chat-inspector-backdrop" aria-label={t("chat.closeInspector")} onclick={() => { if (chat.openReplyThreadId) closeReplyThread(); else chat.inspectorOpen = false; }}></button>
-  {:else if layout.railPresentation === "sheet" && chat.railOpen}
-    <button type="button" class="chat-sheet-backdrop chat-rail-backdrop" aria-label={t("chat.collapseRail")} onclick={() => { chat.railOpen = false; }}></button>
+    <button type="button" class="chat-sheet-backdrop chat-inspector-backdrop" aria-label={t("chat.closeInspector")} onclick={() => { chat.inspectorOpen = false; }}></button>
+  {:else if layout.railPresentation === "sheet" && visibleRailOpen}
+    <button type="button" class="chat-sheet-backdrop chat-rail-backdrop" aria-label={t("chat.collapseRail")} onclick={closeRail}></button>
   {/if}
   <div bind:this={primaryHeaderElement} class="chat-primary-header">
     <ChatWorkspaceHeader
       bind:editingTitle={headerEditingTitle}
-      explorerExpanded={layout.railPresentation === "column" && chat.railOpen}
-      showRailButton={layout.railPresentation === "sheet" && !chat.railOpen}
-      reserveGlobalActions={!chat.inspectorOpen}
-      onOpenRail={() => { chat.railOpen = true; }}
+      explorerExpanded={layout.railPresentation === "column" && visibleRailOpen}
+      showRailButton={layout.railPresentation === "sheet" && !visibleRailOpen}
+      reserveGlobalActions={!chat.inspectorOpen && !threadColumnOpen}
+      onOpenRail={openRail}
     />
   </div>
-  <div bind:this={railShell} class="chat-rail-shell" class:closed={!chat.railOpen} role={layout.railPresentation === "sheet" && chat.railOpen ? "dialog" : undefined} aria-modal={layout.railPresentation === "sheet" && chat.railOpen ? "true" : undefined} aria-label={layout.railPresentation === "sheet" && chat.railOpen ? t("chat.title") : undefined} onkeydown={(event) => { if (layout.railPresentation === "sheet") handleSheetKeydown(event, () => { chat.railOpen = false; }); }}>
-    <ChatChannelRail expanded={chat.railOpen} showCollapsedStrip={layout.railPresentation === "column"} onExpand={() => { chat.railOpen = true; }} onCollapse={() => { chat.railOpen = false; }} />
+  <div bind:this={railShell} class="chat-rail-shell" class:closed={!visibleRailOpen} role={layout.railPresentation === "sheet" && visibleRailOpen ? "dialog" : undefined} aria-modal={layout.railPresentation === "sheet" && visibleRailOpen ? "true" : undefined} aria-label={layout.railPresentation === "sheet" && visibleRailOpen ? t("chat.title") : undefined} onkeydown={(event) => { if (layout.railPresentation === "sheet") handleSheetKeydown(event, closeRail); }}>
+    <ChatChannelRail expanded={visibleRailOpen} showCollapsedStrip={layout.railPresentation === "column"} onExpand={openRail} onCollapse={closeRail} />
   </div>
   <main class="main-shell relative flex min-w-0 flex-col">
         {#if loadError}
@@ -1039,14 +1085,17 @@
         {/if}
   </main>
 
-  <div class="chat-panel-separator chat-inspector-separator" class:hidden={!chat.inspectorOpen || layout.inspectorPresentation !== "column"} class:active={resizingInspector}><input type="range" min={MIN_INSPECTOR_WIDTH} max={inspectorResizeMaximum()} step="any" value={inspectorWidth} aria-label={t("chat.resizeInspector")} onpointerdown={beginInspectorResize} onkeydown={resizeInspectorFromKey} ondblclick={(event) => { event.preventDefault(); fitInspectorToAvailableSpace(); }} /><span class="chat-panel-separator-line" aria-hidden="true"></span></div>
-  <aside bind:this={inspectorShell} class="chat-inspector-shell" class:open={chat.inspectorOpen} class:resizing={resizingInspector} class:snap-transition={snapTransitioning.inspector} data-presentation={layout.inspectorPresentation} inert={!chat.inspectorOpen} role={layout.inspectorPresentation === "sheet" && chat.inspectorOpen ? "dialog" : undefined} aria-modal={layout.inspectorPresentation === "sheet" && chat.inspectorOpen ? "true" : undefined} aria-label={chat.openReplyThreadId ? t("chat.organization.thread") : t("chat.openInspector")} onkeydown={(event) => { if (layout.inspectorPresentation === "sheet") handleSheetKeydown(event, () => { if (chat.openReplyThreadId) closeReplyThread(); else chat.inspectorOpen = false; }); }}>
+  <div class="chat-panel-separator chat-thread-separator" class:hidden={!threadColumnOpen}><span class="chat-panel-separator-line" aria-hidden="true"></span></div>
+  <aside class="chat-thread-shell" class:open={threadColumnOpen} inert={!threadColumnOpen} aria-label={t("chat.organization.thread")}>
+    {#if threadColumnOpen}
+      <ChatReplyThreadPanel presentation="complementary" reserveGlobalActions={!chat.inspectorOpen} onClose={closeReplyThread} />
+    {/if}
+  </aside>
+
+  <div class="chat-panel-separator chat-inspector-separator" class:hidden={!chat.inspectorOpen || layout.inspectorPresentation !== "column"} class:active={resizingInspector}><input type="range" min={MIN_INSPECTOR_WIDTH} max={inspectorResizeMaximum()} step="any" value={displayedInspectorWidth} aria-label={t("chat.resizeInspector")} onpointerdown={beginInspectorResize} onkeydown={resizeInspectorFromKey} ondblclick={(event) => { event.preventDefault(); fitInspectorToAvailableSpace(); }} /><span class="chat-panel-separator-line" aria-hidden="true"></span></div>
+  <aside bind:this={inspectorShell} class="chat-inspector-shell" class:open={chat.inspectorOpen} class:resizing={resizingInspector} class:snap-transition={snapTransitioning.inspector} data-presentation={layout.inspectorPresentation} inert={!chat.inspectorOpen} role={layout.inspectorPresentation === "sheet" && chat.inspectorOpen ? "dialog" : undefined} aria-modal={layout.inspectorPresentation === "sheet" && chat.inspectorOpen ? "true" : undefined} aria-label={t("chat.openInspector")} onkeydown={(event) => { if (layout.inspectorPresentation === "sheet") handleSheetKeydown(event, () => { chat.inspectorOpen = false; }); }}>
     <div class="chat-inspector-content-shell">
-      {#if chat.openReplyThreadId}
-        <ChatReplyThreadPanel presentation={layout.inspectorPresentation === "sheet" ? "dialog" : "complementary"} onClose={closeReplyThread} />
-      {:else}
-        <ChatWorkspacePanel placement="inspector" visible={chat.inspectorOpen} onClose={() => { chat.inspectorOpen = false; }} />
-      {/if}
+      <ChatWorkspacePanel placement="inspector" visible={chat.inspectorOpen} onClose={() => { chat.inspectorOpen = false; }} />
     </div>
   </aside>
 
@@ -1066,8 +1115,8 @@
       <button type="button" class="absolute inset-0" aria-label={t("chat.commandMenu.close")} onclick={() => { commandMenuOpen = false; }}></button>
       <div bind:this={commandDialog} class="relative w-full max-w-md rounded-lg border border-border bg-popover p-2 shadow-2xl" role="dialog" aria-modal="true" aria-label={t("chat.commandMenu.title")} tabindex="-1" onkeydown={(event) => trapFocus(event)}>
         <div class="flex items-center gap-2 border-b border-border px-2 py-2 text-xs text-muted-foreground"><Command size={14} />{t("chat.commandMenu.title")}</div>
-        <button type="button" class="chat-command" onclick={() => { commandMenuOpen = false; chat.railOpen = true; window.dispatchEvent(new Event("ganbaru-ai:chat-new-channel")); }}><MessageSquarePlus size={14} />{t("chat.channels.createTitle")}</button>
-        <button type="button" class="chat-command" onclick={() => { commandMenuOpen = false; chat.railOpen = true; window.dispatchEvent(new Event("ganbaru-ai:chat-focus-search")); }}><Search size={14} />{t("chat.search")}</button>
+        <button type="button" class="chat-command" onclick={() => { commandMenuOpen = false; openRail(); window.dispatchEvent(new Event("ganbaru-ai:chat-new-channel")); }}><MessageSquarePlus size={14} />{t("chat.channels.createTitle")}</button>
+        <button type="button" class="chat-command" onclick={() => { commandMenuOpen = false; openRail(); window.dispatchEvent(new Event("ganbaru-ai:chat-focus-search")); }}><Search size={14} />{t("chat.search")}</button>
         <button type="button" class="chat-command" onclick={() => { commandMenuOpen = false; toggleBottomPanel(); }}><PanelBottom size={14} />{bottomPanelOpen ? t("chat.closeBottomPanel") : t("chat.openBottomPanel")}</button>
         <button type="button" class="chat-command" onclick={() => { commandMenuOpen = false; chat.inspectorOpen = !chat.inspectorOpen; }}><PanelRight size={14} />{t("chat.openInspector")}</button>
         <button type="button" class="chat-command" onclick={() => { void openSettingsFromCommandMenu(); }}><Settings size={14} />{t("chat.settings")}</button>
@@ -1081,23 +1130,28 @@
     --chat-conversation-font-size: 0.933333rem;
     --chat-conversation-line-height: 1.4rem;
     --chat-rail-column-width: 2.75rem;
+    --chat-reply-thread-column-width: 0px;
     --chat-inspector-column-width: 0px;
     --chat-global-actions-width: 6.5rem;
-    grid-template-columns: var(--chat-rail-column-width) minmax(0, 1fr) 0 var(--chat-inspector-column-width);
+    grid-template-columns: var(--chat-rail-column-width) minmax(0, 1fr) 0 var(--chat-reply-thread-column-width) 0 var(--chat-inspector-column-width);
     grid-template-rows: var(--cal-header-row-h) minmax(0, 1fr) auto auto;
   }
   .chat-workspace[data-rail-presentation="column"][data-rail-open="true"] { --chat-rail-column-width: 16rem; }
   .chat-workspace[data-rail-presentation="sheet"] { --chat-rail-column-width: 0px; }
+  .chat-workspace[data-reply-thread-presentation="column"] { --chat-reply-thread-column-width: var(--chat-reply-thread-width); }
   .chat-workspace[data-inspector-presentation="column"] { --chat-inspector-column-width: var(--chat-inspector-width); }
   .chat-primary-header { grid-column: 1 / 3; grid-row: 1; min-width: 0; }
   .chat-global-actions { position: absolute; top: 0; right: 0; z-index: 5; display: flex; width: max-content; min-width: var(--chat-global-actions-width); height: var(--cal-header-row-h); align-items: center; justify-content: flex-end; border-bottom: 1px solid var(--sidebar); background: var(--cal-header-bg); padding-right: 0.75rem; }
   .chat-rail-shell { grid-column: 1; grid-row: 2; min-width: 0; overflow: hidden; }
   .chat-workspace[data-rail-presentation="column"][data-rail-open="true"] .chat-rail-shell { grid-row: 2 / 5; }
   .main-shell { grid-column: 2; grid-row: 2; min-width: min(440px, 100cqw); min-height: 0; background: var(--cal-bg); }
-  .chat-inspector-separator { grid-column: 3; grid-row: 1 / 3; }
-  .chat-inspector-shell { grid-column: 4; grid-row: 1 / 3; min-width: 0; overflow: hidden; background: var(--cal-bg); }
-  .chat-bottom-separator { grid-column: 1 / 5; grid-row: 3; }
-  .chat-bottom-transition-shell { grid-column: 1 / 5; grid-row: 4; }
+  .chat-workspace[data-reply-thread-presentation="column"] .main-shell { min-width: min(320px, 100cqw); }
+  .chat-thread-separator { grid-column: 3; grid-row: 1 / 3; }
+  .chat-thread-shell { grid-column: 4; grid-row: 1 / 3; min-width: 0; overflow: hidden; background: var(--cal-bg); }
+  .chat-inspector-separator { grid-column: 5; grid-row: 1 / 3; }
+  .chat-inspector-shell { grid-column: 6; grid-row: 1 / 3; min-width: 0; overflow: hidden; background: var(--cal-bg); }
+  .chat-bottom-separator { grid-column: 1 / 7; grid-row: 3; }
+  .chat-bottom-transition-shell { grid-column: 1 / 7; grid-row: 4; }
   .chat-workspace[data-rail-presentation="column"][data-rail-open="true"] .chat-bottom-separator,
   .chat-workspace[data-rail-presentation="column"][data-rail-open="true"] .chat-bottom-transition-shell { grid-column-start: 2; }
   .chat-workspace.panel-transitions-enabled { transition: grid-template-columns var(--chat-panel-transition-duration) cubic-bezier(0.22, 1, 0.36, 1); }
@@ -1105,9 +1159,10 @@
   .chat-panel-separator { position: relative; z-index: 1; background: transparent; }
   .chat-panel-separator-line { --chat-divider-highlight: color-mix(in srgb, var(--ring) 55%, var(--border)); position: absolute; pointer-events: none; background: var(--border); }
   .chat-panel-separator input { position: absolute; inset: 0; width: 100%; height: 100%; margin: 0; appearance: none; touch-action: none; cursor: inherit; opacity: 0; }
-  .chat-inspector-separator { width: 8px; min-width: 8px; margin-inline: -4px; cursor: col-resize; }
-  .chat-inspector-separator::before { position: absolute; inset: 0 0 auto; height: var(--cal-header-row-h); border-bottom: 1px solid var(--sidebar); background: var(--cal-header-bg); content: ""; pointer-events: none; }
-  .chat-inspector-separator .chat-panel-separator-line { inset-block: 0; left: 50%; width: 1px; }
+  .chat-thread-separator, .chat-inspector-separator { width: 8px; min-width: 8px; margin-inline: -4px; }
+  .chat-inspector-separator { cursor: col-resize; }
+  .chat-thread-separator::before, .chat-inspector-separator::before { position: absolute; inset: 0 0 auto; height: var(--cal-header-row-h); border-bottom: 1px solid var(--sidebar); background: var(--cal-header-bg); content: ""; pointer-events: none; }
+  .chat-thread-separator .chat-panel-separator-line, .chat-inspector-separator .chat-panel-separator-line { inset-block: 0; left: 50%; width: 1px; }
   .chat-inspector-separator:is(:hover, .active) .chat-panel-separator-line, .chat-inspector-separator input:focus-visible + .chat-panel-separator-line { background: linear-gradient(to bottom, var(--border), var(--chat-divider-highlight) 50%, var(--border)); }
   .chat-inspector-shell.open.resizing { min-width: 0; }
   .chat-inspector-content-shell { width: var(--chat-inspector-width); height: 100%; }

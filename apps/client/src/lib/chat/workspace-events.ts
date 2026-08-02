@@ -1,8 +1,8 @@
-export const CHAT_OPEN_BOTTOM_WORKSPACE_EVENT = "ganbaru-ai:chat-open-bottom-workspace";
+export const CHAT_OPEN_WORKSPACE_PANEL_EVENT = "ganbaru-ai:chat-open-workspace-panel";
 
 export type ChatWorkspaceRequestSource = "changes" | "review" | "file";
 
-export interface ChatBottomWorkspaceRequest {
+export interface ChatWorkspaceRequest {
   source: ChatWorkspaceRequestSource;
   detail: unknown;
 }
@@ -13,19 +13,19 @@ const WORKSPACE_EVENT_SOURCES: Readonly<Record<string, ChatWorkspaceRequestSourc
   "ganbaru-ai:chat-open-file": "file",
 };
 
-/** Converts a public Chat workspace event into a request for the bottom dock. */
-export function chatBottomWorkspaceRequest(
+/** Converts a public Chat workspace event into a workspace panel request. */
+export function chatWorkspaceRequest(
   eventType: string,
   detail: unknown,
-): ChatBottomWorkspaceRequest | null {
+): ChatWorkspaceRequest | null {
   const source = WORKSPACE_EVENT_SOURCES[eventType];
   if (!source) return null;
   const request = { source, detail };
-  return isChatBottomWorkspaceRequest(request) ? request : null;
+  return isChatWorkspaceRequest(request) ? request : null;
 }
 
-/** Validates the internal event used to route workspace tools into the bottom dock. */
-export function isChatBottomWorkspaceRequest(value: unknown): value is ChatBottomWorkspaceRequest {
+/** Validates the internal event used to route workspace tools into a panel. */
+export function isChatWorkspaceRequest(value: unknown): value is ChatWorkspaceRequest {
   if (!isRecord(value)) return false;
   return (value.source === "changes" || value.source === "review" || value.source === "file")
     && "detail" in value;

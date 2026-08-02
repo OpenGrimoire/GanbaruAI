@@ -1,6 +1,6 @@
 <script lang="ts">
-  import ArrowLeft from "@lucide/svelte/icons/arrow-left";
   import CircleStop from "@lucide/svelte/icons/circle-stop";
+  import MessagesSquare from "@lucide/svelte/icons/messages-square";
   import RotateCcw from "@lucide/svelte/icons/rotate-ccw";
   import X from "@lucide/svelte/icons/x";
   import { tick } from "svelte";
@@ -18,9 +18,11 @@
 
   let {
     presentation = "complementary",
+    reserveGlobalActions = false,
     onClose,
   }: {
     presentation?: "complementary" | "dialog" | "main";
+    reserveGlobalActions?: boolean;
     onClose: () => void;
   } = $props();
 
@@ -64,6 +66,17 @@
     void action().catch((cause: unknown) => {
       actionError = cause instanceof Error ? cause.message : String(cause);
     });
+  }
+
+  function preventMiddleButtonScroll(event: MouseEvent): void {
+    if (event.button === 1) event.preventDefault();
+  }
+
+  function closeFromMiddleClick(event: MouseEvent): void {
+    if (event.button !== 1) return;
+    event.preventDefault();
+    event.stopPropagation();
+    onClose();
   }
 
   $effect(() => {
@@ -119,14 +132,19 @@
   aria-modal={presentation === "dialog" ? "true" : undefined}
   aria-label={t("chat.organization.thread")}
   data-presentation={presentation}
+  data-chat-reply-thread
 >
-  <header class="thread-header">
-    <button type="button" class="back-button" aria-label={t("chat.organization.backToChannel", chat.selectedChannel?.name ?? "")} onclick={onClose}><ArrowLeft size={16} /></button>
-    <div><strong>{t("chat.organization.thread")}</strong><small>{t("chat.organization.replies", page?.thread.replyCount ?? 0)}</small></div>
-    <button type="button" class="close-button" aria-label={t("chat.organization.closeThread")} onclick={onClose}><X size={16} /></button>
+  <header class="thread-header" class:reserve-global-actions={reserveGlobalActions}>
+    <div class="thread-tab-shell" role="tablist">
+      <button type="button" class="thread-tab" data-thread-tab role="tab" aria-selected="true" tabindex="0" onmousedown={preventMiddleButtonScroll} onauxclick={closeFromMiddleClick}>
+        <MessagesSquare size={13} /><strong>{t("chat.organization.thread")}</strong>
+      </button>
+      <button type="button" class="tab-close" data-thread-close aria-label={t("chat.organization.closeThread")} onmousedown={preventMiddleButtonScroll} onauxclick={closeFromMiddleClick} onclick={onClose}><X size={11} /></button>
+    </div>
+    <span></span>
   </header>
 
-  {#if assignment}
+  {#if assignment && (assignment.state === "failed" || canCancel)}
     <div class="work-banner" data-state={assignment.state}>
       <span><strong>{assignment.teammate.displayName}</strong> · {stateLabel(assignment.state)}</span>
       <div>
@@ -173,10 +191,15 @@
 
 <style>
   .reply-thread-panel { display:flex; width:100%; height:100%; min-height:0; flex-direction:column; background:var(--cal-bg); }
-  .thread-header { display:flex; min-height:var(--cal-header-row-h); flex:0 0 auto; align-items:center; gap:0.6rem; border-bottom:1px solid var(--border); padding:0.45rem 0.65rem; }
-  .thread-header > div { display:grid; min-width:0; flex:1; }.thread-header strong { font-size:0.85rem; }.thread-header small { color:var(--muted-foreground); font-size:0.65rem; }
-  .back-button,.close-button { display:grid; width:2rem; height:2rem; place-items:center; border-radius:0.4rem; color:var(--muted-foreground); }.back-button:hover,.close-button:hover { background:var(--accent); color:var(--foreground); }
-  .reply-thread-panel[data-presentation="complementary"] .back-button { display:none; }
+  .thread-header { display:flex; height:var(--cal-header-row-h); min-height:var(--cal-header-row-h); flex:0 0 auto; align-items:center; gap:0.2rem; border-bottom:1px solid var(--sidebar); background:var(--cal-header-bg); padding-inline:0.45rem; }
+  .thread-header.reserve-global-actions { padding-right:var(--chat-global-actions-width); }
+  .thread-tab-shell { display:flex; width:9.5rem; min-width:3.75rem; height:2rem; flex:0 1 9.5rem; align-items:stretch; overflow:hidden; border-radius:0.55rem; background:var(--accent); color:var(--foreground); user-select:none; }
+  .thread-tab { display:flex; min-width:0; flex:1 1 auto; align-items:center; gap:0.4rem; overflow:hidden; padding:0.3rem 0.2rem 0.3rem 0.65rem; text-align:left; user-select:none; }
+  .thread-tab :global(svg) { flex:0 0 auto; }.thread-tab strong { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:0.733333rem; font-weight:500; user-select:none; }
+  .tab-close { display:grid; width:1.5rem; flex:0 0 auto; place-items:center; border-radius:0.3rem; opacity:0; }
+  .thread-tab-shell:hover .tab-close, .tab-close:focus-visible { opacity:1; }
+  .tab-close:hover { background:var(--accent); }
+  .thread-header > span { flex:1; }
   .work-banner { display:flex; flex:0 0 auto; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:0.4rem; border-bottom:1px solid var(--border); background:color-mix(in srgb,var(--accent) 62%,transparent); padding:0.45rem 0.7rem; font-size:0.7rem; }
   .work-banner > div { display:flex; flex-wrap:wrap; gap:0.25rem; }.work-banner button { display:flex; align-items:center; gap:0.25rem; border-radius:0.35rem; padding:0.25rem 0.4rem; }.work-banner button:hover { background:var(--accent); }
   .thread-scroll { min-height:0; flex:1; overflow-y:auto; overscroll-behavior:contain; padding-block:0.4rem; }
@@ -186,4 +209,5 @@
   .thread-composer { display:flex; flex:0 0 auto; justify-content:center; border-top:1px solid color-mix(in srgb,var(--border) 55%,transparent); padding:0.5rem; }
   .thread-error,.thread-loading { padding:0.6rem; color:var(--destructive); font-size:0.7rem; }.thread-loading { color:var(--muted-foreground); }
   .load-older { display:block; margin:0.3rem auto 0.6rem; border-radius:0.4rem; padding:0.3rem 0.5rem; color:var(--muted-foreground); font-size:0.68rem; }.load-older:hover { background:var(--accent); }
+  @media (hover:none) { .tab-close { opacity:1; } }
 </style>

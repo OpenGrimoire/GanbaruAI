@@ -61,8 +61,8 @@
   import { legacyReviewSource } from "$lib/chat/review-model";
   import { terminalErrorMessage } from "$lib/chat/terminal-model";
   import {
-    CHAT_OPEN_BOTTOM_WORKSPACE_EVENT,
-    isChatBottomWorkspaceRequest,
+    CHAT_OPEN_WORKSPACE_PANEL_EVENT,
+    isChatWorkspaceRequest,
   } from "$lib/chat/workspace-events";
   import {
     pickSelectPopoverGeometry,
@@ -197,18 +197,18 @@
   });
 
   onMount(() => {
-    if (placement !== "bottom") return;
-    const openBottomWorkspace = (event: Event) => {
-      if (!(event instanceof CustomEvent) || !isChatBottomWorkspaceRequest(event.detail)) return;
+    if (placement !== "inspector") return;
+    const openWorkspacePanel = (event: Event) => {
+      if (!(event instanceof CustomEvent) || !isChatWorkspaceRequest(event.detail)) return;
       switch (event.detail.source) {
         case "changes": openChanges(event.detail.detail); break;
         case "review": openReview(event.detail.detail); break;
         case "file": openFile(event.detail.detail); break;
       }
     };
-    window.addEventListener(CHAT_OPEN_BOTTOM_WORKSPACE_EVENT, openBottomWorkspace);
+    window.addEventListener(CHAT_OPEN_WORKSPACE_PANEL_EVENT, openWorkspacePanel);
     return () => {
-      window.removeEventListener(CHAT_OPEN_BOTTOM_WORKSPACE_EVENT, openBottomWorkspace);
+      window.removeEventListener(CHAT_OPEN_WORKSPACE_PANEL_EVENT, openWorkspacePanel);
     };
   });
 
