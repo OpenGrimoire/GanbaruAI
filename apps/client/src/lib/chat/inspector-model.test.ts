@@ -37,8 +37,8 @@ describe("Chat inspector model", () => {
     expect(state.read("thread-a").openTabs).toEqual(["files"]);
     expect(state.read("thread-a").tabOrder).toEqual(["files"]);
     expect(state.read("thread-a").tabNames).toEqual({});
-    expect(openInspectorTab(["files"], "changes")).toEqual(["files", "changes"]);
-    expect(openInspectorTab(["files", "changes"], "files")).toEqual(["files", "changes"]);
+    expect(openInspectorTab(["files"], "review")).toEqual(["files", "review"]);
+    expect(openInspectorTab(["files", "review"], "files")).toEqual(["files", "review"]);
   });
 
   it("supports a terminal-first bottom panel without inheriting the inspector default", () => {
@@ -118,7 +118,7 @@ describe("Chat inspector model", () => {
     ]);
 
     expect(reconcileWorkspacePanelTabOrder(
-      ["terminal:terminal-b", "files", "terminal:terminal-a", "changes"],
+      ["terminal:terminal-b", "files", "terminal:terminal-a", "review"],
       ["terminal", "files", "plan"],
       ["terminal-a", "terminal-b"],
     )).toEqual(["terminal:terminal-b", "files", "terminal:terminal-a", "plan"]);
@@ -128,7 +128,7 @@ describe("Chat inspector model", () => {
     const order = ["terminal:one", "files", "plan"] as const;
     expect(moveWorkspacePanelTab(order, "plan", 0)).toEqual(["plan", "terminal:one", "files"]);
     expect(moveWorkspacePanelTab(order, "terminal:one", 2)).toEqual(["files", "plan", "terminal:one"]);
-    expect(moveWorkspacePanelTab(order, "changes", 1)).toEqual(order);
+    expect(moveWorkspacePanelTab(order, "terminal:missing", 1)).toEqual(order);
     expect(workspacePanelKinds(["terminal:one", "files", "terminal:two", "plan"]))
       .toEqual(["terminal", "files", "plan"]);
     expect(workspacePanelTerminalId("terminal:one")).toBe("one");
@@ -158,11 +158,11 @@ describe("Chat inspector model", () => {
   });
 
   it("selects the nearest tab when a workspace panel closes", () => {
-    expect(closeInspectorTab(["files", "changes", "plan"], "changes", "changes")).toEqual({
+    expect(closeInspectorTab(["files", "review", "plan"], "review", "review")).toEqual({
       tabs: ["files", "plan"],
       selectedTab: "plan",
     });
-    expect(closeInspectorTab(["files", "changes"], "changes", "files")).toEqual({
+    expect(closeInspectorTab(["files", "review"], "review", "files")).toEqual({
       tabs: ["files"],
       selectedTab: "files",
     });

@@ -68,11 +68,14 @@ apps/
           updates/: app update UI
           vault/: data folder setup and active-folder UI
         api/: typed wrappers around Tauri commands and asset URL handling
+          chat.ts, chat-coordination.ts, chat-session.ts, chat-settings.ts, chat-workspace.ts, chat-workspace-observer.ts: split Chat command clients by backend domain
         benchmark/: benchmark runner, samplers, output, scenarios
         calendar/: shared calendar logic and iCalendar parser/serializer
         chat/: local coding-agent contracts, runtime validation, workspace controller, inspector and terminal models, and API boundaries
           contracts/: provider-neutral commands, events, models, and read DTOs
           validation/: bounded parsers for untrusted Chat responses and events
+          composer-controller.ts, composer-model.ts, inspector-model.ts, review-model.ts, terminal-model.ts, timeline-model.ts: split interaction and presentation models and controllers
+          file-editor-session.svelte.ts, review-session.svelte.ts, workspace-panel-tabs.svelte.ts: stateful editor, review, and workspace controllers
         data/: shared static/domain data helpers
         doomscrolling/: shared browser and desktop blocking rules
         hooks/: reusable Svelte hooks
@@ -88,6 +91,7 @@ apps/
         quick-notes/: Quick notes contracts, rich-text operations, masonry, persistence, and window sync
         scheduling/: lifecycle and notification schedulers
         stores/: Svelte rune stores and domain controllers for active runtime state
+          chat.svelte.ts, chat-communication-controller.svelte.ts, chat-organizational-controller.svelte.ts, chat-timeline-controller.svelte.ts: root Chat state and split communication, organization, and timeline controllers
         types/: frontend-specific TypeScript types
         utils/: shared helpers, formatters
         vault/: frontend data folder config and state
@@ -105,7 +109,16 @@ apps/
         vault.rs, db_path.rs, sqlite_row.rs: data folder, database path, and row helpers
         calendar_events/, calendar_import/, calendar_reads/: split calendar persistence, import, and query services
         calendar_description.rs, calendar_import.rs, calendar_reads.rs, calendars.rs, recurrence.rs: calendar command roots and shared logic
-        chat.rs, chat/: channel coordination, local coding-agent contracts, canonical events, SQLite repositories and projections, credentials, device state, workspace authorization, checkpoints, file browsing, terminals, dense benchmark fixture, Codex, Claude, Cursor, and OpenCode provider transports, metadata registry, and state machines
+        chat.rs, chat/: Chat command roots, local coding-agent contracts, durable runtime state, provider integration, and workspace tooling
+          models/: split identifiers, common values, commands, channels, provider data, organizational data, and read models
+          repository/, repository/events/: split SQLite persistence, reads, receipts, recovery, resources, workspaces, and event projections
+          coordination/, coordination_commands/: organizational contracts, event projection, messages, memberships, scheduling, assignment context, and dispatch
+          send/, interaction/, composer/: turn orchestration, interaction operations, attachments, drafts, follow-ups, prompt catalogs, and workspace mentions
+          runtime/, providers/: runtime workers, canonical event ingestion, provider registry, and Codex, Claude, Cursor, and OpenCode transports
+          checkpoints/, restore_commands/, review_engine/: Git checkpoints, restoration workflows, review snapshots, patch paging, selection, and guarded actions
+          preview/, source_control/, workspace_files/, workspace_observer/: browser previews, repository links, bounded file access, and workspace change observation
+          settings/: provider discovery, credentials, preferences, model mapping, pickers, and persisted provider settings
+          benchmark/, tests/: dense benchmark support and split Chat backend tests
         pomodoro.rs, pomodoro/: timer commands, DTOs, persistence, validation, reads, and tests
         projects.rs, projects/: project commands, DTOs, persistence, validation, history, custom fields, and templates
         quick_notes/: Quick notes commands, normalized text runs, lifecycle, search, and tests

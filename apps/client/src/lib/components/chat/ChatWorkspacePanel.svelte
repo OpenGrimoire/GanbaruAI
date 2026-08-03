@@ -43,26 +43,23 @@
     CHAT_WORKSPACE_PANEL_TAB_NAME_MAX_LENGTH,
     closeInspectorTab,
     inspectorSessionKey,
-    moveWorkspacePanelTab,
     normalizeWorkspacePanelTabName,
     openInspectorTab,
     reconcileWorkspacePanelTabOrder,
     terminalWorkspacePanelDefaultLabel,
     terminalWorkspacePanelTabKey,
     workspacePanelKinds,
-    workspacePanelRenameGeometry,
-    workspacePanelTabInsertionIndex,
-    workspacePanelTabShift,
     workspacePanelTerminalId,
     type ChatInspectorThreadState,
-    type ChatWorkspacePanelRenameGeometry,
     type ChatWorkspacePanelTabKey,
   } from "$lib/chat/inspector-model";
-  import { legacyReviewSource } from "$lib/chat/review-model";
+  import { WorkspacePanelTabController } from "$lib/chat/workspace-panel-tabs.svelte";
   import { terminalErrorMessage } from "$lib/chat/terminal-model";
   import {
     CHAT_OPEN_WORKSPACE_PANEL_EVENT,
     isChatWorkspaceRequest,
+    type ChatOpenFileDetail,
+    type ChatOpenReviewDetail,
   } from "$lib/chat/workspace-events";
   import {
     pickSelectPopoverGeometry,
@@ -114,43 +111,12 @@
   let panelPickerGeometry = $state<SelectPopoverGeometry>(DEFAULT_PICKER_GEOMETRY);
   let fadedTerminalIds: string[] = $state([]);
   let error: string | null = $state(null);
-  let panelTabbar: HTMLDivElement | undefined = $state();
-  let draggedTabKey: ChatWorkspacePanelTabKey | null = $state(null);
-  let draggedTabOffsetX = $state(0);
-  let dragTargetIndex = $state(0);
-  let tabRenameState = $state<{
-    key: ChatWorkspacePanelTabKey;
-    anchorX: number;
-    anchorY: number;
-  } | null>(null);
-  let tabRenameDraft = $state("");
-  let tabRenameReady = $state(false);
-  let tabRenamePanel: HTMLDivElement | undefined = $state();
-  let tabRenameInput: HTMLInputElement | undefined = $state();
-  let tabRenameTrigger: HTMLElement | undefined;
-  let tabRenameGeometry = $state<ChatWorkspacePanelRenameGeometry>({
-    left: 0,
-    top: 0,
-    width: 240,
-    maxHeight: 0,
-  });
   let loadedKey: string | null = null;
   let terminalScopeKey = "";
-  let tabDragListenersAttached = false;
   let terminalLayoutSaveTimer: number | null = null;
   let reviewOpenRequest = 0;
   let destroyed = false;
   let splitTerminals = $state(false);
-  let tabDragGesture = $state<{
-    key: ChatWorkspacePanelTabKey;
-    pointerId: number;
-    startClientX: number;
-    order: ChatWorkspacePanelTabKey[];
-    sourceIndex: number;
-    sourceCenter: number;
-    sourceSpan: number;
-    active: boolean;
-  } | null>(null);
   const threadId = $derived(chat.selectedThreadId ?? chat.draftThreadId);
   const workingFolderId = $derived(chat.selectedWorkingFolderId);
   const sessionKey = $derived(inspectorSessionKey(threadId, workingFolderId));
@@ -195,13 +161,21 @@
     }
     return tabs;
   });
+  const tabController = new WorkspacePanelTabController({
+    orderedKeys: () => orderedTabKeys,
+    tabNames: () => panelState.tabNames,
+    label: workspacePanelTabLabel,
+    defaultLabel: defaultWorkspacePanelTabLabel,
+    activate: activateWorkspacePanelTab,
+    update,
+    closePicker: () => { panelPickerOpen = false; },
+  });
 
   onMount(() => {
     if (placement !== "inspector") return;
     const openWorkspacePanel = (event: Event) => {
       if (!(event instanceof CustomEvent) || !isChatWorkspaceRequest(event.detail)) return;
       switch (event.detail.source) {
-        case "changes": openChanges(event.detail.detail); break;
         case "review": openReview(event.detail.detail); break;
         case "file": openFile(event.detail.detail); break;
       }
@@ -212,9 +186,10 @@
     };
   });
 
-  function openChanges(detail: unknown): void {
-    openPanel("review");
-    if (!isOpenChangesDetail(detail)) {
+  function openReview(detail: ChatOpenReviewDetail | null): void {
+    if (!detail) {
+      reviewOpenRequest += 1;
+      openPanel("review");
       update({
         reviewSource: chat.selectedThreadId
           ? { kind: "checkpoint", range: "turn", turnId: null }
@@ -226,19 +201,6 @@
       });
       return;
     }
-    update({
-      changeScope: "current_turn",
-      changeTurnId: detail.turnId,
-      selectedFile: detail.relativePath,
-      reviewSource: { kind: "checkpoint", range: "turn", turnId: detail.turnId },
-      reviewThreadId: null,
-      reviewWorkingFolderId: null,
-      reviewExecutionEnvironmentId: null,
-    });
-  }
-
-  function openReview(detail: unknown): void {
-    if (!isOpenReviewDetail(detail)) return;
     if (detail.sourceThreadId && detail.sourceWorkingFolderId) {
       void openSessionReview({
         ...detail,
@@ -258,35 +220,9 @@
     });
   }
 
-  function openFile(detail: unknown): void {
-    if (!isOpenFileDetail(detail)) return;
+  function openFile(detail: ChatOpenFileDetail): void {
     openPanel("files");
     update({ filePreviewPath: detail.relativePath });
-  }
-
-  function isOpenChangesDetail(value: unknown): value is {
-    turnId: string;
-    relativePath: string | null;
-  } {
-    if (typeof value !== "object" || value === null || Array.isArray(value)) return false;
-    const detail = value as Record<string, unknown>;
-    return typeof detail.turnId === "string"
-      && (detail.relativePath === null || typeof detail.relativePath === "string");
-  }
-
-  function isOpenReviewDetail(value: unknown): value is {
-    source: ReviewDiffSource;
-    relativePath: string | null;
-    sourceThreadId?: string;
-    sourceWorkingFolderId?: string;
-  } {
-    if (typeof value !== "object" || value === null || Array.isArray(value)) return false;
-    const detail = value as Record<string, unknown>;
-    return isReviewDiffSource(detail.source)
-      && (detail.relativePath === null || typeof detail.relativePath === "string")
-      && (detail.sourceThreadId === undefined || typeof detail.sourceThreadId === "string")
-      && (detail.sourceWorkingFolderId === undefined || typeof detail.sourceWorkingFolderId === "string")
-      && (detail.sourceThreadId === undefined) === (detail.sourceWorkingFolderId === undefined);
   }
 
   async function openSessionReview(detail: {
@@ -320,41 +256,6 @@
     });
   }
 
-  function isReviewDiffSource(value: unknown): value is ReviewDiffSource {
-    if (typeof value !== "object" || value === null || Array.isArray(value)) return false;
-    const source = value as Record<string, unknown>;
-    switch (source.kind) {
-      case "working_tree":
-        return source.mode === "staged" || source.mode === "unstaged" || source.mode === "all";
-      case "checkpoint":
-        return (source.range === "turn" || source.range === "thread")
-          && (source.turnId === null || typeof source.turnId === "string");
-      case "commit":
-        return typeof source.revision === "string";
-      case "branch":
-        return (source.baseRef === null || typeof source.baseRef === "string")
-          && typeof source.headRef === "string"
-          && (source.comparison === "merge_base" || source.comparison === "direct");
-      case "provider_turn":
-        return typeof source.turnId === "string";
-      case "change_request":
-        return (source.provider === "github"
-          || source.provider === "gitlab"
-          || source.provider === "azure_devops"
-          || source.provider === "bitbucket")
-          && typeof source.repositorySlug === "string"
-          && typeof source.number === "number"
-          && Number.isSafeInteger(source.number)
-          && source.number > 0;
-      default:
-        return false;
-    }
-  }
-
-  function isOpenFileDetail(value: unknown): value is { relativePath: string } {
-    if (typeof value !== "object" || value === null || Array.isArray(value)) return false;
-    return typeof (value as Record<string, unknown>).relativePath === "string";
-  }
 
   function initialPanelTab(): "files" | "terminal" {
     return placement === "bottom" ? "terminal" : "files";
@@ -367,11 +268,10 @@
   $effect(() => {
     const key = sessionKey;
     if (key === loadedKey) return;
-    resetTabDrag();
-    closeTabRenamePanel();
+    tabController.cancelDrag();
+    tabController.closeRename();
     loadedKey = key;
-    const normalized = normalizeLegacyReviewState(placementSession().read(key));
-    panelState = key ? placementSession().update(key, normalized) : normalized;
+    panelState = placementSession().read(key);
   });
 
   $effect(() => {
@@ -422,7 +322,6 @@
   }
 
   function openPanel(tab: ChatInspectorTab): void {
-    tab = tab === "changes" ? "review" : tab;
     const openTabs = openInspectorTab(panelState.openTabs, tab);
     const currentOrder = reconcileWorkspacePanelTabOrder(
       panelState.tabOrder,
@@ -436,7 +335,7 @@
       ...(tab === "files" ? { fileTreeVisible: true } : {}),
     });
     panelPickerOpen = false;
-    void revealWorkspacePanelTab(tab);
+    void tabController.reveal(tab);
   }
 
   function closePanel(tab: ChatInspectorTab): void {
@@ -467,27 +366,7 @@
   }
 
   function selectPanel(tab: ChatInspectorTab): void {
-    tab = tab === "changes" ? "review" : tab;
     update({ tab, ...(tab === "files" ? { fileTreeVisible: true } : {}) });
-  }
-
-  function normalizeLegacyReviewState(state: ChatInspectorThreadState): ChatInspectorThreadState {
-    const normalize = (tab: ChatInspectorTab): ChatInspectorTab => tab === "changes" ? "review" : tab;
-    const openTabs = [...new Set(state.openTabs.map(normalize))];
-    const tabOrder = [...new Set(state.tabOrder.map((key) => key === "changes" ? "review" as const : key))];
-    const tabNames = { ...state.tabNames };
-    if (tabNames.review === undefined && tabNames.changes !== undefined) tabNames.review = tabNames.changes;
-    delete tabNames.changes;
-    return {
-      ...state,
-      tab: normalize(state.tab),
-      openTabs,
-      tabOrder,
-      tabNames,
-      reviewSource: state.reviewSource ?? (chat.selectedThreadId
-        ? legacyReviewSource(state.changeScope, state.changeTurnId)
-        : { kind: "working_tree", mode: "all" }),
-    };
   }
 
   function panelLabel(tab: (typeof panelTabs)[number]): string {
@@ -606,7 +485,7 @@
     });
     selectTerminal(snapshot.terminal.id);
     openPanel("terminal");
-    await revealWorkspacePanelTab(terminalWorkspacePanelTabKey(snapshot.terminal.id));
+    await tabController.reveal(terminalWorkspacePanelTabKey(snapshot.terminal.id));
   }
 
   function retryTerminalLoad(): void {
@@ -721,247 +600,10 @@
     }
   }
 
-  function handleTabKeydown(
-    event: KeyboardEvent,
-    key: ChatWorkspacePanelTabKey,
-  ): void {
-    if (event.key === "ContextMenu" || (event.shiftKey && event.key === "F10")) {
-      event.preventDefault();
-      const trigger = event.currentTarget as HTMLElement;
-      const triggerRect = trigger.getBoundingClientRect();
-      void openTabRenamePanel(key, triggerRect.left, triggerRect.bottom, trigger);
-      return;
-    }
-    if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
-    const tabbar = (event.currentTarget as HTMLElement).closest<HTMLElement>("[role='tablist']");
-    const buttons = [...(tabbar?.querySelectorAll<HTMLButtonElement>("[role='tab']") ?? [])];
-    const index = buttons.indexOf(event.currentTarget as HTMLButtonElement);
-    if (index < 0 || buttons.length === 0) return;
-    event.preventDefault();
-    const next = event.key === "Home"
-      ? 0
-      : event.key === "End"
-        ? buttons.length - 1
-        : (index + (event.key === "ArrowRight" ? 1 : -1) + buttons.length) % buttons.length;
-    buttons[next]?.click();
-    buttons[next]?.focus();
-  }
-
-  function handleTabStripWheel(event: WheelEvent): void {
-    if (!panelTabbar || panelTabbar.scrollWidth <= panelTabbar.clientWidth) return;
-    const delta = Math.abs(event.deltaX) > Math.abs(event.deltaY) ? event.deltaX : event.deltaY;
-    if (delta === 0) return;
-    const previousScrollLeft = panelTabbar.scrollLeft;
-    panelTabbar.scrollLeft += delta;
-    if (panelTabbar.scrollLeft !== previousScrollLeft) event.preventDefault();
-  }
-
-  async function revealWorkspacePanelTab(key: ChatWorkspacePanelTabKey): Promise<void> {
-    await tick();
-    const tab = [...(panelTabbar?.querySelectorAll<HTMLElement>("[data-panel-tab-key]") ?? [])]
-      .find((candidate) => candidate.dataset.panelTabKey === key);
-    tab?.scrollIntoView({ block: "nearest", inline: "nearest" });
-  }
-
-  function handleTabContextMenu(
-    event: MouseEvent,
-    key: ChatWorkspacePanelTabKey,
-  ): void {
-    event.preventDefault();
-    event.stopPropagation();
-    const slot = event.currentTarget as HTMLElement;
-    const trigger = slot.querySelector<HTMLElement>("[role='tab']") ?? slot;
-    void openTabRenamePanel(key, event.clientX, event.clientY, trigger);
-  }
-
-  async function openTabRenamePanel(
-    key: ChatWorkspacePanelTabKey,
-    anchorX: number,
-    anchorY: number,
-    trigger: HTMLElement,
-  ): Promise<void> {
-    resetTabDrag();
-    panelPickerOpen = false;
-    tabRenameTrigger = trigger;
-    tabRenameDraft = workspacePanelTabLabel(key);
-    tabRenameReady = false;
-    tabRenameState = { key, anchorX, anchorY };
-    await tick();
-    positionTabRenamePanel();
-    tabRenameInput?.focus();
-    tabRenameInput?.select();
-  }
-
-  function positionTabRenamePanel(): void {
-    if (!tabRenameState) return;
-    tabRenameGeometry = workspacePanelRenameGeometry(
-      tabRenameState.anchorX,
-      tabRenameState.anchorY,
-      window.innerWidth,
-      window.innerHeight,
-      tabRenamePanel?.scrollHeight ?? 132,
-    );
-    tabRenameReady = true;
-  }
-
-  function tabRenamePanelStyle(): string {
-    if (!tabRenameReady) return "visibility:hidden;top:0;left:0;";
-    return [
-      "visibility:visible",
-      `top:${tabRenameGeometry.top}px`,
-      `left:${tabRenameGeometry.left}px`,
-      `width:${tabRenameGeometry.width}px`,
-      `max-height:${tabRenameGeometry.maxHeight}px`,
-    ].join(";");
-  }
-
-  function closeTabRenamePanel(restoreFocus = false): void {
-    const trigger = tabRenameTrigger;
-    tabRenameState = null;
-    tabRenameReady = false;
-    tabRenameTrigger = undefined;
-    if (restoreFocus) queueMicrotask(() => trigger?.focus());
-  }
-
-  function saveTabName(): void {
-    const renameState = tabRenameState;
-    if (!renameState) return;
-    const name = normalizeWorkspacePanelTabName(tabRenameDraft);
-    if (!name) return;
-    const tabNames = { ...panelState.tabNames };
-    if (name === defaultWorkspacePanelTabLabel(renameState.key)) delete tabNames[renameState.key];
-    else tabNames[renameState.key] = name;
-    update({ tabNames });
-    closeTabRenamePanel(true);
-  }
-
-  function resetTabName(): void {
-    const renameState = tabRenameState;
-    if (!renameState) return;
-    const tabNames = { ...panelState.tabNames };
-    delete tabNames[renameState.key];
-    update({ tabNames });
-    closeTabRenamePanel(true);
-  }
-
-  function handleTabRenamePanelKeydown(event: KeyboardEvent): void {
-    if (event.key !== "Escape") return;
-    event.preventDefault();
-    closeTabRenamePanel(true);
-  }
-
-  function beginTabDrag(event: PointerEvent, key: ChatWorkspacePanelTabKey): void {
-    if (event.button !== 0) return;
-    if (event.target instanceof Element && event.target.closest(".tab-close")) return;
-    if (!panelTabbar) return;
-    const order = [...orderedTabKeys];
-    const sourceIndex = order.indexOf(key);
-    if (sourceIndex < 0) return;
-    const slot = event.currentTarget as HTMLElement;
-    const computedGap = Number.parseFloat(getComputedStyle(panelTabbar).columnGap);
-    activateWorkspacePanelTab(key);
-    tabDragGesture = {
-      key,
-      pointerId: event.pointerId,
-      startClientX: event.clientX,
-      order,
-      sourceIndex,
-      sourceCenter: slot.offsetLeft + slot.offsetWidth / 2,
-      sourceSpan: slot.offsetWidth + (Number.isFinite(computedGap) ? computedGap : 0),
-      active: false,
-    };
-    dragTargetIndex = sourceIndex;
-    attachTabDragListeners();
-  }
-
-  function moveTabDrag(event: PointerEvent): void {
-    const gesture = tabDragGesture;
-    if (!gesture || gesture.pointerId !== event.pointerId || !panelTabbar) return;
-    const offsetX = event.clientX - gesture.startClientX;
-    if (!gesture.active) {
-      if (Math.abs(offsetX) < 5) return;
-      gesture.active = true;
-      draggedTabKey = gesture.key;
-    }
-    event.preventDefault();
-    draggedTabOffsetX = offsetX;
-    const remainingCenters = [...panelTabbar.querySelectorAll<HTMLElement>("[data-panel-tab-key]")]
-      .filter((element) => element.dataset.panelTabKey !== gesture.key)
-      .map((element) => element.offsetLeft + element.offsetWidth / 2);
-    dragTargetIndex = workspacePanelTabInsertionIndex(
-      gesture.sourceCenter + offsetX,
-      remainingCenters,
-    );
-  }
-
-  function tabDragShift(key: ChatWorkspacePanelTabKey): number {
-    const gesture = tabDragGesture;
-    if (!gesture?.active) return 0;
-    if (key === gesture.key) return draggedTabOffsetX;
-    return workspacePanelTabShift(
-      gesture.order.indexOf(key),
-      gesture.sourceIndex,
-      dragTargetIndex,
-      gesture.sourceSpan,
-    );
-  }
-
-  function finishTabDrag(event: PointerEvent, commit: boolean): void {
-    const gesture = tabDragGesture;
-    if (!gesture || gesture.pointerId !== event.pointerId) return;
-    const nextOrder = commit && gesture.active
-      ? moveWorkspacePanelTab(gesture.order, gesture.key, dragTargetIndex)
-      : null;
-    resetTabDrag();
-    if (nextOrder) update({ tabOrder: nextOrder, openTabs: workspacePanelKinds(nextOrder) });
-  }
-
-  function attachTabDragListeners(): void {
-    if (tabDragListenersAttached) return;
-    tabDragListenersAttached = true;
-    window.addEventListener("pointermove", handleWindowTabPointerMove, true);
-    window.addEventListener("pointerup", handleWindowTabPointerUp, true);
-    window.addEventListener("pointercancel", handleWindowTabPointerCancel, true);
-    window.addEventListener("blur", cancelTabDrag);
-  }
-
-  function detachTabDragListeners(): void {
-    if (!tabDragListenersAttached) return;
-    tabDragListenersAttached = false;
-    window.removeEventListener("pointermove", handleWindowTabPointerMove, true);
-    window.removeEventListener("pointerup", handleWindowTabPointerUp, true);
-    window.removeEventListener("pointercancel", handleWindowTabPointerCancel, true);
-    window.removeEventListener("blur", cancelTabDrag);
-  }
-
-  function handleWindowTabPointerMove(event: PointerEvent): void {
-    moveTabDrag(event);
-  }
-
-  function handleWindowTabPointerUp(event: PointerEvent): void {
-    finishTabDrag(event, true);
-  }
-
-  function handleWindowTabPointerCancel(event: PointerEvent): void {
-    finishTabDrag(event, false);
-  }
-
-  function cancelTabDrag(): void {
-    resetTabDrag();
-  }
-
-  function resetTabDrag(): void {
-    detachTabDragListeners();
-    tabDragGesture = null;
-    draggedTabKey = null;
-    draggedTabOffsetX = 0;
-    dragTargetIndex = 0;
-  }
-
   onDestroy(() => {
     destroyed = true;
     reviewOpenRequest += 1;
-    resetTabDrag();
+    tabController.destroy();
     if (terminalLayoutSaveTimer !== null) window.clearTimeout(terminalLayoutSaveTimer);
   });
 
@@ -1088,12 +730,12 @@
   });
 
   $effect(() => {
-    if (!tabRenameState) return;
+    if (!tabController.renameState) return;
     const handleOutsidePointer = (event: PointerEvent) => {
-      if (!(event.target instanceof Node) || tabRenamePanel?.contains(event.target)) return;
-      closeTabRenamePanel();
+      if (!(event.target instanceof Node) || tabController.renamePanel?.contains(event.target)) return;
+      tabController.closeRename();
     };
-    const handleViewportChange = () => positionTabRenamePanel();
+    const handleViewportChange = () => tabController.positionRename();
     window.addEventListener("pointerdown", handleOutsidePointer, true);
     window.addEventListener("resize", handleViewportChange);
     return () => {
@@ -1104,17 +746,17 @@
 </script>
 
 <section class="workspace-panel" data-placement={placement} aria-label={placement === "bottom" ? t("chat.bottomPanel") : t("chat.inspector.title")}>
-  <div class="panel-tabbar" class:reordering={draggedTabKey !== null}>
-      <div bind:this={panelTabbar} class="panel-tab-strip" role="tablist" aria-label={placement === "bottom" ? t("chat.bottomPanel") : t("chat.inspector.title")} onwheel={handleTabStripWheel}>
+  <div class="panel-tabbar" class:reordering={tabController.draggedKey !== null}>
+      <div bind:this={tabController.tabbar} class="panel-tab-strip" role="tablist" aria-label={placement === "bottom" ? t("chat.bottomPanel") : t("chat.inspector.title")} onwheel={(event) => tabController.handleWheel(event)}>
         {#each orderedTabs as item (item.key)}
-        <div role="presentation" class="panel-tab-slot" class:dragging={draggedTabKey === item.key} data-panel-tab-key={item.key} style:--tab-shift-x={`${tabDragShift(item.key)}px`} onpointerdown={(event) => beginTabDrag(event, item.key)} onmousedown={preventMiddleButtonScroll} onauxclick={(event) => closeTabFromAuxClick(event, item.key, item.type === "terminal" ? item.terminal : undefined)} oncontextmenu={(event) => handleTabContextMenu(event, item.key)}>
+        <div role="presentation" class="panel-tab-slot" class:dragging={tabController.draggedKey === item.key} data-panel-tab-key={item.key} style:--tab-shift-x={`${tabController.dragShift(item.key)}px`} onpointerdown={(event) => tabController.beginDrag(event, item.key)} onmousedown={preventMiddleButtonScroll} onauxclick={(event) => closeTabFromAuxClick(event, item.key, item.type === "terminal" ? item.terminal : undefined)} oncontextmenu={(event) => tabController.handleContextMenu(event, item.key)}>
           {#if item.type === "loading-terminal"}
-            <button type="button" role="tab" aria-selected={panelState.tab === "terminal"} tabindex={panelState.tab === "terminal" ? 0 : -1} class="terminal-tab loading" class:active={panelState.tab === "terminal"} title={workspacePanelTabLabel(item.key)} onclick={() => selectPanel("terminal")} onkeydown={(event) => handleTabKeydown(event, item.key)}>
+            <button type="button" role="tab" aria-selected={panelState.tab === "terminal"} tabindex={panelState.tab === "terminal" ? 0 : -1} class="terminal-tab loading" class:active={panelState.tab === "terminal"} title={workspacePanelTabLabel(item.key)} onclick={() => selectPanel("terminal")} onkeydown={(event) => tabController.handleKeydown(event, item.key)}>
               <SquareTerminal size={13} /><span class="tab-label">{workspacePanelTabLabel(item.key)}</span>
             </button>
           {:else if item.type === "terminal"}
             <div class="terminal-tab-shell" class:active={panelState.tab === "terminal" && selectedTerminalId === item.terminal.id}>
-              <button type="button" role="tab" aria-selected={panelState.tab === "terminal" && selectedTerminalId === item.terminal.id} tabindex={panelState.tab === "terminal" && selectedTerminalId === item.terminal.id ? 0 : -1} class="terminal-tab" onclick={() => { selectTerminal(item.terminal.id); selectPanel("terminal"); }} onkeydown={(event) => handleTabKeydown(event, item.key)} title={workspacePanelTabLabel(item.key)}>
+              <button type="button" role="tab" aria-selected={panelState.tab === "terminal" && selectedTerminalId === item.terminal.id} tabindex={panelState.tab === "terminal" && selectedTerminalId === item.terminal.id ? 0 : -1} class="terminal-tab" onclick={() => { selectTerminal(item.terminal.id); selectPanel("terminal"); }} onkeydown={(event) => tabController.handleKeydown(event, item.key)} title={workspacePanelTabLabel(item.key)}>
                 <SquareTerminal size={13} />
                 <span class="tab-label terminal-label" class:faded={fadedTerminalIds.includes(item.terminal.id)} use:trackTerminalOverflow={{ terminalId: item.terminal.id, label: workspacePanelTabLabel(item.key) }}>{workspacePanelTabLabel(item.key)}</span>
               </button>
@@ -1123,7 +765,7 @@
           {:else}
             {@const Icon = item.panel.icon}
             <div class="panel-tab-shell" class:active={panelState.tab === item.panel.id}>
-              <button type="button" role="tab" aria-selected={panelState.tab === item.panel.id} tabindex={panelState.tab === item.panel.id ? 0 : -1} class="panel-tab" title={workspacePanelTabLabel(item.key)} onclick={() => selectPanel(item.panel.id)} onkeydown={(event) => handleTabKeydown(event, item.key)}>
+              <button type="button" role="tab" aria-selected={panelState.tab === item.panel.id} tabindex={panelState.tab === item.panel.id ? 0 : -1} class="panel-tab" title={workspacePanelTabLabel(item.key)} onclick={() => selectPanel(item.panel.id)} onkeydown={(event) => tabController.handleKeydown(event, item.key)}>
                 {#if item.panel.id === "files" && panelState.filePreviewPath}<ChatFileIcon path={panelState.filePreviewPath} size={13} />{:else}<Icon size={13} />{/if}<span class="tab-label">{workspacePanelTabLabel(item.key)}</span>
               </button>
               <button type="button" class="tab-close" aria-label={t("chat.inspector.closePanel", workspacePanelTabLabel(item.key))} onclick={() => closePanel(item.panel.id)}><X size={11} /></button>
@@ -1176,35 +818,35 @@
       </div>
     {/if}
 
-    {#if tabRenameState}
+    {#if tabController.renameState}
       <div
-        bind:this={tabRenamePanel}
+        bind:this={tabController.renamePanel}
         use:portal
         class="tab-rename-panel"
         role="dialog"
         tabindex="-1"
         aria-labelledby={`${placement}-tab-rename-title`}
         data-app-floating-surface
-        style={tabRenamePanelStyle()}
-        onkeydown={handleTabRenamePanelKeydown}
+        style={tabController.renameStyle()}
+        onkeydown={(event) => tabController.handleRenameKeydown(event)}
       >
-        <form onsubmit={(event) => { event.preventDefault(); saveTabName(); }}>
+        <form onsubmit={(event) => { event.preventDefault(); tabController.saveName(); }}>
           <label id={`${placement}-tab-rename-title`} for={`${placement}-tab-rename-input`}>{t("chat.inspector.renameTab")}</label>
           <input
-            bind:this={tabRenameInput}
+            bind:this={tabController.renameInput}
             id={`${placement}-tab-rename-input`}
             data-app-shortcuts="ignore"
             maxlength={CHAT_WORKSPACE_PANEL_TAB_NAME_MAX_LENGTH}
             autocomplete="off"
             spellcheck="false"
-            bind:value={tabRenameDraft}
+            bind:value={tabController.renameDraft}
             aria-label={t("chat.inspector.tabName")}
           />
           <div class="tab-rename-actions">
-            <button type="button" onclick={resetTabName}>{t("common.reset")}</button>
+            <button type="button" onclick={() => tabController.resetName()}>{t("common.reset")}</button>
             <span></span>
-            <button type="button" onclick={() => closeTabRenamePanel(true)}>{t("common.cancel")}</button>
-            <button type="submit" class="primary" disabled={normalizeWorkspacePanelTabName(tabRenameDraft) === null}>{t("common.save")}</button>
+            <button type="button" onclick={() => tabController.closeRename(true)}>{t("common.cancel")}</button>
+            <button type="submit" class="primary" disabled={normalizeWorkspacePanelTabName(tabController.renameDraft) === null}>{t("common.save")}</button>
           </div>
         </form>
       </div>
@@ -1226,8 +868,6 @@
           sourceThreadId={panelState.reviewThreadId}
           sourceWorkingFolderId={panelState.reviewWorkingFolderId}
           sourceExecutionEnvironmentId={panelState.reviewExecutionEnvironmentId}
-          legacyScope={panelState.changeScope}
-          legacyTurnId={panelState.changeTurnId}
           selectedFile={panelState.selectedFile}
           layoutPreference={panelState.reviewLayoutPreference}
           whitespaceIgnored={panelState.whitespaceIgnored}

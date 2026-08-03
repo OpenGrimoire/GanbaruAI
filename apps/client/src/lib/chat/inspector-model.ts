@@ -3,7 +3,6 @@ import type {
   ChatInspectorTab,
   ProjectWorkingFolderId,
   ChatThreadId,
-  ChatTurnId,
   ReviewDiffSource,
 } from "./contracts";
 import type { ReviewLayoutPreference } from "./review-model";
@@ -18,8 +17,6 @@ export interface ChatInspectorThreadState {
   filePreviewPath: string | null;
   fileTreeVisible: boolean;
   fileTreeWidthPx: number;
-  changeScope: "current_turn" | "entire_thread";
-  changeTurnId: ChatTurnId | null;
   changedFileListHeightPx: number;
   whitespaceIgnored: boolean;
   diffView: "auto" | "unified" | "split";
@@ -48,8 +45,6 @@ const DEFAULT_STATE: ChatInspectorThreadState = {
   filePreviewPath: null,
   fileTreeVisible: true,
   fileTreeWidthPx: 220,
-  changeScope: "current_turn",
-  changeTurnId: null,
   changedFileListHeightPx: 160,
   whitespaceIgnored: false,
   diffView: "auto",
@@ -117,8 +112,6 @@ export class ChatInspectorSessionState {
     };
   }
 }
-
-export const chatInspectorSession = new ChatInspectorSessionState();
 
 /**
  * Opens a workspace panel without duplicating an existing tab.

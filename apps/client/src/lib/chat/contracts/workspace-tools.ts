@@ -7,8 +7,7 @@ import type {
   UtcTimestamp,
 } from "./common";
 
-export type ChatInspectorTab = "changes" | "plan" | "files" | "sourceControl" | "browser" | "review" | "terminal";
-export type ChatChangeScope = "current_turn" | "entire_thread";
+export type ChatInspectorTab = "plan" | "files" | "sourceControl" | "browser" | "review" | "terminal";
 export type ChatChangedFileStatus = "added" | "modified" | "deleted" | "renamed" | "type_changed" | "unknown";
 
 export type ReviewDiffSource =
@@ -368,26 +367,6 @@ export interface ChatChangedFileRead {
   binary: boolean;
   providerReported: boolean;
   gitObserved: boolean;
-}
-
-export interface ChatCheckpointDiffRead {
-  scope: ChatChangeScope;
-  available: boolean;
-  unavailableReason: string | null;
-  preCheckpointId: ChatCheckpointId | null;
-  postCheckpointId: ChatCheckpointId | null;
-  files: ChatChangedFileRead[];
-  additions: number;
-  deletions: number;
-  providerMismatch: boolean;
-}
-
-export interface ChatCheckpointFileDiffRead {
-  relativePath: string;
-  patch: string | null;
-  binary: boolean;
-  truncated: boolean;
-  byteSize: number;
 }
 
 export interface ChatRestorePreviewRead {

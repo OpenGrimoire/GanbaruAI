@@ -1,6 +1,4 @@
 import {
-  type ChatCheckpointDiffRead,
-  type ChatCheckpointFileDiffRead,
   type ChatChangedFileRead,
   type ChatExecutionEnvironmentRead,
   type ChatReviewFileAction,
@@ -48,7 +46,6 @@ import {
 
 const FILE_KINDS = ["file", "directory"] as const;
 const FILE_STATUSES = ["added", "modified", "deleted", "renamed", "type_changed", "unknown"] as const;
-const CHANGE_SCOPES = ["current_turn", "entire_thread"] as const;
 const REVIEW_STATES = ["open", "resolved"] as const;
 const REVIEW_SOURCE_KINDS = ["working_tree", "checkpoint", "commit", "branch", "provider_turn", "change_request"] as const;
 const REVIEW_COMMENT_SOURCE_KINDS = ["file", ...REVIEW_SOURCE_KINDS] as const;
@@ -420,32 +417,6 @@ function parseChangedFile(value: unknown, label: string): ChatChangedFileRead {
     binary: readBoolean(record.binary, `${label}.binary`),
     providerReported: readBoolean(record.providerReported, `${label}.providerReported`),
     gitObserved: readBoolean(record.gitObserved, `${label}.gitObserved`),
-  };
-}
-
-export function parseChatCheckpointDiff(value: unknown): ChatCheckpointDiffRead {
-  const record = readRecord(value, "checkpointDiff");
-  return {
-    scope: readEnum(record.scope, CHANGE_SCOPES, "checkpointDiff.scope"),
-    available: readBoolean(record.available, "checkpointDiff.available"),
-    unavailableReason: readNullable(record.unavailableReason, "checkpointDiff.unavailableReason", readString),
-    preCheckpointId: readNullable(record.preCheckpointId, "checkpointDiff.preCheckpointId", readIdentifier),
-    postCheckpointId: readNullable(record.postCheckpointId, "checkpointDiff.postCheckpointId", readIdentifier),
-    files: array(record.files, "checkpointDiff.files", parseChangedFile),
-    additions: readNonNegativeSafeInteger(record.additions, "checkpointDiff.additions"),
-    deletions: readNonNegativeSafeInteger(record.deletions, "checkpointDiff.deletions"),
-    providerMismatch: readBoolean(record.providerMismatch, "checkpointDiff.providerMismatch"),
-  };
-}
-
-export function parseChatCheckpointFileDiff(value: unknown): ChatCheckpointFileDiffRead {
-  const record = readRecord(value, "checkpointFileDiff");
-  return {
-    relativePath: readString(record.relativePath, "checkpointFileDiff.relativePath"),
-    patch: readNullable(record.patch, "checkpointFileDiff.patch", readString),
-    binary: readBoolean(record.binary, "checkpointFileDiff.binary"),
-    truncated: readBoolean(record.truncated, "checkpointFileDiff.truncated"),
-    byteSize: readNonNegativeSafeInteger(record.byteSize, "checkpointFileDiff.byteSize"),
   };
 }
 

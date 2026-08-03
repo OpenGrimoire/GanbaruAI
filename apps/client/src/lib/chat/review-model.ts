@@ -1,10 +1,13 @@
 import type {
+  ChatChangedFileRead,
+  ChatReviewCommentRead,
   ChatReviewFileRead,
   ChatReviewPatchHunkRead,
   ChatReviewPatchRead,
   ChatReviewSnapshotRead,
   ReviewDiffSource,
 } from "./contracts";
+import type { ReviewLineSelection } from "./review-diff-runtime";
 
 export type ReviewLayoutPreference = "auto" | "continuous" | "file";
 export type ReviewResolvedLayout = Exclude<ReviewLayoutPreference, "auto">;
@@ -74,18 +77,6 @@ export function resolveReviewDiffStyle(
 ): ReviewResolvedDiffStyle {
   if (preference !== "auto") return preference;
   return availableWidth >= REVIEW_SPLIT_MIN_WIDTH_PX ? "split" : "unified";
-}
-
-/** Creates the initial source used when an older Changes tab opens Review. */
-export function legacyReviewSource(
-  scope: "current_turn" | "entire_thread",
-  turnId: string | null,
-): ReviewDiffSource {
-  return {
-    kind: "checkpoint",
-    range: scope === "entire_thread" ? "thread" : "turn",
-    turnId: scope === "entire_thread" ? null : turnId,
-  };
 }
 
 /** Selects the file retained across immutable snapshot refreshes. */
@@ -183,4 +174,112 @@ export function reviewSourceKey(source: ReviewDiffSource): string {
     case "provider_turn": return `${source.kind}:${source.turnId}`;
     case "change_request": return `${source.kind}:${source.provider}:${source.repositorySlug}:${source.number}`;
   }
+}
+
+/** Reports whether a line selection crosses old and new diff sides. */
+export function reviewSelectionUsesMultipleSides(
+  selection: ReviewLineSelection | null,
+): boolean {
+  if (!selection) return false;
+  const startSide = selection.range.side ?? "additions";
+  return (selection.range.endSide ?? startSide) !== startSide;
+}
+
+/** Compares canonical Review source identities. */
+export function reviewSourcesEqual(
+  left: ReviewDiffSource,
+  right: ReviewDiffSource,
+): boolean {
+  switch (left.kind) {
+    case "working_tree":
+      return right.kind === "working_tree" && left.mode === right.mode;
+    case "checkpoint":
+      return right.kind === "checkpoint"
+        && left.range === right.range
+        && left.turnId === right.turnId;
+    case "commit":
+      return right.kind === "commit" && left.revision === right.revision;
+    case "branch":
+      return right.kind === "branch"
+        && left.baseRef === right.baseRef
+        && left.headRef === right.headRef
+        && left.comparison === right.comparison;
+    case "provider_turn":
+      return right.kind === "provider_turn" && left.turnId === right.turnId;
+    case "change_request":
+      return right.kind === "change_request"
+        && left.provider === right.provider
+        && left.repositorySlug === right.repositorySlug
+        && left.number === right.number;
+  }
+}
+
+/** Reports whether a persisted comment still targets the rendered snapshot. */
+export function reviewCommentMatchesSnapshot(
+  comment: ChatReviewCommentRead,
+  snapshot: ChatReviewSnapshotRead,
+): boolean {
+  return (comment.selectionSide === "old" || comment.selectionSide === "new")
+    && comment.sourceData !== undefined
+    && comment.reviewRevision === snapshot.reviewRevision
+    && reviewSourcesEqual(comment.sourceData, snapshot.source);
+}
+
+/** Reports whether a comment no longer applies to the active snapshot. */
+export function reviewCommentIsOutdated(
+  comment: ChatReviewCommentRead,
+  snapshot: ChatReviewSnapshotRead | null,
+): boolean {
+  if (comment.applicability === "source_unavailable") return true;
+  return snapshot
+    ? !reviewCommentMatchesSnapshot(comment, snapshot)
+    : comment.applicability === "outdated";
+}
+
+/** Reports whether every file in a working-tree snapshot supports an operation. */
+export function reviewSourceSupportsOperation(
+  snapshot: ChatReviewSnapshotRead | null,
+  operation: "stage" | "unstage" | "discard",
+): boolean {
+  if (!snapshot || snapshot.source.kind !== "working_tree" || snapshot.files.length === 0) {
+    return false;
+  }
+  const modeSupports = operation === "stage"
+    ? snapshot.source.mode === "unstaged" || snapshot.source.mode === "all"
+    : operation === "unstage"
+      ? snapshot.source.mode === "staged"
+      : snapshot.source.mode === "unstaged";
+  return modeSupports && snapshot.files.every((file) => file.capabilities[operation]);
+}
+
+/** Reports whether a file action should be shown, including disabled actions with a reason. */
+export function reviewFileActionVisible(
+  file: ChatReviewFileRead,
+  action: "stage" | "unstage" | "discard" | "openEditor",
+): boolean {
+  return file.capabilities[action] || Boolean(file.capabilityReasons[action]);
+}
+
+/** Adapts a Review file for the shared changed-file tree. */
+export function reviewFileAsChangedFile(file: ChatReviewFileRead): ChatChangedFileRead {
+  return {
+    relativePath: file.relativePath,
+    previousRelativePath: file.previousRelativePath,
+    status: file.status,
+    additions: file.additions,
+    deletions: file.deletions,
+    binary: file.flags.binary,
+    providerReported: file.flags.providerReported,
+    gitObserved: file.flags.gitObserved,
+  };
+}
+
+/** Produces a stable compact revision for memoized diff rendering. */
+export function stableReviewHash(value: string): number {
+  let hash = 2_166_136_261;
+  for (let index = 0; index < value.length; index += 1) {
+    hash ^= value.charCodeAt(index);
+    hash = Math.imul(hash, 16_777_619);
+  }
+  return hash >>> 0;
 }

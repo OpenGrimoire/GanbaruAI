@@ -291,6 +291,14 @@ export function chatLayoutPrimaryActions(
   return ["threads", "composer", "requests", "stop", "settings", "inspector"];
 }
 
+export function chatLayoutsEqual(left: ChatLayoutDecision, right: ChatLayoutDecision): boolean {
+  return left.variant === right.variant
+    && left.railPresentation === right.railPresentation
+    && left.inspectorPresentation === right.inspectorPresentation
+    && left.replyThreadPresentation === right.replyThreadPresentation
+    && left.activeSurface === right.activeSurface;
+}
+
 export interface PanelResizeInput {
   current: number;
   minimum: number;

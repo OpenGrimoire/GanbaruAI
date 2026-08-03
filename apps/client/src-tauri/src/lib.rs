@@ -813,8 +813,6 @@ pub fn run() {
             chat::terminal_commands::chat_terminal_resize,
             chat::terminal_commands::chat_terminal_close,
             chat::terminal_commands::chat_terminal_import_context,
-            chat::checkpoint_commands::chat_read_checkpoint_diff,
-            chat::checkpoint_commands::chat_read_checkpoint_file_diff,
             chat::checkpoint_commands::chat_run_checkpoint_cleanup,
             chat::diagnostics_commands::chat_read_diagnostics,
             chat::diagnostics_commands::chat_update_diagnostic_preferences,

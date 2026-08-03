@@ -29,23 +29,30 @@
     ChatReviewCommentRead,
     ChatReviewFileRead,
     ChatReviewPatchRead,
-    ChatReviewSnapshotRead,
     ReviewDiffSource,
   } from "$lib/chat/contracts";
-  import { isWorkspaceRelativeChangedFilePath } from "$lib/chat/changed-files";
-  import { openChatReviewSingleFlight } from "$lib/chat/review-prefetch";
   import {
-    appendReviewPatchPages,
     findReviewSearchMatches,
-    legacyReviewSource,
+    reviewCommentIsOutdated,
+    reviewCommentMatchesSnapshot,
+    reviewFileActionVisible,
+    reviewFileAsChangedFile,
+    reviewSelectionUsesMultipleSides,
+    reviewSourceSupportsOperation,
     resolveReviewDiffStyle,
     resolveReviewLayout,
     retainReviewFile,
     reviewSourceKey,
     selectedReviewHunkIds,
+    stableReviewHash,
     type ReviewDiffPreference,
     type ReviewLayoutPreference,
   } from "$lib/chat/review-model";
+  import {
+    ChatReviewSession,
+    reviewSessionScopeToken,
+    type ReviewSessionScope,
+  } from "$lib/chat/review-session.svelte";
   import type { ReviewDiffRenderItem, ReviewLineSelection } from "$lib/chat/review-diff-runtime";
   import { formatNumber } from "$lib/i18n/formatters";
   import { getLocalization } from "$lib/i18n/translator.svelte";
@@ -56,16 +63,12 @@
   import ChatFileIcon from "./ChatFileIcon.svelte";
   import ChatPierreDiff, { type ChatDiffViewport } from "./ChatPierreDiff.svelte";
 
-  const REVIEW_REQUEST_TIMEOUT_MS = 30_000;
-
   let {
     active = true,
     source = null,
     sourceThreadId = null,
     sourceWorkingFolderId = null,
     sourceExecutionEnvironmentId = null,
-    legacyScope = "current_turn",
-    legacyTurnId = null,
     selectedFile = null,
     layoutPreference = "auto",
     whitespaceIgnored = false,
@@ -77,8 +80,6 @@
     sourceThreadId?: string | null;
     sourceWorkingFolderId?: string | null;
     sourceExecutionEnvironmentId?: string | null;
-    legacyScope?: "current_turn" | "entire_thread";
-    legacyTurnId?: string | null;
     selectedFile?: string | null;
     layoutPreference?: ReviewLayoutPreference;
     whitespaceIgnored?: boolean;
@@ -100,8 +101,6 @@
   let searchInput: HTMLInputElement | undefined = $state();
   let panelWidth = $state(0);
   let contentWidth = $state(0);
-  let snapshot = $state<ChatReviewSnapshotRead | null>(null);
-  let patches: ChatReviewPatchRead[] = $state([]);
   let comments: ChatReviewCommentRead[] = $state([]);
   let includeResolved = $state(false);
   let commentsVisible = $state(false);
@@ -111,9 +110,6 @@
   let matchIndex = $state(0);
   let selection: ReviewLineSelection | null = $state(null);
   let commentDraft = $state("");
-  let loadingInitial = $state(false);
-  let refreshing = $state(false);
-  let loadingPatchIds: string[] = $state([]);
   let error = $state<string | null>(null);
   let busyAction: string | null = $state(null);
   let busyCommentId: string | null = $state(null);
@@ -121,15 +117,11 @@
   let viewport: ChatDiffViewport | null = null;
   let loadedKey = "";
   let commentsKey = "";
-  let requestSequence = 0;
-  let patchSequence = 0;
   let commentsRequest = 0;
-  let usingLegacyApi = false;
   let wrap = $state(false);
   let workspaceRefreshTimer: number | null = null;
   let workspaceGeneration: number | null = null;
   let workspaceScopeKey = "";
-  let reviewRefreshPending = false;
   let commentAttachmentIds: Record<string, string> = $state({});
   let destroyed = false;
 
@@ -142,8 +134,26 @@
     : chat.selectedExecutionEnvironmentId);
   const effectiveSource = $derived.by<ReviewDiffSource>(() => source
     ?? (threadId
-      ? legacyReviewSource(legacyScope, legacyTurnId)
+      ? { kind: "checkpoint", range: "turn", turnId: null }
       : { kind: "working_tree", mode: "all" }));
+  const reviewSession = new ChatReviewSession({
+    scope: currentReviewScope,
+    hasPendingEdit: () => Boolean(commentDraft.trim() || selection),
+    onSelectedFile: (relativePath) => onStateChange({ selectedFile: relativePath }),
+    onSourceFallback: chooseSource,
+    onSelectionReset: () => {
+      selection = null;
+      commentDraft = "";
+      viewport?.clearSelection();
+    },
+    onError: (reason) => { error = message(reason); },
+    timeoutMessage: () => t("chat.review.loadTimedOut"),
+  });
+  const snapshot = $derived(reviewSession.snapshot);
+  const patches = $derived(reviewSession.patches);
+  const loadingInitial = $derived(reviewSession.loadingInitial);
+  const refreshing = $derived(reviewSession.refreshing);
+  const loadingPatchIds = $derived(reviewSession.loadingPatchIds);
   const selectedReviewFile = $derived(snapshot ? retainReviewFile(snapshot, null, selectedFile) : null);
   const resolvedLayout = $derived(resolveReviewLayout(
     layoutPreference,
@@ -159,13 +169,13 @@
       ? currentSnapshot.files.filter((file) => file.relativePath.toLocaleLowerCase().includes(query))
       : currentSnapshot?.files ?? [];
   });
-  const changedFiles = $derived(filteredFiles.map(toChangedFile));
+  const changedFiles = $derived(filteredFiles.map(reviewFileAsChangedFile));
   const visibleComments = $derived(includeResolved ? comments : comments.filter((comment) => comment.state === "open"));
   const renderComments = $derived.by(() => {
     const currentSnapshot = snapshot;
     if (!currentSnapshot) return [];
     const stateVisible = includeResolved ? comments : comments.filter((comment) => comment.state === "open");
-    return stateVisible.filter((comment) => commentMatchesSnapshot(comment, currentSnapshot));
+    return stateVisible.filter((comment) => reviewCommentMatchesSnapshot(comment, currentSnapshot));
   });
   const visiblePatches = $derived.by(() => resolvedLayout === "continuous"
     ? patches
@@ -182,7 +192,7 @@
       const filePatches = visiblePatches.filter((patch) => patch.fileId === file.fileId && patch.patch);
       filePatches.forEach((patch, pageIndex) => {
         const fileComments = renderComments.filter((comment) => comment.relativePath === file.relativePath);
-        const patchVersion = stableHash(
+        const patchVersion = stableReviewHash(
           `${currentSnapshot.reviewRevision}\0${file.fileId}\0${pageIndex}\0${patch.patch?.length ?? 0}`,
         );
         itemList.push({
@@ -194,7 +204,7 @@
           pageIndex,
           comments: fileComments,
           patchVersion,
-          version: stableHash(`${patchVersion}\0${fileComments.map((comment) => `${comment.id}:${comment.updatedAt}`).join("\0")}`),
+          version: stableReviewHash(`${patchVersion}\0${fileComments.map((comment) => `${comment.id}:${comment.updatedAt}`).join("\0")}`),
         });
       });
     }
@@ -214,15 +224,15 @@
       currentSelection?.range ?? null,
     );
   });
-  const selectionCrossesSides = $derived.by(() => selectionUsesMultipleSides(
+  const selectionCrossesSides = $derived.by(() => reviewSelectionUsesMultipleSides(
     selection as ReviewLineSelection | null,
   ));
   const actionsReady = $derived(Boolean(
     snapshot && snapshot.freshness === "current" && !refreshing && !commentDraft.trim(),
   ));
-  const canStageScope = $derived(scopeSupports("stage"));
-  const canUnstageScope = $derived(scopeSupports("unstage"));
-  const canDiscardScope = $derived(scopeSupports("discard"));
+  const canStageScope = $derived(reviewSourceSupportsOperation(snapshot, "stage"));
+  const canUnstageScope = $derived(reviewSourceSupportsOperation(snapshot, "unstage"));
+  const canDiscardScope = $derived(reviewSourceSupportsOperation(snapshot, "discard"));
 
   onMount(() => {
     const observer = new ResizeObserver((entries) => {
@@ -235,6 +245,7 @@
     if (content) observer.observe(content);
     return () => {
       destroyed = true;
+      reviewSession.destroy();
       observer.disconnect();
       if (workspaceRefreshTimer !== null) window.clearTimeout(workspaceRefreshTimer);
     };
@@ -249,7 +260,7 @@
         || (workspaceGeneration !== null && batch.generation < workspaceGeneration)
         || (batch.relativePaths.length === 0 && !batch.gitMetadataChanged && !batch.overflowed)) return;
       workspaceGeneration = batch.generation;
-      if (snapshot) snapshot = { ...snapshot, freshness: "outdated" };
+      reviewSession.markOutdated();
       if (workspaceRefreshTimer !== null) window.clearTimeout(workspaceRefreshTimer);
       workspaceRefreshTimer = window.setTimeout(() => {
         workspaceRefreshTimer = null;
@@ -280,29 +291,20 @@
       }
       if (!isActive) {
         loadedKey = "";
-        requestSequence += 1;
-        patchSequence += 1;
-        loadingInitial = false;
-        refreshing = false;
-        loadingPatchIds = [];
+        reviewSession.cancelLoading();
         return;
       }
       const nextKey = `${persistedThreadId ?? ""}:${folder ?? ""}:${environmentId ?? ""}:${sourceKey}:${ignoreWhitespace}`;
       if (nextKey === loadedKey) return;
       loadedKey = nextKey;
-      requestSequence += 1;
-      patchSequence += 1;
+      reviewSession.cancelLoading();
       commentsRequest += 1;
-      loadingInitial = false;
-      refreshing = false;
-      loadingPatchIds = [];
       busyAction = null;
       busyCommentId = null;
       attachingCommentIds = [];
       commentAttachmentIds = {};
       if (!folder) {
-        snapshot = null;
-        patches = [];
+        reviewSession.reset();
         selection = null;
         commentDraft = "";
         return;
@@ -340,7 +342,7 @@
     const fileIds = layout === "file"
       ? [currentFile.fileId]
       : filteredFiles.map((file) => file.fileId);
-    untrack(() => void ensurePatches(fileIds));
+    untrack(() => void reviewSession.ensurePatches(fileIds));
   });
 
   $effect(() => {
@@ -362,224 +364,14 @@
   });
 
   $effect(() => {
-    if (active && reviewRefreshPending && !refreshing && !commentDraft.trim() && !selection) {
-      reviewRefreshPending = false;
-      queueMicrotask(() => void openReview(true));
+    if (active && reviewSession.refreshPending && !commentDraft.trim() && !selection) {
+      reviewSession.resumePendingRefresh();
     }
   });
 
-  async function openReview(preserveVisible: boolean): Promise<void> {
-    const folder = workingFolderId;
-    if (!folder) return;
-    const scope = reviewScopeToken();
-    if (preserveVisible && (commentDraft.trim() || selection)) {
-      if (snapshot) snapshot = { ...snapshot, freshness: "outdated" };
-      reviewRefreshPending = true;
-      return;
-    }
-    if (preserveVisible && refreshing) {
-      reviewRefreshPending = true;
-      return;
-    }
-    const sequence = ++requestSequence;
+  function openReview(preserveVisible: boolean): Promise<void> {
     error = null;
-    if (!snapshot) {
-      loadingInitial = true;
-    } else {
-      refreshing = true;
-      snapshot = { ...snapshot, freshness: "outdated" };
-    }
-    try {
-      const next = await withReviewTimeout(
-        openChatReviewSingleFlight({
-          threadId,
-          workingFolderId: folder,
-          executionEnvironmentId,
-          source: effectiveSource,
-          ignoreWhitespace: whitespaceIgnored,
-          contextLines: 3,
-          preferredRelativePath: selectedFile
-            && isWorkspaceRelativeChangedFilePath(selectedFile)
-            ? selectedFile
-            : null,
-        }),
-      );
-      if (sequence !== requestSequence || !reviewScopeMatches(scope)) return;
-      usingLegacyApi = false;
-      applySnapshot(next);
-    } catch (reason: unknown) {
-      if (sequence !== requestSequence || !reviewScopeMatches(scope)) return;
-      if (isMissingCheckpointPair(reason, effectiveSource)) {
-        chooseSource(effectiveSource.kind === "checkpoint" && effectiveSource.turnId
-          ? { kind: "provider_turn", turnId: effectiveSource.turnId }
-          : { kind: "working_tree", mode: "all" });
-        return;
-      }
-      if (isMissingProviderTurn(reason, effectiveSource)) {
-        chooseSource({ kind: "working_tree", mode: "all" });
-        return;
-      }
-      if (canUseLegacyReview(reason, effectiveSource, threadId)) {
-        try {
-          const legacy = await openLegacyReview(threadId ?? "", effectiveSource);
-          if (sequence !== requestSequence || !reviewScopeMatches(scope)) return;
-          usingLegacyApi = true;
-          applySnapshot(legacy);
-          return;
-        } catch (legacyReason: unknown) {
-          error = message(legacyReason);
-        }
-      } else {
-        error = message(reason);
-      }
-    } finally {
-      if (sequence === requestSequence && reviewScopeMatches(scope)) {
-        loadingInitial = false;
-        refreshing = false;
-        if (reviewRefreshPending) {
-          reviewRefreshPending = false;
-          queueMicrotask(() => void openReview(true));
-        }
-      }
-    }
-  }
-
-  function applySnapshot(next: ChatReviewSnapshotRead): void {
-    const retained = retainReviewFile(next, selectedReviewFile?.fileId ?? null, selectedFile);
-    snapshot = next;
-    patches = next.preferredPatch ? [next.preferredPatch] : [];
-    loadingPatchIds = [];
-    selection = null;
-    commentDraft = "";
-    viewport?.clearSelection();
-    if (retained?.relativePath !== selectedFile) onStateChange({ selectedFile: retained?.relativePath ?? null });
-  }
-
-  async function openLegacyReview(
-    persistedThreadId: string,
-    reviewSource: ReviewDiffSource,
-  ): Promise<ChatReviewSnapshotRead> {
-    if (reviewSource.kind !== "checkpoint") throw new Error(t("chat.review.reviewUnavailable"));
-    const scope = reviewSource.range === "thread" ? "entire_thread" : "current_turn";
-    const diff = await chatApi.readChatCheckpointDiff(persistedThreadId, scope, reviewSource.turnId);
-    const files: ChatReviewFileRead[] = diff.files.map((file) => ({
-      fileId: `legacy:${file.relativePath}`,
-      relativePath: file.relativePath,
-      previousRelativePath: file.previousRelativePath,
-      status: file.status,
-      additions: file.additions,
-      deletions: file.deletions,
-      flags: {
-        binary: file.binary,
-        submodule: false,
-        conflict: false,
-        modeOnly: false,
-        pureRename: file.status === "renamed" && (file.additions ?? 0) + (file.deletions ?? 0) === 0,
-        untracked: false,
-        symlink: false,
-        providerReported: file.providerReported,
-        gitObserved: file.gitObserved,
-        readOnly: true,
-      },
-      capabilities: { stage: false, unstage: false, discard: false, comment: false, openEditor: true },
-      capabilityReasons: {},
-    }));
-    const preferred = files.find((file) => file.relativePath === selectedFile) ?? files[0] ?? null;
-    let preferredPatch: ChatReviewPatchRead | null = null;
-    if (preferred && diff.preCheckpointId && diff.postCheckpointId) {
-      const legacyPatch = await chatApi.readChatCheckpointFileDiff(
-        persistedThreadId,
-        diff.preCheckpointId,
-        diff.postCheckpointId,
-        preferred.relativePath,
-        whitespaceIgnored,
-      );
-      preferredPatch = {
-        fileId: preferred.fileId,
-        patch: legacyPatch.patch,
-        hunks: [],
-        continuationCursor: null,
-        state: legacyPatch.binary ? "binary" : legacyPatch.truncated ? "partial" : "complete",
-      };
-    }
-    return {
-      snapshotId: `legacy:${diff.preCheckpointId ?? "none"}:${diff.postCheckpointId ?? "none"}`,
-      reviewRevision: `${diff.preCheckpointId ?? "none"}:${diff.postCheckpointId ?? "none"}`,
-      source: reviewSource,
-      sourceLabel: reviewSource.range === "thread" ? t("chat.inspector.entireThread") : t("chat.inspector.currentTurn"),
-      files,
-      totals: { files: files.length, additions: diff.additions, deletions: diff.deletions },
-      preferredPatch,
-      freshness: "current",
-    };
-  }
-
-  async function ensurePatches(fileIds: readonly string[]): Promise<void> {
-    const currentSnapshot = snapshot;
-    const folder = workingFolderId;
-    if (!currentSnapshot || !folder || usingLegacyApi) return;
-    const scope = reviewScopeToken();
-    const missing = fileIds.filter((fileId) => !patches.some((patch) => patch.fileId === fileId) && !loadingPatchIds.includes(fileId));
-    if (missing.length === 0) return;
-    const sequence = ++patchSequence;
-    loadingPatchIds = [...loadingPatchIds, ...missing];
-    try {
-      for (let index = 0; index < missing.length; index += 8) {
-        if (sequence !== patchSequence || !reviewScopeMatches(scope) || snapshot?.reviewRevision !== currentSnapshot.reviewRevision) return;
-        const batch = missing.slice(index, index + 8);
-        const page = await withReviewTimeout(
-          chatApi.readChatReviewPatches({
-            threadId,
-            workingFolderId: folder,
-            executionEnvironmentId,
-            snapshotId: currentSnapshot.snapshotId,
-            reviewRevision: currentSnapshot.reviewRevision,
-            fileIds: batch,
-            continuationCursor: null,
-          }),
-        );
-        if (sequence !== patchSequence || !reviewScopeMatches(scope) || snapshot?.reviewRevision !== currentSnapshot.reviewRevision) return;
-        patches = appendReviewPatchPages(patches, page.patches);
-        loadingPatchIds = loadingPatchIds.filter((fileId) => !batch.includes(fileId));
-        await yieldForReviewRender();
-      }
-    } catch (reason: unknown) {
-      if (sequence === patchSequence && reviewScopeMatches(scope)) error = message(reason);
-    } finally {
-      if (sequence === patchSequence && reviewScopeMatches(scope)) {
-        loadingPatchIds = loadingPatchIds.filter((fileId) => !missing.includes(fileId));
-      }
-    }
-  }
-
-  async function loadContinuation(patch: ChatReviewPatchRead): Promise<void> {
-    const currentSnapshot = snapshot;
-    const folder = workingFolderId;
-    if (!currentSnapshot || !folder || !patch.continuationCursor || loadingPatchIds.includes(patch.fileId)) return;
-    const scope = reviewScopeToken();
-    loadingPatchIds = [...loadingPatchIds, patch.fileId];
-    try {
-      const page = await withReviewTimeout(
-        chatApi.readChatReviewPatches({
-          threadId,
-          workingFolderId: folder,
-          executionEnvironmentId,
-          snapshotId: currentSnapshot.snapshotId,
-          reviewRevision: currentSnapshot.reviewRevision,
-          fileIds: [patch.fileId],
-          continuationCursor: patch.continuationCursor,
-        }),
-      );
-      if (reviewScopeMatches(scope) && snapshot?.reviewRevision === currentSnapshot.reviewRevision) {
-        patches = appendReviewPatchPages(patches, page.patches);
-      }
-    } catch (reason: unknown) {
-      if (reviewScopeMatches(scope)) error = message(reason);
-    } finally {
-      if (reviewScopeMatches(scope)) {
-        loadingPatchIds = loadingPatchIds.filter((fileId) => fileId !== patch.fileId);
-      }
-    }
+    return reviewSession.open(preserveVisible);
   }
 
   async function loadComments(persistedThreadId: string, key: string, request: number): Promise<void> {
@@ -664,7 +456,7 @@
         confirmed: operation === "discard",
         clientOperationId: crypto.randomUUID(),
       });
-      if (reviewScopeMatches(scope)) applySnapshot(result.snapshot);
+      if (reviewScopeMatches(scope)) reviewSession.applySnapshot(result.snapshot);
     } catch (reason: unknown) {
       if (reviewScopeMatches(scope)) {
         error = message(reason);
@@ -681,7 +473,7 @@
     const file = currentSelection
       ? currentSnapshot?.files.find((candidate) => candidate.fileId === currentSelection.fileId)
       : null;
-    if (!threadId || !currentSnapshot || !currentSelection || !file || !commentDraft.trim() || busyCommentId || selectionUsesMultipleSides(currentSelection)) return;
+    if (!threadId || !currentSnapshot || !currentSelection || !file || !commentDraft.trim() || busyCommentId || reviewSelectionUsesMultipleSides(currentSelection)) return;
     const scope = reviewScopeToken();
     const persistedThreadId = threadId;
     const commentId = crypto.randomUUID();
@@ -811,161 +603,27 @@
     return t("chat.review.changeRequestSource", value.number);
   }
 
-  function scopeSupports(operation: "stage" | "unstage" | "discard"): boolean {
-    if (!snapshot || snapshot.source.kind !== "working_tree" || snapshot.files.length === 0) return false;
-    const modeSupports = operation === "stage"
-      ? snapshot.source.mode === "unstaged" || snapshot.source.mode === "all"
-      : operation === "unstage"
-        ? snapshot.source.mode === "staged"
-        : snapshot.source.mode === "unstaged";
-    return modeSupports && snapshot.files.every((file) => file.capabilities[operation]);
-  }
-
-  function fileActionVisible(
-    file: ChatReviewFileRead,
-    action: "stage" | "unstage" | "discard" | "openEditor",
-  ): boolean {
-    return file.capabilities[action] || Boolean(file.capabilityReasons[action]);
-  }
-
-  function selectionUsesMultipleSides(value: ReviewLineSelection | null): boolean {
-    if (!value) return false;
-    const startSide = value.range.side ?? "additions";
-    return (value.range.endSide ?? startSide) !== startSide;
-  }
-
-  function commentMatchesSnapshot(
-    comment: ChatReviewCommentRead,
-    currentSnapshot: ChatReviewSnapshotRead,
-  ): boolean {
-    return (comment.selectionSide === "old" || comment.selectionSide === "new")
-      && comment.sourceData !== undefined
-      && comment.reviewRevision === currentSnapshot.reviewRevision
-      && reviewSourcesEqual(comment.sourceData, currentSnapshot.source);
-  }
-
-  function reviewSourcesEqual(left: ReviewDiffSource, right: ReviewDiffSource): boolean {
-    switch (left.kind) {
-      case "working_tree":
-        return right.kind === "working_tree" && left.mode === right.mode;
-      case "checkpoint":
-        return right.kind === "checkpoint" && left.range === right.range && left.turnId === right.turnId;
-      case "commit":
-        return right.kind === "commit" && left.revision === right.revision;
-      case "branch":
-        return right.kind === "branch"
-          && left.baseRef === right.baseRef
-          && left.headRef === right.headRef
-          && left.comparison === right.comparison;
-      case "provider_turn":
-        return right.kind === "provider_turn" && left.turnId === right.turnId;
-      case "change_request":
-        return right.kind === "change_request"
-          && left.provider === right.provider
-          && left.repositorySlug === right.repositorySlug
-          && left.number === right.number;
-    }
-    return false;
-  }
-
-  function commentIsOutdated(comment: ChatReviewCommentRead): boolean {
-    if (comment.applicability === "source_unavailable") return true;
-    return snapshot ? !commentMatchesSnapshot(comment, snapshot) : comment.applicability === "outdated";
-  }
-
-  function toChangedFile(file: ChatReviewFileRead): ChatChangedFileRead {
-    return {
-      relativePath: file.relativePath,
-      previousRelativePath: file.previousRelativePath,
-      status: file.status,
-      additions: file.additions,
-      deletions: file.deletions,
-      binary: file.flags.binary,
-      providerReported: file.flags.providerReported,
-      gitObserved: file.flags.gitObserved,
-    };
-  }
-
   function lastPatchForFile(fileId: string): ChatReviewPatchRead | null {
     return patches.filter((patch) => patch.fileId === fileId).at(-1) ?? null;
   }
 
-  function canUseLegacyReview(reason: unknown, reviewSource: ReviewDiffSource, persistedThreadId: string | null): boolean {
-    if (!persistedThreadId || reviewSource.kind !== "checkpoint") return false;
-    const detail = message(reason).toLocaleLowerCase();
-    return detail.includes("unknown command")
-      || detail.includes("command chat_open_review not found")
-      || detail.includes("chat_open_review is not registered");
-  }
-
-  function isMissingCheckpointPair(reason: unknown, reviewSource: ReviewDiffSource): boolean {
-    if (reviewSource.kind !== "checkpoint") return false;
-    const code = errorCode(reason);
-    return (code === null || code === "not_found")
-      && message(reason).includes("A settled checkpoint pair is not available for this review");
-  }
-
-  function isMissingProviderTurn(reason: unknown, reviewSource: ReviewDiffSource): boolean {
-    if (reviewSource.kind !== "provider_turn") return false;
-    const code = errorCode(reason);
-    return code === "not_found" || message(reason).includes("Provider-reported");
-  }
-
-  function errorCode(reason: unknown): string | null {
-    if (typeof reason !== "object" || reason === null || Array.isArray(reason)) return null;
-    const code = (reason as Record<string, unknown>).code;
-    return typeof code === "string" ? code : null;
+  function currentReviewScope(): ReviewSessionScope {
+    return {
+      threadId,
+      workingFolderId,
+      executionEnvironmentId,
+      source: effectiveSource,
+      ignoreWhitespace: whitespaceIgnored,
+      selectedRelativePath: selectedFile,
+    };
   }
 
   function reviewScopeToken(): string {
-    return [
-      threadId ?? "",
-      workingFolderId ?? "",
-      executionEnvironmentId ?? "",
-      reviewSourceKey(effectiveSource),
-      whitespaceIgnored ? "ignore" : "preserve",
-    ].join("\u0000");
+    return reviewSessionScopeToken(currentReviewScope());
   }
 
   function reviewScopeMatches(scope: string): boolean {
     return !destroyed && reviewScopeToken() === scope;
-  }
-
-  function stableHash(value: string): number {
-    let hash = 2_166_136_261;
-    for (let index = 0; index < value.length; index += 1) {
-      hash ^= value.charCodeAt(index);
-      hash = Math.imul(hash, 16_777_619);
-    }
-    return hash >>> 0;
-  }
-
-  function yieldForReviewRender(): Promise<void> {
-    return new Promise((resolve) => {
-      if ("requestIdleCallback" in window) {
-        window.requestIdleCallback(() => resolve(), { timeout: 50 });
-      } else {
-        globalThis.setTimeout(resolve, 0);
-      }
-    });
-  }
-
-  function withReviewTimeout<T>(request: Promise<T>): Promise<T> {
-    return new Promise((resolve, reject) => {
-      const timeout = window.setTimeout(() => {
-        reject(new Error(t("chat.review.loadTimedOut")));
-      }, REVIEW_REQUEST_TIMEOUT_MS);
-      request.then(
-        (value) => {
-          window.clearTimeout(timeout);
-          resolve(value);
-        },
-        (reason: unknown) => {
-          window.clearTimeout(timeout);
-          reject(reason);
-        },
-      );
-    });
   }
 
   function message(reason: unknown): string {
@@ -1075,10 +733,10 @@
             <strong title={selectedReviewFile.relativePath}>{selectedReviewFile.relativePath}</strong>
             {#if selectedReviewFile.flags.readOnly}<span class="read-only">{t("chat.review.readOnly")}</span>{/if}
             <button type="button" class="chat-icon-button" aria-label={t("chat.inspector.copyPath")} title={t("chat.inspector.copyPath")} onclick={() => void writeTextToClipboard(selectedReviewFile.relativePath).catch((reason) => { error = message(reason); })}><Copy size={13} /></button>
-            {#if fileActionVisible(selectedReviewFile, "openEditor")}<button type="button" class="chat-icon-button" disabled={refreshing || Boolean(commentDraft.trim())} aria-disabled={!selectedReviewFile.capabilities.openEditor || refreshing || Boolean(commentDraft.trim())} aria-label={t("chat.review.openInEditor")} title={selectedReviewFile.capabilityReasons.openEditor ?? t("chat.review.openInEditor")} onclick={() => { if (selectedReviewFile.capabilities.openEditor) openInEditor(selectedReviewFile); }}><ExternalLink size={13} /></button>{/if}
-            {#if fileActionVisible(selectedReviewFile, "unstage")}<button type="button" class="chat-icon-button" disabled={busyAction !== null || !actionsReady} aria-disabled={!selectedReviewFile.capabilities.unstage || busyAction !== null || !actionsReady} aria-label={t("chat.sourceControl.unstageFile", selectedReviewFile.relativePath)} title={selectedReviewFile.capabilityReasons.unstage ?? t("chat.sourceControl.unstageFile", selectedReviewFile.relativePath)} onclick={() => { if (selectedReviewFile.capabilities.unstage) void applyAction("unstage", selectedReviewFile); }}><Minus size={13} /></button>{/if}
-            {#if fileActionVisible(selectedReviewFile, "stage")}<button type="button" class="chat-icon-button" disabled={busyAction !== null || !actionsReady} aria-disabled={!selectedReviewFile.capabilities.stage || busyAction !== null || !actionsReady} aria-label={t("chat.sourceControl.stageFile", selectedReviewFile.relativePath)} title={selectedReviewFile.capabilityReasons.stage ?? t("chat.sourceControl.stageFile", selectedReviewFile.relativePath)} onclick={() => { if (selectedReviewFile.capabilities.stage) void applyAction("stage", selectedReviewFile); }}><Plus size={13} /></button>{/if}
-            {#if fileActionVisible(selectedReviewFile, "discard")}<button type="button" class="chat-icon-button destructive" disabled={busyAction !== null || !actionsReady} aria-disabled={!selectedReviewFile.capabilities.discard || busyAction !== null || !actionsReady} aria-label={t("chat.sourceControl.discardFile", selectedReviewFile.relativePath)} title={selectedReviewFile.capabilityReasons.discard ?? t("chat.sourceControl.discardFile", selectedReviewFile.relativePath)} onclick={() => { if (selectedReviewFile.capabilities.discard) void applyAction("discard", selectedReviewFile); }}><Trash2 size={13} /></button>{/if}
+            {#if reviewFileActionVisible(selectedReviewFile, "openEditor")}<button type="button" class="chat-icon-button" disabled={refreshing || Boolean(commentDraft.trim())} aria-disabled={!selectedReviewFile.capabilities.openEditor || refreshing || Boolean(commentDraft.trim())} aria-label={t("chat.review.openInEditor")} title={selectedReviewFile.capabilityReasons.openEditor ?? t("chat.review.openInEditor")} onclick={() => { if (selectedReviewFile.capabilities.openEditor) openInEditor(selectedReviewFile); }}><ExternalLink size={13} /></button>{/if}
+            {#if reviewFileActionVisible(selectedReviewFile, "unstage")}<button type="button" class="chat-icon-button" disabled={busyAction !== null || !actionsReady} aria-disabled={!selectedReviewFile.capabilities.unstage || busyAction !== null || !actionsReady} aria-label={t("chat.sourceControl.unstageFile", selectedReviewFile.relativePath)} title={selectedReviewFile.capabilityReasons.unstage ?? t("chat.sourceControl.unstageFile", selectedReviewFile.relativePath)} onclick={() => { if (selectedReviewFile.capabilities.unstage) void applyAction("unstage", selectedReviewFile); }}><Minus size={13} /></button>{/if}
+            {#if reviewFileActionVisible(selectedReviewFile, "stage")}<button type="button" class="chat-icon-button" disabled={busyAction !== null || !actionsReady} aria-disabled={!selectedReviewFile.capabilities.stage || busyAction !== null || !actionsReady} aria-label={t("chat.sourceControl.stageFile", selectedReviewFile.relativePath)} title={selectedReviewFile.capabilityReasons.stage ?? t("chat.sourceControl.stageFile", selectedReviewFile.relativePath)} onclick={() => { if (selectedReviewFile.capabilities.stage) void applyAction("stage", selectedReviewFile); }}><Plus size={13} /></button>{/if}
+            {#if reviewFileActionVisible(selectedReviewFile, "discard")}<button type="button" class="chat-icon-button destructive" disabled={busyAction !== null || !actionsReady} aria-disabled={!selectedReviewFile.capabilities.discard || busyAction !== null || !actionsReady} aria-label={t("chat.sourceControl.discardFile", selectedReviewFile.relativePath)} title={selectedReviewFile.capabilityReasons.discard ?? t("chat.sourceControl.discardFile", selectedReviewFile.relativePath)} onclick={() => { if (selectedReviewFile.capabilities.discard) void applyAction("discard", selectedReviewFile); }}><Trash2 size={13} /></button>{/if}
           </header>
         {/if}
 
@@ -1118,7 +776,7 @@
             onSelection={(next) => {
               selection = next;
               if (next) activateFile(next.fileId, false);
-              if (!next || selectionUsesMultipleSides(next)) commentDraft = "";
+              if (!next || reviewSelectionUsesMultipleSides(next)) commentDraft = "";
             }}
             onActiveFile={(fileId) => activateFile(fileId, false)}
             onAttachComment={(comment) => void attachComment(comment)}
@@ -1143,7 +801,7 @@
 
         {#if selectedReviewFile && lastPatchForFile(selectedReviewFile.fileId)?.continuationCursor}
           {@const continuation = lastPatchForFile(selectedReviewFile.fileId)}
-          {#if continuation}<button type="button" class="load-more" disabled={loadingPatchIds.includes(selectedReviewFile.fileId)} onclick={() => void loadContinuation(continuation)}>{t("chat.review.loadMoreDiff")}</button>{/if}
+          {#if continuation}<button type="button" class="load-more" disabled={loadingPatchIds.includes(selectedReviewFile.fileId)} onclick={() => void reviewSession.loadContinuation(continuation)}>{t("chat.review.loadMoreDiff")}</button>{/if}
         {/if}
       </main>
     </div>
@@ -1158,10 +816,10 @@
                 const file = snapshot?.files.find((candidate) => candidate.relativePath === comment.relativePath);
                 if (file) {
                   activateFile(file.fileId);
-                  if (!commentIsOutdated(comment)) requestAnimationFrame(() => viewport?.scrollToLine(file.fileId, comment.endLine, comment.selectionSide === "old" ? "deletions" : "additions"));
+                  if (!reviewCommentIsOutdated(comment, snapshot)) requestAnimationFrame(() => viewport?.scrollToLine(file.fileId, comment.endLine, comment.selectionSide === "old" ? "deletions" : "additions"));
                 } else window.dispatchEvent(new CustomEvent("ganbaru-ai:chat-open-file", { detail: { relativePath: comment.relativePath } }));
               }}><strong title={comment.relativePath}>{comment.relativePath}</strong><span>{t("chat.review.lines", comment.startLine, comment.endLine)}</span></button>
-              {#if commentIsOutdated(comment)}<span class="comment-state">{t("chat.review.outdated")}</span>{/if}
+              {#if reviewCommentIsOutdated(comment, snapshot)}<span class="comment-state">{t("chat.review.outdated")}</span>{/if}
               <p>{comment.commentText}</p>
               <footer>
                 <button type="button" disabled={busyCommentId !== null || attachingCommentIds.includes(comment.id)} onclick={() => void attachComment(comment)}><Paperclip size={12} />{t("chat.review.attach")}</button>

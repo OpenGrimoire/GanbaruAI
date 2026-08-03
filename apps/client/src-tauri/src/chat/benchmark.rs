@@ -2,12 +2,14 @@
 
 use serde::Serialize;
 use sqlx::{Sqlite, SqlitePool, Transaction};
-use std::collections::BTreeMap;
-use std::io::Read;
-use std::time::{Duration, Instant};
 
-use crate::chat::models::ChatResult;
-use crate::chat::process::{spawn_provider_process, ProviderProcessConfig};
+mod process_metrics;
+
+#[cfg(test)]
+use process_metrics::BENCHMARK_CHILD_ENV;
+pub use process_metrics::{
+    measure_provider_stop, process_tree_cpu_time_ms, run_benchmark_child_if_requested,
+};
 
 pub const DENSE_CHAT_FIXTURE_PROFILE: &str = "dense-chat-v1";
 const FIXTURE_PREFIX: &str = "benchmark-chat-";
@@ -25,7 +27,6 @@ const EVENTS_PER_THREAD: usize = 100;
 const ORGANIZATIONAL_MESSAGES_PER_CHANNEL: usize = 100;
 const ORGANIZATIONAL_REPLY_THREADS_PER_CHANNEL: usize = 10;
 const ORGANIZATIONAL_REPLIES_PER_THREAD: usize = 3;
-const BENCHMARK_CHILD_ENV: &str = "GANBARU_CHAT_BENCHMARK_CHILD";
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -82,189 +83,6 @@ pub async fn seed_dense_chat_fixture(
         checkpoint_count: THREAD_COUNT * CHECKPOINTS_PER_THREAD,
         event_count: THREAD_COUNT * EVENTS_PER_THREAD,
     })
-}
-
-/// Runs the inert child mode used to measure supervised process shutdown.
-pub fn run_benchmark_child_if_requested() -> bool {
-    if std::env::var(BENCHMARK_CHILD_ENV).as_deref() != Ok("1") {
-        return false;
-    }
-    let mut buffer = [0_u8; 1024];
-    while std::io::stdin()
-        .read(&mut buffer)
-        .is_ok_and(|read| read > 0)
-    {}
-    true
-}
-
-/// Measures graceful shutdown of an owned shell-free process.
-pub async fn measure_provider_stop() -> ChatResult<f64> {
-    let executable = std::env::current_exe().map_err(|error| {
-        crate::chat::models::ChatError::driver_unavailable(format!(
-            "Chat benchmark executable is unavailable: {error}"
-        ))
-    })?;
-    let mut environment = BTreeMap::new();
-    environment.insert(BENCHMARK_CHILD_ENV.to_string(), "1".to_string());
-    #[cfg(test)]
-    let arguments = vec![
-        "--ignored".to_string(),
-        "--exact".to_string(),
-        "chat::benchmark::tests::benchmark_child_fixture".to_string(),
-        "--nocapture".to_string(),
-    ];
-    #[cfg(not(test))]
-    let arguments = Vec::new();
-    let mut process = spawn_provider_process(ProviderProcessConfig {
-        executable,
-        arguments,
-        working_directory: std::env::temp_dir(),
-        environment,
-        stderr_limit_bytes: 8 * 1024,
-    })?;
-    tokio::time::sleep(Duration::from_millis(25)).await;
-    let started = Instant::now();
-    process
-        .stop(Duration::from_secs(2), Duration::from_secs(1))
-        .await?;
-    Ok(started.elapsed().as_secs_f64() * 1_000.0)
-}
-
-/// Returns cumulative CPU milliseconds for the app process tree.
-pub fn process_tree_cpu_time_ms() -> Result<f64, String> {
-    platform_process_tree_cpu_time_ms()
-}
-
-#[cfg(target_os = "linux")]
-fn platform_process_tree_cpu_time_ms() -> Result<f64, String> {
-    use std::collections::{HashMap, HashSet};
-
-    let mut processes = HashMap::<u32, (u32, u64)>::new();
-    let entries =
-        std::fs::read_dir("/proc").map_err(|error| format!("read process list: {error}"))?;
-    for entry in entries.flatten() {
-        let Some(pid) = entry
-            .file_name()
-            .to_str()
-            .and_then(|value| value.parse::<u32>().ok())
-        else {
-            continue;
-        };
-        let Ok(stat) = std::fs::read_to_string(format!("/proc/{pid}/stat")) else {
-            continue;
-        };
-        let Some(after_name) = stat.rfind(')') else {
-            continue;
-        };
-        let fields = stat[after_name + 2..]
-            .split_whitespace()
-            .collect::<Vec<_>>();
-        let (Some(parent), Some(user), Some(system)) =
-            (fields.get(1), fields.get(11), fields.get(12))
-        else {
-            continue;
-        };
-        let (Ok(parent), Ok(user), Ok(system)) =
-            (parent.parse(), user.parse::<u64>(), system.parse::<u64>())
-        else {
-            continue;
-        };
-        processes.insert(pid, (parent, user.saturating_add(system)));
-    }
-    let root = std::process::id();
-    let mut included = HashSet::from([root]);
-    loop {
-        let before = included.len();
-        for (&pid, &(parent, _)) in &processes {
-            if included.contains(&parent) {
-                included.insert(pid);
-            }
-        }
-        if included.len() == before {
-            break;
-        }
-    }
-    let ticks = included
-        .iter()
-        .filter_map(|pid| processes.get(pid).map(|(_, ticks)| *ticks))
-        .sum::<u64>();
-    let ticks_per_second = unsafe { libc::sysconf(libc::_SC_CLK_TCK) };
-    if ticks_per_second <= 0 {
-        return Err("read process clock rate: unavailable".to_string());
-    }
-    Ok(ticks as f64 * 1_000.0 / ticks_per_second as f64)
-}
-
-#[cfg(target_os = "windows")]
-fn platform_process_tree_cpu_time_ms() -> Result<f64, String> {
-    use std::collections::{HashMap, HashSet};
-    use windows::Win32::Foundation::{CloseHandle, FILETIME};
-    use windows::Win32::System::Diagnostics::ToolHelp::{
-        CreateToolhelp32Snapshot, Process32FirstW, Process32NextW, PROCESSENTRY32W,
-        TH32CS_SNAPPROCESS,
-    };
-    use windows::Win32::System::Threading::{
-        GetProcessTimes, OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION,
-    };
-
-    fn filetime_ticks(value: FILETIME) -> u64 {
-        (u64::from(value.dwHighDateTime) << 32) | u64::from(value.dwLowDateTime)
-    }
-
-    let snapshot = unsafe { CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0) }
-        .map_err(|error| format!("snapshot process list: {error}"))?;
-    let mut entry = PROCESSENTRY32W {
-        dwSize: std::mem::size_of::<PROCESSENTRY32W>() as u32,
-        ..Default::default()
-    };
-    let mut parents = HashMap::<u32, u32>::new();
-    if unsafe { Process32FirstW(snapshot, &mut entry) }.is_ok() {
-        loop {
-            parents.insert(entry.th32ProcessID, entry.th32ParentProcessID);
-            if unsafe { Process32NextW(snapshot, &mut entry) }.is_err() {
-                break;
-            }
-        }
-    }
-    unsafe { CloseHandle(snapshot) }.ok();
-    let root = std::process::id();
-    let mut included = HashSet::from([root]);
-    loop {
-        let before = included.len();
-        for (&pid, &parent) in &parents {
-            if included.contains(&parent) {
-                included.insert(pid);
-            }
-        }
-        if included.len() == before {
-            break;
-        }
-    }
-    let mut total_ticks = 0_u64;
-    for pid in included {
-        let Ok(process) = (unsafe { OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, pid) })
-        else {
-            continue;
-        };
-        let mut creation = FILETIME::default();
-        let mut exit = FILETIME::default();
-        let mut kernel = FILETIME::default();
-        let mut user = FILETIME::default();
-        if unsafe { GetProcessTimes(process, &mut creation, &mut exit, &mut kernel, &mut user) }
-            .is_ok()
-        {
-            total_ticks = total_ticks
-                .saturating_add(filetime_ticks(kernel))
-                .saturating_add(filetime_ticks(user));
-        }
-        unsafe { CloseHandle(process) }.ok();
-    }
-    Ok(total_ticks as f64 / 10_000.0)
-}
-
-#[cfg(not(any(target_os = "linux", target_os = "windows")))]
-fn platform_process_tree_cpu_time_ms() -> Result<f64, String> {
-    Err("Chat CPU benchmark is supported on Linux and Windows".to_string())
 }
 
 async fn clear_previous_fixture(tx: &mut Transaction<'_, Sqlite>) -> Result<(), sqlx::Error> {
@@ -937,108 +755,4 @@ fn event_id(thread: usize, sequence: usize) -> String {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::chat::models::ChatThreadId;
-    use crate::chat::repository::reads::{read_timeline_page, search_thread_titles};
-
-    #[test]
-    fn dense_fixture_is_deterministic_paged_and_searchable() {
-        tauri::async_runtime::block_on(async {
-            let pool = sqlx::sqlite::SqlitePoolOptions::new()
-                .max_connections(1)
-                .connect("sqlite::memory:")
-                .await
-                .unwrap();
-            sqlx::raw_sql("PRAGMA foreign_keys=ON")
-                .execute(&pool)
-                .await
-                .unwrap();
-            crate::db::run_migrations(&pool).await.unwrap();
-
-            let first = seed_dense_chat_fixture(&pool).await.unwrap();
-            let second = seed_dense_chat_fixture(&pool).await.unwrap();
-            assert_eq!(first, second);
-            assert_eq!(second.event_count, 10_000);
-            assert_eq!(count(&pool, "chat_events").await, 10_000);
-            assert_eq!(count(&pool, "chat_turns").await, 2_000);
-            assert_eq!(count(&pool, "chat_messages").await, 4_000);
-            assert_eq!(count(&pool, "chat_activities").await, 4_000);
-            assert_eq!(count(&pool, "chat_attachments").await, 500);
-            let channel_count: i64 = sqlx::query_scalar(
-                "SELECT COUNT(*) FROM chat_channels WHERE project_id LIKE 'benchmark-chat-%'",
-            )
-            .fetch_one(&pool)
-            .await
-            .unwrap();
-            let organizational_message_count: i64 = sqlx::query_scalar(
-                "SELECT COUNT(*) FROM chat_communication_messages
-                 WHERE item_id LIKE 'benchmark-chat-organization-%'
-                    OR item_id LIKE 'benchmark-chat-reply-%'",
-            )
-            .fetch_one(&pool)
-            .await
-            .unwrap();
-            assert_eq!(channel_count, 80);
-            assert_eq!(organizational_message_count, 10_400);
-            let fts_match_count: i64 = sqlx::query_scalar(
-                "SELECT COUNT(*) FROM chat_communication_search_fts
-                 WHERE chat_communication_search_fts MATCH 'planning'",
-            )
-            .fetch_one(&pool)
-            .await
-            .unwrap();
-            assert_eq!(fts_match_count, 8_600);
-
-            let thread = ChatThreadId::new(thread_id(99)).unwrap();
-            let latest = read_timeline_page(&pool, &thread, None, 50).await.unwrap();
-            assert_eq!(latest.items.len(), 50);
-            assert!(latest.previous_cursor.is_some());
-            assert!(latest
-                .items
-                .windows(2)
-                .all(|pair| pair[0].sequence_anchor <= pair[1].sequence_anchor));
-
-            let matches = search_thread_titles(&pool, "conversation 100", Some(false), 20)
-                .await
-                .unwrap();
-            assert_eq!(matches.len(), 1);
-            assert_eq!(matches[0].id, thread);
-        });
-    }
-
-    #[test]
-    fn benchmark_owned_process_stops_within_normal_deadline() {
-        tauri::async_runtime::block_on(async {
-            let elapsed = measure_provider_stop().await.unwrap();
-            assert!(
-                elapsed < 2_000.0,
-                "owned benchmark process stop took {elapsed} ms"
-            );
-        });
-    }
-
-    #[test]
-    #[ignore = "launched only by the owned process stop benchmark"]
-    fn benchmark_child_fixture() {
-        assert_eq!(std::env::var(BENCHMARK_CHILD_ENV).as_deref(), Ok("1"));
-        let mut buffer = [0_u8; 1024];
-        while std::io::stdin()
-            .read(&mut buffer)
-            .is_ok_and(|read| read > 0)
-        {}
-    }
-
-    #[test]
-    fn process_cpu_counter_is_monotonic() {
-        let before = process_tree_cpu_time_ms().unwrap();
-        std::hint::black_box((0..100_000).fold(0_u64, |sum, value| sum.wrapping_add(value)));
-        let after = process_tree_cpu_time_ms().unwrap();
-        assert!(after >= before);
-    }
-
-    async fn count(pool: &SqlitePool, table: &str) -> i64 {
-        let query = format!("SELECT COUNT(*) FROM {table} WHERE id LIKE '{FIXTURE_PREFIX}%'");
-        sqlx::query_scalar(&query).fetch_one(pool).await.unwrap()
-    }
-}
+mod tests;

@@ -10,57 +10,43 @@
   import Zap from "@lucide/svelte/icons/zap";
   import CalendarScrollbar from "$lib/components/calendar/CalendarScrollbar.svelte";
   import type {
-    ModelOptionDefinition,
     ModelOptionSelection,
     ModelOptionValue,
-    ProviderFamilyMetadataRead,
     ProviderInstanceRead,
     ProviderModel,
   } from "$lib/chat/contracts";
   import {
-    availableProvidersInDefaultOrder,
     composerModelSelection,
     defaultModelOptions,
     providerAvailable,
-    rankedModels,
     readComposerModelSelection,
-    recommendedProviderModel,
   } from "$lib/chat/composer-model";
-  import { compareCompanyModels, integrationCompany, modelCompany, type ModelCompanyIdentity } from "$lib/chat/model-company";
+  import { modelCompany } from "$lib/chat/model-company";
+  import {
+    buildFavoriteModelEntries,
+    buildModelCompanySections,
+    buildQuickEffortChoices,
+    isKnownModelOption,
+    modelEffortStopPosition,
+    modelOptionRole,
+    visibleProviderModels,
+    type KnownModelOption,
+    type QuickEffortChoice,
+  } from "$lib/chat/model-picker-model";
   import * as chatApi from "$lib/api/chat";
   import { formatNumber } from "$lib/i18n/formatters";
   import { getLocalization } from "$lib/i18n/translator.svelte";
+  import { trapTabFocus } from "$lib/chat/focus-navigation";
   import { isPointerAimingAtSubmenu, type MenuAimPoint, type MenuAimSide } from "$lib/projects/menu-aim";
   import { getChat } from "$lib/stores/chat.svelte";
   import { getSettingsLauncher } from "$lib/stores/settingsLauncher.svelte";
   import ChatProviderIcon from "./ChatProviderIcon.svelte";
+  import ChatProviderForkDialog from "./ChatProviderForkDialog.svelte";
 
-  type KnownModelOption = Exclude<ModelOptionDefinition, { kind: "unknown" }>;
-  interface QuickEffortChoice {
-    modelId: string;
-    modelName: string;
-    effortKey: string;
-    effortValue: string;
-    effortLabel: string;
-  }
   interface PendingProviderModelSelection {
     providerInstanceId: string;
     modelId: string | null;
     providerManaged: boolean;
-  }
-  interface FavoriteModelEntry {
-    provider: ProviderInstanceRead;
-    model: ProviderModel;
-  }
-  interface CompanyModelEntry {
-    provider: ProviderInstanceRead;
-    model: ProviderModel;
-  }
-  interface ModelCompanySection {
-    company: ModelCompanyIdentity;
-    models: CompanyModelEntry[];
-    managedProviders: ProviderInstanceRead[];
-    setupFamilies: ProviderFamilyMetadataRead[];
   }
   interface FlyoutPosition {
     left: number;
@@ -91,7 +77,6 @@
   let modelListCanScrollDown = $state(false);
   let modelListScrollFrame: number | null = null;
   let providerForkDialog: HTMLElement | undefined = $state();
-  let confirmationReturnFocus: HTMLElement | null = null;
   let pendingProviderModel = $state<PendingProviderModelSelection | null>(null);
   let modelQuery = $state("");
   let modelPickerError = $state<string | null>(null);
@@ -99,7 +84,6 @@
   let flyout = $state<"models" | null>(null);
   let flyoutPosition = $state<FlyoutPosition | null>(null);
   let quickAnchorModelId = $state<string | null>(null);
-  let restoredKey = $state("");
   let activeFlyoutTrigger: HTMLElement | null = null;
   let modelControlResetTimer: ReturnType<typeof setTimeout> | null = null;
   let modelFlyoutCloseTimer: ReturnType<typeof setTimeout> | null = null;
@@ -120,17 +104,33 @@
   const effortEndpointInsetRem = effortTrackHeightRem / 2;
   const dummyEffortStops = [0, 1, 2, 3, 4, 5] as const;
   const providers = $derived(chat.settings?.providerInstances ?? []);
-  const healthyProviders = $derived(availableProvidersInDefaultOrder(providers));
   const provider = $derived(providers.find((entry) => entry.configuration.instanceId === chat.composer.providerInstanceId) ?? null);
   const unconfiguredFamilies = $derived((chat.settings?.providerFamilies ?? []).filter((family) => !providers.some((entry) => entry.configuration.familyId === family.familyId)));
   const selection = $derived(readComposerModelSelection(chat.composer.modelSelection));
-  const models = $derived(provider?.modelCatalog?.models.filter((model) => model.availability !== "deprecated" && (provider.configuration.visibleModelIds.length === 0 || provider.configuration.visibleModelIds.includes(model.id) || model.id === selection.modelId)) ?? []);
-  const favoriteModelEntries = $derived.by(() => buildFavoriteModelEntries(providers, modelQuery));
-  const modelCompanySections = $derived.by(() => buildModelCompanySections(providers, unconfiguredFamilies, modelQuery));
+  const catalogSelection = $derived({
+    providerInstanceId: provider?.configuration.instanceId ?? null,
+    modelId: selection.modelId,
+    providerManaged: selection.providerManaged,
+  });
+  const models = $derived(visibleProviderModels(provider, catalogSelection));
+  const favoriteModelEntries = $derived.by(() => buildFavoriteModelEntries(
+    providers,
+    chat.settings?.configuration.rememberedSelections ?? [],
+    catalogSelection,
+    modelQuery,
+  ));
+  const modelCompanySections = $derived.by(() => buildModelCompanySections(
+    providers,
+    unconfiguredFamilies,
+    catalogSelection,
+    modelQuery,
+    t("chat.composer.providerManagedModel"),
+    localization.locale,
+  ));
   const selectedModel = $derived(models.find((model) => model.id === selection.modelId) ?? null);
   const quickAnchorModel = $derived(models.find((model) => model.id === quickAnchorModelId) ?? selectedModel);
-  const knownOptions = $derived((selectedModel?.options ?? []).filter(isKnownOption));
-  const effortDefinition = $derived(knownOptions.find((definition) => optionRole(definition) === "effort") ?? null);
+  const knownOptions = $derived((selectedModel?.options ?? []).filter(isKnownModelOption));
+  const effortDefinition = $derived(knownOptions.find((definition) => modelOptionRole(definition) === "effort") ?? null);
   const speedDefinition = $derived.by(() => {
     const candidates = [selectedModel, quickAnchorModel, ...models];
     const visited = new Set<string>();
@@ -138,12 +138,18 @@
       if (!candidate || visited.has(candidate.id)) continue;
       visited.add(candidate.id);
       for (const definition of candidate.options) {
-        if (isKnownOption(definition) && optionRole(definition) === "speed") return definition;
+        if (isKnownModelOption(definition) && modelOptionRole(definition) === "speed") return definition;
       }
     }
     return null;
   });
-  const quickEffortChoices = $derived(buildQuickEffortChoices(quickAnchorModel, models));
+  const quickEffortChoices = $derived(buildQuickEffortChoices(
+    quickAnchorModel,
+    models,
+    provider?.configuration.familyId ?? null,
+    displayModelName,
+    humanizeOptionLabel,
+  ));
   const selectedQuickEffortIndex = $derived(quickEffortChoices.findIndex((choice) => choice.modelId === selection.modelId && choice.effortValue === selectedEffortValue()));
 
   onDestroy(() => {
@@ -200,67 +206,6 @@
     return () => window.removeEventListener("pointerdown", closeOnOutsidePointer, true);
   });
 
-  $effect(() => {
-    const workingFolderId = chat.composer.workingFolderId;
-    if (!workingFolderId || chat.composer.loading || chat.composer.providerInstanceId) return;
-    const preferred = chat.settings?.configuration.workingFolderProviderPreferences[workingFolderId];
-    const preferredProvider = preferred
-      ? healthyProviders.find((entry) => entry.configuration.instanceId === preferred)
-      : null;
-    const initialProvider = preferredProvider ?? healthyProviders[0];
-    if (initialProvider) {
-      const unresolvedProviderManagedSelection = selection.providerManaged;
-      chat.setComposerProvider(initialProvider.configuration.instanceId);
-      if (unresolvedProviderManagedSelection) chat.setComposerModel(null);
-    }
-  });
-
-  $effect(() => {
-    const workingFolderId = chat.composer.workingFolderId;
-    const providerId = chat.composer.providerInstanceId;
-    if (!workingFolderId || !providerId || chat.composer.loading) return;
-    const key = `${chat.composer.draftId ?? ""}:${providerId}`;
-    if (restoredKey === key) return;
-    const remembered = chat.settings?.configuration.rememberedSelections.find((entry) => entry.workingFolderId === workingFolderId && entry.providerInstanceId === providerId);
-    restoredKey = key;
-    if (!remembered) return;
-    if (!chat.composer.modelSelection) {
-      chat.setComposerModel(composerModelSelection(remembered.modelId, remembered.providerManagedModel, remembered.modelOptions));
-    }
-    if (!chat.composer.safetyMode || !chat.composer.interactionMode) {
-      chat.setComposerModes(
-        chat.composer.safetyMode ?? remembered.safetyMode,
-        chat.composer.interactionMode ?? remembered.interactionMode,
-      );
-    }
-  });
-
-  $effect(() => {
-    if (chat.composer.loading || chat.composer.safetyMode) return;
-    const workingFolderId = chat.composer.workingFolderId;
-    const providerId = chat.composer.providerInstanceId;
-    if (workingFolderId && providerId && restoredKey !== `${chat.composer.draftId ?? ""}:${providerId}`) return;
-    chat.setComposerModes("ask_for_approval", chat.composer.interactionMode);
-  });
-
-  $effect(() => {
-    if (!provider || chat.composer.loading || selection.modelId) return;
-    const recommended = recommendedProviderModel(provider, models);
-    if (recommended) {
-      chat.setComposerModel(composerModelSelection(recommended.id, false, defaultModelOptions(recommended.options)));
-      quickAnchorModelId = recommended.id;
-      return;
-    }
-    if (!selection.providerManaged && provider.modelCatalog?.models.length === 0) {
-      chat.setComposerModel(composerModelSelection(null, true, []));
-    }
-  });
-
-  $effect(() => {
-    if (!provider || chat.composer.loading || chat.composer.interactionMode) return;
-    chat.setComposerModes(chat.composer.safetyMode, "build");
-  });
-
   function togglePicker(): void {
     if (pickerOpen) {
       closePicker();
@@ -269,6 +214,9 @@
     const anchoredChoices = buildQuickEffortChoices(
       models.find((model) => model.id === quickAnchorModelId) ?? null,
       models,
+      provider?.configuration.familyId ?? null,
+      displayModelName,
+      humanizeOptionLabel,
     );
     if (!anchoredChoices.some((choice) => choice.modelId === selection.modelId && choice.effortValue === selectedEffortValue())) {
       quickAnchorModelId = selectedModel?.id ?? null;
@@ -400,9 +348,7 @@
     const target = { providerInstanceId: entry.configuration.instanceId, modelId, providerManaged };
     closeFlyout();
     if (chat.selectedThread && entry.configuration.instanceId !== chat.selectedThread.providerInstanceId) {
-      confirmationReturnFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
       pendingProviderModel = target;
-      void tick().then(() => firstFocusable(providerForkDialog)?.focus());
       return;
     }
     applyProviderModelSelection(entry, modelId, providerManaged);
@@ -413,7 +359,7 @@
     modelId: string | null,
     providerManaged: boolean,
   ): void {
-    const model = visibleModels(entry).find((candidate) => candidate.id === modelId);
+    const model = visibleProviderModels(entry, catalogSelection).find((candidate) => candidate.id === modelId);
     if (entry.configuration.instanceId !== provider?.configuration.instanceId) {
       chat.setComposerProvider(entry.configuration.instanceId);
     }
@@ -734,16 +680,6 @@
     return selectedQuickEffortIndex >= 0 && selectedQuickEffortIndex === quickEffortChoices.length - 1;
   }
 
-  function quickStopPosition(index: number, count: number): string {
-    const progress = count <= 1 ? 0.5 : index / (count - 1);
-    const percent = progress * 100;
-    const endpointOffset = (1 - 2 * progress) * effortEndpointInsetRem;
-    if (Math.abs(endpointOffset) < 0.0001) return `${percent}%`;
-    return endpointOffset > 0
-      ? `calc(${percent}% + ${endpointOffset}rem)`
-      : `calc(${percent}% - ${Math.abs(endpointOffset)}rem)`;
-  }
-
   function isFastSelected(): boolean {
     if (!speedDefinition) return false;
     if (speedDefinition.kind === "boolean") return booleanValue(speedDefinition.key);
@@ -781,121 +717,6 @@
     return model.displayName.replace(/^GPT-/i, "").replaceAll("-", " ");
   }
 
-  function visibleModels(entry: (typeof providers)[number] | null): ProviderModel[] {
-    if (!entry) return [];
-    const selectedId = entry.configuration.instanceId === provider?.configuration.instanceId
-      ? selection.modelId
-      : null;
-    return entry.modelCatalog?.models.filter((model) => (
-      model.availability !== "deprecated"
-      && (
-        entry.configuration.visibleModelIds.length === 0
-        || entry.configuration.visibleModelIds.includes(model.id)
-        || model.id === selectedId
-      )
-    )) ?? [];
-  }
-
-  function buildFavoriteModelEntries(entries: ProviderInstanceRead[], query: string): FavoriteModelEntry[] {
-    const favorites: FavoriteModelEntry[] = [];
-    for (const entry of entries) {
-      const favoriteIds = entry.configuration.favoriteModelIds;
-      if (favoriteIds.length === 0) continue;
-      const recentIds = chat.settings?.configuration.rememberedSelections
-        .filter((selectionEntry) => selectionEntry.providerInstanceId === entry.configuration.instanceId && selectionEntry.modelId)
-        .map((selectionEntry) => selectionEntry.modelId as string) ?? [];
-      const favoriteModels = visibleModels(entry).filter((model) => favoriteIds.includes(model.id));
-      for (const model of rankedModels(favoriteModels, favoriteIds, recentIds, query)) {
-        favorites.push({ provider: entry, model });
-      }
-    }
-    return favorites;
-  }
-
-  function buildModelCompanySections(
-    entries: ProviderInstanceRead[],
-    setupFamilies: ProviderFamilyMetadataRead[],
-    query: string,
-  ): ModelCompanySection[] {
-    const sections = new Map<string, ModelCompanySection>();
-    const sectionFor = (company: ModelCompanyIdentity): ModelCompanySection => {
-      const existing = sections.get(company.id);
-      if (existing) return existing;
-      const created = { company, models: [], managedProviders: [], setupFamilies: [] };
-      sections.set(company.id, created);
-      return created;
-    };
-
-    for (const entry of entries) {
-      const visible = visibleModels(entry);
-      const ranked = rankedModels(visible, [], [], query);
-      for (const model of ranked) {
-        sectionFor(modelCompany(entry.configuration.familyId, model)).models.push({ provider: entry, model });
-      }
-      const providerManaged = (entry.modelCatalog?.models.length ?? 0) === 0
-        || (entry.configuration.instanceId === provider?.configuration.instanceId && selection.providerManaged);
-      if (providerManaged && (!query || t("chat.composer.providerManagedModel").toLocaleLowerCase(localization.locale).includes(query.toLocaleLowerCase(localization.locale)))) {
-        sectionFor(integrationCompany(entry.configuration.familyId)).managedProviders.push(entry);
-      }
-    }
-
-    for (const family of setupFamilies) {
-      const company = integrationCompany(family.familyId);
-      if (!query || company.name.toLocaleLowerCase(localization.locale).includes(query.toLocaleLowerCase(localization.locale))) {
-        sectionFor(company).setupFamilies.push(family);
-      }
-    }
-
-    const results = [...sections.values()]
-      .filter((section) => section.models.length > 0 || section.managedProviders.length > 0 || section.setupFamilies.length > 0)
-      .sort((left, right) => left.company.order - right.company.order || left.company.name.localeCompare(right.company.name));
-    if (!query.trim()) {
-      for (const section of results) {
-        section.models.sort((left, right) => compareCompanyModels(section.company.id, left.model, right.model));
-      }
-    }
-    return results;
-  }
-
-  function buildQuickEffortChoices(anchor: ProviderModel | null, availableModels: ProviderModel[]): QuickEffortChoice[] {
-    if (!anchor) return [];
-    const anchorEffort = anchor.options.find((definition) => isKnownOption(definition) && optionRole(definition) === "effort");
-    if (!anchorEffort || anchorEffort.kind !== "choice") return [];
-    const choices: QuickEffortChoice[] = [];
-    const lowerModel = recommendedLowerModel(anchor, availableModels);
-    if (lowerModel) {
-      const lowerEffort = lowerModel.options.find((definition) => isKnownOption(definition) && optionRole(definition) === "effort");
-      if (lowerEffort?.kind === "choice") {
-        const light = lowerEffort.options.find((choice) => choice.value.toLowerCase() === "low");
-        if (light) choices.push({ modelId: lowerModel.id, modelName: displayModelName(lowerModel), effortKey: lowerEffort.key, effortValue: light.value, effortLabel: humanizeOptionLabel(light.label) });
-      }
-    }
-    for (const effort of anchorEffort.options) {
-      if (["none", "minimal"].includes(effort.value.toLowerCase())) continue;
-      choices.push({ modelId: anchor.id, modelName: displayModelName(anchor), effortKey: anchorEffort.key, effortValue: effort.value, effortLabel: humanizeOptionLabel(effort.label) });
-    }
-    return choices;
-  }
-
-  function recommendedLowerModel(anchor: ProviderModel, availableModels: ProviderModel[]): ProviderModel | null {
-    if (provider?.configuration.familyId !== "codex") return null;
-    const lowerTier = anchor.id.endsWith("-sol") ? "terra" : anchor.id.endsWith("-terra") ? "luna" : null;
-    if (!lowerTier) return null;
-    const lowerId = anchor.id.replace(/-(sol|terra)$/, `-${lowerTier}`);
-    return availableModels.find((model) => model.id === lowerId) ?? null;
-  }
-
-  function isKnownOption(definition: ModelOptionDefinition): definition is KnownModelOption {
-    return definition.kind !== "unknown";
-  }
-
-  function optionRole(definition: KnownModelOption): "effort" | "speed" | "other" {
-    const identity = `${definition.key} ${definition.label}`.toLowerCase();
-    if (identity.includes("effort") || identity.includes("reasoning")) return "effort";
-    if (identity.includes("speed") || identity.includes("fast") || identity.includes("service tier") || identity.includes("service_tier")) return "speed";
-    return "other";
-  }
-
   function modelMetadata(contextLimit: number | null, availability: string): string[] {
     const values: string[] = [];
     if (contextLimit !== null) values.push(t("chat.composer.modelContext", formatNumber(localization.locale, contextLimit)));
@@ -910,28 +731,7 @@
       closePicker();
       return;
     }
-    if (event.key !== "Tab" || !(event.currentTarget instanceof HTMLElement)) return;
-    const focusable = focusableElements(event.currentTarget);
-    const first = focusable[0];
-    const last = focusable.at(-1);
-    if (!first || !last) return;
-    if (event.shiftKey && document.activeElement === first) {
-      event.preventDefault();
-      last.focus();
-    } else if (!event.shiftKey && document.activeElement === last) {
-      event.preventDefault();
-      first.focus();
-    }
-  }
-
-  function focusableElements(container: HTMLElement): HTMLElement[] {
-    return [...container.querySelectorAll<HTMLElement>(
-      "button:not([disabled]), input:not([disabled]), [tabindex]:not([tabindex='-1'])",
-    )].filter((element) => !element.hidden && !element.closest("[inert]") && element.getClientRects().length > 0);
-  }
-
-  function firstFocusable(container: HTMLElement | undefined): HTMLElement | undefined {
-    return container ? focusableElements(container)[0] : undefined;
+    trapTabFocus(event);
   }
 
   async function confirmProviderFork(): Promise<void> {
@@ -967,22 +767,22 @@
 
         {#if quickEffortChoices.length > 0}
           <div class="effort-ladder" class:fast={isFastSelected()} class:ultra={isUltraSelected()} class:holding={effortPressing} class:handle-hovered={effortHandleHovered} style={`--effort-track-height:${effortTrackHeightRem}rem`} role="group" aria-label={t("chat.composer.quickModelEffort")} onpointerdown={handleEffortPointerDown} onpointermove={handleEffortPointerMove} onpointerleave={handleEffortPointerLeave} onpointerup={(event) => finishEffortPointer(event, true)} onpointercancel={(event) => finishEffortPointer(event, false)} onlostpointercapture={(event) => finishEffortPointer(event, false)}>
-            <span class="effort-fill" style={`width:${selectedQuickEffortIndex < 0 ? "0" : isUltraSelected() ? "100%" : quickStopPosition(selectedQuickEffortIndex, quickEffortChoices.length)}`} aria-hidden="true">
+            <span class="effort-fill" style={`width:${selectedQuickEffortIndex < 0 ? "0" : isUltraSelected() ? "100%" : modelEffortStopPosition(selectedQuickEffortIndex, quickEffortChoices.length, effortEndpointInsetRem)}`} aria-hidden="true">
               <span class="effort-particles calm"></span>
               <span class="effort-particles rapid"></span>
             </span>
             <span class="effort-options">
               {#each quickEffortChoices as choice, index}
-                <button type="button" style={`left:${quickStopPosition(index, quickEffortChoices.length)}`} aria-label={`${choice.modelName} ${choice.effortLabel}`} aria-pressed={index === selectedQuickEffortIndex} data-app-tooltip-disabled="true" data-app-tooltip-focus-disabled="true" onclick={(event) => handleEffortChoiceClick(choice, event)}><i></i></button>
+                <button type="button" style={`left:${modelEffortStopPosition(index, quickEffortChoices.length, effortEndpointInsetRem)}`} aria-label={`${choice.modelName} ${choice.effortLabel}`} aria-pressed={index === selectedQuickEffortIndex} data-app-tooltip-disabled="true" data-app-tooltip-focus-disabled="true" onclick={(event) => handleEffortChoiceClick(choice, event)}><i></i></button>
               {/each}
-              {#if selectedQuickEffortIndex >= 0}<span class="effort-knob" style={`left:${quickStopPosition(selectedQuickEffortIndex, quickEffortChoices.length)}`} aria-hidden="true"></span>{/if}
+              {#if selectedQuickEffortIndex >= 0}<span class="effort-knob" style={`left:${modelEffortStopPosition(selectedQuickEffortIndex, quickEffortChoices.length, effortEndpointInsetRem)}`} aria-hidden="true"></span>{/if}
             </span>
           </div>
         {:else if !provider}
           <div class="effort-ladder dummy" style={`--effort-track-height:${effortTrackHeightRem}rem`} role="group" aria-label={t("chat.composer.quickModelEffort")} aria-disabled="true">
             <span class="effort-options">
               {#each dummyEffortStops as stop}
-                <button type="button" style={`left:${quickStopPosition(stop, dummyEffortStops.length)}`} aria-label={t("chat.composer.providerRequiredForModelOptions")} disabled tabindex="-1"><i></i></button>
+                <button type="button" style={`left:${modelEffortStopPosition(stop, dummyEffortStops.length, effortEndpointInsetRem)}`} aria-label={t("chat.composer.providerRequiredForModelOptions")} disabled tabindex="-1"><i></i></button>
               {/each}
               <span class="effort-knob" style="left:50%" aria-hidden="true"></span>
             </span>
@@ -1070,7 +870,11 @@
 </div>
 
 {#if pendingProviderModel}
-  <div class="fixed inset-0 z-60 grid place-items-center bg-black/40 p-4"><button type="button" class="absolute inset-0" aria-label={t("chat.cancel")} onclick={() => { pendingProviderModel = null; }}></button><div bind:this={providerForkDialog} class="relative w-full max-w-md rounded-lg border border-border bg-background p-4 shadow-2xl" role="dialog" aria-modal="true" aria-labelledby="provider-fork-title" tabindex="-1"><h2 id="provider-fork-title" class="font-semibold">{t("chat.composer.changeProviderTitle")}</h2><p class="mt-2 text-sm text-muted-foreground">{t("chat.composer.changeProviderDescription")}</p><div class="mt-4 flex justify-end gap-2"><button type="button" class="chat-secondary-button" onclick={() => { pendingProviderModel = null; }}>{t("chat.cancel")}</button><button type="button" class="chat-primary-button" onclick={() => void confirmProviderFork()}>{t("chat.composer.startProviderFork")}</button></div></div></div>
+  <ChatProviderForkDialog
+    bind:element={providerForkDialog}
+    onCancel={() => { pendingProviderModel = null; }}
+    onConfirm={() => void confirmProviderFork()}
+  />
 {/if}
 
 <style>

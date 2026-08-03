@@ -16,7 +16,6 @@
     ChatWorkspaceChangeBatch,
     ChatWorkspaceObserverStatusRead,
     ProjectWorkingFolderFileEntry,
-    ProjectWorkingFolderFilePreview,
     ProjectWorkingFolderPathRead,
   } from "$lib/chat/contracts";
   import { flattenChatFileTree, type ChatFileTreeRow } from "$lib/chat/file-tree-model";
@@ -24,7 +23,6 @@
     mergeWorkspaceChangeBatches,
     workspaceDirectoryRefreshTargets,
     workspacePathAfterRenames,
-    workspacePreviewImpact,
   } from "$lib/chat/workspace-change-model";
   import {
     subscribeChatWorkspaceChanges,
@@ -33,12 +31,11 @@
   import { splitPaneResizeBounds } from "$lib/chat/inspector-model";
   import { chatErrorMessage } from "$lib/chat/error-presentation";
   import { alignPanelSizeToDevicePixel, panelWidthFromKey } from "$lib/chat/responsive-layout";
-  import { boundTerminalContext } from "$lib/chat/terminal-model";
+  import { ChatFileEditorSession } from "$lib/chat/file-editor-session.svelte";
   import { formatNumber } from "$lib/i18n/formatters";
   import { getLocalization } from "$lib/i18n/translator.svelte";
   import { getChat } from "$lib/stores/chat.svelte";
   import ChatCodePreview from "./ChatCodePreview.svelte";
-  import type { ChatCodeSelection } from "./ChatCodePreview.svelte";
   import ChatFileIcon from "./ChatFileIcon.svelte";
   import ChatPaneResizeHandle from "./ChatPaneResizeHandle.svelte";
   import ChatWorkspaceFileTree from "./ChatWorkspaceFileTree.svelte";
@@ -71,14 +68,6 @@
   const MIN_PREVIEW_WIDTH = 120;
   const MAX_TREE_WIDTH = 360;
 
-  interface FileMutationContext {
-    requestId: number;
-    scopeRevision: number;
-    workingFolderId: string;
-    executionEnvironmentId: string | null;
-    relativePath: string;
-  }
-
   const localization = getLocalization();
   const { t } = localization;
   const chat = getChat();
@@ -86,17 +75,6 @@
   let childrenByDirectory = $state<Record<string, ProjectWorkingFolderFileEntry[]>>({});
   let expandedPaths = $state<string[]>([]);
   let loadingPaths = $state<string[]>([]);
-  let preview = $state<ProjectWorkingFolderFilePreview | null>(null);
-  let draftText = $state("");
-  let editorSelection = $state<ChatCodeSelection | null>(null);
-  let reviewComposerOpen = $state(false);
-  let reviewDraft = $state("");
-  let creatingReview = $state(false);
-  let savingFile = $state(false);
-  let saveConflict = $state(false);
-  let fileDeleted = $state(false);
-  let conflictDiskText = $state<string | null>(null);
-  let saveCopyPath = $state("");
   let previewElement: HTMLElement | undefined = $state();
   let panelElement: HTMLDivElement | undefined = $state();
   let panelWidth = $state(0);
@@ -108,26 +86,30 @@
   let loadingRoot = $state(false);
   let loadingRootVisible = $state(false);
   let refreshingTree = $state(false);
-  let loadingPreview = $state(false);
-  let loadingPreviewVisible = $state(false);
   let observerStatus = $state<ChatWorkspaceObserverStatusRead | null>(null);
   let error = $state<string | null>(null);
   let loadedScope = "";
   let selectedPathSyncKey = "";
   let treeRequestId = 0;
-  let previewRequestId = 0;
   let visibleTreeRefreshRequestId = 0;
   let searchRefreshRevision = $state(0);
   let pendingWorkspaceChange: ChatWorkspaceChangeBatch | null = null;
   let reconcilingWorkspaceChanges = false;
   let filesPanelMounted = false;
-  let fileScopeRevision = 0;
-  let fileMutationRequestId = 0;
   let treeResizeFrame: number | null = null;
   let treeResizeEndFrame: number | null = null;
-  let previewLoadingTimer: number | null = null;
   let rootLoadingTimer: number | null = null;
   let activeScopeKey = "";
+  const editorSession = new ChatFileEditorSession({
+    selectedPath: () => selectedPath,
+    setSelectedPath: (path) => onStateChange({ selectedPath: path }),
+    refreshParentDirectory: (path) => refreshParentDirectory(path),
+    onReviewCreated: () => onReviewCreated(),
+    discardUnsavedMessage: () => t("chat.inspector.discardUnsaved"),
+    confirmOverwriteMessage: () => t("chat.inspector.confirmOverwriteFile"),
+    confirmRecreateMessage: () => t("chat.inspector.confirmRecreateFile"),
+    previewUnavailableMessage: () => t("chat.inspector.previewUnavailable"),
+  });
   const workingFolderId = $derived(chat.selectedWorkingFolderId);
   const treeRows = $derived(flattenChatFileTree(rootEntries, childrenByDirectory, expandedPaths));
   const shownRows = $derived.by<ChatFileTreeRow[]>(() => {
@@ -141,9 +123,8 @@
   const changedPaths = $derived(new Set(
     chat.timelinePages.flatMap((page) => page.turns.flatMap((turn) => turn.changedFiles.map((file) => file.relativePath))),
   ));
-  const fileDirty = $derived(
-    preview?.text !== null && preview?.text !== undefined && draftText !== preview.text,
-  );
+  const fileDirty = $derived(editorSession.dirty);
+  const visibleError = $derived(editorSession.error ?? error);
   const observerMatchesScope = $derived(
     observerStatus?.workingFolderId === workingFolderId
       && observerStatus?.executionEnvironmentId === chat.selectedExecutionEnvironmentId,
@@ -161,7 +142,7 @@
       observer.disconnect();
       if (treeResizeFrame !== null) window.cancelAnimationFrame(treeResizeFrame);
       if (treeResizeEndFrame !== null) window.cancelAnimationFrame(treeResizeEndFrame);
-      if (previewLoadingTimer !== null) window.clearTimeout(previewLoadingTimer);
+      editorSession.destroy();
       if (rootLoadingTimer !== null) window.clearTimeout(rootLoadingTimer);
     };
   });
@@ -202,10 +183,7 @@
     if (scope === loadedScope) return;
     loadedScope = scope;
     selectedPathSyncKey = "";
-    fileScopeRevision += 1;
-    fileMutationRequestId += 1;
     treeRequestId += 1;
-    previewRequestId += 1;
     pendingWorkspaceChange = null;
     rootEntries = [];
     childrenByDirectory = {};
@@ -215,22 +193,8 @@
     loadingRootVisible = false;
     if (rootLoadingTimer !== null) window.clearTimeout(rootLoadingTimer);
     rootLoadingTimer = null;
-    loadingPreview = false;
-    loadingPreviewVisible = false;
-    if (previewLoadingTimer !== null) window.clearTimeout(previewLoadingTimer);
-    previewLoadingTimer = null;
     refreshingTree = false;
-    preview = null;
-    draftText = "";
-    editorSelection = null;
-    reviewComposerOpen = false;
-    reviewDraft = "";
-    creatingReview = false;
-    saveConflict = false;
-    fileDeleted = false;
-    conflictDiskText = null;
-    saveCopyPath = "";
-    savingFile = false;
+    editorSession.reset();
     activeScopeKey = "";
   });
 
@@ -246,7 +210,9 @@
     if (scopeKey === activeScopeKey) return;
     activeScopeKey = scopeKey;
     void loadRoot(workspace, directoryPath, executionEnvironmentId);
-    if (preview && selectedPath) void refreshPreviewFromDisk(selectedPath, false);
+    if (editorSession.preview && selectedPath) {
+      void editorSession.refreshFromDisk(selectedPath, false);
+    }
   });
 
   $effect(() => {
@@ -254,9 +220,11 @@
     const environmentId = chat.selectedExecutionEnvironmentId;
     const path = selectedPath;
     const key = `${loadedScope}\u0000${path ?? ""}`;
-    if (!active || !workspace || !path || preview?.relativePath === path || selectedPathSyncKey === key) return;
+    if (!active || !workspace || !path
+      || editorSession.preview?.relativePath === path
+      || selectedPathSyncKey === key) return;
     selectedPathSyncKey = key;
-    const previousPath = preview?.relativePath ?? null;
+    const previousPath = editorSession.preview?.relativePath ?? null;
     void selectFile(path, environmentId).then((opened) => {
       if (!opened && previousPath && selectedPath === path && workingFolderId === workspace
         && chat.selectedExecutionEnvironmentId === environmentId) {
@@ -426,20 +394,7 @@
       await refreshLoadedDirectories(refreshTargets, false);
     }
     searchRefreshRevision += 1;
-    await reconcileSelectedFile(batch);
-  }
-
-  async function reconcileSelectedFile(batch: ChatWorkspaceChangeBatch): Promise<void> {
-    const currentPath = selectedPath;
-    if (!currentPath) return;
-    const impact = workspacePreviewImpact(batch, currentPath, fileDirty);
-    if (impact.kind === "none") return;
-    if (impact.kind === "renamed" || impact.kind === "deleted_after_rename") {
-      onStateChange({ selectedPath: impact.relativePath });
-      await refreshPreviewFromDisk(impact.relativePath, true, currentPath);
-      return;
-    }
-    await refreshPreviewFromDisk(currentPath, false);
+    await editorSession.reconcileWorkspaceChange(batch);
   }
 
   function workspaceEntryAfterRenames(
@@ -454,57 +409,6 @@
         ? entry.displayName
         : relativePath.slice(relativePath.lastIndexOf("/") + 1),
     };
-  }
-
-  async function refreshPreviewFromDisk(
-    path: string,
-    moved: boolean,
-    previousPath = path,
-  ): Promise<void> {
-    const workspace = workingFolderId;
-    const current = preview;
-    if (!workspace) return;
-    const environmentId = chat.selectedExecutionEnvironmentId;
-    const scopeRevision = fileScopeRevision;
-    const requestId = ++previewRequestId;
-    try {
-      const disk = await chatApi.previewProjectWorkingFolderFile(
-        workspace,
-        path,
-        environmentId,
-      );
-      if (requestId !== previewRequestId
-        || !fileScopeIsCurrent(workspace, environmentId, scopeRevision)
-        || (selectedPath !== path && selectedPath !== previousPath)) return;
-      const diskChanged = moved || disk.contentRevision !== current?.contentRevision;
-      if (fileDirty && diskChanged) {
-        if (moved) preview = disk;
-        fileDeleted = false;
-        saveConflict = true;
-        conflictDiskText = null;
-        if (!saveCopyPath) saveCopyPath = copyPath(path);
-        return;
-      }
-      if (!diskChanged) return;
-      preview = disk;
-      draftText = disk.text ?? "";
-      fileDeleted = false;
-      saveConflict = false;
-      conflictDiskText = null;
-      saveCopyPath = "";
-    } catch (reason: unknown) {
-      if (requestId !== previewRequestId
-        || !fileScopeIsCurrent(workspace, environmentId, scopeRevision)
-        || (selectedPath !== path && selectedPath !== previousPath)) return;
-      if (errorCode(reason) === "not_found") {
-        fileDeleted = true;
-        saveConflict = fileDirty;
-        conflictDiskText = null;
-        if (fileDirty && !saveCopyPath) saveCopyPath = copyPath(path);
-        return;
-      }
-      error = message(reason);
-    }
   }
 
   async function revealDirectory(path: string): Promise<void> {
@@ -538,55 +442,8 @@
     executionEnvironmentId = chat.selectedExecutionEnvironmentId,
     discardDirty = false,
   ): Promise<boolean> {
-    const workspace = workingFolderId;
-    if (!workspace) return false;
-    if (!discardDirty && path !== preview?.relativePath && fileDirty
-      && !window.confirm(t("chat.inspector.discardUnsaved"))) return false;
     selectedPathSyncKey = `${loadedScope}\u0000${path}`;
-    fileMutationRequestId += 1;
-    savingFile = false;
-    const scopeRevision = fileScopeRevision;
-    const requestId = ++previewRequestId;
-    const previousPath = preview?.relativePath ?? null;
-    onStateChange({ selectedPath: path });
-    beginPreviewLoading();
-    error = null;
-    let opened = false;
-    try {
-      const result = await chatApi.previewProjectWorkingFolderFile(workspace, path, executionEnvironmentId);
-      if (requestId === previewRequestId
-        && fileScopeIsCurrent(workspace, executionEnvironmentId, scopeRevision)) {
-        preview = result;
-        draftText = result.text ?? "";
-        editorSelection = null;
-        reviewComposerOpen = false;
-        reviewDraft = "";
-        saveConflict = false;
-        fileDeleted = false;
-        conflictDiskText = null;
-        saveCopyPath = "";
-        opened = true;
-      }
-    } catch (reason: unknown) {
-      if (requestId === previewRequestId
-        && fileScopeIsCurrent(workspace, executionEnvironmentId, scopeRevision)) {
-        error = message(reason);
-        if (previousPath) onStateChange({ selectedPath: previousPath });
-      }
-    } finally {
-      if (requestId === previewRequestId) finishPreviewLoading();
-    }
-    return opened;
-  }
-
-  function beginPreviewLoading(): void {
-    loadingPreview = true;
-    loadingPreviewVisible = false;
-    if (previewLoadingTimer !== null) window.clearTimeout(previewLoadingTimer);
-    previewLoadingTimer = window.setTimeout(() => {
-      previewLoadingTimer = null;
-      if (loadingPreview) loadingPreviewVisible = true;
-    }, 140);
+    return editorSession.select(path, executionEnvironmentId, discardDirty);
   }
 
   function beginRootLoading(): void {
@@ -606,240 +463,6 @@
     rootLoadingTimer = null;
   }
 
-  function finishPreviewLoading(): void {
-    loadingPreview = false;
-    loadingPreviewVisible = false;
-    if (previewLoadingTimer !== null) window.clearTimeout(previewLoadingTimer);
-    previewLoadingTimer = null;
-  }
-
-  async function saveFile(): Promise<void> {
-    if (fileDeleted) {
-      await recreateDeletedFile();
-      return;
-    }
-    if (saveConflict) return;
-    const workspace = workingFolderId;
-    const current = preview;
-    if (!workspace || !current?.contentRevision || !fileDirty || savingFile) return;
-    const mutation = beginFileMutation(workspace, current.relativePath);
-    savingFile = true;
-    error = null;
-    try {
-      const saved = await chatApi.saveProjectWorkingFolderFile({
-        workingFolderId: workspace,
-        relativePath: current.relativePath,
-        contents: draftText,
-        expectedRevision: current.contentRevision,
-        executionEnvironmentId: mutation.executionEnvironmentId,
-      });
-      if (!fileMutationIsCurrent(mutation)) return;
-      preview = saved;
-      draftText = saved.text ?? "";
-      saveConflict = false;
-      fileDeleted = false;
-      conflictDiskText = null;
-      saveCopyPath = "";
-      await refreshParentDirectory(saved.relativePath);
-    } catch (reason: unknown) {
-      if (!fileMutationIsCurrent(mutation)) return;
-      error = message(reason);
-      saveConflict = errorCode(reason) === "conflict";
-      if (saveConflict && !saveCopyPath) saveCopyPath = copyPath(current.relativePath);
-    } finally {
-      if (fileMutationScopeIsCurrent(mutation)) savingFile = false;
-    }
-  }
-
-  function errorCode(reason: unknown): string | null {
-    if (typeof reason !== "object" || reason === null || !("code" in reason)) return null;
-    return typeof reason.code === "string" ? reason.code : null;
-  }
-
-  function beginFileMutation(workspace: string, relativePath: string): FileMutationContext {
-    return {
-      requestId: ++fileMutationRequestId,
-      scopeRevision: fileScopeRevision,
-      workingFolderId: workspace,
-      executionEnvironmentId: chat.selectedExecutionEnvironmentId,
-      relativePath,
-    };
-  }
-
-  function fileMutationScopeIsCurrent(context: FileMutationContext): boolean {
-    return context.requestId === fileMutationRequestId
-      && fileScopeIsCurrent(
-        context.workingFolderId,
-        context.executionEnvironmentId,
-        context.scopeRevision,
-      );
-  }
-
-  function fileMutationIsCurrent(context: FileMutationContext): boolean {
-    return fileMutationScopeIsCurrent(context)
-      && preview?.relativePath === context.relativePath;
-  }
-
-  function fileScopeIsCurrent(
-    workspace: string,
-    executionEnvironmentId: string | null,
-    scopeRevision: number,
-  ): boolean {
-    return scopeRevision === fileScopeRevision
-      && workspace === workingFolderId
-      && executionEnvironmentId === chat.selectedExecutionEnvironmentId;
-  }
-
-  function copyPath(path: string): string {
-    const slash = path.lastIndexOf("/");
-    const directory = slash >= 0 ? path.slice(0, slash + 1) : "";
-    const name = slash >= 0 ? path.slice(slash + 1) : path;
-    const dot = name.lastIndexOf(".");
-    return dot > 0
-      ? `${directory}${name.slice(0, dot)}.ganbaru-copy${name.slice(dot)}`
-      : `${directory}${name}.ganbaru-copy`;
-  }
-
-  async function compareConflict(): Promise<void> {
-    const workspace = workingFolderId;
-    const current = preview;
-    if (!workspace || !current) return;
-    const environmentId = chat.selectedExecutionEnvironmentId;
-    const scopeRevision = fileScopeRevision;
-    try {
-      const disk = await chatApi.previewProjectWorkingFolderFile(
-        workspace,
-        current.relativePath,
-        environmentId,
-      );
-      if (!fileScopeIsCurrent(workspace, environmentId, scopeRevision)
-        || preview?.relativePath !== current.relativePath) return;
-      conflictDiskText = disk.text ?? "";
-    } catch (reason: unknown) {
-      if (fileScopeIsCurrent(workspace, environmentId, scopeRevision)
-        && preview?.relativePath === current.relativePath) error = message(reason);
-    }
-  }
-
-  async function saveConflictCopy(): Promise<void> {
-    const workspace = workingFolderId;
-    const current = preview;
-    const target = saveCopyPath.trim();
-    if (!workspace || !current || !target || savingFile) return;
-    const mutation = beginFileMutation(workspace, current.relativePath);
-    savingFile = true;
-    error = null;
-    try {
-      const saved = fileDeleted
-        ? await chatApi.recreateProjectWorkingFolderFile({
-          workingFolderId: workspace,
-          relativePath: target,
-          contents: draftText,
-          confirmed: true,
-          executionEnvironmentId: mutation.executionEnvironmentId,
-        })
-        : await chatApi.saveProjectWorkingFolderFileCopy({
-          workingFolderId: workspace,
-          sourceRelativePath: current.relativePath,
-          targetRelativePath: target,
-          contents: draftText,
-          executionEnvironmentId: mutation.executionEnvironmentId,
-        });
-      if (!fileMutationIsCurrent(mutation)) return;
-      preview = saved;
-      draftText = saved.text ?? "";
-      onStateChange({ selectedPath: saved.relativePath });
-      saveConflict = false;
-      fileDeleted = false;
-      conflictDiskText = null;
-      saveCopyPath = "";
-      await refreshParentDirectory(saved.relativePath);
-    } catch (reason: unknown) {
-      if (!fileMutationIsCurrent(mutation)) return;
-      error = message(reason);
-    } finally {
-      if (fileMutationScopeIsCurrent(mutation)) savingFile = false;
-    }
-  }
-
-  function reloadSelectedFile(): void {
-    if (!selectedPath) return;
-    if (fileDirty && !window.confirm(t("chat.inspector.discardUnsaved"))) return;
-    void selectFile(selectedPath, chat.selectedExecutionEnvironmentId, true);
-  }
-
-  async function overwriteExternalFile(): Promise<void> {
-    const workspace = workingFolderId;
-    const current = preview;
-    if (!workspace || !current || fileDeleted || savingFile
-      || !window.confirm(t("chat.inspector.confirmOverwriteFile"))) return;
-    const mutation = beginFileMutation(workspace, current.relativePath);
-    savingFile = true;
-    error = null;
-    try {
-      const disk = await chatApi.previewProjectWorkingFolderFile(
-        workspace,
-        current.relativePath,
-        mutation.executionEnvironmentId,
-      );
-      if (!fileMutationIsCurrent(mutation)) return;
-      if (!disk.contentRevision) throw new Error(t("chat.inspector.previewUnavailable"));
-      const saved = await chatApi.saveProjectWorkingFolderFile({
-        workingFolderId: workspace,
-        relativePath: current.relativePath,
-        contents: draftText,
-        expectedRevision: disk.contentRevision,
-        executionEnvironmentId: mutation.executionEnvironmentId,
-      });
-      if (!fileMutationIsCurrent(mutation)) return;
-      preview = saved;
-      draftText = saved.text ?? "";
-      saveConflict = false;
-      conflictDiskText = null;
-      saveCopyPath = "";
-      await refreshParentDirectory(saved.relativePath);
-    } catch (reason: unknown) {
-      if (!fileMutationIsCurrent(mutation)) return;
-      error = message(reason);
-      saveConflict = errorCode(reason) === "conflict";
-    } finally {
-      if (fileMutationScopeIsCurrent(mutation)) savingFile = false;
-    }
-  }
-
-  async function recreateDeletedFile(): Promise<void> {
-    const workspace = workingFolderId;
-    const current = preview;
-    if (!workspace || !current || !fileDeleted || savingFile
-      || !window.confirm(t("chat.inspector.confirmRecreateFile"))) return;
-    const mutation = beginFileMutation(workspace, current.relativePath);
-    savingFile = true;
-    error = null;
-    try {
-      const saved = await chatApi.recreateProjectWorkingFolderFile({
-        workingFolderId: workspace,
-        relativePath: current.relativePath,
-        contents: draftText,
-        confirmed: true,
-        executionEnvironmentId: mutation.executionEnvironmentId,
-      });
-      if (!fileMutationIsCurrent(mutation)) return;
-      preview = saved;
-      draftText = saved.text ?? "";
-      fileDeleted = false;
-      saveConflict = false;
-      conflictDiskText = null;
-      saveCopyPath = "";
-      await refreshParentDirectory(saved.relativePath);
-    } catch (reason: unknown) {
-      if (!fileMutationIsCurrent(mutation)) return;
-      error = message(reason);
-      if (errorCode(reason) === "conflict") saveConflict = true;
-    } finally {
-      if (fileMutationScopeIsCurrent(mutation)) savingFile = false;
-    }
-  }
-
   function openEntry(entry: ProjectWorkingFolderFileEntry): void {
     if (entry.kind === "directory") toggleDirectory(entry);
     else void selectFile(entry.relativePath);
@@ -849,7 +472,7 @@
     void (async () => {
       await refreshLoadedDirectories();
       searchRefreshRevision += 1;
-      if (selectedPath) await refreshPreviewFromDisk(selectedPath, false);
+      if (selectedPath) await editorSession.refreshFromDisk(selectedPath, false);
     })();
   }
 
@@ -951,66 +574,13 @@
     onStateChange({ treeWidthPx: renderedTreeWidth });
   }
 
-  async function attachSelection(): Promise<void> {
-    const workspace = workingFolderId;
-    const path = selectedPath;
-    if (!workspace || !path) return;
-    const environmentId = chat.selectedExecutionEnvironmentId;
-    const scopeRevision = fileScopeRevision;
-    const bounded = boundTerminalContext(editorSelection?.text ?? "", 128 * 1024);
-    if (!bounded.text) return;
-    const attachment = await chatApi.importChatTextSnippet(
-      workspace,
-      crypto.randomUUID(),
-      `${path} selection.txt`,
-      bounded.text,
-    );
-    if (!fileScopeIsCurrent(workspace, environmentId, scopeRevision) || selectedPath !== path) return;
-    chat.setComposerAttachments([...chat.composer.attachmentIds, attachment.id]);
-  }
-
-  async function createReviewComment(): Promise<void> {
-    const threadId = chat.selectedThreadId;
-    const current = preview;
-    const selection = editorSelection;
-    if (!threadId || !current?.contentRevision || !selection?.text || !reviewDraft.trim() || creatingReview) return;
-    const workspace = workingFolderId;
-    if (!workspace) return;
-    const environmentId = chat.selectedExecutionEnvironmentId;
-    const scopeRevision = fileScopeRevision;
-    creatingReview = true;
-    error = null;
-    try {
-      await chatApi.createChatReviewComment({
-        id: crypto.randomUUID(),
-        threadId,
-        relativePath: current.relativePath,
-        contentRevision: current.contentRevision,
-        startLine: selection.startLine,
-        startColumn: selection.startColumn,
-        endLine: selection.endLine,
-        endColumn: selection.endColumn,
-        selectedText: selection.text,
-        commentText: reviewDraft.trim(),
-      });
-      if (!fileScopeIsCurrent(workspace, environmentId, scopeRevision)
-        || chat.selectedThreadId !== threadId
-        || preview?.relativePath !== current.relativePath) return;
-      reviewDraft = "";
-      reviewComposerOpen = false;
-      onReviewCreated();
-    } catch (reason: unknown) {
-      if (fileScopeIsCurrent(workspace, environmentId, scopeRevision)
-        && chat.selectedThreadId === threadId
-        && preview?.relativePath === current.relativePath) error = message(reason);
-    } finally {
-      if (fileScopeIsCurrent(workspace, environmentId, scopeRevision)
-        && chat.selectedThreadId === threadId) creatingReview = false;
-    }
-  }
-
   function message(reason: unknown): string {
     return chatErrorMessage(reason);
+  }
+
+  function errorCode(reason: unknown): string | null {
+    if (typeof reason !== "object" || reason === null || !("code" in reason)) return null;
+    return typeof reason.code === "string" ? reason.code : null;
   }
 </script>
 
@@ -1031,7 +601,7 @@
         {:else if observerMatchesScope && observerStatus?.degradedReason}
           <p role="status" class="live-update-status warning">{t("chat.inspector.liveUpdatesDegraded")}</p>
         {/if}
-        {#if error}<p role="alert" class="border-b border-destructive/30 p-2 text-xs text-destructive">{error}</p>{/if}
+        {#if visibleError}<p role="alert" class="border-b border-destructive/30 p-2 text-xs text-destructive">{visibleError}</p>{/if}
         {#if loadingRoot && !loadingRootVisible}
           <span aria-hidden="true"></span>
         {:else if loadingRootVisible}
@@ -1056,73 +626,69 @@
     <section bind:this={previewElement} class="file-editor" aria-label={t("chat.inspector.filePreview")}>
       <header class="editor-heading">
         {#if !treeVisible}<button type="button" class="chat-icon-button" title={t("chat.inspector.showFileTree")} aria-label={t("chat.inspector.showFileTree")} onclick={() => onStateChange({ treeVisible: true })}><PanelLeftOpen size={13} /></button>{/if}
-        {#if preview}
-          <ChatFileIcon path={preview.relativePath} />
-          <strong class="min-w-0 flex-1 truncate text-[0.733333rem] font-medium" title={preview.relativePath}>{preview.relativePath}</strong>
+        {#if editorSession.preview}
+          <ChatFileIcon path={editorSession.preview.relativePath} />
+          <strong class="min-w-0 flex-1 truncate text-[0.733333rem] font-medium" title={editorSession.preview.relativePath}>{editorSession.preview.relativePath}</strong>
           {#if fileDirty}<span class="dirty-indicator" title={t("chat.inspector.unsavedChanges")} aria-label={t("chat.inspector.unsavedChanges")}></span>{/if}
-          <button type="button" class="chat-icon-button" disabled={savingFile || (!fileDeleted && (saveConflict || !fileDirty || !preview.contentRevision))} title={savingFile ? t("chat.inspector.savingFile") : fileDeleted ? t("chat.inspector.recreateFile") : t("chat.inspector.saveFile")} aria-label={savingFile ? t("chat.inspector.savingFile") : fileDeleted ? t("chat.inspector.recreateFile") : t("chat.inspector.saveFile")} onclick={() => void saveFile()}><Save size={13} /></button>
+          <button type="button" class="chat-icon-button" disabled={editorSession.saving || (!editorSession.fileDeleted && (editorSession.saveConflict || !fileDirty || !editorSession.preview.contentRevision))} title={editorSession.saving ? t("chat.inspector.savingFile") : editorSession.fileDeleted ? t("chat.inspector.recreateFile") : t("chat.inspector.saveFile")} aria-label={editorSession.saving ? t("chat.inspector.savingFile") : editorSession.fileDeleted ? t("chat.inspector.recreateFile") : t("chat.inspector.saveFile")} onclick={() => void editorSession.save()}><Save size={13} /></button>
           <button type="button" class="chat-icon-button" title={t("chat.inspector.copyPath")} aria-label={t("chat.inspector.copyPath")} onclick={() => navigator.clipboard.writeText(selectedPath ?? "")}><Copy size={13} /></button>
-          <button type="button" class="chat-icon-button" disabled={fileDeleted} title={t("chat.inspector.attachFile")} aria-label={t("chat.inspector.attachFile")} onclick={() => selectedPath && attachFileReference(selectedPath)}><Paperclip size={13} /></button>
-          <button type="button" class="chat-icon-button" title={t("chat.inspector.attachSelection")} aria-label={t("chat.inspector.attachSelection")} onclick={() => { void attachSelection().catch((reason) => { error = message(reason); }); }}><TextSelect size={13} /></button>
-          <button type="button" class="chat-icon-button" disabled={fileDeleted || !editorSelection?.text || !preview.contentRevision || !chat.selectedThreadId} title={t("chat.review.addComment")} aria-label={t("chat.review.addComment")} onclick={() => { reviewComposerOpen = !reviewComposerOpen; }}><MessageSquarePlus size={13} /></button>
-          <button type="button" class="chat-icon-button" disabled={fileDeleted} title={t("chat.inspector.openExternally")} aria-label={t("chat.inspector.openExternally")} onclick={() => workingFolderId && selectedPath && chatApi.openProjectWorkingFolderFile(workingFolderId, selectedPath, chat.selectedExecutionEnvironmentId)}><ExternalLink size={13} /></button>
+          <button type="button" class="chat-icon-button" disabled={editorSession.fileDeleted} title={t("chat.inspector.attachFile")} aria-label={t("chat.inspector.attachFile")} onclick={() => selectedPath && attachFileReference(selectedPath)}><Paperclip size={13} /></button>
+          <button type="button" class="chat-icon-button" title={t("chat.inspector.attachSelection")} aria-label={t("chat.inspector.attachSelection")} onclick={() => void editorSession.attachSelection()}><TextSelect size={13} /></button>
+          <button type="button" class="chat-icon-button" disabled={editorSession.fileDeleted || !editorSession.editorSelection?.text || !editorSession.preview.contentRevision || !chat.selectedThreadId} title={t("chat.review.addComment")} aria-label={t("chat.review.addComment")} onclick={() => { editorSession.reviewComposerOpen = !editorSession.reviewComposerOpen; }}><MessageSquarePlus size={13} /></button>
+          <button type="button" class="chat-icon-button" disabled={editorSession.fileDeleted} title={t("chat.inspector.openExternally")} aria-label={t("chat.inspector.openExternally")} onclick={() => workingFolderId && selectedPath && chatApi.openProjectWorkingFolderFile(workingFolderId, selectedPath, chat.selectedExecutionEnvironmentId)}><ExternalLink size={13} /></button>
         {:else}
           <span class="min-w-0 flex-1 truncate text-[0.733333rem] text-muted-foreground">{t("chat.inspector.filePreview")}</span>
         {/if}
       </header>
-      {#if reviewComposerOpen && editorSelection?.text}
-        <form class="review-composer" onsubmit={(event) => { event.preventDefault(); void createReviewComment(); }}>
-          <label for="chat-review-comment">{t("chat.review.commentOnSelection", editorSelection.startLine, editorSelection.endLine)}</label>
-          <textarea id="chat-review-comment" bind:value={reviewDraft} maxlength="65536" placeholder={t("chat.review.commentPlaceholder")}></textarea>
+      {#if editorSession.reviewComposerOpen && editorSession.editorSelection?.text}
+        <form class="review-composer" onsubmit={(event) => { event.preventDefault(); void editorSession.createReviewComment(); }}>
+          <label for="chat-review-comment">{t("chat.review.commentOnSelection", editorSession.editorSelection.startLine, editorSession.editorSelection.endLine)}</label>
+          <textarea id="chat-review-comment" bind:value={editorSession.reviewDraft} maxlength="65536" placeholder={t("chat.review.commentPlaceholder")}></textarea>
           <div>
-            <button type="button" onclick={() => { reviewComposerOpen = false; reviewDraft = ""; }}>{t("common.cancel")}</button>
-            <button type="submit" class="primary" disabled={!reviewDraft.trim() || creatingReview}>{creatingReview ? t("common.loading") : t("chat.review.add")}</button>
+            <button type="button" onclick={() => editorSession.closeReviewComposer()}>{t("common.cancel")}</button>
+            <button type="submit" class="primary" disabled={!editorSession.reviewDraft.trim() || editorSession.creatingReview}>{editorSession.creatingReview ? t("common.loading") : t("chat.review.add")}</button>
           </div>
         </form>
       {/if}
-      {#if error && !treeVisible}<p role="alert" class="border-b border-destructive/30 p-2 text-xs text-destructive">{error}</p>{/if}
-      {#if fileDeleted}
+      {#if visibleError && !treeVisible}<p role="alert" class="border-b border-destructive/30 p-2 text-xs text-destructive">{visibleError}</p>{/if}
+      {#if editorSession.fileDeleted}
         <div role="alert" class="save-conflict">
           <span>{fileDirty ? t("chat.inspector.fileDeletedWithUnsavedChanges") : t("chat.inspector.fileDeletedOnDisk")}</span>
-          <div><button type="button" onclick={() => void recreateDeletedFile()}>{t("chat.inspector.recreateFile")}</button></div>
+          <div><button type="button" onclick={() => void editorSession.recreateDeletedFile()}>{t("chat.inspector.recreateFile")}</button></div>
           {#if fileDirty}
-            <form onsubmit={(event) => { event.preventDefault(); void saveConflictCopy(); }}><input bind:value={saveCopyPath} aria-label={t("chat.inspector.saveCopyPath")} /><button type="submit" disabled={!saveCopyPath.trim() || savingFile}>{t("chat.inspector.saveCopy")}</button></form>
+            <form onsubmit={(event) => { event.preventDefault(); void editorSession.saveConflictCopy(); }}><input bind:value={editorSession.saveCopyPath} aria-label={t("chat.inspector.saveCopyPath")} /><button type="submit" disabled={!editorSession.saveCopyPath.trim() || editorSession.saving}>{t("chat.inspector.saveCopy")}</button></form>
           {/if}
         </div>
-      {:else if saveConflict}
+      {:else if editorSession.saveConflict}
         <div role="alert" class="save-conflict">
           <span>{t("chat.inspector.saveConflict")}</span>
-          <div><button type="button" onclick={() => void compareConflict()}>{t("chat.inspector.compareFile")}</button><button type="button" onclick={reloadSelectedFile}>{t("chat.inspector.reloadFile")}</button><button type="button" onclick={() => void overwriteExternalFile()}>{t("chat.inspector.overwriteFile")}</button></div>
-          <form onsubmit={(event) => { event.preventDefault(); void saveConflictCopy(); }}><input bind:value={saveCopyPath} aria-label={t("chat.inspector.saveCopyPath")} /><button type="submit" disabled={!saveCopyPath.trim() || savingFile}>{t("chat.inspector.saveCopy")}</button></form>
+          <div><button type="button" onclick={() => void editorSession.compareConflict()}>{t("chat.inspector.compareFile")}</button><button type="button" onclick={() => editorSession.reloadSelectedFile()}>{t("chat.inspector.reloadFile")}</button><button type="button" onclick={() => void editorSession.overwriteExternalFile()}>{t("chat.inspector.overwriteFile")}</button></div>
+          <form onsubmit={(event) => { event.preventDefault(); void editorSession.saveConflictCopy(); }}><input bind:value={editorSession.saveCopyPath} aria-label={t("chat.inspector.saveCopyPath")} /><button type="submit" disabled={!editorSession.saveCopyPath.trim() || editorSession.saving}>{t("chat.inspector.saveCopy")}</button></form>
         </div>
       {/if}
-      {#if conflictDiskText !== null && preview}
+      {#if editorSession.conflictDiskText !== null && editorSession.preview}
         <section class="conflict-compare" aria-label={t("chat.inspector.compareFile")}>
-          <div><strong>{t("chat.inspector.diskVersion")}</strong><pre>{conflictDiskText}</pre></div>
-          <div><strong>{t("chat.inspector.yourVersion")}</strong><pre>{draftText}</pre></div>
+          <div><strong>{t("chat.inspector.diskVersion")}</strong><pre>{editorSession.conflictDiskText}</pre></div>
+          <div><strong>{t("chat.inspector.yourVersion")}</strong><pre>{editorSession.draftText}</pre></div>
         </section>
       {/if}
-      {#if loadingPreview && !loadingPreviewVisible && !preview}
+      {#if editorSession.loading && !editorSession.loadingVisible && !editorSession.preview}
         <span aria-hidden="true"></span>
-      {:else if loadingPreviewVisible && !preview}
+      {:else if editorSession.loadingVisible && !editorSession.preview}
         <p class="m-auto text-xs text-muted-foreground">{t("common.loading")}</p>
-      {:else if preview && preview.text !== null}
-        {@const previewPath = preview.relativePath}
+      {:else if editorSession.preview && editorSession.preview.text !== null}
         <ChatCodePreview
-          text={draftText}
-          relativePath={preview.relativePath}
-          onChange={(text) => {
-            draftText = text;
-            if (fileDeleted && !saveCopyPath) saveCopyPath = copyPath(previewPath);
-          }}
-          onSelectionChange={(selection) => { editorSelection = selection; }}
-          onSave={() => void saveFile()}
+          text={editorSession.draftText}
+          relativePath={editorSession.preview.relativePath}
+          onChange={(text) => editorSession.setDraftText(text)}
+          onSelectionChange={(selection) => editorSession.setSelection(selection)}
+          onSave={() => void editorSession.save()}
         />
-        {#if loadingPreviewVisible}<div class="preview-loading-indicator" aria-hidden="true"></div>{/if}
-      {:else if preview}
+        {#if editorSession.loadingVisible}<div class="preview-loading-indicator" aria-hidden="true"></div>{/if}
+      {:else if editorSession.preview}
         <div class="m-auto p-4 text-center text-xs text-muted-foreground">
-          <p>{preview.binary ? t("chat.inspector.binary") : preview.oversized ? t("chat.inspector.previewOversized") : t("chat.inspector.previewUnavailable")}</p>
-          <p>{t("chat.inspector.fileSizeBytes", formatNumber(localization.locale, preview.byteSize))}</p>
+          <p>{editorSession.preview.binary ? t("chat.inspector.binary") : editorSession.preview.oversized ? t("chat.inspector.previewOversized") : t("chat.inspector.previewUnavailable")}</p>
+          <p>{t("chat.inspector.fileSizeBytes", formatNumber(localization.locale, editorSession.preview.byteSize))}</p>
         </div>
       {:else}
         <p class="m-auto p-4 text-xs text-muted-foreground">{t("chat.inspector.selectFile")}</p>

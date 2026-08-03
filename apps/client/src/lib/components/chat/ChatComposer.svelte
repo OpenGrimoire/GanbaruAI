@@ -12,40 +12,28 @@
 
 <script lang="ts">
   import { onMount, tick } from "svelte";
-  import Activity from "@lucide/svelte/icons/activity";
   import ArrowUp from "@lucide/svelte/icons/arrow-up";
   import AtSign from "@lucide/svelte/icons/at-sign";
   import Bold from "@lucide/svelte/icons/bold";
-  import Box from "@lucide/svelte/icons/box";
-  import CircleGauge from "@lucide/svelte/icons/circle-gauge";
-  import CommandIcon from "@lucide/svelte/icons/command";
-  import Hammer from "@lucide/svelte/icons/hammer";
   import ImagePlus from "@lucide/svelte/icons/image-plus";
   import Italic from "@lucide/svelte/icons/italic";
   import ListChecks from "@lucide/svelte/icons/list-checks";
   import LoaderCircle from "@lucide/svelte/icons/loader-circle";
   import Paperclip from "@lucide/svelte/icons/paperclip";
   import Plus from "@lucide/svelte/icons/plus";
-  import RotateCcw from "@lucide/svelte/icons/rotate-ccw";
-  import ScanSearch from "@lucide/svelte/icons/scan-search";
-  import Server from "@lucide/svelte/icons/server";
-  import ShieldCheck from "@lucide/svelte/icons/shield-check";
-  import Sparkles from "@lucide/svelte/icons/sparkles";
   import Square from "@lucide/svelte/icons/square";
   import Target from "@lucide/svelte/icons/target";
   import X from "@lucide/svelte/icons/x";
   import * as chatApi from "$lib/api/chat";
-  import type { ChatPromptCatalogEntry, ChatThreadId, McpStatusRead, ProjectWorkingFolderId, ProjectWorkingFolderPathRead, ProviderCapabilities, ProviderInstanceId, ProviderSessionState, SafetyMode } from "$lib/chat/contracts";
+  import type { ChatPromptCatalogEntry, ChatThreadId, McpStatusRead, ProjectWorkingFolderId, ProjectWorkingFolderPathRead, ProviderCapabilities, ProviderInstanceId, SafetyMode } from "$lib/chat/contracts";
   import { ChatComposerEditor, type ChatComposerEditorChange } from "$lib/chat/composer-editor";
   import { parseChatComposerDocument, type ChatComposerMark, type ChatComposerSelection } from "$lib/chat/composer-rich-text";
   import {
     composerActionState,
     clipboardImageFiles,
-    composerRateLimitWindows,
     composerModeCommand,
     composerTokenTrigger,
     contextMeter,
-    filterPromptCatalog,
     interactionModeForPrompt,
     shouldSendComposerKey,
     supportsImagePrompt,
@@ -53,12 +41,25 @@
     validateImageFiles,
     validateModelOptions,
   } from "$lib/chat/composer-model";
+  import {
+    isAppComposerCommand,
+    mergePromptCatalog,
+    promptCatalogKey as buildPromptCatalogKey,
+    promptEntryDisplayLabel,
+    providerCommandBoundaryKey as buildProviderCommandBoundaryKey,
+    providerCommandNeedsInput,
+    providerDirectAction,
+    typedProviderDirectAction,
+    type ProviderDirectAction,
+  } from "$lib/chat/composer-command-model";
   import { chatErrorMessage } from "$lib/chat/error-presentation";
-  import { formatDateTime, formatNumber } from "$lib/i18n/formatters";
+  import { formatNumber } from "$lib/i18n/formatters";
   import { getLocalization } from "$lib/i18n/translator.svelte";
   import { getChat } from "$lib/stores/chat.svelte";
   import { getProjects } from "$lib/stores/projects.svelte";
   import ChatAccessControl from "./ChatAccessControl.svelte";
+  import ChatComposerInfoPanel from "./ChatComposerInfoPanel.svelte";
+  import ChatComposerSuggestionMenu from "./ChatComposerSuggestionMenu.svelte";
   import ChatWorkingFolderControl from "./ChatWorkingFolderControl.svelte";
   import ChatImageGallery from "./ChatImageGallery.svelte";
   import ChatModelControls from "./ChatModelControls.svelte";
@@ -102,14 +103,13 @@
   const pending = $derived(chat.interaction?.pendingRequest ?? null);
   const hasDraft = $derived(Boolean(chat.composer.text.trim()) || chat.composer.attachmentIds.length > 0 || chat.composer.mentions.length > 0);
   const visibleComposerMode = $derived(activeProviderCommand
-    ? { kind: "provider" as const, label: promptEntryLabel(activeProviderCommand.entry) }
+    ? { kind: "provider" as const, label: promptEntryDisplayLabel(activeProviderCommand.entry) }
     : chat.composer.interactionMode === "plan"
       ? { kind: "plan" as const, label: t("chat.composer.planCommand") }
       : null);
   const action = $derived(composerActionState(chat.interaction?.sessionState ?? "stopped", capabilities, hasDraft, pending !== null));
   const latestUsage = $derived(chat.interaction?.usage ?? chat.timelinePages.flatMap((page) => page.turns).at(-1)?.usage ?? null);
   const meter = $derived(contextMeter(latestUsage?.contextTokens ?? null, latestUsage?.contextLimit ?? null));
-  const rateLimitWindows = $derived(composerRateLimitWindows(chat.interaction?.rateLimitStatus ?? null));
   const projectArchived = $derived(projects.selectedProject?.status === "archived");
   const workingFolderUnavailable = $derived(
     chat.selectedWorkingFolder === null
@@ -323,10 +323,10 @@
         editorController.replaceRange(trigger.start, trigger.end, "");
         closeMenu();
         editorController.focus({ start: trigger.start, end: trigger.start });
-        const directAction = providerDirectAction(entry);
+        const directAction = providerDirectAction(entry, provider?.configuration.familyId ?? null);
         if (directAction) {
           await runProviderDirectAction(directAction);
-        } else if (commandNeedsInput(entry)) {
+        } else if (providerCommandNeedsInput(entry, provider?.configuration.familyId ?? null)) {
           beginProviderCommand(entry);
         } else {
           await send(entry);
@@ -364,23 +364,13 @@
         openComposerPanel("status");
         break;
       case "/changes":
-        window.dispatchEvent(new CustomEvent("ganbaru-ai:chat-open-changes"));
+        window.dispatchEvent(new CustomEvent("ganbaru-ai:chat-open-review"));
         break;
     }
     queueMicrotask(() => editorController?.focus());
   }
 
-  function providerDirectAction(entry: ChatPromptCatalogEntry): "compact" | "mcp" | null {
-    if (entry.source !== "provider") return null;
-    const family = provider?.configuration.familyId;
-    if (entry.value.toLowerCase() === "/compact" && (family === "codex" || family === "claude")) {
-      return "compact";
-    }
-    if (entry.value.toLowerCase() === "/mcp" && family === "codex") return "mcp";
-    return null;
-  }
-
-  async function runProviderDirectAction(action: "compact" | "mcp"): Promise<void> {
+  async function runProviderDirectAction(action: ProviderDirectAction): Promise<void> {
     const threadId = chat.selectedThread?.id;
     if (action === "mcp") {
       const workingFolderId = chat.composer.workingFolderId;
@@ -574,7 +564,12 @@
     const commandPrompt = selectedCommand
       ? `${selectedCommand.value}${chat.composer.text.trim() ? ` ${chat.composer.text.trim()}` : ""}`
       : null;
-    if (errors.length > 0 || modelOptionErrors.length > 0 || (!selectedCommand && !hasDraft) || (selectedCommand && commandNeedsInput(selectedCommand) && !chat.composer.text.trim())) {
+    if (errors.length > 0
+      || modelOptionErrors.length > 0
+      || (!selectedCommand && !hasDraft)
+      || (selectedCommand
+        && providerCommandNeedsInput(selectedCommand, provider?.configuration.familyId ?? null)
+        && !chat.composer.text.trim())) {
       const field = errors[0]?.field;
       operationError = field ? selectionError(field) : modelOptionErrors.length > 0
         ? t("chat.composer.invalidTrait")
@@ -603,22 +598,15 @@
 
   function executeTypedAppCommand(): boolean {
     const value = chat.composer.text.trim().toLowerCase();
-    if (!["/plan", "/build", "/model", "/permissions", "/status", "/changes"].includes(value)) {
-      return false;
-    }
+    if (!isAppComposerCommand(value)) return false;
     const trigger = { kind: "command" as const, query: value.slice(1), start: 0, end: chat.composer.text.length };
     runAppCommand(value, trigger);
     return true;
   }
 
   function executeTypedProviderDirectAction(): boolean {
-    const family = provider?.configuration.familyId;
     const value = chat.composer.text.trim().toLowerCase();
-    const action = value === "/compact" && (family === "codex" || family === "claude")
-      ? "compact"
-      : value === "/mcp" && family === "codex"
-        ? "mcp"
-        : null;
+    const action = typedProviderDirectAction(value, provider?.configuration.familyId ?? null);
     if (!action) return false;
     const trigger = { kind: "command" as const, query: value.slice(1), start: 0, end: chat.composer.text.length };
     editorController?.replaceRange(trigger.start, trigger.end, "");
@@ -628,12 +616,12 @@
   }
 
   function promptCatalogKey(): string {
-    return [
-      chat.composer.workingFolderId ?? "",
-      chat.composer.providerInstanceId ?? "",
-      chat.selectedThread?.id ?? "",
-      chat.interaction?.sessionState ?? "stopped",
-    ].join(":");
+    return buildPromptCatalogKey({
+      workingFolderId: chat.composer.workingFolderId,
+      providerInstanceId: chat.composer.providerInstanceId,
+      threadId: chat.selectedThread?.id ?? null,
+      sessionState: chat.interaction?.sessionState ?? "stopped",
+    });
   }
 
   function requestPromptCatalog(
@@ -661,12 +649,7 @@
     kind: "skill" | "command",
     query: string,
   ): ChatPromptCatalogEntry[] {
-    const appCatalog = appCommandCatalog();
-    const appValues = new Set(appCatalog.map((entry) => entry.value.toLowerCase()));
-    return filterPromptCatalog([
-      ...appCatalog,
-      ...providerCatalog.filter((entry) => !appValues.has(entry.value.toLowerCase())),
-    ], kind, query);
+    return mergePromptCatalog(appCommandCatalog(), providerCatalog, kind, query);
   }
 
   function appCommandCatalog(): ChatPromptCatalogEntry[] {
@@ -715,122 +698,19 @@
     queueMicrotask(() => editorController?.focus());
   }
 
-  function commandNeedsInput(entry: ChatPromptCatalogEntry): boolean {
-    const command = entry.value.toLowerCase();
-    const family = provider?.configuration.familyId;
-    if (entry.source === "provider" && family === "codex" && ["/compact", "/review", "/mcp"].includes(command)) {
-      return false;
-    }
-    if (entry.source === "provider" && family === "claude" && ["/compact", "/clear", "/context", "/usage"].includes(command)) {
-      return false;
-    }
-    return (entry.source === "provider" && family === "codex" && command === "/goal")
-      || entry.argumentHint !== null;
-  }
-
   function providerCommandBoundaryKey(): string {
-    return [
-      chat.composer.workingFolderId ?? "",
-      chat.composer.providerInstanceId ?? "",
-      chat.composer.threadId ?? "",
-    ].join(":");
+    return buildProviderCommandBoundaryKey({
+      workingFolderId: chat.composer.workingFolderId,
+      providerInstanceId: chat.composer.providerInstanceId,
+      threadId: chat.composer.threadId,
+    });
   }
 
   function providerCommandPlaceholder(): string {
     if (!activeProviderCommand) return t("chat.composer.placeholder");
     return activeProviderCommand.entry.value.toLowerCase() === "/goal"
       ? t("chat.composer.goalInputPlaceholder")
-      : t("chat.composer.commandInputPlaceholder", promptEntryLabel(activeProviderCommand.entry));
-  }
-
-  function promptEntryLabel(entry: ChatPromptCatalogEntry): string {
-    if (entry.kind !== "command") return entry.label;
-    const commandName = entry.value.replace(/^\//, "");
-    if (entry.label.toLowerCase() !== commandName.toLowerCase()) return entry.label;
-    return `${entry.label.charAt(0).toUpperCase()}${entry.label.slice(1)}`;
-  }
-
-  function promptEntryIcon(entry: ChatPromptCatalogEntry): typeof Activity {
-    if (entry.kind === "skill") return Sparkles;
-    switch (entry.value.toLowerCase()) {
-      case "/review":
-      case "/changes":
-        return ScanSearch;
-      case "/compact":
-      case "/context":
-        return CircleGauge;
-      case "/goal":
-        return Target;
-      case "/mcp":
-        return Server;
-      case "/plan":
-        return ListChecks;
-      case "/build":
-        return Hammer;
-      case "/model":
-        return Box;
-      case "/permissions":
-        return ShieldCheck;
-      case "/status":
-      case "/usage":
-        return Activity;
-      case "/clear":
-        return RotateCcw;
-      default:
-        return CommandIcon;
-    }
-  }
-
-  function selectedModelLabel(): string {
-    return provider?.modelCatalog?.models.find((entry) => entry.id === readSelectedModelId())?.displayName
-      ?? t("chat.composer.statusProviderManaged");
-  }
-
-  function accountStatusLabel(): string {
-    const account = chat.interaction?.accountStatus;
-    if (account?.accountLabel && account.planLabel) return `${account.accountLabel} · ${account.planLabel}`;
-    return account?.accountLabel ?? account?.planLabel ?? t("chat.composer.statusAccountUnavailable");
-  }
-
-  function contextRemainingLabel(): string {
-    if (!meter || meter.maximumTokens === null || meter.ratio === null) {
-      return contextLabel() ?? t("chat.composer.contextUnavailable");
-    }
-    return t(
-      "chat.composer.contextRemaining",
-      contextPercentage(1 - meter.ratio),
-      formatNumber(localization.locale, meter.usedTokens),
-      formatNumber(localization.locale, meter.maximumTokens),
-    );
-  }
-
-  function resetTimeLabel(seconds: number | null): string | null {
-    if (seconds === null) return null;
-    return formatDateTime(localization.locale, seconds * 1_000, {
-      month: "short",
-      day: "numeric",
-      hour: "numeric",
-      minute: "2-digit",
-    });
-  }
-
-  function readableProviderStatus(value: string | null): string {
-    if (!value) return t("chat.composer.mcpConfigured");
-    const words = value.replaceAll(/[_-]+/g, " ").trim();
-    return words ? `${words.charAt(0).toUpperCase()}${words.slice(1)}` : t("chat.composer.mcpConfigured");
-  }
-
-  function providerSessionLabel(state: ProviderSessionState): string {
-    switch (state) {
-      case "stopped": return t("chat.composer.statusSessionStopped");
-      case "starting": return t("chat.composer.statusSessionStarting");
-      case "ready": return t("chat.composer.statusSessionReady");
-      case "active": return t("chat.composer.statusSessionActive");
-      case "waiting_for_approval": return t("chat.composer.statusSessionApproval");
-      case "waiting_for_user_input": return t("chat.composer.statusSessionInput");
-      case "stopping": return t("chat.composer.statusSessionStopping");
-      case "failed": return t("chat.composer.statusSessionFailed");
-    }
+      : t("chat.composer.commandInputPlaceholder", promptEntryDisplayLabel(activeProviderCommand.entry));
   }
 
   function readSelectedModelId(): string | null {
@@ -941,52 +821,13 @@
   {#if projectArchived}<div role="status" class="recovery-row"><strong>{t("chat.firstUse.archivedProjectTitle")}</strong><span>{t("chat.composer.archivedProject")}</span></div>{/if}
   {#if workingFolderUnavailable}<div role="status" class="recovery-row"><strong>{t("chat.firstUse.missingBindingTitle")}</strong><span>{t("chat.composer.workingFolderUnavailable")}</span></div>{/if}
   {#if composerPanel}
-    <div class="composer-info-panel" role="region" aria-label={composerPanel === "mcp" ? t("chat.composer.mcpPanelTitle") : t("chat.composer.statusPanelTitle")}>
-      <header>
-        <strong>{composerPanel === "mcp" ? t("chat.composer.mcpPanelTitle") : t("chat.composer.statusPanelTitle")}</strong>
-        <button type="button" onclick={closeComposerPanel}>{t("chat.composer.closePanel")}</button>
-      </header>
-      {#if composerPanel === "status"}
-        <dl class="status-panel-grid">
-          <div><dt>{t("chat.composer.statusProvider")}</dt><dd>{provider?.configuration.label ?? t("chat.composer.statusUnknown")}</dd></div>
-          <div><dt>{t("chat.composer.statusSession")}</dt><dd><code title={chat.interaction?.sessionId ?? undefined}>{chat.interaction?.sessionId ?? t("chat.composer.statusNoSession")}</code><span class="status-state">{providerSessionLabel(chat.interaction?.sessionState ?? "stopped")}</span></dd></div>
-          <div><dt>{t("chat.composer.statusModel")}</dt><dd>{selectedModelLabel()}</dd></div>
-          <div><dt>{t("chat.composer.statusAccount")}</dt><dd>{accountStatusLabel()}</dd></div>
-          <div class="status-meter-row">
-            <dt>{t("chat.composer.statusContext")}</dt>
-            <dd>
-              <span>{contextRemainingLabel()}</span>
-              {#if meter && meter.ratio !== null}<span class="panel-meter" style={`--panel-progress:${Math.max(0, 1 - meter.ratio)}`}><span></span></span>{/if}
-            </dd>
-          </div>
-          {#each rateLimitWindows as window (window.id)}
-            <div class="status-meter-row">
-              <dt>{window.label}</dt>
-              <dd>
-                <span>{t("chat.composer.rateLimitRemaining", formatNumber(localization.locale, 100 - window.usedPercent, { maximumFractionDigits: 0 }))}{#if resetTimeLabel(window.resetsAtSeconds)} <small>{t("chat.composer.rateLimitResets", resetTimeLabel(window.resetsAtSeconds) ?? "")}</small>{/if}</span>
-                <span class="panel-meter" style={`--panel-progress:${Math.max(0, 1 - window.usedPercent / 100)}`}><span></span></span>
-              </dd>
-            </div>
-          {/each}
-        </dl>
-      {:else if panelLoading}
-        <p class="panel-state"><LoaderCircle size={14} class="animate-spin" />{t("common.loading")}</p>
-      {:else if panelError}
-        <p class="panel-error" role="alert">{panelError}</p>
-      {:else if !mcpStatus || mcpStatus.servers.length === 0}
-        <p class="panel-state">{t("chat.composer.mcpEmpty")}</p>
-      {:else}
-        <div class="mcp-status-table" aria-label={t("chat.composer.mcpPanelTitle")}>
-          {#each mcpStatus.servers as server (server.name)}
-            <div>
-              <strong title={server.name}>{server.name}</strong>
-              <span>{t("chat.composer.mcpAuthStatus", readableProviderStatus(server.authStatus))}</span>
-              <span class:enabled={server.enabled}>{server.enabled ? t("chat.composer.enabled") : t("chat.composer.disabled")}</span>
-            </div>
-          {/each}
-        </div>
-      {/if}
-    </div>
+    <ChatComposerInfoPanel
+      panel={composerPanel}
+      {mcpStatus}
+      loading={panelLoading}
+      error={panelError}
+      onClose={closeComposerPanel}
+    />
   {/if}
   {#if chat.composerAttachments.length > 0}<ChatImageGallery images={chat.composerAttachments.map((attachment) => ({ id: attachment.id, displayName: attachment.originalDisplayName, byteSize: attachment.byteSize }))} variant="composer" onRemove={(id) => chat.removeComposerAttachment(id)} />{/if}
   {#if chat.composer.mentions.length > 0}<div class="mention-chips">{#each chat.composer.mentions as mention}<span title={mention.relativePath}><AtSign size={11} />{mention.relativePath}{#if mention.ignored}<small>{t("chat.composer.ignored")}</small>{/if}<button type="button" aria-label={t("chat.composer.removeAttachment", mention.relativePath)} onclick={() => chat.setComposerMentions(chat.composer.mentions.filter((entry) => entry.relativePath !== mention.relativePath))}><X size={10} /></button></span>{/each}</div>{/if}
@@ -1018,31 +859,22 @@
       oncompositionstart={() => editorController?.handleCompositionStart()}
       oncompositionend={() => editorController?.handleCompositionEnd()}
     ></div>
-    {#if menuKind}<div bind:this={menuRoot} id="chat-composer-menu" class="composer-menu" role="listbox" aria-label={menuKind === "mention" ? t("chat.composer.mentionFiles") : menuKind === "skill" ? t("chat.composer.skillsMenu") : t("chat.composer.commandsMenu")}>
-      {#if menuKind === "mention"}<label><input type="checkbox" bind:checked={includeIgnored} onchange={() => { if (editorController) void updateMenu(editorController.plainText(), editorController.selection().start); }} />{t("chat.composer.showIgnored")}</label>{/if}
-      {#if menuLoading}<p><LoaderCircle size={13} class="animate-spin" />{t("common.loading")}</p>
-      {:else if menuEntries.length === 0}<p>{t("chat.composer.noMatches")}</p>
-      {:else if menuKind === "mention"}
-        {#each menuEntries as entry, index}
-          {#if "relativePath" in entry}<button id={`chat-composer-option-${index}`} data-menu-index={index} type="button" class:selected={index === menuIndex} role="option" aria-selected={index === menuIndex} onpointerdown={(event) => event.preventDefault()} onclick={() => void chooseMenuEntry(index)}><strong>{entry.displayName}</strong><small>{entry.relativePath}{#if entry.ignored} · {t("chat.composer.ignored")}{/if}</small></button>{/if}
-        {/each}
-        {#if menuCursor}<button type="button" onclick={() => void loadMoreMentions()}>{t("chat.composer.loadMore")}</button>{/if}
-      {:else}
-        {#each menuEntries as entry, index}
-          {#if "value" in entry}
-            {@const EntryIcon = promptEntryIcon(entry)}
-            <button id={`chat-composer-option-${index}`} data-menu-index={index} type="button" class="prompt-option" class:selected={index === menuIndex} role="option" aria-selected={index === menuIndex} onpointerdown={(event) => event.preventDefault()} onclick={() => void chooseMenuEntry(index)}>
-              <EntryIcon size={15} strokeWidth={1.8} />
-              <span class="prompt-option-copy">
-                <strong>{promptEntryLabel(entry)}</strong>
-                {#if entry.description}<small>{entry.description}</small>{/if}
-                {#if entry.stale}<small class="stale-command">{t("chat.composer.staleEntry")}</small>{/if}
-              </span>
-            </button>
-          {/if}
-        {/each}
-      {/if}
-    </div>{/if}
+    {#if menuKind}
+      <ChatComposerSuggestionMenu
+        bind:element={menuRoot}
+        bind:includeIgnored
+        kind={menuKind}
+        entries={menuEntries}
+        selectedIndex={menuIndex}
+        loading={menuLoading}
+        hasMore={menuCursor !== null}
+        onRefreshMentions={() => {
+          if (editorController) void updateMenu(editorController.plainText(), editorController.selection().start);
+        }}
+        onChoose={(index) => void chooseMenuEntry(index)}
+        onLoadMore={() => void loadMoreMentions()}
+      />
+    {/if}
     <div class="composer-toolbar">
       <div class="toolbar-left">
         <input bind:this={fileInput} class="sr-only" type="file" accept="image/png,image/jpeg,image/gif,image/webp" multiple onchange={(event) => void importFiles([...(event.currentTarget.files ?? [])])} />
@@ -1128,46 +960,6 @@
   .mention-chips { display: flex; flex-wrap: wrap; gap: 0.3rem; margin-top: 0.65rem; }
   .mention-chips > span { display: inline-flex; max-width: 100%; align-items: center; gap: 0.2rem; border: 1px solid var(--border); border-radius: 999px; padding: 0.2rem 0.4rem; font-size: 0.666667rem; }
   .mention-chips small { color: var(--status-tentative); }
-  .composer-menu { position: absolute; inset-inline: 0; bottom: calc(100% + 0.35rem); z-index: 25; max-height: min(20rem, 55vh); overflow: auto; overscroll-behavior: contain; scrollbar-gutter: stable; border: 1px solid var(--border); border-radius: 0.5rem; background: var(--popover); padding: 0.35rem; }
-  .composer-menu > label, .composer-menu > p { display: flex; align-items: center; gap: 0.35rem; padding: 0.35rem; color: var(--muted-foreground); font-size: 0.7rem; }
-  .composer-menu > button { display: block; width: 100%; border-radius: 0.35rem; padding: 0.45rem 0.5rem; text-align: left; }
-  .composer-menu > button:hover, .composer-menu > button.selected { background: var(--accent); }
-  .composer-menu strong, .composer-menu small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .composer-menu strong { font-size: 0.733333rem; }
-  .composer-menu small { color: var(--muted-foreground); font-size: 0.666667rem; }
-  .composer-menu > .prompt-option { display: flex; min-height: 2.35rem; align-items: center; gap: 0.65rem; padding: 0.45rem 0.6rem; }
-  .prompt-option > :global(svg) { flex: 0 0 auto; color: var(--muted-foreground); }
-  .prompt-option-copy { display: flex; min-width: 0; flex: 1; align-items: baseline; gap: 0.45rem; }
-  .prompt-option-copy strong, .prompt-option-copy small { display: block; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .prompt-option-copy strong { flex: 0 0 auto; color: var(--foreground); font-size: 0.8rem; font-weight: 500; }
-  .prompt-option-copy small { flex: 1; color: var(--muted-foreground); font-size: 0.733333rem; }
-  .prompt-option-copy .stale-command { flex: 0 1 auto; color: var(--status-tentative); }
-  .composer-info-panel { position: absolute; inset-inline: 0; bottom: calc(100% + 0.4rem); z-index: 30; max-height: min(22rem, calc(100dvh - 7rem)); overflow: auto; overscroll-behavior: contain; margin-inline: 0 !important; border: 1px solid var(--border); border-radius: 0.85rem; background: var(--popover); color: var(--popover-foreground); }
-  .composer-info-panel > header { position: sticky; top: 0; z-index: 1; display: flex; min-height: 2.6rem; align-items: center; justify-content: space-between; gap: 1rem; border-bottom: 1px solid color-mix(in srgb, var(--border) 72%, transparent); background: var(--popover); padding: 0.55rem 0.9rem; }
-  .composer-info-panel > header strong { font-size: 0.866667rem; font-weight: 600; }
-  .composer-info-panel > header button { border-radius: 0.4rem; padding: 0.2rem 0.35rem; color: var(--muted-foreground); font-size: 0.733333rem; }
-  .composer-info-panel > header button:hover { background: var(--accent); color: var(--foreground); }
-  .status-panel-grid { display: grid; padding: 0.55rem 0.9rem 0.75rem; font-size: 0.733333rem; }
-  .status-panel-grid > div { display: grid; min-width: 0; grid-template-columns: 6.5rem minmax(0, 1fr); align-items: baseline; gap: 0.75rem; padding-block: 0.28rem; }
-  .status-panel-grid dt { color: var(--muted-foreground); }
-  .status-panel-grid dd { display: flex; min-width: 0; align-items: center; gap: 0.55rem; margin: 0; overflow: hidden; }
-  .status-panel-grid code { overflow: hidden; color: inherit; font: inherit; text-overflow: ellipsis; white-space: nowrap; }
-  .status-state { flex: 0 0 auto; border-radius: 999px; background: var(--muted); padding: 0.08rem 0.38rem; color: var(--muted-foreground); font-size: 0.633333rem; }
-  .status-panel-grid > .status-meter-row { align-items: start; }
-  .status-meter-row dd { display: grid; gap: 0.28rem; }
-  .status-meter-row dd > span:first-child { display: flex; min-width: 0; justify-content: space-between; gap: 0.75rem; }
-  .status-meter-row small { color: var(--muted-foreground); font-size: 0.666667rem; }
-  .panel-meter { display: block; width: 100%; height: 0.38rem; overflow: hidden; border-radius: 999px; background: color-mix(in srgb, var(--muted-foreground) 18%, transparent); }
-  .panel-meter > span { display: block; width: calc(var(--panel-progress) * 100%); height: 100%; border-radius: inherit; background: color-mix(in srgb, var(--foreground) 72%, var(--muted-foreground)); }
-  .mcp-status-table { display: grid; padding-block: 0.4rem; font-size: 0.733333rem; }
-  .mcp-status-table > div { display: grid; min-width: 0; grid-template-columns: minmax(8rem, 1fr) minmax(8rem, 1fr) auto; align-items: center; gap: 1rem; padding: 0.36rem 0.9rem; }
-  .mcp-status-table > div:hover { background: color-mix(in srgb, var(--accent) 52%, transparent); }
-  .mcp-status-table strong { overflow: hidden; font-family: var(--font-mono, monospace); font-weight: 400; text-overflow: ellipsis; white-space: nowrap; }
-  .mcp-status-table span { color: var(--muted-foreground); }
-  .mcp-status-table span:last-child { justify-self: end; color: var(--destructive); }
-  .mcp-status-table span.enabled { color: var(--foreground); }
-  .panel-state, .panel-error { display: flex; min-height: 4.5rem; align-items: center; gap: 0.5rem; padding: 0.75rem 0.9rem; color: var(--muted-foreground); font-size: 0.733333rem; }
-  .panel-error { color: var(--destructive); }
   .queued-row, .recovery-row { display: flex; flex-wrap: wrap; align-items: center; gap: 0.4rem; margin-top: 0.65rem; border: 1px solid var(--border); border-radius: 0.55rem; padding: 0.45rem; font-size: 0.7rem; }
   .queued-row div { min-width: 0; flex: 1; }
   .queued-row p { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted-foreground); }
@@ -1177,7 +969,7 @@
   .request-panel-shell { margin-bottom: 0.75rem; }
   @container chat-composer (max-width: 640px) { .toolbar-right small { max-width: 8rem; } }
   @container chat-composer (max-width: 460px) { .format-action { display: none; } }
-  @container chat-composer (max-width: 390px) { .toolbar-left { gap: 0.1rem; } .context-ring { display: none; } .prompt-option-copy small { display: none; } .status-panel-grid > div { grid-template-columns: 5rem minmax(0, 1fr); } .mcp-status-table > div { grid-template-columns: minmax(0, 1fr) auto; gap: 0.65rem; } .mcp-status-table span:nth-child(2) { grid-column: 1 / -1; grid-row: 2; } }
+  @container chat-composer (max-width: 390px) { .toolbar-left { gap: 0.1rem; } .context-ring { display: none; } }
   @container chat-composer (max-width: 300px) { .composer-editor { padding-inline: 0.8rem; } .composer-toolbar { padding-inline: 0.4rem; } }
   @media (prefers-reduced-motion: reduce) { .chat-composer { scroll-behavior: auto; } }
 </style>

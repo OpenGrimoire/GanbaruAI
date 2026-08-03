@@ -3,16 +3,6 @@
   import { quintOut } from "svelte/easing";
   import { slide } from "svelte/transition";
   import { listen } from "@tauri-apps/api/event";
-  import Archive from "@lucide/svelte/icons/archive";
-  import ArchiveRestore from "@lucide/svelte/icons/archive-restore";
-  import ArrowLeft from "@lucide/svelte/icons/arrow-left";
-  import Command from "@lucide/svelte/icons/command";
-  import Hash from "@lucide/svelte/icons/hash";
-  import MessageSquarePlus from "@lucide/svelte/icons/message-square-plus";
-  import PanelBottom from "@lucide/svelte/icons/panel-bottom";
-  import PanelRight from "@lucide/svelte/icons/panel-right";
-  import Search from "@lucide/svelte/icons/search";
-  import Settings from "@lucide/svelte/icons/settings";
   import { chatHeaderActionInset, nextThreadIndex } from "$lib/chat/shell-model";
   import { loadChatCodeEditorRuntime } from "$lib/chat/code-editor-loader";
   import { inspectorFocusAction } from "$lib/chat/inspector-model";
@@ -26,6 +16,7 @@
     CHAT_REPLY_THREAD_WIDTH_PX,
     chatBottomPanelResizeMaximum,
     chatLayoutDecision,
+    chatLayoutsEqual,
     chatInspectorResizeMaximum,
     fittedChatBottomPanelHeight,
     fittedChatInspectorWidth,
@@ -33,31 +24,35 @@
     panelWidthFromKey,
     type ChatLayoutDecision,
   } from "$lib/chat/responsive-layout";
-  import type { ChatChannelRead, ChatPanelPreferences } from "$lib/chat/contracts";
+  import type { ChatPanelPreferences } from "$lib/chat/contracts";
   import { parseChatChangeNotification } from "$lib/chat/validation";
   import { hasOnlyShortcutModifier } from "$lib/keyboard-shortcuts";
-  import { formatDateTime } from "$lib/i18n/formatters";
+  import { firstFocusable, trapTabFocus } from "$lib/chat/focus-navigation";
+  import {
+    isChatCheckpointRestoreRequest,
+    restoreChatCheckpoint,
+  } from "$lib/chat/checkpoint-restoration";
   import { getLocalization } from "$lib/i18n/translator.svelte";
   import { getChat } from "$lib/stores/chat.svelte";
   import { getProjects } from "$lib/stores/projects.svelte";
   import { getSettingsLauncher } from "$lib/stores/settingsLauncher.svelte";
-  import * as chatApi from "$lib/api/chat";
   import ChatWorkspaceHeader from "./ChatWorkspaceHeader.svelte";
   import ChatFirstUse from "./ChatFirstUse.svelte";
   import ChatHeaderActions from "./ChatHeaderActions.svelte";
   import ChatChannelRail from "./ChatChannelRail.svelte";
+  import ChatChannelArchive from "./ChatChannelArchive.svelte";
+  import ChatCommandMenu from "./ChatCommandMenu.svelte";
   import ChatChannelFeed from "./ChatChannelFeed.svelte";
   import ChatReplyThreadPanel from "./ChatReplyThreadPanel.svelte";
   import ChatWorkspaceObserver from "./ChatWorkspaceObserver.svelte";
   import ChatWorkspacePanel from "./ChatWorkspacePanel.svelte";
-  import { getChatBenchmarkHandle } from "./benchmark-handle.svelte";
+  import { registerMountedChatBenchmark } from "./benchmark-handle.svelte";
 
   const localization = getLocalization();
   const { t } = localization;
   const chat = getChat();
   const projects = getProjects();
   const settings = getSettingsLauncher();
-  const LEGACY_INSPECTOR_WIDTH = 360;
   const DEFAULT_INSPECTOR_WIDTH = 520;
   const MIN_INSPECTOR_WIDTH = 240;
   const MAX_INSPECTOR_WIDTH = 960;
@@ -78,7 +73,6 @@
   let inspectorShell: HTMLElement | undefined = $state();
   let composerDockElement: HTMLDivElement | undefined = $state();
   let composerDockHeight = $state(0);
-  let commandDialog: HTMLDivElement | undefined = $state();
   let commandMenuOpen = $state(false);
   let resizingInspector = $state(false);
   let resizingBottomPanel = $state(false);
@@ -97,8 +91,6 @@
   let auxiliaryPairWasOpen = false;
   let railModalWasOpen = false;
   let railReturnFocus: HTMLElement | null = null;
-  let commandMenuWasOpen = false;
-  let commandReturnFocus: HTMLElement | null = null;
   let shellWidth = $state(INITIAL_SHELL_WIDTH);
   let shellHeight = $state(INITIAL_SHELL_HEIGHT);
   let shellRight = $state(INITIAL_SHELL_WIDTH);
@@ -129,15 +121,6 @@
   const threadFullSurface = $derived(layout.replyThreadPresentation === "main");
   const threadColumnOpen = $derived(layout.replyThreadPresentation === "column");
   let loadError = $state<string | null>(null);
-  let archiveQuery = $state("");
-  let archiveRestoringId = $state<string | null>(null);
-  let archiveError = $state<string | null>(null);
-  const filteredArchivedChannels = $derived(chat.archivedChannels.filter((channel) => {
-    const normalized = archiveQuery.trim().toLocaleLowerCase();
-    return !normalized
-      || channel.name.toLocaleLowerCase().includes(normalized)
-      || channel.topic.toLocaleLowerCase().includes(normalized);
-  }));
   let initialLoadingVisible = $state(false);
   let layoutError = $state<string | null>(null);
   let politeAnnouncement = $state("");
@@ -158,8 +141,6 @@
     bottom: false,
   });
   const snapTransitionTimers: Partial<Record<ResizableOuterPanel, number>> = {};
-  let panelPreferencesInitialized = false;
-  let inspectorUsesPromotedDefault = false;
   let pendingPanelWidths = $state<ChatPanelPreferences | null>(null);
   let panelWidthSave: Promise<void> | null = null;
 
@@ -205,7 +186,7 @@
     if (globalActionsElement) headerGeometryObserver.observe(globalActionsElement);
     refreshHeaderActionInset();
     const revertMessage = (event: Event) => {
-      if (!(event instanceof CustomEvent) || !isRevertMessageDetail(event.detail)) return;
+      if (!(event instanceof CustomEvent) || !isChatCheckpointRestoreRequest(event.detail)) return;
       void restoreMessageCheckpoint(event.detail.threadId, event.detail.checkpointId);
     };
     const openWorkspaceTool = (event: Event) => { openInspectorWorkspaceForEvent(event); };
@@ -213,32 +194,11 @@
       settings.open("chat", { chatSubsection: "teammates" });
     };
     window.addEventListener("ganbaru-ai:chat-revert-message", revertMessage);
-    window.addEventListener("ganbaru-ai:chat-open-changes", openWorkspaceTool);
     window.addEventListener("ganbaru-ai:chat-open-review", openWorkspaceTool);
     window.addEventListener("ganbaru-ai:chat-open-file", openWorkspaceTool);
     window.addEventListener("ganbaru-ai:chat-configure-teammate", openTeammates);
     window.addEventListener("ganbaru-ai:chat-manage-members", openTeammates);
-    const unregisterBenchmark = getChatBenchmarkHandle().register({
-      channelIds: () => chat.activeChannels.map((channel) => channel.id),
-      waitUntilUsable: () => waitForBenchmarkState(() => !chat.loading && chat.activeChannels.length > 0),
-      switchChannel: async (channelId) => {
-        await chat.selectChannel(channelId);
-        await waitForBenchmarkState(() => (
-          chat.selectedChannelId === channelId
-          && !chat.channelMessagesLoading
-          && chat.channelMessages.length > 0
-        ));
-        await nextAnimationFrame();
-      },
-      localSearch: (query) => {
-        const normalized = query.trim().toLocaleLowerCase();
-        return [...chat.activeChannels, ...chat.archivedChannels].filter((channel) => (
-          channel.name.toLocaleLowerCase().includes(normalized)
-          || channel.topic.toLocaleLowerCase().includes(normalized)
-        )).length;
-      },
-      streamFrames: (frameCount) => measureBenchmarkStreamFrames(frameCount),
-    });
+    const unregisterBenchmark = registerMountedChatBenchmark();
     return () => {
       unregisterBenchmark();
       observer.disconnect();
@@ -254,7 +214,6 @@
       }
       motionQuery.removeEventListener("change", updateMotionPreference);
       window.removeEventListener("ganbaru-ai:chat-revert-message", revertMessage);
-      window.removeEventListener("ganbaru-ai:chat-open-changes", openWorkspaceTool);
       window.removeEventListener("ganbaru-ai:chat-open-review", openWorkspaceTool);
       window.removeEventListener("ganbaru-ai:chat-open-file", openWorkspaceTool);
       window.removeEventListener("ganbaru-ai:chat-configure-teammate", openTeammates);
@@ -321,22 +280,6 @@
     }, 140);
   });
 
-  function nextAnimationFrame(): Promise<number> {
-    return new Promise((resolve) => requestAnimationFrame(resolve));
-  }
-
-  async function restoreArchivedChannel(channel: ChatChannelRead): Promise<void> {
-    archiveRestoringId = channel.id;
-    archiveError = null;
-    try {
-      await chat.restoreChannel(channel);
-    } catch (cause: unknown) {
-      archiveError = cause instanceof Error ? cause.message : String(cause);
-    } finally {
-      archiveRestoringId = null;
-    }
-  }
-
   function refreshHeaderActionInset(): void {
     if (!primaryHeaderElement || !globalActionsElement) return;
     const bottomPanelAction = globalActionsElement.querySelector<HTMLElement>(
@@ -360,55 +303,11 @@
     primaryHeaderElement.style.setProperty("--chat-header-action-inset", `${inset}px`);
   }
 
-  async function waitForBenchmarkState(
-    predicate: () => boolean,
-    timeoutMs = 10_000,
-  ): Promise<void> {
-    const deadline = performance.now() + timeoutMs;
-    while (!predicate()) {
-      if (performance.now() >= deadline) throw new Error("Chat benchmark state timed out");
-      await nextAnimationFrame();
-    }
-  }
-
-  async function measureBenchmarkStreamFrames(frameCount: number): Promise<number[]> {
-    const targetIndex = chat.channelMessages.length - 1;
-    const original = chat.channelMessages[targetIndex];
-    if (!original || targetIndex < 0) throw new Error("Chat benchmark requires a loaded message");
-    const markdown = original.normalizedMarkdown;
-    const samples: number[] = [];
-    let previous = await nextAnimationFrame();
-    try {
-      for (let index = 0; index < frameCount; index++) {
-        chat.channelMessages = chat.channelMessages.map((message, messageIndex) => messageIndex === targetIndex
-          ? { ...message, normalizedMarkdown: `${markdown}\nstream-${index}` }
-          : message);
-        await tick();
-        const painted = await nextAnimationFrame();
-        samples.push(painted - previous);
-        previous = painted;
-      }
-    } finally {
-      chat.channelMessages = chat.channelMessages.map((message, messageIndex) => messageIndex === targetIndex
-        ? original
-        : message);
-      await tick();
-    }
-    return samples;
-  }
-
   $effect(() => {
     if (!chat.settings) return;
     const configuredInspectorWidth = chat.settings.configuration.panels.inspectorWidthPx;
-    if (!panelPreferencesInitialized) {
-      inspectorUsesPromotedDefault = configuredInspectorWidth === LEGACY_INSPECTOR_WIDTH;
-      panelPreferencesInitialized = true;
-    }
-    if (configuredInspectorWidth !== LEGACY_INSPECTOR_WIDTH) inspectorUsesPromotedDefault = false;
     if (!resizingInspector && !pendingPanelWidths) {
-      inspectorWidth = alignInspectorWidthToDisplay(
-        inspectorUsesPromotedDefault ? DEFAULT_INSPECTOR_WIDTH : configuredInspectorWidth,
-      );
+      inspectorWidth = alignInspectorWidthToDisplay(configuredInspectorWidth);
     }
     enablePanelTransitionsAfterLayout();
   });
@@ -456,7 +355,7 @@
       replyThreadWidth,
       previousVariant: layout.variant,
     });
-    if (!sameLayout(layout, next)) layout = next;
+    if (!chatLayoutsEqual(layout, next)) layout = next;
   });
 
   $effect(() => {
@@ -516,17 +415,6 @@
       queueMicrotask(() => target?.isConnected && target.focus());
     }
     railModalWasOpen = open;
-  });
-
-  $effect(() => {
-    if (commandMenuOpen && !commandMenuWasOpen) {
-      commandReturnFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
-      queueMicrotask(() => firstFocusable(commandDialog)?.focus());
-    } else if (!commandMenuOpen && commandMenuWasOpen) {
-      const target = commandReturnFocus;
-      queueMicrotask(() => target?.isConnected && target.focus());
-    }
-    commandMenuWasOpen = commandMenuOpen;
   });
 
   function isEditingTarget(target: EventTarget | null): boolean {
@@ -596,45 +484,7 @@
       close();
       return;
     }
-    trapFocus(event);
-  }
-
-  function trapFocus(event: KeyboardEvent): void {
-    if (event.key !== "Tab") return;
-    const container = event.currentTarget;
-    if (!(container instanceof HTMLElement)) return;
-    const focusable = focusableElements(container);
-    if (focusable.length === 0) {
-      event.preventDefault();
-      container.focus();
-      return;
-    }
-    const first = focusable[0];
-    const last = focusable[focusable.length - 1];
-    if (event.shiftKey && document.activeElement === first) {
-      event.preventDefault();
-      last.focus();
-    } else if (!event.shiftKey && document.activeElement === last) {
-      event.preventDefault();
-      first.focus();
-    }
-  }
-
-  function focusableElements(container: HTMLElement): HTMLElement[] {
-    return [...container.querySelectorAll<HTMLElement>("button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), a[href], [tabindex]:not([tabindex='-1'])")]
-      .filter((element) => !element.hidden && element.getClientRects().length > 0);
-  }
-
-  function firstFocusable(container: HTMLElement | undefined): HTMLElement | undefined {
-    return container ? focusableElements(container)[0] : undefined;
-  }
-
-  function sameLayout(left: ChatLayoutDecision, right: ChatLayoutDecision): boolean {
-    return left.variant === right.variant
-      && left.railPresentation === right.railPresentation
-      && left.inspectorPresentation === right.inspectorPresentation
-      && left.replyThreadPresentation === right.replyThreadPresentation
-      && left.activeSurface === right.activeSurface;
+    trapTabFocus(event);
   }
 
   function refreshWorkspacePixelGeometry(): void {
@@ -963,7 +813,6 @@
         await updateChatPanels(savedWidths);
         await chat.refreshSettings();
         if (pendingPanelWidths !== savedWidths) continue;
-        inspectorUsesPromotedDefault = false;
         inspectorWidth = alignInspectorWidthToDisplay(savedWidths.inspectorWidthPx);
         pendingPanelWidths = null;
       }
@@ -975,40 +824,21 @@
     }
   }
 
-  function isRevertMessageDetail(value: unknown): value is { threadId: string; checkpointId: string } {
-    if (typeof value !== "object" || value === null) return false;
-    const record = value as Record<string, unknown>;
-    return typeof record.threadId === "string" && typeof record.checkpointId === "string";
-  }
-
-  async function openSettingsFromCommandMenu(): Promise<void> {
-    commandMenuOpen = false;
-    await tick();
-    if (commandReturnFocus?.isConnected) commandReturnFocus.focus();
-    settings.open("chat");
-  }
-
   async function restoreMessageCheckpoint(threadId: string, checkpointId: string): Promise<void> {
     const thread = chat.selectedThread;
     if (!thread || thread.id !== threadId) return;
     layoutError = null;
     try {
-      const preview = await chatApi.previewChatCheckpointRestore(threadId, checkpointId);
-      const affected = preview.files.map((file) => file.relativePath).join("\n");
-      const confirmed = window.confirm(
-        [t("chat.timeline.revert"), affected, ...preview.warnings].filter(Boolean).join("\n\n"),
-      );
-      if (!confirmed) return;
-      await chatApi.executeChatCheckpointRestore({
-        command: {
-          clientCommandId: crypto.randomUUID(),
-          expectedThreadRevision: thread.revision,
-        },
-        threadId,
-        previewId: preview.previewId,
-        confirmed: true,
+      await restoreChatCheckpoint({
+        thread,
+        checkpointId,
+        confirm: (preview) => window.confirm([
+          t("chat.timeline.revert"),
+          preview.files.map((file) => file.relativePath).join("\n"),
+          ...preview.warnings,
+        ].filter(Boolean).join("\n\n")),
+        onRestored: (restoredThreadId) => chat.handleNativeChange(restoredThreadId),
       });
-      await chat.handleNativeChange(threadId);
     } catch (error: unknown) {
       layoutError = error instanceof Error ? error.message : String(error);
     }
@@ -1043,35 +873,7 @@
         {#if loadError}
           <div role="alert" class="m-auto max-w-md p-4 text-center text-sm text-destructive">{loadError}<div><button type="button" class="chat-secondary-button mt-3" onclick={() => { loadError = null; void chat.reload().catch((error) => { loadError = error instanceof Error ? error.message : String(error); }); }}>{t("common.retry")}</button></div></div>
         {:else if chat.channelArchiveOpen}
-          <section class="flex min-w-0 flex-1 flex-col overflow-hidden">
-            <div class="flex shrink-0 items-center gap-2 border-b border-border px-4 py-3 sm:px-6">
-              <button type="button" class="rounded-md p-1.5 text-muted-foreground hover:bg-accent hover:text-foreground" aria-label={t("chat.channels.backToChannel")} onclick={() => chat.closeChannelArchive()}><ArrowLeft size={16} /></button>
-              <Archive size={16} class="text-muted-foreground" />
-              <h2 class="min-w-0 flex-1 truncate text-[1.05rem] font-semibold">{t("chat.channels.archive")}</h2>
-            </div>
-            <div class="shrink-0 px-4 py-3 sm:px-6">
-              <label class="flex max-w-xl items-center gap-1.5 rounded-md border border-border bg-background px-2 py-1.5"><Search size={16} class="text-muted-foreground" /><input class="min-w-0 flex-1 bg-transparent text-[0.866667rem] outline-none" type="search" bind:value={archiveQuery} placeholder={t("chat.channels.searchArchive")} aria-label={t("chat.channels.searchArchive")} /></label>
-            </div>
-            <div class="min-h-0 flex-1 overflow-auto px-4 pb-5 sm:px-6">
-              {#if archiveError}<p class="py-2 text-sm text-destructive" role="alert">{archiveError}</p>{/if}
-              {#if chat.archivedChannelsError}<p class="py-2 text-sm text-destructive" role="alert">{chat.archivedChannelsError}</p>{/if}
-              {#if chat.archivedChannelsLoading}
-                <p class="py-2 text-sm text-muted-foreground" role="status">{t("common.loading")}</p>
-              {:else if filteredArchivedChannels.length === 0}
-                <p class="py-2 text-sm text-muted-foreground">{archiveQuery.trim() ? t("chat.channels.noArchiveResults") : t("chat.channels.emptyArchive")}</p>
-              {:else}
-                <div class="flex max-w-3xl flex-col gap-1">
-                  {#each filteredArchivedChannels as channel (channel.id)}
-                    <div class="flex min-w-0 flex-wrap items-start gap-3 rounded-md px-2 py-2 hover:bg-accent/70">
-                      <Hash size={16} class="mt-0.5 shrink-0 text-muted-foreground" />
-                      <div class="min-w-32 flex-1"><div class="truncate text-sm font-medium">{channel.name}</div><div class="mt-0.5 truncate text-xs text-muted-foreground">{channel.topic || t("chat.channels.noTopic")} · {formatDateTime(localization.locale, Date.parse(channel.archivedAt ?? channel.updatedAt), { dateStyle: "medium", timeStyle: "short" })}</div></div>
-                      <button type="button" class="flex shrink-0 items-center gap-1.5 rounded-md border border-border bg-background px-2 py-1.5 text-xs hover:bg-accent disabled:opacity-60" disabled={archiveRestoringId === channel.id} onclick={() => void restoreArchivedChannel(channel)}><ArchiveRestore size={15} />{t("chat.restore")}</button>
-                    </div>
-                  {/each}
-                </div>
-              {/if}
-            </div>
-          </section>
+          <ChatChannelArchive />
         {:else if chat.selectedChannel}
           {#if threadFullSurface && chat.openReplyThreadId}
             <ChatReplyThreadPanel presentation="main" onClose={closeReplyThread} />
@@ -1111,17 +913,15 @@
   {/if}
 
   {#if commandMenuOpen}
-    <div class="absolute inset-0 z-50 flex items-start justify-center bg-black/30 p-3 pt-[10vh]">
-      <button type="button" class="absolute inset-0" aria-label={t("chat.commandMenu.close")} onclick={() => { commandMenuOpen = false; }}></button>
-      <div bind:this={commandDialog} class="relative w-full max-w-md rounded-lg border border-border bg-popover p-2 shadow-2xl" role="dialog" aria-modal="true" aria-label={t("chat.commandMenu.title")} tabindex="-1" onkeydown={(event) => trapFocus(event)}>
-        <div class="flex items-center gap-2 border-b border-border px-2 py-2 text-xs text-muted-foreground"><Command size={14} />{t("chat.commandMenu.title")}</div>
-        <button type="button" class="chat-command" onclick={() => { commandMenuOpen = false; openRail(); window.dispatchEvent(new Event("ganbaru-ai:chat-new-channel")); }}><MessageSquarePlus size={14} />{t("chat.channels.createTitle")}</button>
-        <button type="button" class="chat-command" onclick={() => { commandMenuOpen = false; openRail(); window.dispatchEvent(new Event("ganbaru-ai:chat-focus-search")); }}><Search size={14} />{t("chat.search")}</button>
-        <button type="button" class="chat-command" onclick={() => { commandMenuOpen = false; toggleBottomPanel(); }}><PanelBottom size={14} />{bottomPanelOpen ? t("chat.closeBottomPanel") : t("chat.openBottomPanel")}</button>
-        <button type="button" class="chat-command" onclick={() => { commandMenuOpen = false; chat.inspectorOpen = !chat.inspectorOpen; }}><PanelRight size={14} />{t("chat.openInspector")}</button>
-        <button type="button" class="chat-command" onclick={() => { void openSettingsFromCommandMenu(); }}><Settings size={14} />{t("chat.settings")}</button>
-      </div>
-    </div>
+    <ChatCommandMenu
+      {bottomPanelOpen}
+      onClose={() => { commandMenuOpen = false; }}
+      onNewChannel={() => { openRail(); window.dispatchEvent(new Event("ganbaru-ai:chat-new-channel")); }}
+      onSearch={() => { openRail(); window.dispatchEvent(new Event("ganbaru-ai:chat-focus-search")); }}
+      onToggleBottomPanel={toggleBottomPanel}
+      onToggleInspector={() => { chat.inspectorOpen = !chat.inspectorOpen; }}
+      onOpenSettings={() => settings.open("chat")}
+    />
   {/if}
 </div>
 
@@ -1179,8 +979,6 @@
   .chat-bottom-transition-shell.snap-transition { transition: height var(--chat-panel-transition-duration) cubic-bezier(0.22, 1, 0.36, 1); }
   .chat-sheet-backdrop { position: absolute; inset: 0; z-index: 30; background: rgb(0 0 0 / 0.28); }
   .chat-rail-backdrop { top: var(--cal-header-row-h); }
-  .chat-command { display: flex; width: 100%; min-height: 2.25rem; align-items: center; gap: 0.5rem; border-radius: 0.375rem; padding: 0.375rem 0.5rem; font-size: 0.8rem; }
-  .chat-command:hover { background: var(--accent); }
   .chat-workspace[data-rail-presentation="sheet"] .chat-rail-shell { position: absolute; top: var(--cal-header-row-h); bottom: 0; left: 0; z-index: 40; width: min(16rem, 88cqw); min-width: min(16rem, 88cqw); box-shadow: 8px 0 28px rgb(0 0 0 / 0.22); }
   .chat-workspace[data-rail-presentation="sheet"] .chat-rail-shell.closed { transform: translateX(-105%); }
   .chat-workspace[data-inspector-presentation="sheet"] .chat-inspector-shell { position: absolute; inset-block: 0; right: 0; z-index: 45; width: 0; box-shadow: -8px 0 28px rgb(0 0 0 / 0.22); }
