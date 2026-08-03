@@ -20,6 +20,7 @@ export type ChatPlanId = string;
 export type ChatAttachmentId = string;
 export type ChatEventId = string;
 export type ChatCommandId = string;
+export type ChatScheduledMessageId = string;
 export type ChatCheckpointId = string;
 export type CredentialReferenceId = string;
 export type ProviderFamilyId = string;

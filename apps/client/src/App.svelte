@@ -1004,6 +1004,27 @@
     if (enabled && wasEnabled) notesNotificationScheduler.invalidate();
   });
 
+  const chatScheduledMessageScheduler = createLifecycleScheduler({
+    errorRetryMs: 60_000,
+    run: async (context) => {
+      const result = await chat.dispatchDueScheduledMessages();
+      if (!context.isCurrent() || !result.nextDispatchAt) return null;
+      const deadline = Date.parse(result.nextDispatchAt);
+      return Number.isFinite(deadline) ? deadline : null;
+    },
+    onError: (error) => {
+      console.error("[chat scheduled messages] dispatch failed:", error);
+    },
+  });
+
+  $effect(() => {
+    const _version = chat.scheduledMessagesVersion;
+    const enabled = isMainWindow && chat.loaded;
+    const wasEnabled = chatScheduledMessageScheduler.isEnabled();
+    chatScheduledMessageScheduler.setEnabled(enabled);
+    if (enabled && wasEnabled) chatScheduledMessageScheduler.invalidate();
+  });
+
   // Event notifications
   const eventNotificationScheduler = createEventNotificationScheduler({
     getEvents: () => {
@@ -1037,6 +1058,7 @@
     activeBlockScheduler.resume();
     eventNotificationScheduler.resume();
     notesNotificationScheduler.resume();
+    chatScheduledMessageScheduler.resume();
     notesProjectHistoryScheduler.resume();
     desktopBlockingScheduler.resume();
     doomscrollingUsage.resume();
@@ -1047,6 +1069,7 @@
     activeBlockScheduler.dispose();
     eventNotificationScheduler.dispose();
     notesNotificationScheduler.dispose();
+    chatScheduledMessageScheduler.dispose();
     desktopBlockingScheduler.dispose();
     doomscrollingUsage.setEnabled(false);
     void doomscrollingUsage.flush().catch((error) => {

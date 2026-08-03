@@ -271,6 +271,8 @@ pub async fn run_due_attachment_cleanup(
                 WHERE a.managed_relative_path = ? AND (
                     EXISTS (SELECT 1 FROM chat_attachment_references r WHERE r.attachment_id = a.id)
                     OR EXISTS (SELECT 1 FROM chat_queued_attachment_references q WHERE q.attachment_id = a.id)
+                    OR EXISTS (SELECT 1 FROM chat_communication_attachment_references c WHERE c.attachment_id = a.id)
+                    OR EXISTS (SELECT 1 FROM chat_scheduled_message_attachment_references s WHERE s.attachment_id = a.id)
                 )
                 UNION ALL
                 SELECT 1 FROM chat_resources resource
@@ -313,7 +315,9 @@ pub async fn run_due_attachment_cleanup(
                     "UPDATE chat_attachments SET deletion_state = 'deleted', deleted_at = ?
                      WHERE managed_relative_path = ?
                        AND NOT EXISTS (SELECT 1 FROM chat_attachment_references r WHERE r.attachment_id = chat_attachments.id)
-                       AND NOT EXISTS (SELECT 1 FROM chat_queued_attachment_references q WHERE q.attachment_id = chat_attachments.id)",
+                       AND NOT EXISTS (SELECT 1 FROM chat_queued_attachment_references q WHERE q.attachment_id = chat_attachments.id)
+                       AND NOT EXISTS (SELECT 1 FROM chat_communication_attachment_references c WHERE c.attachment_id = chat_attachments.id)
+                       AND NOT EXISTS (SELECT 1 FROM chat_scheduled_message_attachment_references s WHERE s.attachment_id = chat_attachments.id)",
                 )
                 .bind(now.as_str())
                 .bind(&relative_path)

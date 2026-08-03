@@ -1,6 +1,7 @@
 import {
   CHAT_APPROVAL_POLICIES,
   CHAT_PARTICIPANT_KINDS,
+  CHAT_SCHEDULED_MESSAGE_STATES,
   CHAT_TEAMMATE_CONFIGURATION_STATES,
   CHAT_WORK_ASSIGNMENT_STATES,
   type ChatAgentRunRead,
@@ -15,6 +16,8 @@ import {
   type ChatReplyThreadPageRead,
   type ChatReplyThreadSummaryRead,
   type ChatResourceReferenceRead,
+  type ChatScheduledMessageDispatchRead,
+  type ChatScheduledMessageRead,
   type ChatTeammatePolicyRead,
   type ChatWorkAssignmentRead,
   type ChatWorkingFolderGrantRead,
@@ -276,6 +279,56 @@ export function parsePostChatMessageResult(
     replyThreadId: readIdentifier(record.replyThreadId, `${label}.replyThreadId`),
     assignment: readNullable(record.assignment, `${label}.assignment`, parseChatWorkAssignment),
     assignmentInputQueued: readBoolean(record.assignmentInputQueued, `${label}.assignmentInputQueued`),
+  };
+}
+
+export function parseChatScheduledMessage(
+  value: unknown,
+  label = "Chat scheduled message",
+): ChatScheduledMessageRead {
+  const record = readRecord(value, label);
+  return {
+    id: readIdentifier(record.id, `${label}.id`),
+    channelId: readIdentifier(record.channelId, `${label}.channelId`),
+    replyThreadId: readNullable(record.replyThreadId, `${label}.replyThreadId`, readIdentifier),
+    normalizedMarkdown: readString(record.normalizedMarkdown, `${label}.normalizedMarkdown`),
+    richContent: readVersionedJson(record.richContent, `${label}.richContent`),
+    attachmentIds: readArray(record.attachmentIds, `${label}.attachmentIds`, readIdentifier),
+    participantMentions: readArray(
+      record.participantMentions,
+      `${label}.participantMentions`,
+      parseParticipantMention,
+    ),
+    resourceReferences: readArray(
+      record.resourceReferences,
+      `${label}.resourceReferences`,
+      parseResourceReference,
+    ),
+    alsoSendToChannel: readBoolean(record.alsoSendToChannel, `${label}.alsoSendToChannel`),
+    state: readEnum(record.state, CHAT_SCHEDULED_MESSAGE_STATES, `${label}.state`),
+    scheduledFor: readUtcTimestamp(record.scheduledFor, `${label}.scheduledFor`),
+    lastError: readNullable(record.lastError, `${label}.lastError`, readString),
+    createdAt: readUtcTimestamp(record.createdAt, `${label}.createdAt`),
+  };
+}
+
+export function parseChatScheduledMessages(
+  value: unknown,
+  label = "Chat scheduled messages",
+): ChatScheduledMessageRead[] {
+  return readArray(value, label, parseChatScheduledMessage);
+}
+
+export function parseChatScheduledMessageDispatch(
+  value: unknown,
+  label = "Chat scheduled message dispatch",
+): ChatScheduledMessageDispatchRead {
+  const record = readRecord(value, label);
+  return {
+    processedCount: readNonNegativeSafeInteger(record.processedCount, `${label}.processedCount`),
+    dispatchedCount: readNonNegativeSafeInteger(record.dispatchedCount, `${label}.dispatchedCount`),
+    dispatchedChannelIds: readArray(record.dispatchedChannelIds, `${label}.dispatchedChannelIds`, readIdentifier),
+    nextDispatchAt: readNullable(record.nextDispatchAt, `${label}.nextDispatchAt`, readUtcTimestamp),
   };
 }
 

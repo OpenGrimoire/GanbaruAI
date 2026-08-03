@@ -163,6 +163,9 @@ fn schema_creates_chat_tables_indexes_and_no_device_paths() {
             "chat_assignment_authorization_decisions",
             "chat_agent_runs",
             "chat_assignment_dispatch_jobs",
+            "chat_scheduled_messages",
+            "chat_scheduled_message_attachment_references",
+            "chat_scheduled_message_resource_references",
             "chat_project_primary_working_folders",
             "chat_communication_search_fts",
             "idx_chat_threads_active_project",
@@ -198,6 +201,9 @@ fn schema_creates_chat_tables_indexes_and_no_device_paths() {
             "idx_chat_conversation_items_reply_ordinal",
             "idx_chat_work_assignments_one_active",
             "idx_chat_assignment_dispatch_jobs_ready",
+            "idx_chat_scheduled_messages_due",
+            "idx_chat_scheduled_messages_destination",
+            "idx_chat_scheduled_message_attachments_attachment",
         ] {
             let exists: Option<i64> =
                 sqlx::query_scalar("SELECT 1 FROM sqlite_schema WHERE name = ?")
@@ -294,6 +300,74 @@ fn fresh_projects_create_general_owner_membership_and_primary_folder() {
         assert_eq!(general_channels, projects);
         assert_eq!(owner_memberships, projects);
         assert_eq!(primary_folders, projects);
+    });
+}
+
+#[test]
+fn scheduled_message_schema_retains_attachments_until_the_schedule_is_removed() {
+    tauri::async_runtime::block_on(async {
+        let pool = migrated_memory_pool().await;
+        let (channel_id, working_folder_id): (String, String) = sqlx::query_as(
+            "SELECT channel.id, folder.working_folder_id
+             FROM chat_channels channel
+             JOIN chat_project_primary_working_folders folder
+               ON folder.project_id = channel.project_id
+             WHERE channel.is_default = 1 LIMIT 1",
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            "INSERT INTO chat_attachments
+                (id, working_folder_id, kind, original_display_name, mime_type, byte_size,
+                 sha256, managed_relative_path, signature_kind, created_at)
+             VALUES ('scheduled-attachment', ?, 'image', 'scheduled.png', 'image/png', 8,
+                     'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
+                     'assets/chat/attachments/scheduled.png', 'png', ?)",
+        )
+        .bind(&working_folder_id)
+        .bind(NOW)
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            "INSERT INTO chat_scheduled_messages
+                (id, client_command_id, channel_id, request_data, scheduled_for,
+                 available_at, created_at, updated_at)
+             VALUES ('scheduled-message-1', 'scheduled-command-1', ?, '{}', ?, ?, ?, ?)",
+        )
+        .bind(&channel_id)
+        .bind("2026-08-03T15:00:00Z")
+        .bind("2026-08-03T15:00:00Z")
+        .bind(NOW)
+        .bind(NOW)
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            "INSERT INTO chat_scheduled_message_attachment_references
+                (scheduled_message_id, attachment_id, ordinal, created_at)
+             VALUES ('scheduled-message-1', 'scheduled-attachment', 0, ?)",
+        )
+        .bind(NOW)
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        assert!(
+            sqlx::query("DELETE FROM chat_attachments WHERE id = 'scheduled-attachment'")
+                .execute(&pool)
+                .await
+                .is_err()
+        );
+        sqlx::query("DELETE FROM chat_scheduled_messages WHERE id = 'scheduled-message-1'")
+            .execute(&pool)
+            .await
+            .unwrap();
+        sqlx::query("DELETE FROM chat_attachments WHERE id = 'scheduled-attachment'")
+            .execute(&pool)
+            .await
+            .unwrap();
     });
 }
 

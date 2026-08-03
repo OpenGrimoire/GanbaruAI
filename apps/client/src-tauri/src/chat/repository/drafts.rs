@@ -215,11 +215,16 @@ pub async fn delete_draft(
     for attachment_id in attachment_ids {
         sqlx::query(
             "UPDATE chat_attachments SET unreferenced_at = ?
-             WHERE id = ? AND NOT EXISTS (
-                SELECT 1 FROM chat_attachment_references WHERE attachment_id = ?
-             )",
+             WHERE id = ?
+               AND NOT EXISTS (SELECT 1 FROM chat_attachment_references WHERE attachment_id = ?)
+               AND NOT EXISTS (SELECT 1 FROM chat_queued_attachment_references WHERE attachment_id = ?)
+               AND NOT EXISTS (SELECT 1 FROM chat_communication_attachment_references WHERE attachment_id = ?)
+               AND NOT EXISTS (SELECT 1 FROM chat_scheduled_message_attachment_references WHERE attachment_id = ?)",
         )
         .bind(unreferenced_at.as_str())
+        .bind(&attachment_id)
+        .bind(&attachment_id)
+        .bind(&attachment_id)
         .bind(&attachment_id)
         .bind(&attachment_id)
         .execute(&mut *transaction)

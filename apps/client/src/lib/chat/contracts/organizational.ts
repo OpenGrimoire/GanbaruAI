@@ -8,6 +8,7 @@ import type {
   ChatMessageRevisionId,
   ChatParticipantId,
   ChatReplyThreadId,
+  ChatScheduledMessageId,
   ChatTeammatePolicyRevisionId,
   ChatThreadId,
   ChatTurnId,
@@ -281,4 +282,36 @@ export interface PostChatMessageResult {
   replyThreadId: ChatReplyThreadId;
   assignment: ChatWorkAssignmentRead | null;
   assignmentInputQueued: boolean;
+}
+
+export const CHAT_SCHEDULED_MESSAGE_STATES = ["scheduled", "dispatching", "failed"] as const;
+export type ChatScheduledMessageState = (typeof CHAT_SCHEDULED_MESSAGE_STATES)[number];
+
+export interface ScheduleChatMessageRequest {
+  scheduledMessageId: ChatScheduledMessageId;
+  scheduledFor: UtcTimestamp;
+  message: PostChatMessageRequest;
+}
+
+export interface ChatScheduledMessageRead {
+  id: ChatScheduledMessageId;
+  channelId: ChatChannelId;
+  replyThreadId: ChatReplyThreadId | null;
+  normalizedMarkdown: string;
+  richContent: VersionedJson;
+  attachmentIds: ChatAttachmentId[];
+  participantMentions: ChatParticipantMentionRead[];
+  resourceReferences: ChatResourceReferenceRead[];
+  alsoSendToChannel: boolean;
+  state: ChatScheduledMessageState;
+  scheduledFor: UtcTimestamp;
+  lastError: string | null;
+  createdAt: UtcTimestamp;
+}
+
+export interface ChatScheduledMessageDispatchRead {
+  processedCount: number;
+  dispatchedCount: number;
+  dispatchedChannelIds: ChatChannelId[];
+  nextDispatchAt: UtcTimestamp | null;
 }

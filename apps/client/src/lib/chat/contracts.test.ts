@@ -5,6 +5,8 @@ import {
   parseChatChannel,
   parseChatChannelPage,
   parseChatMessageSearchResults,
+  parseChatScheduledMessage,
+  parseChatScheduledMessageDispatch,
   parseChatVaultConfig,
   parseCanonicalRuntimeEvent,
   parseCanonicalStoredEvent,
@@ -182,6 +184,38 @@ describe("Chat provider contracts", () => {
     };
 
     expect(parseChatMessageSearchResults([result])).toEqual([result]);
+  });
+
+  it("validates scheduled messages and dispatch refresh metadata", () => {
+    const scheduled = {
+      id: "scheduled-message-1",
+      channelId: "channel:general",
+      replyThreadId: null,
+      normalizedMarkdown: "Post the update",
+      richContent: { schemaVersion: 1, value: {} },
+      attachmentIds: [],
+      participantMentions: [],
+      resourceReferences: [],
+      alsoSendToChannel: false,
+      state: "scheduled",
+      scheduledFor: timestamp,
+      lastError: null,
+      createdAt: timestamp,
+    };
+    expect(parseChatScheduledMessage(scheduled)).toEqual(scheduled);
+    expect(parseChatScheduledMessageDispatch({
+      processedCount: 2,
+      dispatchedCount: 1,
+      dispatchedChannelIds: ["channel:general"],
+      nextDispatchAt: timestamp,
+    })).toEqual({
+      processedCount: 2,
+      dispatchedCount: 1,
+      dispatchedChannelIds: ["channel:general"],
+      nextDispatchAt: timestamp,
+    });
+    expect(() => parseChatScheduledMessage({ ...scheduled, state: "lost" }))
+      .toThrow("state has an unsupported value");
   });
 
   it("parses metadata-only provider registry entries", () => {

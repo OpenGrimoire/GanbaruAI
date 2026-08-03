@@ -20,6 +20,10 @@ import type {
   UpsertChatTeammateMembershipRequest,
   PostChatMessageRequest,
   PostChatMessageResult,
+  ScheduleChatMessageRequest,
+  ChatScheduledMessageDispatchRead,
+  ChatScheduledMessageId,
+  ChatScheduledMessageRead,
   ChatDiagnosticPreferences,
   ChatDiagnosticsRead,
   ChatStopAllResult,
@@ -107,6 +111,9 @@ import {
   parseChatReplyThreadPage,
   parseChatMessageSearchResults,
   parsePostChatMessageResult,
+  parseChatScheduledMessage,
+  parseChatScheduledMessageDispatch,
+  parseChatScheduledMessages,
   parseChatWorkAssignment,
   parseChatDiagnosticPreferences,
   parseChatDiagnosticsRead,
@@ -1157,6 +1164,53 @@ export async function removeChatTeammateMembership(
 export async function postChatMessage(request: PostChatMessageRequest): Promise<PostChatMessageResult> {
   return parsePostChatMessageResult(await invoke<unknown>("chat_post_message", {
     dbUrl: await ensureDbUrl(), request,
+  }));
+}
+
+export async function scheduleChatMessage(
+  request: ScheduleChatMessageRequest,
+): Promise<ChatScheduledMessageRead> {
+  return parseChatScheduledMessage(await invoke<unknown>("chat_schedule_message", {
+    dbUrl: await ensureDbUrl(), request,
+  }));
+}
+
+export async function listScheduledChatMessages(
+  channelId: ChatChannelId,
+  replyThreadId: ChatReplyThreadId | null,
+): Promise<ChatScheduledMessageRead[]> {
+  return parseChatScheduledMessages(await invoke<unknown>("chat_list_scheduled_messages", {
+    dbUrl: await ensureDbUrl(), channelId, replyThreadId,
+  }));
+}
+
+export async function cancelScheduledChatMessage(
+  scheduledMessageId: ChatScheduledMessageId,
+): Promise<void> {
+  await invoke("chat_cancel_scheduled_message", {
+    dbUrl: await ensureDbUrl(), scheduledMessageId,
+  });
+}
+
+export async function retryScheduledChatMessage(
+  scheduledMessageId: ChatScheduledMessageId,
+): Promise<ChatScheduledMessageRead> {
+  return parseChatScheduledMessage(await invoke<unknown>("chat_retry_scheduled_message", {
+    dbUrl: await ensureDbUrl(), scheduledMessageId,
+  }));
+}
+
+export async function sendScheduledChatMessageNow(
+  scheduledMessageId: ChatScheduledMessageId,
+): Promise<PostChatMessageResult> {
+  return parsePostChatMessageResult(await invoke<unknown>("chat_send_scheduled_message_now", {
+    dbUrl: await ensureDbUrl(), scheduledMessageId,
+  }));
+}
+
+export async function dispatchDueScheduledChatMessages(): Promise<ChatScheduledMessageDispatchRead> {
+  return parseChatScheduledMessageDispatch(await invoke<unknown>("chat_dispatch_due_scheduled_messages", {
+    dbUrl: await ensureDbUrl(),
   }));
 }
 

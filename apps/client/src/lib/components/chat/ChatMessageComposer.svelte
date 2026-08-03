@@ -3,6 +3,7 @@
   import ArrowUp from "@lucide/svelte/icons/arrow-up";
   import AtSign from "@lucide/svelte/icons/at-sign";
   import Bold from "@lucide/svelte/icons/bold";
+  import Clock3 from "@lucide/svelte/icons/clock-3";
   import File from "@lucide/svelte/icons/file";
   import Folder from "@lucide/svelte/icons/folder";
   import Image from "@lucide/svelte/icons/image";
@@ -11,7 +12,7 @@
   import Plus from "@lucide/svelte/icons/plus";
   import Settings from "@lucide/svelte/icons/settings";
   import * as chatApi from "$lib/api/chat";
-  import type { ChatParticipantRead } from "$lib/chat/contracts";
+  import type { ChatParticipantRead, ChatScheduledMessageRead } from "$lib/chat/contracts";
   import {
     copyParticipantMentionSlice,
     expandEditRangeToParticipantMentions,
@@ -29,6 +30,8 @@
   import { getChat, type ChatOrganizationalDraft } from "$lib/stores/chat.svelte";
   import { portal } from "$lib/utils/portal";
 
+  type ScheduleMenuComponent = typeof import("./ChatMessageScheduleMenu.svelte").default;
+
   const PARTICIPANT_MENTION_CLIPBOARD_TYPE = "application/x-ganbaru-participant-mentions";
 
   let {
@@ -42,7 +45,8 @@
   } = $props();
 
   const chat = getChat();
-  const { t } = getLocalization();
+  const localization = getLocalization();
+  const { t } = localization;
   const initialDraft = untrack(() => chat.organizationalDraft(destination));
   let text = $state(initialDraft.normalizedMarkdown);
   let mentions = $state(initialDraft.participantMentions.map((mention) => ({ ...mention })));
@@ -57,6 +61,13 @@
   let mentionIndex = $state(0);
   let mentionStyle = $state("");
   let addMenuOpen = $state(false);
+  let scheduleMenuOpen = $state(false);
+  let scheduledMessagesOpen = $state(false);
+  let ScheduleMenu = $state<ScheduleMenuComponent | null>(null);
+  let scheduleMenuLoad = $state<Promise<void> | null>(null);
+  let scheduledFor = $state<string | null>(initialDraft.scheduledFor);
+  let scheduledMessages = $state<ChatScheduledMessageRead[]>([]);
+  let scheduledMessagesRequest = 0;
   let alsoSendToChannel = $state(false);
   let resourcePath = $state("");
   let resourceKind = $state<"file" | "folder">("file");
@@ -76,6 +87,14 @@
     .map((mention) => mention.participantId)).size);
   const validation = $derived(invokedAiCount > 1 ? t("chat.organization.oneAgentOnly") : null);
   const channelName = $derived(chat.selectedChannel?.name ?? "");
+  const hasMessageContent = $derived(Boolean(text.trim() || attachmentIds.length || resourceReferences.length));
+  const nextScheduledMessage = $derived(scheduledMessages.find((message) => message.state !== "failed") ?? scheduledMessages[0] ?? null);
+
+  $effect(() => {
+    const _version = chat.scheduledMessagesVersion;
+    const currentDestination = destination;
+    void loadScheduledMessages(currentDestination);
+  });
 
   function persist(): void {
     const draft: ChatOrganizationalDraft = {
@@ -89,6 +108,7 @@
       resourceReferences: resourceReferences.map((reference) => ({ ...reference })),
       selectionStart,
       selectionEnd,
+      scheduledFor,
     };
     chat.setOrganizationalDraft(destination, draft);
   }
@@ -324,21 +344,106 @@
     persist();
   }
 
+  function clearComposerAfterDelivery(): void {
+    text = "";
+    mentions = [];
+    attachmentIds = [];
+    resourceReferences = [];
+    selectionStart = 0;
+    selectionEnd = 0;
+    alsoSendToChannel = false;
+    scheduledFor = null;
+  }
+
+  function formatScheduledInstant(value: string): string {
+    const instant = new Date(value);
+    if (!Number.isFinite(instant.getTime())) return value;
+    return new Intl.DateTimeFormat(localization.locale, {
+      weekday: "short",
+      month: "short",
+      day: "numeric",
+      hour: "numeric",
+      minute: "2-digit",
+    }).format(instant);
+  }
+
+  function loadScheduleMenu(): Promise<void> {
+    if (ScheduleMenu) return Promise.resolve();
+    scheduleMenuLoad ??= import("./ChatMessageScheduleMenu.svelte")
+      .then((module) => { ScheduleMenu = module.default; })
+      .catch((cause: unknown) => {
+        error = cause instanceof Error ? cause.message : String(cause);
+      })
+      .finally(() => { scheduleMenuLoad = null; });
+    return scheduleMenuLoad;
+  }
+
+  function toggleScheduleMenu(): void {
+    scheduleMenuOpen = !scheduleMenuOpen;
+    scheduledMessagesOpen = false;
+    addMenuOpen = false;
+    if (scheduleMenuOpen) void loadScheduleMenu();
+  }
+
+  function selectSchedule(nextScheduledFor: string): void {
+    scheduledFor = nextScheduledFor;
+    persist();
+    scheduleMenuOpen = false;
+    void tick().then(() => textarea?.focus());
+  }
+
+  function clearSchedule(): void {
+    scheduledFor = null;
+    persist();
+    scheduleMenuOpen = false;
+  }
+
+  function toggleScheduledMessages(): void {
+    scheduledMessagesOpen = !scheduledMessagesOpen;
+    scheduleMenuOpen = false;
+    addMenuOpen = false;
+    if (scheduledMessagesOpen) void loadScheduleMenu();
+  }
+
+  async function loadScheduledMessages(currentDestination: string): Promise<void> {
+    const request = ++scheduledMessagesRequest;
+    try {
+      const messages = await chat.listScheduledOrganizationalMessages(currentDestination);
+      if (request !== scheduledMessagesRequest || currentDestination !== destination) return;
+      scheduledMessages = messages;
+      if (messages.length === 0) scheduledMessagesOpen = false;
+    } catch {
+      // Preserve the last successful summary during a transient read failure.
+    }
+  }
+
+  function updateScheduledMessages(messages: ChatScheduledMessageRead[]): void {
+    scheduledMessages = messages;
+    if (messages.length === 0) scheduledMessagesOpen = false;
+  }
+
   async function post(): Promise<void> {
-    if (sending || validation) return;
+    if (sending || validation || !hasMessageContent) return;
     sending = true;
     error = null;
     try {
-      await chat.postOrganizationalMessage(destination, {
-        alsoSendToChannel: threadComposer && alsoSendToChannel,
-      });
-      text = "";
-      mentions = [];
-      attachmentIds = [];
-      resourceReferences = [];
-      selectionStart = 0;
-      selectionEnd = 0;
-      alsoSendToChannel = false;
+      if (scheduledFor) {
+        const { chatScheduleIsFuture } = await import("$lib/chat/message-scheduling");
+        if (!chatScheduleIsFuture(scheduledFor)) {
+          error = t("chat.organization.invalidScheduleTime");
+          return;
+        }
+        const scheduled = await chat.scheduleOrganizationalMessage(destination, scheduledFor, {
+          alsoSendToChannel: threadComposer && alsoSendToChannel,
+        });
+        scheduledMessages = [...scheduledMessages.filter((message) => message.id !== scheduled.id), scheduled]
+          .sort((left, right) => left.scheduledFor.localeCompare(right.scheduledFor));
+      } else {
+        await chat.postOrganizationalMessage(destination, {
+          alsoSendToChannel: threadComposer && alsoSendToChannel,
+        });
+      }
+      clearComposerAfterDelivery();
     } catch (cause: unknown) {
       error = cause instanceof Error ? cause.message : String(cause);
     } finally {
@@ -352,7 +457,42 @@
   }
 </script>
 
-<div class="organizational-composer" data-organizational-composer>
+<div class="composer-stack">
+  {#if nextScheduledMessage}
+    <div class="scheduled-summary">
+      <Clock3 size={13} />
+      <span>{t(
+        "chat.organization.scheduledMessageSummary",
+        scheduledMessages.length,
+        formatScheduledInstant(nextScheduledMessage.scheduledFor),
+      )}</span>
+      <div class="scheduled-summary-anchor">
+        <button
+          type="button"
+          aria-haspopup="dialog"
+          aria-expanded={scheduledMessagesOpen}
+          onpointerenter={() => { void loadScheduleMenu(); }}
+          onfocus={() => { void loadScheduleMenu(); }}
+          onclick={toggleScheduledMessages}
+        >{t("chat.organization.viewScheduledMessages", scheduledMessages.length)}</button>
+        {#if scheduledMessagesOpen}
+          {#if ScheduleMenu}
+            {@const LoadedScheduledMessagesMenu = ScheduleMenu}
+            <LoadedScheduledMessagesMenu
+              mode="manage"
+              align="right"
+              {scheduledMessages}
+              onmessageschange={updateScheduledMessages}
+              onclose={() => { scheduledMessagesOpen = false; }}
+            />
+          {:else}
+            <div class="composer-menu schedule-loading align-right" role="status">{t("chat.status.working")}</div>
+          {/if}
+        {/if}
+      </div>
+    </div>
+  {/if}
+  <div class="organizational-composer" data-organizational-composer>
   <textarea
     bind:this={textarea}
     value={text}
@@ -405,7 +545,7 @@
   <div class="composer-footer">
     <div class="composer-tools">
       <div class="menu-anchor">
-        <button type="button" class="tool-button" aria-label={t("chat.organization.addContext")} aria-expanded={addMenuOpen} onclick={() => { addMenuOpen = !addMenuOpen; }}><Plus size={16} /></button>
+        <button type="button" class="tool-button" aria-label={t("chat.organization.addContext")} aria-expanded={addMenuOpen} onclick={() => { addMenuOpen = !addMenuOpen; scheduleMenuOpen = false; scheduledMessagesOpen = false; }}><Plus size={16} /></button>
         {#if addMenuOpen}
           <div class="composer-menu add-menu">
             <button type="button" onclick={() => void pickImages()}><Image size={14} />{t("chat.composer.attachImages")}</button>
@@ -420,6 +560,36 @@
       <button type="button" class="tool-button" aria-label={t("chat.organization.bold")} onclick={() => wrapSelection("**")}><Bold size={15} /></button>
       <button type="button" class="tool-button" aria-label={t("chat.organization.italic")} onclick={() => wrapSelection("_")}><Italic size={15} /></button>
       <button type="button" class="tool-button" aria-label={t("chat.organization.mentionTeammate")} onclick={() => { replaceRange(selectionStart, selectionEnd, "@"); }}><AtSign size={15} /></button>
+      <div class="menu-anchor">
+        <button
+          type="button"
+          class="tool-button"
+          class:active={scheduleMenuOpen || Boolean(scheduledFor)}
+          aria-label={scheduledFor ? t("chat.organization.scheduleSelected", formatScheduledInstant(scheduledFor)) : t("chat.organization.scheduleMessage")}
+          aria-haspopup="dialog"
+          aria-expanded={scheduleMenuOpen}
+          aria-pressed={Boolean(scheduledFor)}
+          title={scheduledFor ? t("chat.organization.scheduleSelected", formatScheduledInstant(scheduledFor)) : t("chat.organization.scheduleMessage")}
+          onpointerenter={() => { void loadScheduleMenu(); }}
+          onfocus={() => { void loadScheduleMenu(); }}
+          onclick={toggleScheduleMenu}
+        ><Clock3 size={15} /></button>
+        {#if scheduleMenuOpen}
+          {#if ScheduleMenu}
+            {@const LoadedScheduleMenu = ScheduleMenu}
+            <LoadedScheduleMenu
+              mode="choose"
+              selectedScheduledFor={scheduledFor}
+              disabled={sending}
+              onselect={selectSchedule}
+              onclear={clearSchedule}
+              onclose={() => { scheduleMenuOpen = false; }}
+            />
+          {:else}
+            <div class="composer-menu schedule-loading" role="status">{t("chat.status.working")}</div>
+          {/if}
+        {/if}
+      </div>
       {#if threadComposer}
         <button
           type="button"
@@ -432,14 +602,22 @@
         ><MessageSquareShare size={15} /></button>
       {/if}
     </div>
-    <button type="button" class="send-button" disabled={sending || Boolean(validation) || (!text.trim() && attachmentIds.length === 0 && resourceReferences.length === 0)} onclick={() => void post()}><ArrowUp size={16} /><span class="sr-only">{t("chat.composer.send")}</span></button>
+    <button type="button" class="send-button" disabled={sending || Boolean(validation) || !hasMessageContent} onclick={() => void post()}><ArrowUp size={16} /><span class="sr-only">{scheduledFor ? t("chat.organization.scheduleMessage") : t("chat.composer.send")}</span></button>
   </div>
   {#if validation}<p class="composer-error" role="alert">{validation}</p>{/if}
   {#if error}<p class="composer-error" role="alert">{error}</p>{/if}
+  </div>
 </div>
 
 <style>
-  .organizational-composer { position:relative; width:min(100%,54rem); border:1px solid color-mix(in srgb,var(--border) 88%,transparent); border-radius:1.3rem; background:var(--card); box-shadow:0 8px 22px -18px rgb(0 0 0 / 0.24),0 1px 4px -3px rgb(0 0 0 / 0.16); }
+  .composer-stack { width:min(100%,54rem); }
+  .organizational-composer { position:relative; width:100%; border:1px solid color-mix(in srgb,var(--border) 88%,transparent); border-radius:1.3rem; background:var(--card); box-shadow:0 8px 22px -18px rgb(0 0 0 / 0.24),0 1px 4px -3px rgb(0 0 0 / 0.16); }
+  .scheduled-summary { display:flex; min-height:2rem; align-items:center; gap:0.45rem; margin:0 0.35rem 0.35rem; border-radius:0.55rem; background:color-mix(in srgb,var(--accent) 58%,transparent); padding:0.25rem 0.35rem 0.25rem 0.55rem; color:var(--muted-foreground); }
+  .scheduled-summary :global(svg) { flex:0 0 auto; }
+  .scheduled-summary > span { min-width:0; flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:0.7rem; }
+  .scheduled-summary-anchor { position:relative; flex:0 0 auto; }
+  .scheduled-summary-anchor > button { min-height:1.5rem; border-radius:0.4rem; padding:0.2rem 0.45rem; color:var(--foreground); font-size:0.68rem; font-weight:500; }
+  .scheduled-summary-anchor > button:hover,.scheduled-summary-anchor > button[aria-expanded="true"] { background:color-mix(in srgb,var(--background) 70%,transparent); }
   textarea { display:block; width:100%; min-height:4.15rem; max-height:15.35rem; resize:none; overflow-y:auto; border:0; background:transparent; padding:1rem 1.25rem 0.35rem; color:var(--foreground); font:inherit; font-size:var(--chat-conversation-font-size,0.933333rem); line-height:var(--chat-conversation-line-height,1.4rem); outline:none; }
   textarea::placeholder { color:color-mix(in srgb,var(--muted-foreground) 52%,transparent); }
   .composer-footer { display:flex; min-height:3rem; align-items:center; justify-content:space-between; gap:0.5rem; padding:0.3rem 0.75rem 0.65rem; }
@@ -455,6 +633,8 @@
   .composer-menu > button { display:flex; width:100%; min-height:2rem; align-items:center; gap:0.45rem; border-radius:0.35rem; padding:0.35rem 0.5rem; text-align:left; font-size:0.75rem; }
   .composer-menu > button:hover { background:var(--accent); }
   .add-menu { bottom:calc(100% + 0.35rem); left:0; }
+  .schedule-loading { bottom:calc(100% + 0.35rem); left:0; color:var(--muted-foreground); font-size:0.72rem; }
+  .schedule-loading.align-right { right:0; left:auto; }
   .resource-entry { display:grid; gap:0.35rem; border-top:1px solid var(--border); padding:0.45rem 0.35rem 0.25rem; }
   .resource-entry > div { display:flex; gap:0.25rem; }
   .resource-entry button { display:flex; align-items:center; gap:0.25rem; border-radius:0.3rem; padding:0.25rem 0.4rem; font-size:0.7rem; }

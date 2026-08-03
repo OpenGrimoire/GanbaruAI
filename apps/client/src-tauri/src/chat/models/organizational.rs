@@ -1,8 +1,8 @@
 use super::{
     ChatAgentRunId, ChatAttachmentId, ChatChannelId, ChatConversationId, ChatConversationItemId,
-    ChatMessageRevisionId, ChatParticipantId, ChatReplyThreadId, ChatTeammatePolicyRevisionId,
-    ChatThreadId, ChatTurnId, ChatWorkAssignmentId, ModelId, ModelOptionSelection,
-    ProjectWorkingFolderId, ProviderInstanceId, UtcTimestamp, VersionedJson,
+    ChatMessageRevisionId, ChatParticipantId, ChatReplyThreadId, ChatScheduledMessageId,
+    ChatTeammatePolicyRevisionId, ChatThreadId, ChatTurnId, ChatWorkAssignmentId, ModelId,
+    ModelOptionSelection, ProjectWorkingFolderId, ProviderInstanceId, UtcTimestamp, VersionedJson,
 };
 use serde::{Deserialize, Serialize};
 
@@ -174,6 +174,33 @@ pub struct ChatMessageRead {
     pub ordinal: u64,
     pub edited_at: Option<UtcTimestamp>,
     pub created_at: UtcTimestamp,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ChatScheduledMessageRead {
+    pub id: ChatScheduledMessageId,
+    pub channel_id: ChatChannelId,
+    pub reply_thread_id: Option<ChatReplyThreadId>,
+    pub normalized_markdown: String,
+    pub rich_content: VersionedJson,
+    pub attachment_ids: Vec<ChatAttachmentId>,
+    pub participant_mentions: Vec<ChatParticipantMentionRead>,
+    pub resource_references: Vec<ChatResourceReferenceRead>,
+    pub also_send_to_channel: bool,
+    pub state: String,
+    pub scheduled_for: UtcTimestamp,
+    pub last_error: Option<String>,
+    pub created_at: UtcTimestamp,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ChatScheduledMessageDispatchRead {
+    pub processed_count: u32,
+    pub dispatched_count: u32,
+    pub dispatched_channel_ids: Vec<ChatChannelId>,
+    pub next_dispatch_at: Option<UtcTimestamp>,
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]

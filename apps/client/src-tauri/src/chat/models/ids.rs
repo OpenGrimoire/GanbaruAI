@@ -96,6 +96,7 @@ chat_identifier!(ChatPlanId, "Chat plan ID");
 chat_identifier!(ChatAttachmentId, "Chat attachment ID");
 chat_identifier!(ChatEventId, "Chat event ID");
 chat_identifier!(ChatCommandId, "Chat command ID");
+chat_identifier!(ChatScheduledMessageId, "Chat scheduled message ID");
 chat_identifier!(ChatCheckpointId, "Chat checkpoint ID");
 chat_identifier!(CredentialReferenceId, "credential reference ID");
 chat_identifier!(ProviderFamilyId, "provider family ID");

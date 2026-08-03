@@ -10,6 +10,9 @@ import type {
   ChatReplyThreadPageRead,
   ChatMessageRead,
   ChatMessageSearchResultRead,
+  ChatScheduledMessageDispatchRead,
+  ChatScheduledMessageId,
+  ChatScheduledMessageRead,
   ChatParticipantMentionInput,
   ChatResourceReferenceInput,
   ChatAiTeammateRead,
@@ -36,6 +39,7 @@ import type {
   RemoveProviderResult,
   SafetyMode,
   UserInputAnswer,
+  UtcTimestamp,
   VersionedJson,
 } from "$lib/chat/contracts";
 import { evictTimelinePages, mergeTimelineItems } from "$lib/chat/timeline-virtualization";
@@ -70,6 +74,7 @@ export interface ChatOrganizationalDraft {
   resourceReferences: ChatResourceReferenceInput[];
   selectionStart: number;
   selectionEnd: number;
+  scheduledFor: UtcTimestamp | null;
 }
 
 export interface ChatComposerSendOptions {
@@ -126,6 +131,8 @@ class ChatStore {
   timelineError = $state<string | null>(null);
   railOpen = $state(true);
   inspectorOpen = $state(false);
+  scheduledMessagesVersion = $state(0);
+  loaded = $state(false);
   private loadRequest = 0;
   private channelLoadRequest = 0;
   private projectSelectionProjectId: string | null = null;
@@ -159,7 +166,6 @@ class ChatStore {
   private readonly nativeChanges = new AsyncFrameCoalescer<string>(
     (threadId) => this.refreshNativeChange(threadId),
   );
-  private loaded = false;
   private vaultGeneration = 0;
 
   constructor() {
@@ -211,6 +217,7 @@ class ChatStore {
     this.channelSelectionRequest += 1;
     this.timelineRequest += 1;
     this.loaded = false;
+    this.scheduledMessagesVersion += 1;
     this.loadPromise = null;
     this.navigationChannels = [];
     this.channelPageCache.clear();
@@ -621,6 +628,101 @@ class ChatStore {
     await this.loadChannelMessages(channel.id, true);
     if (replyThreadId || result.assignment) await this.openReplyThread(result.replyThreadId);
     this.upsertChannel(await chatApi.readChatChannel(channel.id));
+    return result;
+  }
+
+  async scheduleOrganizationalMessage(
+    destination: string,
+    scheduledFor: UtcTimestamp,
+    options: { alsoSendToChannel?: boolean } = {},
+  ): Promise<ChatScheduledMessageRead> {
+    const channel = this.selectedChannel;
+    if (!channel) throw new Error("Choose a channel before scheduling");
+    const draft = this.organizationalDraft(destination);
+    if (!draft.normalizedMarkdown.trim() && draft.attachmentIds.length === 0 && draft.resourceReferences.length === 0) {
+      throw new Error("Write a message or attach context before scheduling");
+    }
+    const replyThreadId = destination.startsWith("reply-thread:")
+      ? destination.slice("reply-thread:".length)
+      : null;
+    const scheduled = await chatApi.scheduleChatMessage({
+      scheduledMessageId: crypto.randomUUID(),
+      scheduledFor,
+      message: {
+        clientCommandId: crypto.randomUUID(),
+        channelId: channel.id,
+        replyThreadId,
+        normalizedMarkdown: draft.normalizedMarkdown,
+        richContent: draft.richContent,
+        attachmentIds: [...draft.attachmentIds],
+        participantMentions: draft.participantMentions.map((mention) => ({ ...mention })),
+        resourceReferences: draft.resourceReferences.map((reference) => ({ ...reference })),
+        alsoSendToChannel: options.alsoSendToChannel ?? false,
+      },
+    });
+    this.setOrganizationalDraft(destination, emptyOrganizationalDraft());
+    this.scheduledMessagesVersion += 1;
+    return scheduled;
+  }
+
+  async listScheduledOrganizationalMessages(destination: string): Promise<ChatScheduledMessageRead[]> {
+    const channel = this.selectedChannel;
+    if (!channel) return [];
+    const replyThreadId = destination.startsWith("reply-thread:")
+      ? destination.slice("reply-thread:".length)
+      : null;
+    return chatApi.listScheduledChatMessages(channel.id, replyThreadId);
+  }
+
+  async cancelScheduledOrganizationalMessage(id: ChatScheduledMessageId): Promise<void> {
+    await chatApi.cancelScheduledChatMessage(id);
+    this.scheduledMessagesVersion += 1;
+  }
+
+  async retryScheduledOrganizationalMessage(id: ChatScheduledMessageId): Promise<ChatScheduledMessageRead> {
+    const scheduled = await chatApi.retryScheduledChatMessage(id);
+    this.scheduledMessagesVersion += 1;
+    return scheduled;
+  }
+
+  async sendScheduledOrganizationalMessageNow(
+    id: ChatScheduledMessageId,
+  ): Promise<import("$lib/chat/contracts").PostChatMessageResult> {
+    const channelId = this.selectedChannelId;
+    const replyThreadId = this.openReplyThreadId;
+    try {
+      const result = await chatApi.sendScheduledChatMessageNow(id);
+      if (channelId) {
+        this.upsertChannel(await chatApi.readChatChannel(channelId));
+        if (this.selectedChannelId === channelId) {
+          await this.loadChannelMessages(channelId, true);
+        }
+        if (replyThreadId && this.openReplyThreadId === replyThreadId && result.message.replyThreadId === replyThreadId) {
+          await this.loadReplyThread(replyThreadId, true);
+        }
+      }
+      return result;
+    } finally {
+      this.scheduledMessagesVersion += 1;
+    }
+  }
+
+  async dispatchDueScheduledMessages(): Promise<ChatScheduledMessageDispatchRead> {
+    const result = await chatApi.dispatchDueScheduledChatMessages();
+    if (result.processedCount > 0) this.scheduledMessagesVersion += 1;
+    if (result.dispatchedChannelIds.length > 0) {
+      const channelReads = await Promise.allSettled(
+        result.dispatchedChannelIds.map((channelId) => chatApi.readChatChannel(channelId)),
+      );
+      for (const channelRead of channelReads) {
+        if (channelRead.status === "fulfilled") this.upsertChannel(channelRead.value);
+        else console.error("Scheduled message channel refresh failed", channelRead.reason);
+      }
+      if (this.selectedChannelId && result.dispatchedChannelIds.includes(this.selectedChannelId)) {
+        await this.loadChannelMessages(this.selectedChannelId, true);
+        if (this.openReplyThreadId) await this.loadReplyThread(this.openReplyThreadId);
+      }
+    }
     return result;
   }
 
@@ -1643,6 +1745,7 @@ function emptyOrganizationalDraft(): ChatOrganizationalDraft {
     resourceReferences: [],
     selectionStart: 0,
     selectionEnd: 0,
+    scheduledFor: null,
   };
 }
 
