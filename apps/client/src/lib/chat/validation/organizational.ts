@@ -292,6 +292,8 @@ export function parseChatMessageSearchResult(
     replyThreadId: readNullable(record.replyThreadId, `${label}.replyThreadId`, readIdentifier),
     messageItemId: readIdentifier(record.messageItemId, `${label}.messageItemId`),
     ordinal: readNonNegativeSafeInteger(record.ordinal, `${label}.ordinal`),
+    authorParticipantId: readIdentifier(record.authorParticipantId, `${label}.authorParticipantId`),
+    authorKind: readEnum(record.authorKind, CHAT_PARTICIPANT_KINDS, `${label}.authorKind`),
     authorDisplayName: readString(record.authorDisplayName, `${label}.authorDisplayName`),
     excerpt: readString(record.excerpt, `${label}.excerpt`),
     createdAt: readUtcTimestamp(record.createdAt, `${label}.createdAt`),

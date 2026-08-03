@@ -127,8 +127,6 @@ pub struct PostChatMessageCommand {
     #[serde(default)]
     pub resource_references: Vec<ChatResourceReferenceInput>,
     #[serde(default)]
-    pub post_without_invoking: bool,
-    #[serde(default)]
     pub also_send_to_channel: bool,
 }
 
@@ -592,7 +590,6 @@ pub async fn chat_post_message(
         &channel.conversation_id,
         request.reply_thread_id.as_ref(),
         &request.participant_mentions,
-        request.post_without_invoking,
     )
     .await?;
     let now = now_timestamp()?;
@@ -850,11 +847,15 @@ pub async fn chat_search_messages(
             search.reply_thread_id,
             search.message_item_id,
             item.ordinal,
-            search.author_display_name,
+            participant.id AS author_participant_id,
+            participant.participant_kind AS author_participant_kind,
+            participant.display_name AS author_display_name,
             snippet(chat_communication_search_fts, 4, '<mark>', '</mark>', '…', 24) AS excerpt,
             item.created_at
          FROM chat_communication_search_fts search
          JOIN chat_conversation_items item ON item.id = search.message_item_id
+         JOIN chat_communication_messages message ON message.item_id = item.id
+         JOIN chat_participants participant ON participant.id = message.author_participant_id
          JOIN chat_channels channel ON channel.conversation_id = search.conversation_id
          WHERE chat_communication_search_fts MATCH ?
            AND (? IS NULL OR channel.project_id = ?)
@@ -895,6 +896,15 @@ pub async fn chat_search_messages(
                 )
                 .map_err(identifier_error)?,
                 ordinal: u64_value(row.try_get("ordinal").map_err(persistence_error)?)?,
+                author_participant_id: ChatParticipantId::new(
+                    row.try_get::<String, _>("author_participant_id")
+                        .map_err(persistence_error)?,
+                )
+                .map_err(identifier_error)?,
+                author_kind: parse_participant_kind(
+                    &row.try_get::<String, _>("author_participant_kind")
+                        .map_err(persistence_error)?,
+                )?,
                 author_display_name: row
                     .try_get("author_display_name")
                     .map_err(persistence_error)?,
@@ -1659,7 +1669,6 @@ async fn resolve_invoked_teammate(
     conversation_id: &ChatConversationId,
     reply_thread_id: Option<&ChatReplyThreadId>,
     mentions: &[ChatParticipantMentionInput],
-    post_without_invoking: bool,
 ) -> ChatResult<Option<ResolvedInvocation>> {
     let mut ai_mentions = Vec::new();
     for mention in mentions {
@@ -1690,9 +1699,6 @@ async fn resolve_invoked_teammate(
         .as_ref()
         .filter(|assignment| assignment.state.is_active())
         .cloned();
-    if post_without_invoking {
-        return Ok(None);
-    }
     let teammate_id = ai_mentions.into_iter().next().or_else(|| {
         latest_assignment
             .as_ref()
@@ -4122,7 +4128,6 @@ mod tests {
             attachment_ids: Vec::new(),
             participant_mentions: Vec::new(),
             resource_references: Vec::new(),
-            post_without_invoking: false,
             also_send_to_channel: false,
         }
     }
@@ -4138,7 +4143,6 @@ mod tests {
                 &ChatConversationId::new("conversation:test").unwrap(),
                 None,
                 &request.participant_mentions,
-                false,
             )
             .await
             .unwrap();
@@ -4182,7 +4186,6 @@ mod tests {
                 &ChatConversationId::new("conversation:test").unwrap(),
                 None,
                 &mentions,
-                false,
             )
             .await
             .unwrap_err();

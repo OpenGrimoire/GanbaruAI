@@ -240,6 +240,8 @@ pub struct ChatMessageSearchResultRead {
     pub reply_thread_id: Option<ChatReplyThreadId>,
     pub message_item_id: ChatConversationItemId,
     pub ordinal: u64,
+    pub author_participant_id: ChatParticipantId,
+    pub author_kind: ChatParticipantKind,
     pub author_display_name: String,
     pub excerpt: String,
     pub created_at: UtcTimestamp,

@@ -207,6 +207,8 @@ export interface ChatMessageSearchResultRead {
   replyThreadId: ChatReplyThreadId | null;
   messageItemId: ChatConversationItemId;
   ordinal: number;
+  authorParticipantId: ChatParticipantId;
+  authorKind: ChatParticipantKind;
   authorDisplayName: string;
   excerpt: string;
   createdAt: UtcTimestamp;
@@ -271,7 +273,6 @@ export interface PostChatMessageRequest {
   attachmentIds: ChatAttachmentId[];
   participantMentions: ChatParticipantMentionInput[];
   resourceReferences: ChatResourceReferenceInput[];
-  postWithoutInvoking: boolean;
   alsoSendToChannel: boolean;
 }
 

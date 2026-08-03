@@ -92,7 +92,6 @@ export const chat = {
   organization: {
     agent: "Agent",
     teammate: "teammate",
-    routesTo: (name: string) => `Replies continue with @${name} unless you choose post only.`,
     mentionTeammate: "Mention a channel member",
     noMentionResults: "No channel members match this mention.",
     needsSetup: "Needs setup",
@@ -105,9 +104,7 @@ export const chat = {
     add: "Add context",
     bold: "Bold",
     italic: "Italic",
-    sendOptions: "Message routing options",
-    postWithoutInvoking: (name: string) => `Post without invoking @${name}`,
-    alsoSendToChannel: (name: string) => `Also send to #${name}`,
+    shareReplyToChannel: (name: string) => name ? `Share reply to #${name}` : "Share reply to channel",
     imageNumber: (number: number) => `Image ${number}`,
     images: (count: number) => `${count} ${count === 1 ? "image" : "images"}`,
     replies: (count: number) => `${count} ${count === 1 ? "reply" : "replies"}`,

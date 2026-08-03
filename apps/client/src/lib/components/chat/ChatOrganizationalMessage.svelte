@@ -1,8 +1,10 @@
 <script lang="ts">
   import MessageCircle from "@lucide/svelte/icons/message-circle";
   import type { ChatMessageRead, ChatWorkAssignmentState } from "$lib/chat/contracts";
+  import { chatParticipantDisplayName } from "$lib/chat/participant-display";
   import { formatDateTime } from "$lib/i18n/formatters";
   import { getLocalization } from "$lib/i18n/translator.svelte";
+  import { getPreferences } from "$lib/stores/preferences.svelte";
   import ChatParticipantAvatar from "./ChatParticipantAvatar.svelte";
 
   let {
@@ -19,6 +21,12 @@
 
   const localization = getLocalization();
   const { t } = localization;
+  const preferences = getPreferences();
+  const authorDisplayName = $derived(chatParticipantDisplayName(
+    message.author,
+    preferences.profileDisplayName,
+    t("chat.timeline.you"),
+  ));
 
   function stateLabel(state: ChatWorkAssignmentState): string {
     const labels: Record<ChatWorkAssignmentState, string> = {
@@ -40,7 +48,7 @@
   class:grouped
   data-message-item-id={message.itemId}
   tabindex="-1"
-  aria-label={`${message.author.displayName}, ${formatDateTime(localization.locale, Date.parse(message.createdAt), { dateStyle: "medium", timeStyle: "short" })}`}
+  aria-label={`${authorDisplayName}, ${formatDateTime(localization.locale, Date.parse(message.createdAt), { dateStyle: "medium", timeStyle: "short" })}`}
 >
   <div class="avatar-cell">
     {#if !grouped}<ChatParticipantAvatar participant={message.author} size={32} />{/if}
@@ -48,7 +56,7 @@
   <div class="message-body">
     {#if !grouped}
       <header>
-        <strong>{message.author.displayName}</strong>
+        <strong>{authorDisplayName}</strong>
         {#if message.author.kind === "ai_teammate"}<span class="agent-badge">{t("chat.organization.agent")}</span>{/if}
         <time datetime={message.createdAt}>{formatDateTime(localization.locale, Date.parse(message.createdAt), { timeStyle: "short" })}</time>
       </header>

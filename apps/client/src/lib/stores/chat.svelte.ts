@@ -595,7 +595,7 @@ class ChatStore {
 
   async postOrganizationalMessage(
     destination: string,
-    options: { postWithoutInvoking?: boolean; alsoSendToChannel?: boolean } = {},
+    options: { alsoSendToChannel?: boolean } = {},
   ): Promise<import("$lib/chat/contracts").PostChatMessageResult> {
     const channel = this.selectedChannel;
     if (!channel) throw new Error("Choose a channel before posting");
@@ -615,7 +615,6 @@ class ChatStore {
       attachmentIds: [...draft.attachmentIds],
       participantMentions: draft.participantMentions.map((mention) => ({ ...mention })),
       resourceReferences: draft.resourceReferences.map((reference) => ({ ...reference })),
-      postWithoutInvoking: options.postWithoutInvoking ?? false,
       alsoSendToChannel: options.alsoSendToChannel ?? false,
     });
     this.setOrganizationalDraft(destination, emptyOrganizationalDraft());

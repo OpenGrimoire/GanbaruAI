@@ -95,7 +95,6 @@ export const chat = {
   organization: {
     agent: "Agente",
     teammate: "compañero",
-    routesTo: (name: string) => `Las respuestas continúan con @${name} salvo que elijas solo publicar.`,
     mentionTeammate: "Mencionar a un miembro del canal",
     noMentionResults: "Ningún miembro del canal coincide con esta mención.",
     needsSetup: "Requiere configuración",
@@ -108,9 +107,7 @@ export const chat = {
     add: "Agregar contexto",
     bold: "Negrita",
     italic: "Cursiva",
-    sendOptions: "Opciones de envío del mensaje",
-    postWithoutInvoking: (name: string) => `Publicar sin invocar a @${name}`,
-    alsoSendToChannel: (name: string) => `También enviar a #${name}`,
+    shareReplyToChannel: (name: string) => name ? `Compartir respuesta en #${name}` : "Compartir respuesta en el canal",
     imageNumber: (number: number) => `Imagen ${number}`,
     images: (count: number) => `${count} ${count === 1 ? "imagen" : "imágenes"}`,
     replies: (count: number) => `${count} ${count === 1 ? "respuesta" : "respuestas"}`,

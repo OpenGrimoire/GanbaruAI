@@ -13,6 +13,7 @@
   import Plus from "@lucide/svelte/icons/plus";
   import Search from "@lucide/svelte/icons/search";
   import type { ChatChannelRead, ChatMessageSearchResultRead } from "$lib/chat/contracts";
+  import { chatParticipantDisplayName } from "$lib/chat/participant-display";
   import {
     moveChatChannelToSection,
     normalizeChatSidebarSections,
@@ -22,6 +23,7 @@
   } from "$lib/chat/channel-sections";
   import { getLocalization } from "$lib/i18n/translator.svelte";
   import { getChat } from "$lib/stores/chat.svelte";
+  import { getPreferences } from "$lib/stores/preferences.svelte";
   import { getProjects } from "$lib/stores/projects.svelte";
   import { onActiveVaultIdentityChange } from "$lib/vault/active-vault";
   import ConfirmDialog from "$lib/components/ui/ConfirmDialog.svelte";
@@ -40,6 +42,7 @@
   } = $props();
 
   const chat = getChat();
+  const preferences = getPreferences();
   const projects = getProjects();
   const { t } = getLocalization();
   let query = $state("");
@@ -60,6 +63,18 @@
   const matchingChannels = $derived(chat.activeChannels.filter(matchesQuery));
   const assignedChannelIds = $derived(new Set(sections.flatMap((section) => section.channelIds)));
   const unsectionedChannels = $derived(matchingChannels.filter((channel) => !assignedChannelIds.has(channel.id)));
+
+  function searchAuthorDisplayName(result: ChatMessageSearchResultRead): string {
+    return chatParticipantDisplayName(
+      {
+        id: result.authorParticipantId,
+        kind: result.authorKind,
+        displayName: result.authorDisplayName,
+      },
+      preferences.profileDisplayName,
+      t("chat.timeline.you"),
+    );
+  }
 
   $effect(() => {
     const projectId = projects.selectedProjectId;
@@ -280,7 +295,7 @@
           <div class="section-heading"><span>{t("chat.organization.messages")}</span>{#if messageSearchLoading}<LoaderCircle size={12} class="animate-spin" aria-label={t("common.loading")} />{/if}</div>
           {#each messageSearchResults as result (result.messageItemId)}
             <button type="button" class="message-result" onclick={() => void openMessageResult(result)}>
-              <span><strong>{result.authorDisplayName}</strong><small>{projectName(result.projectId)} · #{result.channelName}{#if result.replyThreadId} · {t("chat.organization.thread")}{/if}</small></span>
+              <span><strong>{searchAuthorDisplayName(result)}</strong><small>{projectName(result.projectId)} · #{result.channelName}{#if result.replyThreadId} · {t("chat.organization.thread")}{/if}</small></span>
               <span>{searchExcerpt(result)}</span>
             </button>
           {/each}

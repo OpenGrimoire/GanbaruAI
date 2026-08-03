@@ -3,11 +3,11 @@
   import ArrowUp from "@lucide/svelte/icons/arrow-up";
   import AtSign from "@lucide/svelte/icons/at-sign";
   import Bold from "@lucide/svelte/icons/bold";
-  import ChevronDown from "@lucide/svelte/icons/chevron-down";
   import File from "@lucide/svelte/icons/file";
   import Folder from "@lucide/svelte/icons/folder";
   import Image from "@lucide/svelte/icons/image";
   import Italic from "@lucide/svelte/icons/italic";
+  import MessageSquareShare from "@lucide/svelte/icons/message-square-share";
   import Plus from "@lucide/svelte/icons/plus";
   import Settings from "@lucide/svelte/icons/settings";
   import * as chatApi from "$lib/api/chat";
@@ -57,7 +57,6 @@
   let mentionIndex = $state(0);
   let mentionStyle = $state("");
   let addMenuOpen = $state(false);
-  let sendMenuOpen = $state(false);
   let alsoSendToChannel = $state(false);
   let resourcePath = $state("");
   let resourceKind = $state<"file" | "folder">("file");
@@ -76,7 +75,7 @@
     .filter((mention) => mention.participantKind === "ai_teammate")
     .map((mention) => mention.participantId)).size);
   const validation = $derived(invokedAiCount > 1 ? t("chat.organization.oneAgentOnly") : null);
-  const assignedTeammate = $derived(threadComposer ? chat.replyThread?.assignment?.teammate ?? null : null);
+  const channelName = $derived(chat.selectedChannel?.name ?? "");
 
   function persist(): void {
     const draft: ChatOrganizationalDraft = {
@@ -243,7 +242,7 @@
     }
     if (event.key === "Enter" && !event.shiftKey) {
       event.preventDefault();
-      void post(false);
+      void post();
     }
   }
 
@@ -325,13 +324,12 @@
     persist();
   }
 
-  async function post(postWithoutInvoking: boolean): Promise<void> {
+  async function post(): Promise<void> {
     if (sending || validation) return;
     sending = true;
     error = null;
     try {
       await chat.postOrganizationalMessage(destination, {
-        postWithoutInvoking,
         alsoSendToChannel: threadComposer && alsoSendToChannel,
       });
       text = "";
@@ -340,7 +338,7 @@
       resourceReferences = [];
       selectionStart = 0;
       selectionEnd = 0;
-      sendMenuOpen = false;
+      alsoSendToChannel = false;
     } catch (cause: unknown) {
       error = cause instanceof Error ? cause.message : String(cause);
     } finally {
@@ -355,9 +353,6 @@
 </script>
 
 <div class="organizational-composer" data-organizational-composer>
-  {#if assignedTeammate}
-    <div class="route-note">{t("chat.organization.routesTo", assignedTeammate.displayName)}</div>
-  {/if}
   <textarea
     bind:this={textarea}
     value={text}
@@ -410,7 +405,7 @@
   <div class="composer-footer">
     <div class="composer-tools">
       <div class="menu-anchor">
-        <button type="button" class="tool-button" aria-label={t("chat.organization.addContext")} aria-expanded={addMenuOpen} onclick={() => { addMenuOpen = !addMenuOpen; sendMenuOpen = false; }}><Plus size={16} /></button>
+        <button type="button" class="tool-button" aria-label={t("chat.organization.addContext")} aria-expanded={addMenuOpen} onclick={() => { addMenuOpen = !addMenuOpen; }}><Plus size={16} /></button>
         {#if addMenuOpen}
           <div class="composer-menu add-menu">
             <button type="button" onclick={() => void pickImages()}><Image size={14} />{t("chat.composer.attachImages")}</button>
@@ -425,19 +420,19 @@
       <button type="button" class="tool-button" aria-label={t("chat.organization.bold")} onclick={() => wrapSelection("**")}><Bold size={15} /></button>
       <button type="button" class="tool-button" aria-label={t("chat.organization.italic")} onclick={() => wrapSelection("_")}><Italic size={15} /></button>
       <button type="button" class="tool-button" aria-label={t("chat.organization.mentionTeammate")} onclick={() => { replaceRange(selectionStart, selectionEnd, "@"); }}><AtSign size={15} /></button>
-    </div>
-    <div class="send-group">
-      <button type="button" class="send-button" disabled={sending || Boolean(validation) || (!text.trim() && attachmentIds.length === 0 && resourceReferences.length === 0)} onclick={() => void post(false)}><ArrowUp size={16} /><span class="sr-only">{t("chat.composer.send")}</span></button>
       {#if threadComposer}
-        <button type="button" class="send-menu-button" aria-label={t("chat.organization.sendOptions")} aria-expanded={sendMenuOpen} onclick={() => { sendMenuOpen = !sendMenuOpen; addMenuOpen = false; }}><ChevronDown size={14} /></button>
-        {#if sendMenuOpen}
-          <div class="composer-menu send-menu">
-            <button type="button" onclick={() => void post(true)}>{t("chat.organization.postWithoutInvoking", assignedTeammate?.displayName ?? t("chat.organization.teammate"))}</button>
-            <label><input type="checkbox" bind:checked={alsoSendToChannel} />{t("chat.organization.alsoSendToChannel", chat.selectedChannel?.name ?? "")}</label>
-          </div>
-        {/if}
+        <button
+          type="button"
+          class="tool-button"
+          class:active={alsoSendToChannel}
+          aria-label={t("chat.organization.shareReplyToChannel", channelName)}
+          aria-pressed={alsoSendToChannel}
+          title={t("chat.organization.shareReplyToChannel", channelName)}
+          onclick={() => { alsoSendToChannel = !alsoSendToChannel; }}
+        ><MessageSquareShare size={15} /></button>
       {/if}
     </div>
+    <button type="button" class="send-button" disabled={sending || Boolean(validation) || (!text.trim() && attachmentIds.length === 0 && resourceReferences.length === 0)} onclick={() => void post()}><ArrowUp size={16} /><span class="sr-only">{t("chat.composer.send")}</span></button>
   </div>
   {#if validation}<p class="composer-error" role="alert">{validation}</p>{/if}
   {#if error}<p class="composer-error" role="alert">{error}</p>{/if}
@@ -447,22 +442,19 @@
   .organizational-composer { position:relative; width:min(100%,54rem); border:1px solid color-mix(in srgb,var(--border) 88%,transparent); border-radius:1.3rem; background:var(--card); box-shadow:0 8px 22px -18px rgb(0 0 0 / 0.24),0 1px 4px -3px rgb(0 0 0 / 0.16); }
   textarea { display:block; width:100%; min-height:4.15rem; max-height:15.35rem; resize:none; overflow-y:auto; border:0; background:transparent; padding:1rem 1.25rem 0.35rem; color:var(--foreground); font:inherit; font-size:var(--chat-conversation-font-size,0.933333rem); line-height:var(--chat-conversation-line-height,1.4rem); outline:none; }
   textarea::placeholder { color:color-mix(in srgb,var(--muted-foreground) 52%,transparent); }
-  .route-note { border-bottom:1px solid color-mix(in srgb,var(--border) 65%,transparent); padding:0.35rem 0.75rem; color:var(--muted-foreground); font-size:0.7rem; }
   .composer-footer { display:flex; min-height:3rem; align-items:center; justify-content:space-between; gap:0.5rem; padding:0.3rem 0.75rem 0.65rem; }
-  .composer-tools,.send-group { display:flex; align-items:center; gap:0.3rem; }
-  .menu-anchor,.send-group { position:relative; }
+  .composer-tools { display:flex; align-items:center; gap:0.3rem; }
+  .menu-anchor { position:relative; }
   .tool-button { display:grid; width:1.9rem; height:1.9rem; place-items:center; border-radius:0.5rem; color:var(--muted-foreground); }
   .tool-button:hover { background:var(--accent); color:var(--foreground); }
-  .send-button { display:grid; width:2.1rem; height:2.1rem; flex:0 0 auto; place-items:center; border-radius:999px 0 0 999px; background:color-mix(in srgb,var(--primary) 92%,transparent); color:var(--primary-foreground); box-shadow:0 2px 7px color-mix(in srgb,var(--primary) 22%,transparent); transition:transform 120ms ease,filter 120ms ease; }
+  .tool-button.active { background:var(--accent); color:var(--foreground); }
+  .send-button { display:grid; width:2.1rem; height:2.1rem; flex:0 0 auto; place-items:center; border-radius:999px; background:color-mix(in srgb,var(--primary) 92%,transparent); color:var(--primary-foreground); box-shadow:0 2px 7px color-mix(in srgb,var(--primary) 22%,transparent); transition:transform 120ms ease,filter 120ms ease; }
   .send-button:hover:not(:disabled) { filter:brightness(1.04); transform:scale(1.04); }
-  .send-group:not(:has(.send-menu-button)) .send-button { border-radius:999px; }
-  .send-menu-button { display:grid; width:1.7rem; height:2.1rem; place-items:center; border-left:1px solid color-mix(in srgb,var(--primary-foreground) 25%,transparent); border-radius:0 999px 999px 0; background:color-mix(in srgb,var(--primary) 92%,transparent); color:var(--primary-foreground); }
-  .send-button:disabled,.send-menu-button:disabled { opacity:0.45; }
+  .send-button:disabled { opacity:0.45; }
   .composer-menu { position:absolute; z-index:70; min-width:14rem; border:1px solid var(--border); border-radius:0.5rem; background:var(--popover); padding:0.3rem; box-shadow:0 10px 30px rgb(0 0 0 / 0.16); }
-  .composer-menu > button,.composer-menu > label { display:flex; width:100%; min-height:2rem; align-items:center; gap:0.45rem; border-radius:0.35rem; padding:0.35rem 0.5rem; text-align:left; font-size:0.75rem; }
+  .composer-menu > button { display:flex; width:100%; min-height:2rem; align-items:center; gap:0.45rem; border-radius:0.35rem; padding:0.35rem 0.5rem; text-align:left; font-size:0.75rem; }
   .composer-menu > button:hover { background:var(--accent); }
   .add-menu { bottom:calc(100% + 0.35rem); left:0; }
-  .send-menu { right:0; bottom:calc(100% + 0.35rem); }
   .resource-entry { display:grid; gap:0.35rem; border-top:1px solid var(--border); padding:0.45rem 0.35rem 0.25rem; }
   .resource-entry > div { display:flex; gap:0.25rem; }
   .resource-entry button { display:flex; align-items:center; gap:0.25rem; border-radius:0.3rem; padding:0.25rem 0.4rem; font-size:0.7rem; }

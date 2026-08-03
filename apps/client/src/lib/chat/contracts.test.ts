@@ -4,6 +4,7 @@ import {
   parseChatConfigRoot,
   parseChatChannel,
   parseChatChannelPage,
+  parseChatMessageSearchResults,
   parseChatVaultConfig,
   parseCanonicalRuntimeEvent,
   parseCanonicalStoredEvent,
@@ -162,6 +163,25 @@ describe("Chat provider contracts", () => {
     expect(page.messages[0]?.normalizedMarkdown).toBe("Done");
     expect(() => parseChatChannelPage({ ...page, revision: -1 }))
       .toThrow("revision must not be negative");
+  });
+
+  it("retains stable author identity in organizational message search results", () => {
+    const result = {
+      projectId: "project-1",
+      channelId: "channel:general",
+      channelName: "general",
+      conversationId: "conversation:general",
+      replyThreadId: null,
+      messageItemId: "message-1",
+      ordinal: 1,
+      authorParticipantId: "participant:local-owner",
+      authorKind: "local_user",
+      authorDisplayName: "You",
+      excerpt: "Done",
+      createdAt: timestamp,
+    };
+
+    expect(parseChatMessageSearchResults([result])).toEqual([result]);
   });
 
   it("parses metadata-only provider registry entries", () => {
