@@ -1,6 +1,6 @@
 //! Durable cleanup service for exact checkpoint refs.
 
-use super::git::delete_exact_ref;
+use super::delete_exact_ref;
 use crate::chat::models::{
     ChatError, ChatErrorCode, ChatResult, ProjectWorkingFolderId, UtcTimestamp,
 };

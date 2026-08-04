@@ -1646,6 +1646,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "ganbaru-chat"
+version = "0.1.5"
+dependencies = [
+ "chrono",
+ "ganbaru-chat-contracts",
+ "ganbaru-chat-providers",
+ "ganbaru-db",
+ "ganbaru-working-folders",
+ "libc",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "sha2",
+ "sqlx",
+ "tokio",
+ "windows 0.61.3",
+]
+
+[[package]]
 name = "ganbaru-chat-contracts"
 version = "0.1.5"
 dependencies = [
@@ -1721,6 +1740,7 @@ dependencies = [
  "cairo-rs",
  "chrono",
  "flate2",
+ "ganbaru-chat",
  "ganbaru-chat-contracts",
  "ganbaru-chat-providers",
  "ganbaru-db",

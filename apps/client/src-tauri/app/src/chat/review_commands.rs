@@ -5,7 +5,9 @@ use super::models::{
     UtcTimestamp,
 };
 use super::repository::attachments;
-use super::review_engine::{ResolveReviewSelectionRequest, ReviewDiffSource};
+use super::review_engine::{
+    ResolveReviewSelectionRequest, ReviewDiffSource, TauriReviewAuthorizer,
+};
 use crate::{db_path, vault};
 use chrono::{SecondsFormat, Utc};
 use serde::{Deserialize, Serialize};
@@ -175,7 +177,7 @@ pub async fn chat_create_review_comment(
         (Some(snapshot_id), Some(review_revision), Some(file_id), Some(side)) => Some(
             reviews
                 .resolve_selection(
-                    &app,
+                    &TauriReviewAuthorizer::new(app.clone()),
                     &pool,
                     &database_identity,
                     ResolveReviewSelectionRequest {

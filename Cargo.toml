@@ -3,6 +3,7 @@ resolver = "2"
 members = [
   "apps/client/src-tauri",
   "apps/client/src-tauri/app",
+  "crates/ganbaru-chat",
   "crates/ganbaru-chat-contracts",
   "crates/ganbaru-chat-providers",
   "crates/ganbaru-db",

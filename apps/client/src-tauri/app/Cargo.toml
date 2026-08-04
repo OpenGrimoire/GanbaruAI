@@ -15,6 +15,7 @@ axum = { workspace = true }
 base64 = { workspace = true }
 chrono = { workspace = true }
 flate2 = { workspace = true }
+ganbaru-chat = { path = "../../../../crates/ganbaru-chat" }
 ganbaru-chat-contracts = { path = "../../../../crates/ganbaru-chat-contracts" }
 ganbaru-chat-providers = { path = "../../../../crates/ganbaru-chat-providers" }
 ganbaru-db = { path = "../../../../crates/ganbaru-db" }
@@ -64,3 +65,6 @@ objc2-web-kit = { workspace = true }
 
 [target.'cfg(any(target_os = "macos", windows, target_os = "linux"))'.dependencies]
 tauri-plugin-single-instance = { workspace = true }
+
+[dev-dependencies]
+ganbaru-chat = { path = "../../../../crates/ganbaru-chat", features = ["test-support"] }
