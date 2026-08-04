@@ -13,7 +13,7 @@ use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 
 #[test]
 fn json_rpc_correlates_out_of_order_and_drains_malformed_frames() {
-    tauri::async_runtime::block_on(async {
+    crate::test_block_on(async {
         let (application, agent) = tokio::io::duplex(5 * 1024 * 1024);
         let (application_reader, application_writer) = tokio::io::split(application);
         let (agent_reader, mut agent_writer) = tokio::io::split(agent);
@@ -107,7 +107,7 @@ fn json_rpc_correlates_out_of_order_and_drains_malformed_frames() {
 
 #[test]
 fn json_rpc_prompt_fallback_releases_the_original_response_slot() {
-    tauri::async_runtime::block_on(async {
+    crate::test_block_on(async {
         let (application, agent) = tokio::io::duplex(64 * 1024);
         let (application_reader, application_writer) = tokio::io::split(application);
         let (agent_reader, mut agent_writer) = tokio::io::split(agent);
@@ -168,7 +168,7 @@ fn json_rpc_prompt_fallback_releases_the_original_response_slot() {
 
 #[test]
 fn driver_fixture_covers_prompt_plan_cancel_and_cleanup() {
-    tauri::async_runtime::block_on(async {
+    crate::test_block_on(async {
         let workspace = TestDirectory::new("driver");
         let state = Arc::new(AcpFixtureState::default());
         let factory_state = Arc::clone(&state);

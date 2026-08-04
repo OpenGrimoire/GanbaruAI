@@ -2,7 +2,7 @@ use super::*;
 
 #[test]
 fn transport_correlates_out_of_order_responses_and_routes_messages() {
-    tauri::async_runtime::block_on(async {
+    crate::test_block_on(async {
         let (client_reader, mut server_writer) = tokio::io::duplex(16 * 1024);
         let (server_reader, client_writer) = tokio::io::duplex(16 * 1024);
         let mut connection = CodexRpcConnection::from_test_io(client_reader, client_writer);
@@ -92,7 +92,7 @@ fn transport_correlates_out_of_order_responses_and_routes_messages() {
 
 #[test]
 fn transport_reports_malformed_input_without_echoing_raw_content() {
-    tauri::async_runtime::block_on(async {
+    crate::test_block_on(async {
         let (client_reader, mut server_writer) = tokio::io::duplex(1024);
         let (_server_reader, client_writer) = tokio::io::duplex(1024);
         let mut connection = CodexRpcConnection::from_test_io(client_reader, client_writer);
@@ -117,7 +117,7 @@ fn transport_reports_malformed_input_without_echoing_raw_content() {
 
 #[test]
 fn transport_honors_cancellation_while_waiting_for_response() {
-    tauri::async_runtime::block_on(async {
+    crate::test_block_on(async {
         let (client_reader, _server_writer) = tokio::io::duplex(1024);
         let (_server_reader, client_writer) = tokio::io::duplex(1024);
         let _connection = CodexRpcConnection::from_test_io(client_reader, client_writer);

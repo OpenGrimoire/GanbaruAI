@@ -1646,6 +1646,33 @@ dependencies = [
 ]
 
 [[package]]
+name = "ganbaru-chat-contracts"
+version = "0.1.5"
+dependencies = [
+ "ganbaru-working-folders",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "ganbaru-chat-providers"
+version = "0.1.5"
+dependencies = [
+ "agent-client-protocol",
+ "base64 0.22.1",
+ "chrono",
+ "ganbaru-chat-contracts",
+ "libc",
+ "reqwest",
+ "rustls",
+ "serde",
+ "serde_json",
+ "sha2",
+ "tokio",
+ "windows 0.61.3",
+]
+
+[[package]]
 name = "ganbaru-db"
 version = "0.1.5"
 dependencies = [
@@ -1668,7 +1695,6 @@ dependencies = [
 name = "ganbaru-tauri-app"
 version = "0.1.5"
 dependencies = [
- "agent-client-protocol",
  "ammonia",
  "axum",
  "base64 0.22.1",
@@ -1676,6 +1702,8 @@ dependencies = [
  "cairo-rs",
  "chrono",
  "flate2",
+ "ganbaru-chat-contracts",
+ "ganbaru-chat-providers",
  "ganbaru-db",
  "ganbaru-working-folders",
  "gtk",

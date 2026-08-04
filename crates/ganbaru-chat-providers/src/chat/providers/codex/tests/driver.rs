@@ -2,7 +2,7 @@ use super::*;
 
 #[test]
 fn mcp_status_without_task_uses_standalone_app_server() {
-    tauri::async_runtime::block_on(async {
+    crate::test_block_on(async {
         let workspace = TestDirectory::new("mcp-status-draft");
         let (mut driver, fixture) = fixture_driver(workspace.path(), FixtureScenario::Healthy);
 
@@ -42,7 +42,7 @@ fn mcp_status_without_task_uses_standalone_app_server() {
 
 #[test]
 fn driver_fixture_covers_fresh_plan_interrupt_and_shutdown() {
-    tauri::async_runtime::block_on(async {
+    crate::test_block_on(async {
         let workspace = TestDirectory::new("driver-fresh");
         let (mut driver, fixture) = fixture_driver(workspace.path(), FixtureScenario::Healthy);
         let sink = Arc::new(RecordingSink::default());
@@ -151,7 +151,7 @@ fn driver_fixture_covers_fresh_plan_interrupt_and_shutdown() {
 
 #[test]
 fn driver_fixture_covers_native_resume_and_confirmed_missing_fallback() {
-    tauri::async_runtime::block_on(async {
+    crate::test_block_on(async {
         for (scenario, expected_thread, expects_fallback) in [
             (FixtureScenario::Healthy, "provider-thread-existing", false),
             (
@@ -231,7 +231,7 @@ fn driver_fixture_covers_native_resume_and_confirmed_missing_fallback() {
 
 #[test]
 fn driver_fixture_routes_native_approval_and_structured_question() {
-    tauri::async_runtime::block_on(async {
+    crate::test_block_on(async {
         for scenario in [
             FixtureScenario::CommandApproval,
             FixtureScenario::StructuredQuestion,
@@ -361,7 +361,7 @@ fn driver_fixture_routes_native_approval_and_structured_question() {
 
 #[test]
 fn driver_probe_distinguishes_authentication_and_protocol_failure() {
-    tauri::async_runtime::block_on(async {
+    crate::test_block_on(async {
         for (scenario, expected_state) in [
             (
                 FixtureScenario::AuthenticationRequired,
@@ -382,7 +382,7 @@ fn driver_probe_distinguishes_authentication_and_protocol_failure() {
 
 #[test]
 fn healthy_probe_retains_the_discovered_model_catalog() {
-    tauri::async_runtime::block_on(async {
+    crate::test_block_on(async {
         let workspace = TestDirectory::new("driver-probe-models");
         let (mut driver, _fixture) = fixture_driver(workspace.path(), FixtureScenario::Healthy);
 

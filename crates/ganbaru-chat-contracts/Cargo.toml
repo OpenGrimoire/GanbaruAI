@@ -1,0 +1,15 @@
+[package]
+name = "ganbaru-chat-contracts"
+version = "0.1.5"
+description = "Provider-neutral Ganbaru AI Chat contracts"
+authors = ["Ganbaru AI"]
+license = "AGPL-3.0-only"
+edition = "2021"
+
+[lib]
+doctest = false
+
+[dependencies]
+ganbaru-working-folders = { path = "../ganbaru-working-folders" }
+serde = { workspace = true }
+serde_json = { workspace = true }

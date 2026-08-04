@@ -22,7 +22,7 @@ use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 
 #[test]
 fn transport_correlates_out_of_order_responses_and_reports_malformed_lines() {
-    tauri::async_runtime::block_on(async {
+    crate::test_block_on(async {
         let (driver_reader, mut server_writer) = tokio::io::duplex(32 * 1024);
         let (server_reader, driver_writer) = tokio::io::duplex(32 * 1024);
         let mut connection = ClaudeJsonlConnection::from_test_io(driver_reader, driver_writer);
@@ -109,7 +109,7 @@ fn transport_correlates_out_of_order_responses_and_reports_malformed_lines() {
 
 #[test]
 fn transport_cancellation_removes_pending_request() {
-    tauri::async_runtime::block_on(async {
+    crate::test_block_on(async {
         let (driver_reader, _server_writer) = tokio::io::duplex(1024);
         let (_server_reader, driver_writer) = tokio::io::duplex(1024);
         let mut connection = ClaudeJsonlConnection::from_test_io(driver_reader, driver_writer);
@@ -135,7 +135,7 @@ fn transport_cancellation_removes_pending_request() {
 
 #[test]
 fn oversized_frame_is_drained_without_growing_the_parse_buffer() {
-    tauri::async_runtime::block_on(async {
+    crate::test_block_on(async {
         let (mut writer, reader) = tokio::io::duplex(8 * 1024);
         let write = tokio::spawn(async move {
             writer.write_all(&vec![b'x'; 4 * 1024]).await.unwrap();
@@ -157,7 +157,7 @@ fn oversized_frame_is_drained_without_growing_the_parse_buffer() {
 
 #[test]
 fn approval_resolution_returns_only_the_selected_native_behavior() {
-    tauri::async_runtime::block_on(async {
+    crate::test_block_on(async {
         let (driver_reader, _server_writer) = tokio::io::duplex(8 * 1024);
         let (server_reader, driver_writer) = tokio::io::duplex(8 * 1024);
         let connection = ClaudeJsonlConnection::from_test_io(driver_reader, driver_writer);
@@ -214,7 +214,7 @@ fn approval_resolution_returns_only_the_selected_native_behavior() {
 
 #[test]
 fn question_resolution_maps_stable_option_ids_to_exact_provider_labels() {
-    tauri::async_runtime::block_on(async {
+    crate::test_block_on(async {
         let (driver_reader, _server_writer) = tokio::io::duplex(8 * 1024);
         let (server_reader, driver_writer) = tokio::io::duplex(8 * 1024);
         let connection = ClaudeJsonlConnection::from_test_io(driver_reader, driver_writer);
@@ -276,7 +276,7 @@ fn question_resolution_maps_stable_option_ids_to_exact_provider_labels() {
 
 #[test]
 fn driver_starts_dispatches_and_stops_a_native_session() {
-    tauri::async_runtime::block_on(async {
+    crate::test_block_on(async {
         let home = TestDirectory::new("driver-home");
         let workspace = TestDirectory::new("driver-workspace");
         let mut driver = ClaudeProviderDriver::new(configuration(home.path())).unwrap();
@@ -362,7 +362,7 @@ fn driver_starts_dispatches_and_stops_a_native_session() {
 
 #[test]
 fn healthy_probe_exposes_the_native_model_catalog() {
-    tauri::async_runtime::block_on(async {
+    crate::test_block_on(async {
         let home = TestDirectory::new("probe-model-catalog-home");
         let mut driver = ClaudeProviderDriver::new(configuration(home.path())).unwrap();
         let pair = Arc::new(Mutex::new(Some(native_fixture_connection(

@@ -556,7 +556,7 @@ fn confirmed_resume_not_found_is_narrow() {
 
 #[test]
 fn session_start_auth_resume_and_configuration_rollback_are_bounded() {
-    tauri::async_runtime::block_on(async {
+    crate::test_block_on(async {
         let healthy_state = Arc::new(AcpFixtureState::default());
         let mut healthy = fixture_connection(FixtureScenario::Healthy, Arc::clone(&healthy_state));
         let started = initialize_session(

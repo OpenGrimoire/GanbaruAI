@@ -275,7 +275,7 @@ async fn read_request(connection: &mut TcpStream) -> std::io::Result<String> {
 
 #[test]
 fn external_session_lifecycle_never_stops_the_external_server() {
-    tauri::async_runtime::block_on(async {
+    crate::test_block_on(async {
         let workspace = TestDirectory::new("external-driver");
         let server = OpenCodeServerFixture::start(workspace.path(), None, false).await;
         let mut driver =
@@ -439,7 +439,7 @@ fn external_session_lifecycle_never_stops_the_external_server() {
 
 #[test]
 fn external_workspace_requires_confirmation_before_any_request() {
-    tauri::async_runtime::block_on(async {
+    crate::test_block_on(async {
         let workspace = TestDirectory::new("external-confirmation");
         let server = OpenCodeServerFixture::start(workspace.path(), None, false).await;
         let mut driver =
@@ -460,7 +460,7 @@ fn external_workspace_requires_confirmation_before_any_request() {
 
 #[test]
 fn resume_forks_changed_directory_reasserts_permissions_and_reconciles_reconnect() {
-    tauri::async_runtime::block_on(async {
+    crate::test_block_on(async {
         let workspace = TestDirectory::new("external-resume");
         let other = TestDirectory::new("external-other");
         let server = OpenCodeServerFixture::start(
@@ -528,7 +528,7 @@ fn resume_forks_changed_directory_reasserts_permissions_and_reconciles_reconnect
 
 #[test]
 fn resume_creates_a_fresh_session_only_after_confirmed_not_found() {
-    tauri::async_runtime::block_on(async {
+    crate::test_block_on(async {
         let workspace = TestDirectory::new("external-missing-resume");
         let server = OpenCodeServerFixture::start(workspace.path(), None, false).await;
         let configuration = external_configuration(&server.origin, true);

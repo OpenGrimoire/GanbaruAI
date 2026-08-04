@@ -1,19 +1,3 @@
-//! Shared Chat wire models.
+//! Chat wire models supplied by the contracts crate.
 
-mod channels;
-mod commands;
-mod common;
-mod error;
-mod ids;
-mod organizational;
-mod provider;
-mod reads;
-
-pub use channels::*;
-pub use commands::*;
-pub use common::*;
-pub use error::*;
-pub use ids::*;
-pub use organizational::*;
-pub use provider::*;
-pub use reads::*;
+pub use ganbaru_chat_contracts::models::*;

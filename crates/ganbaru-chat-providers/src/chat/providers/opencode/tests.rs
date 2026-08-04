@@ -203,7 +203,7 @@ fn process_environment_uses_the_configured_opencode_directory() {
 
 #[test]
 fn typed_http_scopes_requests_and_redacts_authorization_failures() {
-    tauri::async_runtime::block_on(async {
+    crate::test_block_on(async {
         let fixture = HttpFixture::start(
             "HTTP/1.1 401 Unauthorized\r\nContent-Type: application/json\r\nContent-Length: 30\r\nConnection: close\r\n\r\n{\"name\":\"AuthenticationError\"}",
         );
@@ -236,7 +236,7 @@ fn typed_http_scopes_requests_and_redacts_authorization_failures() {
 
 #[test]
 fn typed_http_reads_history_cursor_and_uses_exact_prompt_endpoint() {
-    tauri::async_runtime::block_on(async {
+    crate::test_block_on(async {
         let history = HttpFixture::start(
             "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nX-Next-Cursor: cursor-two\r\nContent-Length: 23\r\nConnection: close\r\n\r\n[{\"info\":{\"id\":\"one\"}}]",
         );
@@ -558,7 +558,7 @@ fn owned_server_arguments_and_readiness_are_exact() {
 fn owned_server_fixture_stops_its_process_tree() {
     use std::os::unix::fs::PermissionsExt;
 
-    tauri::async_runtime::block_on(async {
+    crate::test_block_on(async {
         let directory = TestDirectory::new("owned-server");
         let executable = directory.path().join("opencode-fixture");
         std::fs::write(
@@ -596,7 +596,7 @@ fn owned_server_reports_early_exit_timeout_and_oversized_output() {
     use std::os::unix::fs::PermissionsExt;
     use std::time::Duration;
 
-    tauri::async_runtime::block_on(async {
+    crate::test_block_on(async {
         let directory = TestDirectory::new("owned-server-failures");
         for (name, script, expected_code) in [
             (

@@ -2,7 +2,7 @@ use super::*;
 
 #[test]
 fn permission_approvals_return_only_requested_subset_and_scope() {
-    tauri::async_runtime::block_on(async {
+    crate::test_block_on(async {
         let (client_reader, _server_writer) = tokio::io::duplex(4096);
         let (server_reader, client_writer) = tokio::io::duplex(4096);
         let _connection = CodexRpcConnection::from_test_io(client_reader, client_writer);
@@ -86,7 +86,7 @@ fn permission_approvals_return_only_requested_subset_and_scope() {
 
 #[test]
 fn secret_structured_answers_are_sent_to_codex_but_not_canonicalized() {
-    tauri::async_runtime::block_on(async {
+    crate::test_block_on(async {
         let (client_reader, _server_writer) = tokio::io::duplex(4096);
         let (server_reader, client_writer) = tokio::io::duplex(4096);
         let _connection = CodexRpcConnection::from_test_io(client_reader, client_writer);
