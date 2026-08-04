@@ -3,11 +3,11 @@ use crate::db::run_migrations;
 use sqlx::{Row, SqlitePool};
 
 const BASELINE_SCHEMA: &str =
-    include_str!("../../../migrations/20260713024120_baseline_schema.sql");
+    include_str!("../../../../migrations/20260713024120_baseline_schema.sql");
 const CANONICAL_MUSIC_SCHEMA: &str =
-    include_str!("../../../migrations/20260715042907_add_canonical_music_library.sql");
+    include_str!("../../../../migrations/20260715042907_add_canonical_music_library.sql");
 const LEGACY_MUSIC_MIGRATION: &str =
-    include_str!("../../../migrations/20260715043240_migrate_legacy_music_playlists.sql");
+    include_str!("../../../../migrations/20260715043240_migrate_legacy_music_playlists.sql");
 
 async fn pre_legacy_music_migration_pool() -> SqlitePool {
     let pool = sqlx::sqlite::SqlitePoolOptions::new()

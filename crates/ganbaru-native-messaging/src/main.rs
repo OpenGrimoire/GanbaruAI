@@ -9,6 +9,14 @@ use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use std::sync::OnceLock;
 
+fn block_on<F: std::future::Future>(future: F) -> F::Output {
+    tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .expect("native messaging async runtime should initialize")
+        .block_on(future)
+}
+
 // Chromium native messaging host names allow underscores but not hyphens.
 const HOST_NAME: &str = "org.opengrimoire.ganbaru_ai.doomscrolling";
 const DEV_HOST_NAME: &str = "org.opengrimoire.ganbaru_ai.doomscrolling_dev";
@@ -96,7 +104,7 @@ struct BuiltInCategory {
 }
 
 const BUILT_IN_CATEGORIES_JSON: &str =
-    include_str!("../../../src/lib/doomscrolling/categories.json");
+    include_str!("../../../apps/client/src/lib/doomscrolling/categories.json");
 
 fn built_in_categories() -> &'static [BuiltInCategory] {
     static CATEGORIES: OnceLock<Vec<BuiltInCategory>> = OnceLock::new();
@@ -1465,7 +1473,7 @@ fn record_usage_sample(
     if !db_path.exists() {
         return Err("usage database is unavailable".to_string());
     }
-    tauri::async_runtime::block_on(async move {
+    block_on(async move {
         let db_url = format!(
             "sqlite:{}",
             db_path
@@ -1665,7 +1673,7 @@ fn record_block_event_in_database(
         .unwrap_or(0);
     let event_id = format!("block-{event_nonce}-{}", std::process::id());
 
-    tauri::async_runtime::block_on(async move {
+    block_on(async move {
         let db_url = format!(
             "sqlite:{}",
             db_path.to_str().ok_or_else(|| {
@@ -1774,5 +1782,4 @@ fn block_event_mode(config: &DoomscrollingConfig, decision: &str) -> Option<&'st
 }
 
 #[cfg(test)]
-#[path = "ganbaru-ai-native-messaging/tests.rs"]
 mod tests;

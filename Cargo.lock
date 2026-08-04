@@ -1635,6 +1635,31 @@ dependencies = [
 name = "ganbaru-ai"
 version = "0.1.5"
 dependencies = [
+ "ganbaru-tauri-app",
+ "serde_json",
+ "tauri",
+ "tauri-build",
+ "tauri-plugin-dialog",
+ "tauri-plugin-opener",
+ "tauri-plugin-single-instance",
+ "tauri-plugin-updater",
+]
+
+[[package]]
+name = "ganbaru-native-messaging"
+version = "0.1.5"
+dependencies = [
+ "chrono",
+ "serde",
+ "serde_json",
+ "sqlx",
+ "tokio",
+]
+
+[[package]]
+name = "ganbaru-tauri-app"
+version = "0.1.5"
+dependencies = [
  "agent-client-protocol",
  "ammonia",
  "axum",
@@ -1663,7 +1688,6 @@ dependencies = [
  "sha2",
  "sqlx",
  "tauri",
- "tauri-build",
  "tauri-plugin-dialog",
  "tauri-plugin-opener",
  "tauri-plugin-single-instance",

@@ -106,7 +106,7 @@ fn records_block_event_to_sqlite_without_full_url() {
     let db_path = vault_path.join("ganbaru-ai.sqlite");
     std::fs::File::create(&db_path).unwrap();
     let db_url = format!("sqlite:{}", db_path.to_string_lossy());
-    tauri::async_runtime::block_on(async {
+    super::block_on(async {
         let pool = sqlx::sqlite::SqlitePoolOptions::new()
             .max_connections(1)
             .connect(&db_url)
@@ -148,7 +148,7 @@ fn records_block_event_to_sqlite_without_full_url() {
     )
     .unwrap();
 
-    tauri::async_runtime::block_on(async {
+    super::block_on(async {
         let pool = sqlx::sqlite::SqlitePoolOptions::new()
             .max_connections(1)
             .connect(&db_url)

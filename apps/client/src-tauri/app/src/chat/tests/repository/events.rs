@@ -98,7 +98,7 @@ fn completed_activity_preserves_streamed_command_output() {
             .await
             .unwrap();
         sqlx::raw_sql(include_str!(
-            "../../../../migrations/20260727223218_restore_chat_activity_output.sql"
+            "../../../../../migrations/20260727223218_restore_chat_activity_output.sql"
         ))
         .execute(&pool)
         .await

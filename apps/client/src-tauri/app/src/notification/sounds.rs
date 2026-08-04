@@ -59,39 +59,39 @@ impl AppSound {
         match self {
             Self::EventNotification => include_bytes!(concat!(
                 env!("CARGO_MANIFEST_DIR"),
-                "/../static/sfx/event-notification.wav"
+                "/../../static/sfx/event-notification.wav"
             )),
             Self::IdleAlert => include_bytes!(concat!(
                 env!("CARGO_MANIFEST_DIR"),
-                "/../static/sfx/idle-alert.wav"
+                "/../../static/sfx/idle-alert.wav"
             )),
             Self::FocusSessionFailedLongIdle => include_bytes!(concat!(
                 env!("CARGO_MANIFEST_DIR"),
-                "/../static/sfx/focus-session-failed-long-idle.wav"
+                "/../../static/sfx/focus-session-failed-long-idle.wav"
             )),
             Self::FocusEndingWarning => include_bytes!(concat!(
                 env!("CARGO_MANIFEST_DIR"),
-                "/../static/sfx/focus-ending-warning.wav"
+                "/../../static/sfx/focus-ending-warning.wav"
             )),
             Self::BreakStart => include_bytes!(concat!(
                 env!("CARGO_MANIFEST_DIR"),
-                "/../static/sfx/break-start.wav"
+                "/../../static/sfx/break-start.wav"
             )),
             Self::BreakFinished => include_bytes!(concat!(
                 env!("CARGO_MANIFEST_DIR"),
-                "/../static/sfx/break-finished.wav"
+                "/../../static/sfx/break-finished.wav"
             )),
             Self::EventFinished => include_bytes!(concat!(
                 env!("CARGO_MANIFEST_DIR"),
-                "/../static/sfx/event-finished.wav"
+                "/../../static/sfx/event-finished.wav"
             )),
             Self::PomodoroDayComplete => include_bytes!(concat!(
                 env!("CARGO_MANIFEST_DIR"),
-                "/../static/sfx/pomodoro-day-complete.wav"
+                "/../../static/sfx/pomodoro-day-complete.wav"
             )),
             Self::PomodoroWorkweekComplete => include_bytes!(concat!(
                 env!("CARGO_MANIFEST_DIR"),
-                "/../static/sfx/pomodoro-workweek-complete.wav"
+                "/../../static/sfx/pomodoro-workweek-complete.wav"
             )),
         }
     }

@@ -3,9 +3,9 @@ use sqlx::Row;
 
 const NOW: &str = "2026-07-20T12:00:00Z";
 const ADD_CHAT_DRAFT_RICH_CONTENT: &str =
-    include_str!("../../../migrations/20260728032141_add_chat_draft_rich_content.sql");
+    include_str!("../../../../migrations/20260728032141_add_chat_draft_rich_content.sql");
 const ADD_CHAT_REVIEW_COMMENT_SOURCES: &str =
-    include_str!("../../../migrations/20260730193000_add_chat_review_comment_sources.sql");
+    include_str!("../../../../migrations/20260730193000_add_chat_review_comment_sources.sql");
 
 async fn insert_project(pool: &sqlx::SqlitePool) {
     sqlx::query("INSERT INTO project_groups (id, name) VALUES ('group-1', 'Engineering')")

@@ -2,5 +2,5 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 fn main() {
-    desktop_lib::run()
+    ganbaru_tauri_app::run(tauri::generate_context!())
 }
