@@ -1,0 +1,16 @@
+[package]
+name = "ganbaru-db"
+version = "0.1.5"
+description = "Ganbaru AI SQLite pool and migration services"
+authors = ["Ganbaru AI"]
+license = "AGPL-3.0-only"
+edition = "2021"
+
+[lib]
+doctest = false
+
+[dependencies]
+sqlx = { workspace = true }
+
+[dev-dependencies]
+tokio = { workspace = true }

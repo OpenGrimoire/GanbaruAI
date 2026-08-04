@@ -9,7 +9,7 @@ const scriptDirectory = dirname(fileURLToPath(import.meta.url));
 const clientDirectory = resolve(scriptDirectory, "..");
 const outputDirectory = join(
   clientDirectory,
-  "src-tauri/src/chat/providers/codex/compat",
+  "../../crates/ganbaru-chat-providers/src/chat/providers/codex/compat",
 );
 const manifestPath = join(outputDirectory, "manifest.json");
 const schemaNames = [

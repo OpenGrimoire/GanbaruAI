@@ -99,39 +99,32 @@ apps/
       app.css, app.d.ts: global styles, type declarations
     static/: static assets (fonts, icons, sounds)
     scripts/: repo-owned maintenance and diagnostics scripts
-    src-tauri/: Rust backend
-      src/: Rust commands and services
-        main.rs: desktop binary entry
-        lib.rs: Tauri app setup and command registration
-        bin/: auxiliary Rust binaries, including native messaging host
-          ganbaru-ai-native-messaging/: native messaging host test modules
-        db.rs, db/: SQLite pool, migration execution, and schema invariant tests
-        vault.rs, db_path.rs, sqlite_row.rs: data folder, database path, and row helpers
-        calendar_events/, calendar_import/, calendar_reads/: split calendar persistence, import, and query services
-        calendar_description.rs, calendar_import.rs, calendar_reads.rs, calendars.rs, recurrence.rs: calendar command roots and shared logic
-        chat.rs, chat/: Chat command roots, local coding-agent contracts, durable runtime state, provider integration, and workspace tooling
-          models/: split identifiers, common values, commands, channels, provider data, organizational data, and read models
-          repository/, repository/events/: split SQLite persistence, reads, receipts, recovery, resources, workspaces, and event projections
-          coordination/, coordination_commands/: organizational contracts, event projection, messages, memberships, scheduling, assignment context, and dispatch
-          send/, interaction/, composer/: turn orchestration, interaction operations, attachments, drafts, follow-ups, prompt catalogs, and workspace mentions
-          runtime/, providers/: runtime workers, canonical event ingestion, provider registry, and Codex, Claude, Cursor, and OpenCode transports
-          checkpoints/, restore_commands/, review_engine/: Git checkpoints, restoration workflows, review snapshots, patch paging, selection, and guarded actions
-          preview/, source_control/, workspace_files/, workspace_observer/: browser previews, repository links, bounded file access, and workspace change observation
-          settings/: provider discovery, credentials, preferences, model mapping, pickers, and persisted provider settings
-          benchmark/, tests/: dense benchmark support and split Chat backend tests
-        pomodoro.rs, pomodoro/: timer commands, DTOs, persistence, validation, reads, and tests
-        projects.rs, projects/: project commands, DTOs, persistence, validation, history, custom fields, and templates
-        quick_notes/: Quick notes commands, normalized text runs, lifecycle, search, and tests
-        notes.rs, notes/: Notes pages, blocks, databases, assets, history, links, comments, imports, exports, validation, and tests
-          writes/: split Notes write command modules and shared write helpers
-          tests/: split Notes backend test modules and shared helpers
-        notification.rs, notification/: notification commands, scheduling, and platform delivery
-        pomodoro_enforcement.rs, tray.rs: timer overlays and tray integration
-        doomscrolling.rs, doomscrolling/: browser and desktop blocking commands, runtime helpers, and tests
-        media_player.rs, media_controls.rs, music.rs, music/: local playback, media controls, metadata, and music commands
-        project_icons.rs: managed project icon assets
-        themes.rs, updates.rs: theme validation and application updates
-        benchmark_seed.rs, first_use_contracts.rs: benchmark data and first-use query contracts
+    src-tauri/: Tauri package, build script, configuration, and platform entries
+      src/
+        main.rs: thin desktop entry that invokes ganbaru-tauri-app
+        lib.rs: mobile-only Tauri entry that preserves Android and iOS library outputs
+      app/: ganbaru-tauri-app ordinary Rust library
+        src/: Tauri commands, managed state, setup and exit hooks, and platform integrations
+          db.rs, db_path.rs, vault.rs: active-folder authorization and SQLite adapter boundary
+          calendar_events/, calendar_import/, calendar_reads/: split calendar persistence, import, and query services
+          calendar_description.rs, calendar_import.rs, calendar_reads.rs, calendars.rs, recurrence.rs: calendar command roots and shared logic
+          chat.rs, chat/: Tauri Chat adapters, application command flows, and platform integrations
+            coordination_commands/, send/, interaction/: messages, scheduling, turn orchestration, attachments, drafts, and follow-ups
+            checkpoints/, restore_commands/: authorization cleanup and restoration workflows over the core Chat service
+            preview/, workspace_observer/: browser previews, webviews, and workspace change observation
+            settings/: provider discovery, native credentials, preferences, model mapping, and pickers
+            benchmark/, tests/: dense benchmark support and Tauri integration tests
+          notes.rs, notes/: Notes Tauri command adapters, working-Markdown composition, dialogs, and asset authorization
+          pomodoro.rs, pomodoro/: timer commands, DTOs, persistence, validation, reads, and tests
+          projects.rs, projects/: project commands, DTOs, persistence, validation, history, custom fields, and templates
+          quick_notes/: Quick notes commands, normalized text runs, lifecycle, search, and tests
+          notification.rs, notification/: notification commands, scheduling, and platform delivery
+          pomodoro_enforcement.rs, tray.rs: timer overlays and tray integration
+          doomscrolling.rs, doomscrolling/: browser and desktop blocking commands, runtime helpers, and tests
+          media_player.rs, media_controls.rs, music.rs, music/: local playback, media controls, metadata, and music commands
+          project_icons.rs: managed project icon assets
+          themes.rs, updates.rs: theme validation and application updates
+          benchmark_seed.rs, first_use_contracts.rs: benchmark data and first-use query contracts
       migrations/: embedded SQLx SQLite migrations
       package-repo/: generated package repository public key staging (ignored)
       package-scripts/: Linux package lifecycle scripts for repo registration
@@ -141,6 +134,14 @@ apps/
       icons/: app icons
       build.rs, tauri.conf.json, tauri.dev.conf.json, Cargo.toml
     index.html, package.json, svelte.config.js, vite.config.ts, tsconfig.json
+crates/
+  ganbaru-working-folders/: Tauri-free working-folder IDs, repository kinds, timestamps, bindings, and device-state operations
+  ganbaru-db/: Tauri-free SQLite pool registry, connection configuration, migrations, row macro, and schema tests
+  ganbaru-chat-contracts/: stable provider-neutral Chat IDs, commands, events, DTOs, errors, and Serde contracts
+  ganbaru-chat-providers/: provider processes, transports, drivers, event sinks, cancellation, and registry
+  ganbaru-chat/: Chat persistence, runtime, Git workspaces, checkpoints, review, source control, and application services
+  ganbaru-notes/: Notes domain, persistence, transfers, history, assets, validation, and bounded filesystem operations
+  ganbaru-native-messaging/: independent ganbaru-ai-native-messaging binary and tests
 packages/
   shared-types/: TypeScript types shared across workspaces
 extensions/
@@ -244,7 +245,10 @@ Read `docs/TESTING.md` when changing tests, validation scripts, task ordering, c
 - `pnpm -w run editor-check`: editor-style diagnostics, including Tailwind canonical class checks.
 - `pnpm -w run test`: all tests, with serialized Rust execution followed by sequential one-worker Vitest shards. Use after changes to tested code.
 - `pnpm --dir apps/client exec vitest run path/to/file.test.ts --maxWorkers=1`: focused frontend test file.
-- `cargo test -p ganbaru-ai --lib -j 1 test_name -- --test-threads=1`: focused Rust library test by name. Replace `--lib` with the relevant `--bin <name>` only for a binary-local test.
+- `cargo test -p ganbaru-chat --lib -j 1 test_name -- --test-threads=1`: focused Chat service test by name. Substitute `ganbaru-notes`, `ganbaru-db`, `ganbaru-chat-contracts`, `ganbaru-chat-providers`, or `ganbaru-working-folders` for the relevant core crate.
+- `cargo test -p ganbaru-tauri-app --lib -j 1 test_name -- --test-threads=1`: focused Tauri composition or command-adapter test.
+- `cargo test -p ganbaru-native-messaging --bin ganbaru-ai-native-messaging -j 1 test_name -- --test-threads=1`: focused native messaging host test.
+- `cargo check -p ganbaru-ai --bin ganbaru-ai -j 1`: focused desktop composition check.
 - `cargo fmt --check`: Rust formatting only.
 - `cargo clippy --workspace -j 1 -- -D warnings`: Rust linting only.
 - `pnpm -w run audit:deps`: npm advisory audit for workspace dependencies. Run for dependency or lockfile changes, before PRs, before releases, and when investigating security alerts.
@@ -272,9 +276,9 @@ After the relevant gate passes, finish the task without extra dev-server, Tauri 
 
 - Treat stored user data as durable. Any change to SQLite schema, persisted JSON, config keys, theme tokens, import/export formats, or generated Ganbaru AI folder data must consider existing installs, older exports, stale rows, removed fields, renamed keys, seed/reset data, and rollback or fallback behavior.
 - Do not leave dead persistent data behind. If a field, row key, config key, or JSON property becomes obsolete, add an explicit migration, cleanup path, or validator drop rule, then document it in the relevant data or feature spec.
-- SQLite migrations live in `apps/client/src-tauri/migrations/` and are embedded into the Rust binary through `sqlx::migrate!("./migrations")`. Use SQLx file names with a UTC timestamp prefix, `YYYYMMDDHHMMSS_description.sql`, such as `20260601103000_add_project_tables.sql`. Do not manually register migration files; the SQLx macro discovers them at compile time.
+- SQLite migrations live in `apps/client/src-tauri/migrations/` and are embedded by `ganbaru-db` through `sqlx::migrate!`. Use SQLx file names with a UTC timestamp prefix, `YYYYMMDDHHMMSS_description.sql`, such as `20260601103000_add_project_tables.sql`. Do not manually register migration files; the SQLx macro discovers them at compile time.
 - `20260713024120_baseline_schema.sql` is the fresh-start schema for the final pre-user reset. Earlier development databases are intentionally unsupported and must be recreated. Once a user-capable release can apply this baseline, never edit it. Add a new timestamped migration file instead.
-- Keep `apps/client/src-tauri/src/db.rs` focused on migration execution. Put schema and migration invariant tests in `apps/client/src-tauri/src/db/tests.rs`.
+- Keep `crates/ganbaru-db/src/lib.rs` focused on pool and migration services. Put schema and migration invariant tests in `crates/ganbaru-db/src/tests/`. Keep active-folder path authorization in `apps/client/src-tauri/app/src/db.rs`.
 - Keep migrations idempotent and narrowly scoped when practical, but remember that SQLx validates applied migration checksums. Never rewrite an applied migration to fix a live install. Preserve user-authored values whenever those values still have meaning, and only delete data that is truly obsolete or derivable from current canonical data.
 - The maintainer approved the final pre-user baseline squash on 2026-07-12.
 - Future baseline squashes require explicit maintainer approval. Once users can have applied the current baseline, preserve it permanently and use additive migrations.

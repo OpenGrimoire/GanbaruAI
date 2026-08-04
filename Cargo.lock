@@ -1635,7 +1635,104 @@ dependencies = [
 name = "ganbaru-ai"
 version = "0.1.5"
 dependencies = [
+ "ganbaru-tauri-app",
+ "serde_json",
+ "tauri",
+ "tauri-build",
+ "tauri-plugin-dialog",
+ "tauri-plugin-opener",
+ "tauri-plugin-single-instance",
+ "tauri-plugin-updater",
+]
+
+[[package]]
+name = "ganbaru-chat"
+version = "0.1.5"
+dependencies = [
+ "chrono",
+ "ganbaru-chat-contracts",
+ "ganbaru-chat-providers",
+ "ganbaru-db",
+ "ganbaru-working-folders",
+ "libc",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "sha2",
+ "sqlx",
+ "tokio",
+ "windows 0.61.3",
+]
+
+[[package]]
+name = "ganbaru-chat-contracts"
+version = "0.1.5"
+dependencies = [
+ "ganbaru-working-folders",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "ganbaru-chat-providers"
+version = "0.1.5"
+dependencies = [
  "agent-client-protocol",
+ "base64 0.22.1",
+ "chrono",
+ "ganbaru-chat-contracts",
+ "libc",
+ "reqwest",
+ "rustls",
+ "serde",
+ "serde_json",
+ "sha2",
+ "tokio",
+ "windows 0.61.3",
+]
+
+[[package]]
+name = "ganbaru-db"
+version = "0.1.5"
+dependencies = [
+ "sqlx",
+ "tokio",
+]
+
+[[package]]
+name = "ganbaru-native-messaging"
+version = "0.1.5"
+dependencies = [
+ "chrono",
+ "serde",
+ "serde_json",
+ "sqlx",
+ "tokio",
+]
+
+[[package]]
+name = "ganbaru-notes"
+version = "0.1.5"
+dependencies = [
+ "ammonia",
+ "base64 0.22.1",
+ "chrono",
+ "flate2",
+ "ganbaru-db",
+ "reqwest",
+ "rustls",
+ "serde",
+ "serde_json",
+ "sha2",
+ "sqlx",
+ "tokio",
+ "zip 8.6.0",
+]
+
+[[package]]
+name = "ganbaru-tauri-app"
+version = "0.1.5"
+dependencies = [
  "ammonia",
  "axum",
  "base64 0.22.1",
@@ -1643,6 +1740,12 @@ dependencies = [
  "cairo-rs",
  "chrono",
  "flate2",
+ "ganbaru-chat",
+ "ganbaru-chat-contracts",
+ "ganbaru-chat-providers",
+ "ganbaru-db",
+ "ganbaru-notes",
+ "ganbaru-working-folders",
  "gtk",
  "keyring",
  "libc",
@@ -1663,7 +1766,6 @@ dependencies = [
  "sha2",
  "sqlx",
  "tauri",
- "tauri-build",
  "tauri-plugin-dialog",
  "tauri-plugin-opener",
  "tauri-plugin-single-instance",
@@ -1676,6 +1778,15 @@ dependencies = [
  "windows 0.61.3",
  "x11rb",
  "zip 8.6.0",
+]
+
+[[package]]
+name = "ganbaru-working-folders"
+version = "0.1.5"
+dependencies = [
+ "chrono",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]

@@ -81,6 +81,28 @@ The monorepo task runner. Sits on top of pnpm workspaces and handles build orche
 
 Turborepo does not replace Tauri's build pipeline; it invokes `tauri build`/`tauri dev` as a task. The cargo workspace and pnpm workspace coexist at the repo root: Turborepo orchestrates JS/TS tasks across pnpm workspace members, while Cargo handles Rust builds. The Tauri CLI invokes cargo for `apps/client/src-tauri`.
 
+### Rust workspace architecture
+
+The Rust backend is a Cargo workspace with an intentionally small Tauri shell and Tauri-free domain crates. This keeps platform authority at the application boundary, makes domain tests cheaper to compile, and prevents the complete desktop backend from being emitted into every mobile library format during normal desktop development.
+
+| Package | Responsibility |
+| --- | --- |
+| `apps/client/src-tauri` (`ganbaru-ai`) | Tauri build script, configuration, migrations, capabilities, generated context, desktop entry, and mobile library entry. |
+| `apps/client/src-tauri/app` (`ganbaru-tauri-app`) | Tauri command adapters, managed state, setup and exit hooks, active-folder authorization, native credentials, dialogs, webviews, window operations, Projects, and Music. |
+| `ganbaru-working-folders` | Working-folder IDs, repository kinds, UTC timestamps, binding DTOs, and pure device-state operations. |
+| `ganbaru-db` | SQLite pool registry, connection configuration, embedded migrations, and the shared row conversion macro. |
+| `ganbaru-chat-contracts` | Stable Chat errors, IDs, commands, events, configuration, provider-neutral DTOs, and Serde wire contracts. |
+| `ganbaru-chat-providers` | Provider processes, transports, drivers, factories, event sinks, cancellation, and registry. |
+| `ganbaru-chat` | Chat repositories, canonical event projection, runtime, Git workspaces, checkpoints, review, source control, bounded file operations, and application services. |
+| `ganbaru-notes` | Notes domain, persistence, imports, exports, history, assets, validation, and bounded filesystem operations. |
+| `ganbaru-native-messaging` | Independent `ganbaru-ai-native-messaging` browser-extension host and its binary-local tests. |
+
+Dependency direction is one way. Chat contracts depend on working-folder contracts. Chat providers depend on Chat contracts. The Chat service depends on contracts, providers, and working-folder contracts. Notes, database services, and native messaging remain independent production packages. Chat and Notes use `ganbaru-db` only as a development dependency for migrated database tests, while production services receive an authorized `&SqlitePool`. `ganbaru-tauri-app` composes the packages and retains all Tauri, active-vault, native keyring, dialog, webview, and managed-state authority.
+
+The desktop `main.rs` calls `ganbaru_tauri_app::run(tauri::generate_context!())` directly. The root library is mobile-only and retains `staticlib`, `cdylib`, and `rlib` outputs required by Android and iOS. On desktop, the substantial backend compiles once as the ordinary `ganbaru-tauri-app` Rust library instead of being linked into three large `desktop_lib` formats. This changes the build graph without changing Tauri command names, serialized DTOs, database paths, migrations, or stored data.
+
+Core asynchronous work uses Tokio. Tauri runtime wrappers remain at the platform boundary. Chat change delivery and credential access cross that boundary through explicit traits, so the core service does not receive an `AppHandle` or native keyring access. Projects and Music remain in `ganbaru-tauri-app` because their current platform and cross-domain integrations do not yet justify separate packages.
+
 ---
 
 ## UI component libraries
@@ -408,21 +430,21 @@ The protocol connecting the browser extension to the local Rust native host via 
 
 ## Music / media player
 
-A local-first media player integrated directly into the AGPL 3.0 app. Rodio/Symphonia audio playback and local media probing live in the internal Rust media player module at `apps/client/src-tauri/src/media_player.rs`; playlist data, media registration, YouTube host URLs, and local video loopback hosting remain in `apps/client/src-tauri/src/music.rs`. Supports two sources: local files (primary) and YouTube via the official IFrame API (secondary).
+A local-first media player integrated directly into the AGPL 3.0 app. Rodio/Symphonia audio playback and local media probing live in the internal Rust media player module at `apps/client/src-tauri/app/src/media_player.rs`; playlist data, media registration, YouTube host URLs, and local video loopback hosting remain in `apps/client/src-tauri/app/src/music.rs`. Supports two sources: local files (primary) and YouTube via the official IFrame API (secondary).
 
 ### Current local playback path
 
-Desktop local audio playback is Rust-controlled through `apps/client/src-tauri/src/media_player.rs` with Rodio and Symphonia. Desktop local video uses the browser media element inside the Tauri WebView with file access provided by a token-gated Rust loopback media host on `127.0.0.1`. The Rust side validates the file path, scans user-selected folders outside the UI thread, registers only selected files, and streams byte-range responses with media content types.
+Desktop local audio playback is Rust-controlled through `apps/client/src-tauri/app/src/media_player.rs` with Rodio and Symphonia. Desktop local video uses the browser media element inside the Tauri WebView with file access provided by a token-gated Rust loopback media host on `127.0.0.1`. The Rust side validates the file path, scans user-selected folders outside the UI thread, registers only selected files, and streams byte-range responses with media content types.
 
 The WebView path is the intentional local video path. It can play only the formats and codecs supported by the user's platform WebView, but it delegates video decoding and rendering to the media stack that Tauri already ships on each platform. On Linux this is WebKitGTK, which uses GStreamer internally for web media. On Windows this is WebView2. On macOS and iOS this is WKWebView. On Android this is Android WebView.
 
 Local audio volume, mute, pause, seek, rate, duration, and position snapshots are internal Rust media player operations. Local audio, local video, and YouTube volume are capped at normal `100%`. Local video uses the WebView media element directly and avoids Web Audio gain routing so playback can follow default output changes more reliably on Linux Bluetooth setups. When the OS reports an audio device change, the frontend recreates active local video media at the current position and resumes if it was playing.
 
-Hardware and Bluetooth media controls use the existing browser Media Session API where the WebView supports it. Linux desktop builds also expose a lightweight MPRIS bridge through GTK/GIO in `apps/client/src-tauri/src/media_controls.rs`, so desktop media widgets, keyboard media keys, and Bluetooth AVRCP controls can call the persistent music player even when local audio is playing through Rodio instead of a WebView media element. Windows desktop builds use the same module to expose System Media Transport Controls from the main native window, keeping Windows media flyouts and hardware controls on the same player action path.
+Hardware and Bluetooth media controls use the existing browser Media Session API where the WebView supports it. Linux desktop builds also expose a lightweight MPRIS bridge through GTK/GIO in `apps/client/src-tauri/app/src/media_controls.rs`, so desktop media widgets, keyboard media keys, and Bluetooth AVRCP controls can call the persistent music player even when local audio is playing through Rodio instead of a WebView media element. Windows desktop builds use the same module to expose System Media Transport Controls from the main native window, keeping Windows media flyouts and hardware controls on the same player action path.
 
 ### Rust audio backend target
 
-The production local audio backend is Rust-controlled through `apps/client/src-tauri/src/media_player.rs`. Rodio with default features disabled remains the default local audio target, with only playback plus the needed Symphonia decoding features enabled for common local music files. This gives the app a small audio-only path before it initializes any video-capable multimedia framework. The backend owns local audio decoding, transport controls, volume, mute, seeking, rate changes, duration, position snapshots, and audio device output. Metadata and artwork extraction still use the existing Rust music commands.
+The production local audio backend is Rust-controlled through `apps/client/src-tauri/app/src/media_player.rs`. Rodio with default features disabled remains the default local audio target, with only playback plus the needed Symphonia decoding features enabled for common local music files. This gives the app a small audio-only path before it initializes any video-capable multimedia framework. The backend owns local audio decoding, transport controls, volume, mute, seeking, rate changes, duration, position snapshots, and audio device output. Metadata and artwork extraction still use the existing Rust music commands.
 
 Rodio is the first target because it is a RustAudio playback crate, uses CPAL for cross-platform audio output, supports player controls such as play, pause, seek, volume, and speed, and uses Symphonia as the default decoder backend for common file types. The approved dependency shape is `rodio` with `default-features = false` and features limited to `playback`, `symphonia-flac`, `symphonia-mp3`, `symphonia-isomp4`, `symphonia-aac`, `symphonia-alac`, `symphonia-ogg`, `symphonia-vorbis`, `symphonia-wav`, and `symphonia-pcm`.
 

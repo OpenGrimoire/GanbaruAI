@@ -3,7 +3,7 @@ import { readFile, writeFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 
 const artifactUrl = new URL(
-  "../src-tauri/src/chat/providers/opencode/compat/openapi-1.14.19.json",
+  "../../../crates/ganbaru-chat-providers/src/chat/providers/opencode/compat/openapi-1.14.19.json",
   import.meta.url,
 );
 const requiredOperations = [

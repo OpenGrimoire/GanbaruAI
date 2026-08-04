@@ -15,8 +15,8 @@ packageExtensions:
 overrides:
   devalue: 5.8.1
   picomatch: 4.0.4
-  postcss: 8.5.18
-  undici: 7.28.0
+  postcss: 8.5.23
+  undici: 7.29.0
   vite: 8.0.16
 allowBuilds:
   esbuild: true

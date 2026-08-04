@@ -59,8 +59,14 @@ function withDevConfig(args) {
   ];
 }
 
-const child = spawn(process.execPath, [TAURI_CLI_ENTRY, ...withDevConfig(process.argv.slice(2))], {
+const args = process.argv.slice(2);
+const childEnv = args[0] === "dev" && process.env.CARGO_BUILD_JOBS === undefined
+  ? { ...process.env, CARGO_BUILD_JOBS: "1" }
+  : process.env;
+
+const child = spawn(process.execPath, [TAURI_CLI_ENTRY, ...withDevConfig(args)], {
   cwd: CLIENT_ROOT,
+  env: childEnv,
   stdio: "inherit",
 });
 

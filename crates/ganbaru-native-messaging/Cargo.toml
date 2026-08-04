@@ -1,0 +1,19 @@
+[package]
+name = "ganbaru-native-messaging"
+version = "0.1.5"
+description = "Ganbaru AI Chromium native messaging host"
+authors = ["Ganbaru AI"]
+license = "AGPL-3.0-only"
+edition = "2021"
+default-run = "ganbaru-ai-native-messaging"
+
+[[bin]]
+name = "ganbaru-ai-native-messaging"
+path = "src/main.rs"
+
+[dependencies]
+chrono = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+sqlx = { workspace = true }
+tokio = { workspace = true }
