@@ -28,6 +28,7 @@
   import type { ChatPromptCatalogEntry, ChatThreadId, McpStatusRead, ProjectWorkingFolderId, ProjectWorkingFolderPathRead, ProviderCapabilities, ProviderInstanceId, SafetyMode } from "$lib/chat/contracts";
   import { ChatComposerEditor, type ChatComposerEditorChange } from "$lib/chat/composer-editor";
   import { parseChatComposerDocument, type ChatComposerMark, type ChatComposerSelection } from "$lib/chat/composer-rich-text";
+  import { revealContenteditableComposerCaret } from "$lib/chat/composer-scroll";
   import {
     composerActionState,
     clipboardImageFiles,
@@ -785,6 +786,9 @@
     if (types.includes("text/plain")) {
       event.preventDefault();
       editorController?.insertPlainText(event.clipboardData?.getData("text/plain") ?? "");
+      void tick().then(() => {
+        if (editorRoot) revealContenteditableComposerCaret(editorRoot);
+      });
       return;
     }
   }
@@ -794,7 +798,12 @@
     const files = [...(event.dataTransfer?.files ?? [])].filter((file) => file.type.startsWith("image/"));
     if (files.length > 0) { void importFiles(files); return; }
     const text = event.dataTransfer?.getData("text/plain");
-    if (text) editorController?.insertPlainText(text);
+    if (text) {
+      editorController?.insertPlainText(text);
+      void tick().then(() => {
+        if (editorRoot) revealContenteditableComposerCaret(editorRoot);
+      });
+    }
   }
 
   function contextLabel(): string | null {
@@ -832,33 +841,35 @@
   {#if chat.composerAttachments.length > 0}<ChatImageGallery images={chat.composerAttachments.map((attachment) => ({ id: attachment.id, displayName: attachment.originalDisplayName, byteSize: attachment.byteSize }))} variant="composer" onRemove={(id) => chat.removeComposerAttachment(id)} />{/if}
   {#if chat.composer.mentions.length > 0}<div class="mention-chips">{#each chat.composer.mentions as mention}<span title={mention.relativePath}><AtSign size={11} />{mention.relativePath}{#if mention.ignored}<small>{t("chat.composer.ignored")}</small>{/if}<button type="button" aria-label={t("chat.composer.removeAttachment", mention.relativePath)} onclick={() => chat.setComposerMentions(chat.composer.mentions.filter((entry) => entry.relativePath !== mention.relativePath))}><X size={10} /></button></span>{/each}</div>{/if}
   <div class="editor-shell">
-    <div
-      bind:this={editorRoot}
-      class="composer-editor"
-      data-chat-composer
-      contenteditable={composerDisabled ? "false" : "true"}
-      role="textbox"
-      aria-multiline="true"
-      aria-disabled={composerDisabled}
-      aria-label={providerCommandPlaceholder()}
-      aria-controls={menuKind ? "chat-composer-menu" : undefined}
-      aria-activedescendant={menuKind && menuEntries.length > 0 ? `chat-composer-option-${menuIndex}` : undefined}
-      data-placeholder={action.primary === "stop"
-        ? t("chat.composer.placeholderWorking")
-        : activeProviderCommand
-          ? providerCommandPlaceholder()
-          : t("chat.composer.placeholder")}
-      spellcheck="true"
-      tabindex="0"
-      onfocus={() => { editorFocused = true; restoreComposerFocus = true; editorController?.handleSelectionChange(); }}
-      onblur={(event) => { const target = event.currentTarget; queueMicrotask(() => { if (target.isConnected) { editorFocused = false; restoreComposerFocus = false; } }); }}
-      oninput={handleInput}
-      onbeforeinput={handleBeforeInput}
-      onkeydown={handleKeydown}
-      onpaste={handlePaste}
-      oncompositionstart={() => editorController?.handleCompositionStart()}
-      oncompositionend={() => editorController?.handleCompositionEnd()}
-    ></div>
+    <div class="composer-editor-frame">
+      <div
+        bind:this={editorRoot}
+        class="composer-editor"
+        data-chat-composer
+        contenteditable={composerDisabled ? "false" : "true"}
+        role="textbox"
+        aria-multiline="true"
+        aria-disabled={composerDisabled}
+        aria-label={providerCommandPlaceholder()}
+        aria-controls={menuKind ? "chat-composer-menu" : undefined}
+        aria-activedescendant={menuKind && menuEntries.length > 0 ? `chat-composer-option-${menuIndex}` : undefined}
+        data-placeholder={action.primary === "stop"
+          ? t("chat.composer.placeholderWorking")
+          : activeProviderCommand
+            ? providerCommandPlaceholder()
+            : t("chat.composer.placeholder")}
+        spellcheck="true"
+        tabindex="0"
+        onfocus={() => { editorFocused = true; restoreComposerFocus = true; editorController?.handleSelectionChange(); }}
+        onblur={(event) => { const target = event.currentTarget; queueMicrotask(() => { if (target.isConnected) { editorFocused = false; restoreComposerFocus = false; } }); }}
+        oninput={handleInput}
+        onbeforeinput={handleBeforeInput}
+        onkeydown={handleKeydown}
+        onpaste={handlePaste}
+        oncompositionstart={() => editorController?.handleCompositionStart()}
+        oncompositionend={() => editorController?.handleCompositionEnd()}
+      ></div>
+    </div>
     {#if menuKind}
       <ChatComposerSuggestionMenu
         bind:element={menuRoot}
@@ -919,7 +930,8 @@
   .chat-composer.hero { width: min(100%, 54rem); text-align: left; }
   .chat-composer > :not(.editor-shell) { margin-inline: 0.75rem; }
   .editor-shell { position: relative; }
-  .composer-editor { position: relative; display: block; width: 100%; min-height: 4.15rem; max-height: 15.35rem; overflow-y: auto; background: transparent; padding: 1rem 1.25rem 0.35rem; color: var(--foreground); caret-color: var(--foreground); font-size: var(--chat-conversation-font-size, 0.933333rem); line-height: var(--chat-conversation-line-height, 1.4rem); outline: none; overflow-wrap: anywhere; white-space: pre-wrap; }
+  .composer-editor-frame { padding: 1rem 1.25rem 0.35rem; }
+  .composer-editor { position: relative; display: block; box-sizing: border-box; width: 100%; min-height: 2lh; max-height: 6lh; overflow-y: auto; background: transparent; padding: 0; color: var(--foreground); caret-color: var(--foreground); font-size: var(--chat-conversation-font-size, 0.933333rem); line-height: var(--chat-conversation-line-height, 1.4rem); outline: none; overflow-wrap: anywhere; white-space: pre-wrap; }
   .composer-editor:global([data-empty="true"])::before { position: absolute; color: color-mix(in srgb, var(--muted-foreground) 52%, transparent); content: attr(data-placeholder); pointer-events: none; }
   .composer-editor :global([data-chat-composer-line]) { display: block; min-height: var(--chat-conversation-line-height, 1.4rem); line-height: inherit; }
   .composer-toolbar { display: grid; min-height: 3rem; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 0.5rem; padding: 0.3rem 0.75rem 0.65rem; }
@@ -970,6 +982,6 @@
   @container chat-composer (max-width: 640px) { .toolbar-right small { max-width: 8rem; } }
   @container chat-composer (max-width: 460px) { .format-action { display: none; } }
   @container chat-composer (max-width: 390px) { .toolbar-left { gap: 0.1rem; } .context-ring { display: none; } }
-  @container chat-composer (max-width: 300px) { .composer-editor { padding-inline: 0.8rem; } .composer-toolbar { padding-inline: 0.4rem; } }
+  @container chat-composer (max-width: 300px) { .composer-editor-frame { padding-inline: 0.8rem; } .composer-toolbar { padding-inline: 0.4rem; } }
   @media (prefers-reduced-motion: reduce) { .chat-composer { scroll-behavior: auto; } }
 </style>

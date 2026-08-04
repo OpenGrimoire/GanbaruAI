@@ -14,6 +14,10 @@
   import * as chatApi from "$lib/api/chat";
   import type { ChatParticipantRead, ChatScheduledMessageRead } from "$lib/chat/contracts";
   import {
+    composerTextareaLayout,
+    revealTextareaComposerCaret,
+  } from "$lib/chat/composer-scroll";
+  import {
     copyParticipantMentionSlice,
     expandEditRangeToParticipantMentions,
     insertParticipantMention,
@@ -133,6 +137,24 @@
     updateSelection();
   }
 
+  function resizeTextarea(): void {
+    if (!textarea) return;
+    const lineHeight = Number.parseFloat(getComputedStyle(textarea).lineHeight);
+    if (!Number.isFinite(lineHeight) || lineHeight <= 0) return;
+    textarea.style.height = "0px";
+    const layout = composerTextareaLayout(textarea.scrollHeight, lineHeight);
+    textarea.style.height = `${layout.height}px`;
+    textarea.style.overflowY = layout.overflowing ? "auto" : "hidden";
+  }
+
+  $effect(() => {
+    text;
+    void tick().then(() => {
+      resizeTextarea();
+      refreshMentionGeometry();
+    });
+  });
+
   function handleBeforeInput(event: InputEvent): void {
     if (event.isComposing || !textarea) return;
     const start = textarea.selectionStart;
@@ -199,7 +221,12 @@
     selectionStart = result.selection;
     selectionEnd = result.selection;
     persist();
-    void tick().then(() => textarea?.setSelectionRange(result.selection, result.selection));
+    void tick().then(() => {
+      if (!textarea) return;
+      resizeTextarea();
+      textarea.setSelectionRange(result.selection, result.selection);
+      revealTextareaComposerCaret(textarea, result.selection);
+    });
   }
 
   function parseParticipantMentionClipboardSlice(
@@ -302,7 +329,7 @@
     const bounds = textarea.getBoundingClientRect();
     const style = getComputedStyle(textarea);
     const lineHeight = Number.parseFloat(style.lineHeight) || 22;
-    const charactersPerLine = Math.max(12, Math.floor((bounds.width - 24) / 8));
+    const charactersPerLine = Math.max(12, Math.floor(bounds.width / 8));
     const before = text.slice(0, selectionEnd);
     const visualRows = before.split("\n").reduce((rows, line) => rows + Math.max(1, Math.ceil(line.length / charactersPerLine)), 0);
     const estimatedTop = bounds.top + Math.min(bounds.height - lineHeight, visualRows * lineHeight);
@@ -310,7 +337,7 @@
     const top = estimatedTop + lineHeight + menuHeight > window.innerHeight
       ? Math.max(8, estimatedTop - menuHeight)
       : estimatedTop + lineHeight;
-    const left = Math.min(Math.max(8, bounds.left + 12), Math.max(8, window.innerWidth - 328));
+    const left = Math.min(Math.max(8, bounds.left), Math.max(8, window.innerWidth - 328));
     mentionStyle = `position:fixed;left:${Math.round(left)}px;top:${Math.round(top)}px;width:min(20rem,calc(100vw - 1rem))`;
   }
 
@@ -493,25 +520,27 @@
     </div>
   {/if}
   <div class="organizational-composer" data-organizational-composer>
-  <textarea
-    bind:this={textarea}
-    value={text}
-    rows="3"
-    maxlength="131072"
-    {placeholder}
-    aria-label={placeholder}
-    data-chat-composer
-    oninput={handleInput}
-    onbeforeinput={handleBeforeInput}
-    onselect={updateSelection}
-    onkeyup={updateSelection}
-    onclick={updateSelection}
-    onkeydown={handleKeydown}
-    oncopy={handleCopy}
-    onpaste={handlePaste}
-    oncompositionstart={handleCompositionStart}
-    oncompositionend={updateSelection}
-  ></textarea>
+  <div class="textarea-frame">
+    <textarea
+      bind:this={textarea}
+      value={text}
+      rows="2"
+      maxlength="131072"
+      {placeholder}
+      aria-label={placeholder}
+      data-chat-composer
+      oninput={handleInput}
+      onbeforeinput={handleBeforeInput}
+      onselect={updateSelection}
+      onkeyup={updateSelection}
+      onclick={updateSelection}
+      onkeydown={handleKeydown}
+      oncopy={handleCopy}
+      onpaste={handlePaste}
+      oncompositionstart={handleCompositionStart}
+      oncompositionend={updateSelection}
+    ></textarea>
+  </div>
 
   {#if mentionOpen}
     <div use:portal class="mention-picker" style={mentionStyle} role="listbox" aria-label={t("chat.organization.mentionTeammate")}>
@@ -618,7 +647,8 @@
   .scheduled-summary-anchor { position:relative; flex:0 0 auto; }
   .scheduled-summary-anchor > button { min-height:1.5rem; border-radius:0.4rem; padding:0.2rem 0.45rem; color:var(--foreground); font-size:0.68rem; font-weight:500; }
   .scheduled-summary-anchor > button:hover,.scheduled-summary-anchor > button[aria-expanded="true"] { background:color-mix(in srgb,var(--background) 70%,transparent); }
-  textarea { display:block; width:100%; min-height:4.15rem; max-height:15.35rem; resize:none; overflow-y:auto; border:0; background:transparent; padding:1rem 1.25rem 0.35rem; color:var(--foreground); font:inherit; font-size:var(--chat-conversation-font-size,0.933333rem); line-height:var(--chat-conversation-line-height,1.4rem); outline:none; }
+  .textarea-frame { padding:1rem 1.25rem 0.35rem; }
+  textarea { display:block; box-sizing:border-box; width:100%; min-height:2lh; max-height:6lh; resize:none; overflow-y:hidden; border:0; background:transparent; padding:0; color:var(--foreground); font:inherit; font-size:var(--chat-conversation-font-size,0.933333rem); line-height:var(--chat-conversation-line-height,1.4rem); outline:none; }
   textarea::placeholder { color:color-mix(in srgb,var(--muted-foreground) 52%,transparent); }
   .composer-footer { display:flex; min-height:3rem; align-items:center; justify-content:space-between; gap:0.5rem; padding:0.3rem 0.75rem 0.65rem; }
   .composer-tools { display:flex; align-items:center; gap:0.3rem; }
