@@ -1,9 +1,10 @@
+#[macro_use]
+extern crate ganbaru_db;
+
 use std::path::PathBuf;
 use std::process::Stdio;
 use tauri::Manager;
 
-#[macro_use]
-mod sqlite_row;
 mod benchmark_seed;
 mod calendar_description;
 mod calendar_events;
@@ -12,6 +13,7 @@ mod calendar_reads;
 mod calendars;
 #[allow(dead_code)]
 mod chat;
+#[cfg(test)]
 mod db;
 mod db_path;
 mod doomscrolling;

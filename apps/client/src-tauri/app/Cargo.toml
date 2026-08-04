@@ -16,6 +16,8 @@ axum = { workspace = true }
 base64 = { workspace = true }
 chrono = { workspace = true }
 flate2 = { workspace = true }
+ganbaru-db = { path = "../../../../crates/ganbaru-db" }
+ganbaru-working-folders = { path = "../../../../crates/ganbaru-working-folders" }
 keyring = { workspace = true }
 notify = { workspace = true }
 notify-rust = { workspace = true }

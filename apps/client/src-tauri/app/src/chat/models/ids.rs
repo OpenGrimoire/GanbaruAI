@@ -74,7 +74,7 @@ macro_rules! chat_identifier {
     };
 }
 
-chat_identifier!(ProjectWorkingFolderId, "project working folder ID");
+pub use ganbaru_working_folders::{ProjectWorkingFolderId, UtcTimestamp};
 chat_identifier!(ChatChannelId, "Chat channel ID");
 chat_identifier!(ChatParticipantId, "Chat participant ID");
 chat_identifier!(ChatConversationId, "Chat conversation ID");
@@ -109,41 +109,3 @@ chat_identifier!(ProviderRequestId, "provider request ID");
 chat_identifier!(ProviderTaskId, "provider task ID");
 chat_identifier!(ContinuationGroupId, "continuation group ID");
 chat_identifier!(ModelId, "model ID");
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct UtcTimestamp(String);
-
-impl UtcTimestamp {
-    pub fn new(value: impl Into<String>) -> Result<Self, String> {
-        let value = value.into();
-        let parsed = chrono::DateTime::parse_from_rfc3339(&value)
-            .map_err(|_| "timestamp must use RFC 3339".to_string())?;
-        if parsed.offset().local_minus_utc() != 0 {
-            return Err("timestamp must use UTC".to_string());
-        }
-        Ok(Self(value))
-    }
-
-    pub fn as_str(&self) -> &str {
-        &self.0
-    }
-}
-
-impl Serialize for UtcTimestamp {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        serializer.serialize_str(&self.0)
-    }
-}
-
-impl<'de> Deserialize<'de> for UtcTimestamp {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        let value = String::deserialize(deserializer)?;
-        Self::new(value).map_err(de::Error::custom)
-    }
-}

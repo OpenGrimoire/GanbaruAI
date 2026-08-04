@@ -1,4 +1,4 @@
-use super::super::run_migrations;
+use crate::run_migrations;
 use sqlx::{Row, SqlitePool};
 
 pub(super) async fn migrated_memory_pool() -> SqlitePool {

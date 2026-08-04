@@ -1,13 +1,14 @@
 use super::helpers::migrated_memory_pool;
-use crate::db::run_migrations;
+use crate::run_migrations;
 use sqlx::{Row, SqlitePool};
 
 const BASELINE_SCHEMA: &str =
-    include_str!("../../../../migrations/20260713024120_baseline_schema.sql");
-const CANONICAL_MUSIC_SCHEMA: &str =
-    include_str!("../../../../migrations/20260715042907_add_canonical_music_library.sql");
+    include_str!("../../../../apps/client/src-tauri/migrations/20260713024120_baseline_schema.sql");
+const CANONICAL_MUSIC_SCHEMA: &str = include_str!(
+    "../../../../apps/client/src-tauri/migrations/20260715042907_add_canonical_music_library.sql"
+);
 const LEGACY_MUSIC_MIGRATION: &str =
-    include_str!("../../../../migrations/20260715043240_migrate_legacy_music_playlists.sql");
+    include_str!("../../../../apps/client/src-tauri/migrations/20260715043240_migrate_legacy_music_playlists.sql");
 
 async fn pre_legacy_music_migration_pool() -> SqlitePool {
     let pool = sqlx::sqlite::SqlitePoolOptions::new()
@@ -29,7 +30,7 @@ async fn pre_legacy_music_migration_pool() -> SqlitePool {
 
 #[test]
 fn repeated_migration_startup_preserves_music_data() {
-    tauri::async_runtime::block_on(async {
+    super::block_on(async {
         let pool = migrated_memory_pool().await;
         sqlx::query(
             "INSERT INTO music_playlists (id, name, icon, created_at, updated_at)
@@ -61,7 +62,7 @@ fn repeated_migration_startup_preserves_music_data() {
 
 #[test]
 fn canonical_music_schema_keeps_device_paths_out_of_logical_roots() {
-    tauri::async_runtime::block_on(async {
+    super::block_on(async {
         let pool = migrated_memory_pool().await;
 
         for object in [
@@ -132,7 +133,7 @@ fn canonical_music_schema_keeps_device_paths_out_of_logical_roots() {
 
 #[test]
 fn canonical_music_schema_enforces_identity_membership_and_snooze_invariants() {
-    tauri::async_runtime::block_on(async {
+    super::block_on(async {
         let pool = migrated_memory_pool().await;
         sqlx::query(
             "INSERT INTO music_playlists (id, name, created_at, updated_at)
@@ -201,7 +202,7 @@ fn canonical_music_schema_enforces_identity_membership_and_snooze_invariants() {
 
 #[test]
 fn legacy_music_rows_migrate_without_discarding_conflicts() {
-    tauri::async_runtime::block_on(async {
+    super::block_on(async {
         let pool = pre_legacy_music_migration_pool().await;
         sqlx::query(
             "INSERT INTO music_playlists (id, name, created_at, updated_at)
@@ -315,7 +316,7 @@ fn legacy_music_rows_migrate_without_discarding_conflicts() {
 
 #[test]
 fn failed_legacy_music_conversion_rolls_back_when_migration_is_transactional() {
-    tauri::async_runtime::block_on(async {
+    super::block_on(async {
         let pool = pre_legacy_music_migration_pool().await;
         sqlx::query(
             "INSERT INTO music_playlists (id, name, created_at, updated_at)
@@ -366,7 +367,7 @@ fn failed_legacy_music_conversion_rolls_back_when_migration_is_transactional() {
 
 #[test]
 fn default_playlists_without_tracks_do_not_block_playback_state_persistence() {
-    tauri::async_runtime::block_on(async {
+    super::block_on(async {
         let pool = migrated_memory_pool().await;
 
         let playlists: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM music_playlists")

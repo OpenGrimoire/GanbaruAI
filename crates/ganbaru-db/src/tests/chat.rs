@@ -2,10 +2,11 @@ use super::helpers::migrated_memory_pool;
 use sqlx::Row;
 
 const NOW: &str = "2026-07-20T12:00:00Z";
-const ADD_CHAT_DRAFT_RICH_CONTENT: &str =
-    include_str!("../../../../migrations/20260728032141_add_chat_draft_rich_content.sql");
+const ADD_CHAT_DRAFT_RICH_CONTENT: &str = include_str!(
+    "../../../../apps/client/src-tauri/migrations/20260728032141_add_chat_draft_rich_content.sql"
+);
 const ADD_CHAT_REVIEW_COMMENT_SOURCES: &str =
-    include_str!("../../../../migrations/20260730193000_add_chat_review_comment_sources.sql");
+    include_str!("../../../../apps/client/src-tauri/migrations/20260730193000_add_chat_review_comment_sources.sql");
 
 async fn insert_project(pool: &sqlx::SqlitePool) {
     sqlx::query("INSERT INTO project_groups (id, name) VALUES ('group-1', 'Engineering')")
@@ -63,7 +64,7 @@ async fn insert_thread(
 
 #[test]
 fn built_in_projects_have_one_protected_managed_working_folder() {
-    tauri::async_runtime::block_on(async {
+    super::block_on(async {
         let pool = migrated_memory_pool().await;
         let projects: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM projects")
             .fetch_one(&pool)
@@ -102,7 +103,7 @@ fn built_in_projects_have_one_protected_managed_working_folder() {
 
 #[test]
 fn schema_creates_chat_tables_indexes_and_no_device_paths() {
-    tauri::async_runtime::block_on(async {
+    super::block_on(async {
         let pool = migrated_memory_pool().await;
         for object in [
             "project_working_folders",
@@ -268,7 +269,7 @@ fn schema_creates_chat_tables_indexes_and_no_device_paths() {
 
 #[test]
 fn fresh_projects_create_general_owner_membership_and_primary_folder() {
-    tauri::async_runtime::block_on(async {
+    super::block_on(async {
         let pool = migrated_memory_pool().await;
         let projects: i64 = sqlx::query_scalar("SELECT count(*) FROM projects")
             .fetch_one(&pool)
@@ -305,7 +306,7 @@ fn fresh_projects_create_general_owner_membership_and_primary_folder() {
 
 #[test]
 fn scheduled_message_schema_retains_attachments_until_the_schedule_is_removed() {
-    tauri::async_runtime::block_on(async {
+    super::block_on(async {
         let pool = migrated_memory_pool().await;
         let (channel_id, working_folder_id): (String, String) = sqlx::query_as(
             "SELECT channel.id, folder.working_folder_id
@@ -373,7 +374,7 @@ fn scheduled_message_schema_retains_attachments_until_the_schedule_is_removed() 
 
 #[test]
 fn chat_workspace_schema_preserves_attachments_and_scopes_resources_to_threads() {
-    tauri::async_runtime::block_on(async {
+    super::block_on(async {
         let pool = migrated_memory_pool().await;
         insert_project(&pool).await;
         insert_working_folder(&pool, "folder-1", "project-1").await;
@@ -451,7 +452,7 @@ fn chat_workspace_schema_preserves_attachments_and_scopes_resources_to_threads()
 
 #[test]
 fn chat_workspace_schema_records_forks_worktrees_reviews_and_cleanup_failures() {
-    tauri::async_runtime::block_on(async {
+    super::block_on(async {
         let pool = migrated_memory_pool().await;
         insert_project(&pool).await;
         insert_working_folder(&pool, "folder-1", "project-1").await;
@@ -524,7 +525,7 @@ fn chat_workspace_schema_records_forks_worktrees_reviews_and_cleanup_failures() 
 
 #[test]
 fn chat_draft_rich_content_migration_preserves_existing_plain_text() {
-    tauri::async_runtime::block_on(async {
+    super::block_on(async {
         let pool = sqlx::SqlitePool::connect("sqlite::memory:").await.unwrap();
         sqlx::query(
             "CREATE TABLE chat_drafts (
@@ -563,7 +564,7 @@ fn chat_draft_rich_content_migration_preserves_existing_plain_text() {
 
 #[test]
 fn chat_review_comment_sources_migration_preserves_legacy_rows_and_enforces_constraints() {
-    tauri::async_runtime::block_on(async {
+    super::block_on(async {
         let pool = sqlx::SqlitePool::connect("sqlite::memory:").await.unwrap();
         sqlx::query(
             "CREATE TABLE chat_review_comments (
@@ -657,7 +658,7 @@ fn chat_review_comment_sources_migration_preserves_legacy_rows_and_enforces_cons
 
 #[test]
 fn chat_permission_columns_accept_only_current_modes() {
-    tauri::async_runtime::block_on(async {
+    super::block_on(async {
         let pool = migrated_memory_pool().await;
         for table in ["chat_threads", "chat_turns", "chat_drafts"] {
             let sql: String = sqlx::query_scalar(
@@ -689,7 +690,7 @@ fn chat_permission_columns_accept_only_current_modes() {
 
 #[test]
 fn working_folder_tool_schema_tracks_restore_invalidation_and_exact_cleanup() {
-    tauri::async_runtime::block_on(async {
+    super::block_on(async {
         let pool = migrated_memory_pool().await;
         for (table, expected) in [
             (
@@ -733,7 +734,7 @@ fn working_folder_tool_schema_tracks_restore_invalidation_and_exact_cleanup() {
 
 #[test]
 fn working_folder_project_identity_and_delete_policies_are_explicit() {
-    tauri::async_runtime::block_on(async {
+    super::block_on(async {
         let pool = migrated_memory_pool().await;
         insert_project(&pool).await;
         insert_working_folder(&pool, "working-folder-project", "project-1").await;
@@ -775,7 +776,7 @@ fn working_folder_project_identity_and_delete_policies_are_explicit() {
 
 #[test]
 fn event_sequences_and_unresolved_requests_are_unique() {
-    tauri::async_runtime::block_on(async {
+    super::block_on(async {
         let pool = migrated_memory_pool().await;
         insert_project(&pool).await;
         insert_working_folder(&pool, "working-folder-1", "project-1").await;
@@ -849,7 +850,7 @@ fn event_sequences_and_unresolved_requests_are_unique() {
 
 #[test]
 fn cleanup_queue_survives_thread_deletion_and_requires_exact_refs() {
-    tauri::async_runtime::block_on(async {
+    super::block_on(async {
         let pool = migrated_memory_pool().await;
         insert_project(&pool).await;
         insert_working_folder(&pool, "working-folder-1", "project-1").await;

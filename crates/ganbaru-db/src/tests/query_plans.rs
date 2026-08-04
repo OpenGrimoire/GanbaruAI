@@ -2,7 +2,7 @@ use super::helpers::{assert_plan_uses, migrated_memory_pool, query_plan};
 
 #[test]
 fn hot_domain_queries_use_expected_indexes() {
-    tauri::async_runtime::block_on(async {
+    super::block_on(async {
         let pool = migrated_memory_pool().await;
         let cases = [
             ("project task summaries", "SELECT status_id, COUNT(*) FROM project_tasks WHERE project_id = 'project-1' GROUP BY status_id", "idx_project_tasks_project_status"),

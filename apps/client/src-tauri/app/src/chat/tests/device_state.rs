@@ -6,9 +6,9 @@ use crate::chat::{
     models::{ProjectWorkingFolderId, ProviderInstanceId, RepositoryKind, UtcTimestamp},
 };
 use crate::projects::working_folders::{
-    ProjectWorkingFolderBindingState, WorkingFolderDeviceState,
-    WORKING_FOLDER_DEVICE_STATE_SCHEMA_VERSION,
+    ProjectWorkingFolderBindingState, WORKING_FOLDER_DEVICE_STATE_SCHEMA_VERSION,
 };
+use ganbaru_working_folders::WorkingFolderDeviceState;
 
 #[test]
 fn bindings_are_scoped_by_vault_and_device() {

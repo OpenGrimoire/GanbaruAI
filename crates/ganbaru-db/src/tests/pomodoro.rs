@@ -2,7 +2,7 @@ use super::helpers::{insert_event, insert_open_run, migrated_memory_pool};
 
 #[test]
 fn schema_accepts_current_pomodoro_preset_keys() {
-    tauri::async_runtime::block_on(async {
+    super::block_on(async {
         let pool = migrated_memory_pool().await;
         insert_event(&pool).await;
 
@@ -60,7 +60,7 @@ fn schema_accepts_current_pomodoro_preset_keys() {
 
 #[test]
 fn schema_keeps_pomodoro_foreign_key_targets() {
-    tauri::async_runtime::block_on(async {
+    super::block_on(async {
         let pool = migrated_memory_pool().await;
         let references = [
             ("pomodoro_config_count_rhythms", "pomodoro_configs"),
@@ -100,7 +100,7 @@ fn schema_keeps_pomodoro_foreign_key_targets() {
 
 #[test]
 fn schema_allows_only_one_open_pomodoro_run() {
-    tauri::async_runtime::block_on(async {
+    super::block_on(async {
         let pool = migrated_memory_pool().await;
         insert_event(&pool).await;
 
@@ -122,7 +122,7 @@ fn schema_allows_only_one_open_pomodoro_run() {
 
 #[test]
 fn schema_allows_only_one_active_pomodoro_segment() {
-    tauri::async_runtime::block_on(async {
+    super::block_on(async {
         let pool = migrated_memory_pool().await;
         insert_event(&pool).await;
         insert_open_run(&pool, "run-1").await.unwrap();
@@ -156,7 +156,7 @@ fn schema_allows_only_one_active_pomodoro_segment() {
 
 #[test]
 fn schema_accepts_focus_failed_pomodoro_history() {
-    tauri::async_runtime::block_on(async {
+    super::block_on(async {
         let pool = migrated_memory_pool().await;
         insert_event(&pool).await;
         insert_open_run(&pool, "run-1").await.unwrap();
@@ -188,7 +188,7 @@ fn schema_accepts_focus_failed_pomodoro_history() {
 
 #[test]
 fn schema_creates_pomodoro_adaptive_tables() {
-    tauri::async_runtime::block_on(async {
+    super::block_on(async {
         let pool = migrated_memory_pool().await;
         let adaptive_tables = [
             "pomodoro_adaptive_policies",

@@ -1,12 +1,12 @@
-use super::super::run_migrations;
 use super::helpers::{insert_event, insert_open_run, migrated_memory_pool};
+use crate::run_migrations;
 use sqlx::Row;
 
 const EXPECTED_MIGRATION_COUNT: i64 = 20;
 
 #[test]
 fn fresh_database_applies_baseline_and_additive_migrations() {
-    tauri::async_runtime::block_on(async {
+    super::block_on(async {
         let pool = migrated_memory_pool().await;
         let migration_count: i64 =
             sqlx::query_scalar("SELECT COUNT(*) FROM _sqlx_migrations WHERE success = 1")
@@ -124,7 +124,7 @@ fn fresh_database_applies_baseline_and_additive_migrations() {
 
 #[test]
 fn fresh_file_database_applies_baseline_and_additive_migrations() {
-    tauri::async_runtime::block_on(async {
+    super::block_on(async {
         let path = std::env::temp_dir().join(format!(
             "ganbaru-ai-baseline-{}-{}.sqlite",
             std::process::id(),
@@ -156,7 +156,7 @@ fn fresh_file_database_applies_baseline_and_additive_migrations() {
 
 #[test]
 fn schema_does_not_create_json_storage_columns() {
-    tauri::async_runtime::block_on(async {
+    super::block_on(async {
         let pool = migrated_memory_pool().await;
 
         let rows = sqlx::query(
@@ -198,7 +198,7 @@ fn schema_does_not_create_json_storage_columns() {
 
 #[test]
 fn schema_allows_only_one_open_pause_per_segment() {
-    tauri::async_runtime::block_on(async {
+    super::block_on(async {
         let pool = migrated_memory_pool().await;
         insert_event(&pool).await;
         insert_open_run(&pool, "run-1").await.unwrap();
@@ -235,7 +235,7 @@ fn schema_allows_only_one_open_pause_per_segment() {
 
 #[test]
 fn schema_enforces_adaptive_policy_and_decision_integrity() {
-    tauri::async_runtime::block_on(async {
+    super::block_on(async {
         let pool = migrated_memory_pool().await;
         insert_event(&pool).await;
         insert_open_run(&pool, "run-1").await.unwrap();
@@ -383,7 +383,7 @@ fn schema_enforces_adaptive_policy_and_decision_integrity() {
 
 #[test]
 fn schema_records_adaptive_experiments_and_outcomes() {
-    tauri::async_runtime::block_on(async {
+    super::block_on(async {
         let pool = migrated_memory_pool().await;
         insert_event(&pool).await;
         insert_open_run(&pool, "run-1").await.unwrap();

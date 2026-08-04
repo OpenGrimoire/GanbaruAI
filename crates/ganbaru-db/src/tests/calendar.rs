@@ -2,7 +2,7 @@ use super::helpers::{insert_event, insert_open_run, migrated_memory_pool};
 
 #[test]
 fn schema_creates_normalized_calendar_archive_tables() {
-    tauri::async_runtime::block_on(async {
+    super::block_on(async {
         let pool = migrated_memory_pool().await;
         let archive_tables = [
             "calendar_events_archive",
@@ -34,7 +34,7 @@ fn schema_creates_normalized_calendar_archive_tables() {
 
 #[test]
 fn schema_rejects_invalid_calendar_values() {
-    tauri::async_runtime::block_on(async {
+    super::block_on(async {
         let pool = migrated_memory_pool().await;
 
         assert!(sqlx::query(
@@ -99,7 +99,7 @@ fn schema_rejects_invalid_calendar_values() {
 
 #[test]
 fn deleting_calendar_event_preserves_pomodoro_segments() {
-    tauri::async_runtime::block_on(async {
+    super::block_on(async {
         let pool = migrated_memory_pool().await;
         insert_event(&pool).await;
         insert_open_run(&pool, "run-1").await.unwrap();

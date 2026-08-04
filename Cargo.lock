@@ -1646,6 +1646,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "ganbaru-db"
+version = "0.1.5"
+dependencies = [
+ "sqlx",
+ "tokio",
+]
+
+[[package]]
 name = "ganbaru-native-messaging"
 version = "0.1.5"
 dependencies = [
@@ -1668,6 +1676,8 @@ dependencies = [
  "cairo-rs",
  "chrono",
  "flate2",
+ "ganbaru-db",
+ "ganbaru-working-folders",
  "gtk",
  "keyring",
  "libc",
@@ -1700,6 +1710,15 @@ dependencies = [
  "windows 0.61.3",
  "x11rb",
  "zip 8.6.0",
+]
+
+[[package]]
+name = "ganbaru-working-folders"
+version = "0.1.5"
+dependencies = [
+ "chrono",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]

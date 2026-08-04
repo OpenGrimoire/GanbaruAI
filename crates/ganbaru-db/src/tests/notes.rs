@@ -3,7 +3,7 @@ use sqlx::Row;
 
 #[test]
 fn schema_creates_normalized_notes_database_tables() {
-    tauri::async_runtime::block_on(async {
+    super::block_on(async {
         let pool = migrated_memory_pool().await;
         for table in [
             "notes_databases",
@@ -117,7 +117,7 @@ fn schema_creates_normalized_notes_database_tables() {
 
 #[test]
 fn schema_enforces_notes_folder_placement_invariants() {
-    tauri::async_runtime::block_on(async {
+    super::block_on(async {
         let pool = migrated_memory_pool().await;
         let folder_table: Option<i64> = sqlx::query_scalar(
             "SELECT 1 FROM sqlite_schema WHERE type = 'table' AND name = 'notes_folders'",
@@ -230,7 +230,7 @@ fn schema_enforces_notes_folder_placement_invariants() {
 
 #[test]
 fn schema_validates_project_notes_default_open_mode() {
-    tauri::async_runtime::block_on(async {
+    super::block_on(async {
         let pool = migrated_memory_pool().await;
         sqlx::query(
             "INSERT INTO project_groups (id, name, icon, sort_order)
@@ -272,7 +272,7 @@ fn schema_validates_project_notes_default_open_mode() {
 
 #[test]
 fn schema_creates_notes_local_user_identity() {
-    tauri::async_runtime::block_on(async {
+    super::block_on(async {
         let pool = migrated_memory_pool().await;
         let row = sqlx::query(
             "SELECT id, display_name
@@ -302,7 +302,7 @@ fn schema_creates_notes_local_user_identity() {
 
 #[test]
 fn schema_creates_notes_comment_thread_read_state() {
-    tauri::async_runtime::block_on(async {
+    super::block_on(async {
         let pool = migrated_memory_pool().await;
         for table in ["notes_comment_thread_reads", "notes_local_users"] {
             let exists: Option<i64> =
@@ -329,7 +329,7 @@ fn schema_creates_notes_comment_thread_read_state() {
 
 #[test]
 fn schema_creates_notes_mention_notifications() {
-    tauri::async_runtime::block_on(async {
+    super::block_on(async {
         let pool = migrated_memory_pool().await;
         let exists: Option<i64> =
             sqlx::query_scalar("SELECT 1 FROM sqlite_schema WHERE type = 'table' AND name = ?")
@@ -387,7 +387,7 @@ fn schema_creates_notes_mention_notifications() {
 
 #[test]
 fn schema_creates_notes_suggestions() {
-    tauri::async_runtime::block_on(async {
+    super::block_on(async {
         let pool = migrated_memory_pool().await;
         let exists: Option<i64> =
             sqlx::query_scalar("SELECT 1 FROM sqlite_schema WHERE type = 'table' AND name = ?")
@@ -491,7 +491,7 @@ fn schema_creates_notes_suggestions() {
 
 #[test]
 fn schema_creates_notes_collaboration_operations() {
-    tauri::async_runtime::block_on(async {
+    super::block_on(async {
         let pool = migrated_memory_pool().await;
         let exists: Option<i64> =
             sqlx::query_scalar("SELECT 1 FROM sqlite_schema WHERE type = 'table' AND name = ?")
@@ -648,7 +648,7 @@ fn schema_creates_notes_collaboration_operations() {
 
 #[test]
 fn schema_creates_notes_page_icon_assets() {
-    tauri::async_runtime::block_on(async {
+    super::block_on(async {
         let pool = migrated_memory_pool().await;
 
         sqlx::query(
@@ -734,7 +734,7 @@ fn schema_creates_notes_page_icon_assets() {
 
 #[test]
 fn schema_creates_notes_page_cover_assets() {
-    tauri::async_runtime::block_on(async {
+    super::block_on(async {
         let pool = migrated_memory_pool().await;
 
         sqlx::query(
@@ -820,7 +820,7 @@ fn schema_creates_notes_page_cover_assets() {
 
 #[test]
 fn schema_creates_notes_assets_and_references() {
-    tauri::async_runtime::block_on(async {
+    super::block_on(async {
         let pool = migrated_memory_pool().await;
 
         sqlx::query(
@@ -1076,7 +1076,7 @@ fn schema_creates_notes_assets_and_references() {
 
 #[test]
 fn schema_creates_notes_search_fts_projection() {
-    tauri::async_runtime::block_on(async {
+    super::block_on(async {
         let pool = migrated_memory_pool().await;
 
         sqlx::query(
@@ -1146,7 +1146,7 @@ fn schema_creates_notes_search_fts_projection() {
 
 #[test]
 fn schema_creates_notes_backlink_index() {
-    tauri::async_runtime::block_on(async {
+    super::block_on(async {
         let pool = migrated_memory_pool().await;
 
         sqlx::query(
@@ -1291,7 +1291,7 @@ fn schema_creates_notes_backlink_index() {
 
 #[test]
 fn schema_creates_notes_link_facts() {
-    tauri::async_runtime::block_on(async {
+    super::block_on(async {
         let pool = migrated_memory_pool().await;
 
         sqlx::query(
@@ -1470,7 +1470,7 @@ fn schema_creates_notes_link_facts() {
 
 #[test]
 fn schema_creates_strict_project_notes_history_storage() {
-    tauri::async_runtime::block_on(async {
+    super::block_on(async {
         let pool = migrated_memory_pool().await;
         let default_retention: i64 = sqlx::query_scalar(
             "SELECT retention_days FROM notes_page_history_settings WHERE id = 1",

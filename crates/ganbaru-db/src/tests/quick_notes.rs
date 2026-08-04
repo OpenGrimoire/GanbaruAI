@@ -2,7 +2,7 @@ use super::helpers::migrated_memory_pool;
 
 #[test]
 fn schema_creates_normalized_quick_notes_storage() {
-    tauri::async_runtime::block_on(async {
+    super::block_on(async {
         let pool = migrated_memory_pool().await;
         for table in [
             "quick_note_tags",

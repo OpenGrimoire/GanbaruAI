@@ -2,7 +2,7 @@ use super::helpers::{insert_event, insert_open_run, migrated_memory_pool};
 
 #[test]
 fn schema_creates_doomscrolling_usage_samples() {
-    tauri::async_runtime::block_on(async {
+    super::block_on(async {
         let pool = migrated_memory_pool().await;
 
         sqlx::query(
@@ -28,7 +28,7 @@ fn schema_creates_doomscrolling_usage_samples() {
 
 #[test]
 fn schema_records_redacted_doomscrolling_block_events() {
-    tauri::async_runtime::block_on(async {
+    super::block_on(async {
         let pool = migrated_memory_pool().await;
         insert_event(&pool).await;
         insert_open_run(&pool, "run-1").await.unwrap();

@@ -39,7 +39,7 @@ pub struct VaultAppState {
     #[serde(default)]
     pub music_root_bindings: BTreeMap<String, BTreeMap<String, String>>,
     #[serde(default)]
-    pub project_working_folders: crate::projects::working_folders::WorkingFolderDeviceState,
+    pub project_working_folders: ganbaru_working_folders::WorkingFolderDeviceState,
     #[serde(default)]
     pub chat: crate::chat::device_state::ChatDeviceState,
 }
