@@ -727,6 +727,24 @@ mod tests {
         let current_exe = std::env::current_exe().expect("test executable path should exist");
         assert!(is_valid_relaunch_target(&current_exe));
     }
+
+    #[test]
+    fn project_history_commands_are_registered_at_defining_modules() {
+        let handlers = include_str!("lib.rs");
+        for command in [
+            "notes::project_history::schedule::notes_initialize_project_history",
+            "notes::project_history::schedule::notes_flush_due_project_history",
+            "notes::project_history::reads::notes_list_project_history_versions",
+            "notes::project_history::reads::notes_load_project_history_tree",
+            "notes::project_history::reads::notes_load_project_history_page",
+            "notes::project_history::retention::notes_get_history_retention_impact",
+            "notes::project_history::retention::notes_prune_project_history",
+            "notes::project_history::commands::notes_preview_project_history_restore",
+            "notes::project_history::commands::notes_restore_project_history_version",
+        ] {
+            assert!(handlers.contains(command), "missing handler {command}");
+        }
+    }
 }
 
 pub fn run(context: tauri::Context<tauri::Wry>) {

@@ -2,70 +2,27 @@ use crate::db_path::connect_sqlite;
 use tauri::{AppHandle, Runtime};
 
 mod agent_bridge_export;
-mod assets;
-mod backlinks;
-mod collaboration_operations;
-mod comments;
-mod data_source_board;
-mod data_source_buttons;
-mod data_source_calendar;
 mod data_source_csv_export;
-mod data_source_csv_import;
-mod data_source_formula_parser;
-mod data_source_formulas;
-mod data_source_gallery;
-mod data_source_list;
-mod data_source_relations;
-mod data_source_rollups;
-mod data_source_rows;
-mod data_source_schema;
-mod data_source_table;
-mod data_source_templates;
-mod data_source_timeline;
-mod data_source_views;
-mod data_source_window;
-mod databases;
 mod file_assets;
-mod folders;
-mod history;
 mod html_export;
-mod html_export_archive;
-mod html_export_format;
-mod html_export_render;
-mod html_import;
-mod html_import_syntax;
-mod import_writer;
 mod json_graph_export;
-mod link_facts;
-mod links;
-mod local_user;
-mod markdown_export;
-mod markdown_export_format;
-mod markdown_import;
-mod markdown_import_syntax;
-mod mention_notifications;
-mod models;
-mod notion_api_import;
-mod notion_api_import_client;
-mod notion_api_import_convert;
-mod notion_api_import_writer;
 mod notion_export_import;
 mod page_cover_assets;
 mod page_icon_assets;
 pub(crate) mod project_history;
-mod reads;
-mod search;
-mod search_properties;
-mod suggestions;
-mod templates;
-mod undo_state;
-mod validation;
 pub mod working_markdown;
-mod workspace_shell;
-mod writes;
+
+use ganbaru_notes::notes::{
+    backlinks, comments, data_source_board, data_source_buttons, data_source_calendar,
+    data_source_csv_import, data_source_gallery, data_source_list, data_source_rows,
+    data_source_schema, data_source_table, data_source_templates, data_source_timeline, databases,
+    folders, history, html_import, link_facts, links, local_user, markdown_export, markdown_import,
+    mention_notifications, notion_api_import, reads, search, suggestions, templates, undo_state,
+    workspace_shell, writes,
+};
 
 pub use file_assets::*;
-pub use models::*;
+pub use ganbaru_notes::notes::models::*;
 pub use page_cover_assets::*;
 pub use page_icon_assets::*;
 #[allow(unused_imports)]
@@ -1524,6 +1481,3 @@ pub async fn notes_clear_undo_state<R: Runtime>(
     let pool = connect_sqlite(app, db_url).await?;
     undo_state::clear_undo_state(&pool, &page_id).await
 }
-
-#[cfg(test)]
-mod tests;

@@ -7,6 +7,7 @@ members = [
   "crates/ganbaru-chat-providers",
   "crates/ganbaru-db",
   "crates/ganbaru-native-messaging",
+  "crates/ganbaru-notes",
   "crates/ganbaru-working-folders",
 ]
 

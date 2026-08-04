@@ -1692,6 +1692,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "ganbaru-notes"
+version = "0.1.5"
+dependencies = [
+ "ammonia",
+ "base64 0.22.1",
+ "chrono",
+ "flate2",
+ "ganbaru-db",
+ "reqwest",
+ "rustls",
+ "serde",
+ "serde_json",
+ "sha2",
+ "sqlx",
+ "tokio",
+ "zip 8.6.0",
+]
+
+[[package]]
 name = "ganbaru-tauri-app"
 version = "0.1.5"
 dependencies = [
@@ -1705,6 +1724,7 @@ dependencies = [
  "ganbaru-chat-contracts",
  "ganbaru-chat-providers",
  "ganbaru-db",
+ "ganbaru-notes",
  "ganbaru-working-folders",
  "gtk",
  "keyring",
