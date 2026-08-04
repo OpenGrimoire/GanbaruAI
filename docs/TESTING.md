@@ -25,7 +25,7 @@ Pure domain logic is the preferred testing boundary. When behavior is entangled 
 
 ### Rust tests
 
-Rust tests cover domain behavior, command boundaries, provider protocols, platform integration, persistence, migrations, transactions, and recovery. Most backend tests are library tests. The native messaging host retains its own binary-local tests.
+Rust tests cover domain behavior, command boundaries, provider protocols, platform integration, persistence, migrations, transactions, and recovery. Tauri-free domain tests live with their workspace crates, while Tauri command and platform integration tests live in `ganbaru-tauri-app`. The native messaging host retains its own binary-local tests.
 
 The desktop binary test harness and library doctest phase are disabled while they contain no tests. Re-enable the relevant phase if real binary tests or doctests are introduced.
 
@@ -96,6 +96,8 @@ CARGO_PROFILE_DEV_DEBUG=full CARGO_BUILD_JOBS=1 pnpm --dir apps/client tauri dev
 
 If a split backend still exceeds available memory with persistent swap configured, `CARGO_PROFILE_DEV_DEBUG=none` is an emergency per-command override. It is not the repository default because switching debug modes fragments the development artifact cache.
 
+Persistent swap is a system-level safety margin, not a replacement for bounded build jobs. It does not reserve RAM for Cargo, and it can make severe memory pressure slower through disk paging. Keep normal development on the line-table profile and one-job Tauri default even when additional swap is available.
+
 ## Cache behavior and expected timing
 
 Validation duration depends strongly on what changed and which caches are warm.
@@ -124,16 +126,30 @@ pnpm --dir apps/client exec vitest run src/path/to/file.test.ts --maxWorkers=1
 
 Confirm that Vitest reports only the requested files. Stop and correct the command if the full suite starts unexpectedly.
 
-Use a filtered Rust library test for isolated backend behavior:
+Use a filtered Rust library test for the package that owns the behavior:
 
 ```sh
-cargo test -p ganbaru-ai --lib -j 1 test_name -- --test-threads=1
+cargo test -p ganbaru-chat --lib -j 1 test_name -- --test-threads=1
+cargo test -p ganbaru-notes --lib -j 1 test_name -- --test-threads=1
+cargo test -p ganbaru-db --lib -j 1 test_name -- --test-threads=1
 ```
 
-Use the relevant binary only for a binary-local test:
+Use the Tauri composition library for command-adapter and platform integration behavior:
 
 ```sh
-cargo test -p ganbaru-ai --bin ganbaru-ai-native-messaging -j 1 test_name -- --test-threads=1
+cargo test -p ganbaru-tauri-app --lib -j 1 test_name -- --test-threads=1
+```
+
+Use the relevant binary package only for binary-local behavior:
+
+```sh
+cargo test -p ganbaru-native-messaging --bin ganbaru-ai-native-messaging -j 1 test_name -- --test-threads=1
+```
+
+Check the composed desktop target after changing a core crate or Tauri adapter:
+
+```sh
+cargo check -p ganbaru-ai --bin ganbaru-ai -j 1
 ```
 
 Useful focused static commands include:
@@ -221,6 +237,14 @@ Automated tests cannot replace manual inspection of the real Tauri application. 
 During iterative UI work, use focused checks and tests. Do not launch a development server, Tauri app, or HTTP smoke check as a substitute for requested user inspection. Run the risk-appropriate completion gate after the batch is ready.
 
 For responsive behavior, prefer pure helper tests when layout decisions depend on measured width, available space, anchors, or collision rules. Manual verification should include the app's recoverability floor and realistic desktop sizes.
+
+For a development-build or watcher change, the user should perform the real Tauri acceptance run. On Linux, measure one cache-cold launch and one unchanged warm launch with:
+
+```sh
+/usr/bin/time -v pnpm --dir apps/client tauri dev --no-watch
+```
+
+After the app becomes usable, close it normally and record elapsed time, maximum RSS, final swap use, target-directory size, and any new kernel OOM entry. Normal watched development should then confirm that the main window stays hidden until frontend readiness, Calendar styling is complete on reveal, Projects, Notes, Chat, and Music load on first navigation, Svelte HMR works, a small Rust edit performs a bounded rebuild, top-level Rust workspace crate changes trigger Tauri rebuilds, and no Tailwind or pre-transform errors appear.
 
 ## Coverage reports
 
