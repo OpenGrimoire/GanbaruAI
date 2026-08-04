@@ -2,7 +2,7 @@ import { defineConfig, type Plugin, type ViteDevServer } from "vite";
 import { svelte } from "@sveltejs/vite-plugin-svelte";
 import tailwindcss from "@tailwindcss/vite";
 import { execFileSync } from "node:child_process";
-import { readdirSync, readFileSync, statSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import path from "path";
 import { fileURLToPath } from "node:url";
 
@@ -155,34 +155,8 @@ function reviewCatalogChunkName(moduleId: string): string | undefined {
   return undefined;
 }
 
-function svelteFilesWithStyles(dir: string): string[] {
-  const files: string[] = [];
-  for (const entry of readdirSync(dir)) {
-    if (entry === "node_modules" || entry === "dist" || entry === "src-tauri") continue;
-    const fullPath = path.join(dir, entry);
-    const stat = statSync(fullPath);
-    if (stat.isDirectory()) {
-      files.push(...svelteFilesWithStyles(fullPath));
-      continue;
-    }
-    if (!entry.endsWith(".svelte")) continue;
-    const source = readFileSync(fullPath, "utf8");
-    if (source.includes("<style")) files.push(fullPath);
-  }
-  return files;
-}
-
-function toViteUrl(filePath: string): string {
-  const relative = path.relative(configDir, filePath).replaceAll(path.sep, "/");
-  return `/${relative}`;
-}
-
 async function warmTauriDevEntry(server: ViteDevServer): Promise<void> {
-  const urls = [
-    "/src/main.ts",
-    ...svelteFilesWithStyles(path.join(configDir, "src")).map(toViteUrl),
-  ];
-  await Promise.all(urls.map((url) => server.transformRequest(url)));
+  await server.transformRequest("/src/main.ts");
 }
 
 function tauriDevReady(): Plugin {
@@ -317,9 +291,6 @@ export default defineConfig({
       : undefined,
     watch: {
       ignored: ["**/src-tauri/**"],
-    },
-    warmup: {
-      clientFiles: ["./src/main.ts", "./src/**/*.svelte"],
     },
   },
 });

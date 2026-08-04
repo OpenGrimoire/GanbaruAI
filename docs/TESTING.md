@@ -82,6 +82,20 @@ One Cargo build job prevents multiple large compiler or linker processes from co
 
 Do not increase broad concurrency, combine Rust and frontend stages, or remove Vitest sharding solely to make a warm run faster. Any topology change requires measurements and proof that coverage is unchanged.
 
+## Development build resource policy
+
+The Cargo development profile emits line tables by default. This preserves file and line information for backtraces while avoiding the substantially larger compiler and linker memory cost of full variable and type debug information. Incremental compilation, assertions, overflow checks, code generation units, and the standard platform linker retain their Cargo defaults.
+
+The repository-owned Tauri CLI wrapper sets `CARGO_BUILD_JOBS=1` for `tauri dev` only when the caller has not already set the variable. Release builds, CI, direct Cargo commands, and explicit contributor overrides are unaffected. Vite prepares only `/src/main.ts` before the Tauri readiness endpoint reveals the window. Other components are transformed on demand during navigation, and the Tailwind guard for Svelte style virtual modules remains active.
+
+Full native debug information is exceptional because changing the debug mode invalidates the relevant Cargo artifacts. Use it only for a debugging session that needs local variables or full type information:
+
+```sh
+CARGO_PROFILE_DEV_DEBUG=full CARGO_BUILD_JOBS=1 pnpm --dir apps/client tauri dev
+```
+
+If a split backend still exceeds available memory with persistent swap configured, `CARGO_PROFILE_DEV_DEBUG=none` is an emergency per-command override. It is not the repository default because switching debug modes fragments the development artifact cache.
+
 ## Cache behavior and expected timing
 
 Validation duration depends strongly on what changed and which caches are warm.

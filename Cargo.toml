@@ -4,5 +4,8 @@ members = [
   "apps/client/src-tauri",
 ]
 
+[profile.dev]
+debug = "line-tables-only"
+
 [profile.test]
 debug = 1
