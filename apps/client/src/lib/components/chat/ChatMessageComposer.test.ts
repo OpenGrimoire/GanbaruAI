@@ -2,11 +2,76 @@
 
 import { mount, tick, unmount } from "svelte";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { ChatScheduledMessageRead, PostChatMessageResult } from "$lib/chat/contracts";
+import type {
+  ChatParticipantRead,
+  ChatReplyThreadPageRead,
+  ChatScheduledMessageRead,
+  PostChatMessageResult,
+} from "$lib/chat/contracts";
 import { getChat } from "$lib/stores/chat.svelte";
 import ChatMessageComposer from "./ChatMessageComposer.svelte";
 
+const teammate: ChatParticipantRead = {
+  id: "participant:ganbaru",
+  kind: "ai_teammate",
+  displayName: "Ganbaru",
+  handle: "ganbaru",
+  avatar: { schemaVersion: 1, value: {} },
+  revision: 1,
+  archivedAt: null,
+};
+
+function workingReplyThread(): ChatReplyThreadPageRead {
+  const timestamp = "2026-08-05T16:00:00.000Z";
+  return {
+    thread: {
+      id: "reply-thread:working",
+      replyCount: 0,
+      lastActivityAt: timestamp,
+      participants: [teammate],
+      unread: false,
+      workState: "working",
+    },
+    rootMessage: {
+      itemId: "item:root",
+      conversationId: "conversation:test",
+      replyThreadId: null,
+      revisionId: "revision:root",
+      revision: 1,
+      author: teammate,
+      normalizedMarkdown: "Work on this",
+      richContent: { schemaVersion: 1, value: {} },
+      mentions: [],
+      attachmentIds: [],
+      resourceReferences: [],
+      replyThread: null,
+      ordinal: 1,
+      editedAt: null,
+      createdAt: timestamp,
+    },
+    replies: [],
+    assignment: {
+      id: "assignment:working",
+      replyThreadId: "reply-thread:working",
+      teammate,
+      triggeringMessageItemId: "item:root",
+      previousAssignmentId: null,
+      state: "working",
+      stateReason: null,
+      revision: 1,
+      settledAt: null,
+      createdAt: timestamp,
+      updatedAt: timestamp,
+    },
+    agentRuns: [],
+    previousCursor: null,
+    revision: 1,
+  };
+}
+
 describe("ChatMessageComposer", () => {
+  const chat = getChat();
+  const initialReplyThread = chat.replyThread;
   let target: HTMLDivElement | undefined;
   let component: ReturnType<typeof mount> | undefined;
 
@@ -17,6 +82,76 @@ describe("ChatMessageComposer", () => {
     target?.remove();
     component = undefined;
     target = undefined;
+    chat.replyThread = initialReplyThread;
+  });
+
+  it("uses the primary button and shortcut to stop active work while Enter still sends", async () => {
+    const page = workingReplyThread();
+    chat.replyThread = page;
+    vi.spyOn(chat, "listScheduledOrganizationalMessages").mockResolvedValue([]);
+    const cancel = vi.spyOn(chat, "cancelAssignment").mockResolvedValue();
+    const post = vi.spyOn(chat, "postOrganizationalMessage").mockResolvedValue(
+      undefined as unknown as PostChatMessageResult,
+    );
+    target = document.createElement("div");
+    document.body.append(target);
+    component = mount(ChatMessageComposer, {
+      target,
+      props: {
+        destination: `reply-thread:${page.thread.id}`,
+        placeholder: "Reply",
+        threadComposer: true,
+      },
+    });
+
+    const primary = target.querySelector<HTMLButtonElement>('.send-button[data-action="stop"]');
+    expect(primary?.disabled).toBe(false);
+    expect(primary?.querySelector(".lucide-square")).not.toBeNull();
+    primary?.click();
+    await vi.waitFor(() => expect(cancel).toHaveBeenCalledWith(page.assignment?.id));
+    expect(post).not.toHaveBeenCalled();
+
+    const textarea = target.querySelector<HTMLTextAreaElement>("textarea");
+    if (!textarea) throw new Error("Expected the organizational composer textarea");
+    textarea.value = "One more detail";
+    textarea.dispatchEvent(new InputEvent("input", { bubbles: true, inputType: "insertText" }));
+    textarea.dispatchEvent(new KeyboardEvent("keydown", { bubbles: true, key: "Enter" }));
+    await vi.waitFor(() => expect(post).toHaveBeenCalledWith(
+      expect.any(String),
+      { alsoSendToChannel: false },
+    ));
+
+    window.dispatchEvent(new Event("ganbaru-ai:chat-stop-requested"));
+    await vi.waitFor(() => expect(cancel).toHaveBeenCalledTimes(2));
+  });
+
+  it("shows one failed-work recovery above the thread composer and retries in place", async () => {
+    const page = workingReplyThread();
+    if (!page.assignment) throw new Error("Expected a work assignment");
+    page.assignment.state = "failed";
+    page.assignment.stateReason = "Codex executable could not be resolved";
+    page.thread.workState = "failed";
+    chat.replyThread = page;
+    vi.spyOn(chat, "listScheduledOrganizationalMessages").mockResolvedValue([]);
+    const retry = vi.spyOn(chat, "retryAssignment").mockResolvedValue();
+    target = document.createElement("div");
+    document.body.append(target);
+    component = mount(ChatMessageComposer, {
+      target,
+      props: {
+        destination: `reply-thread:${page.thread.id}`,
+        placeholder: "Reply",
+        threadComposer: true,
+      },
+    });
+
+    const summary = target.querySelector<HTMLElement>(".assignment-error-summary");
+    expect(summary?.textContent).toContain("The agent stopped because of an error.");
+    const retryButton = summary?.querySelector<HTMLButtonElement>("button");
+    expect(retryButton?.textContent).toBe("Retry work");
+    retryButton?.click();
+
+    await vi.waitFor(() => expect(retry).toHaveBeenCalledWith(page.assignment?.id));
   });
 
   it("uses one send action and resets channel sharing after a thread reply", async () => {

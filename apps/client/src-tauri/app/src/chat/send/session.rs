@@ -4,6 +4,7 @@ use super::checkpoints::ensure_post_turn_checkpoint;
 use super::persistence::ThreadRuntimeData;
 use super::support::{now_timestamp, operation_context, PROVIDER_START_TIMEOUT};
 use super::validation::validate_modes;
+use crate::chat::credentials::{materialize_provider_environment, PlatformCredentialStore};
 use crate::chat::events::{CanonicalEvent, CanonicalRuntimeEvent, ChangedFileSummary};
 use crate::chat::ingestion::{ChatEventIngestor, TauriChatChangeEmitter};
 use crate::chat::models::{
@@ -37,6 +38,84 @@ pub(super) struct EnsureSessionContext<'a> {
     pub(super) existing: Option<&'a ThreadRuntimeData>,
     pub(super) continuation_group_id: &'a ContinuationGroupId,
     pub(super) request: &'a SendChatTurnCommand,
+}
+
+pub(super) async fn ensure_session_with_executable_recovery(
+    context: EnsureSessionContext<'_>,
+) -> ChatResult<ProviderSessionSnapshot> {
+    let EnsureSessionContext {
+        app,
+        pool,
+        owner,
+        new_driver,
+        configuration,
+        workspace,
+        thread_id,
+        existing,
+        continuation_group_id,
+        request,
+    } = context;
+    let internal_mcp = configuration.internal_mcp.clone();
+    let initial = ensure_session(EnsureSessionContext {
+        app,
+        pool,
+        owner,
+        new_driver,
+        configuration,
+        workspace,
+        thread_id,
+        existing,
+        continuation_group_id,
+        request,
+    })
+    .await;
+    let error = match initial {
+        Ok(session) => return Ok(session),
+        Err(error) if error.code == ChatErrorCode::ExecutableMissing => error,
+        Err(error) => return Err(error),
+    };
+    let repaired_probe = crate::chat::settings_commands::chat_probe_provider(
+        app.clone(),
+        request.provider_instance_id.clone(),
+    )
+    .await;
+    if !repaired_probe
+        .as_ref()
+        .is_ok_and(|probe| probe.state != crate::chat::models::ProbeState::ExecutableMissing)
+    {
+        return Err(error);
+    }
+    let repaired_provider =
+        crate::chat::settings_commands::read_provider(app, &request.provider_instance_id)?;
+    let mut repaired_configuration = materialize_provider_environment(
+        &repaired_provider.configuration,
+        &PlatformCredentialStore::default(),
+    )?;
+    repaired_configuration.internal_mcp = internal_mcp;
+    let retry = ensure_session(EnsureSessionContext {
+        app,
+        pool,
+        owner,
+        new_driver: None,
+        configuration: repaired_configuration,
+        workspace,
+        thread_id,
+        existing,
+        continuation_group_id,
+        request,
+    })
+    .await;
+    if retry
+        .as_ref()
+        .is_err_and(|retry_error| retry_error.code == ChatErrorCode::ExecutableMissing)
+    {
+        let _ = crate::chat::settings_commands::chat_probe_provider(
+            app.clone(),
+            request.provider_instance_id.clone(),
+        )
+        .await;
+    }
+    retry
 }
 
 pub(super) async fn ensure_session(

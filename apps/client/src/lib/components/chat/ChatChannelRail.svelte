@@ -5,8 +5,6 @@
   import ChevronRight from "@lucide/svelte/icons/chevron-right";
   import ChevronsLeft from "@lucide/svelte/icons/chevrons-left";
   import ChevronsRight from "@lucide/svelte/icons/chevrons-right";
-  import CircleAlert from "@lucide/svelte/icons/circle-alert";
-  import CircleDot from "@lucide/svelte/icons/circle-dot";
   import Ellipsis from "@lucide/svelte/icons/ellipsis";
   import Hash from "@lucide/svelte/icons/hash";
   import LoaderCircle from "@lucide/svelte/icons/loader-circle";
@@ -184,18 +182,6 @@
     if (event.dataTransfer) event.dataTransfer.effectAllowed = "move";
   }
 
-  function channelStatus(channel: ChatChannelRead): { label: string; kind: "working" | "attention" | "error" | "unread" | "idle" } {
-    const state = channel.attentionState;
-    if (state === "waiting_for_answer") return { label: t("chat.status.waitingAnswer"), kind: "attention" };
-    if (state === "waiting_for_approval" || state === "ready_for_review") {
-      return { label: state === "waiting_for_approval" ? t("chat.status.waitingApproval") : t("chat.status.readyForReview"), kind: "attention" };
-    }
-    if (state === "queued" || state === "working") return { label: t("chat.status.working"), kind: "working" };
-    if (state === "failed") return { label: t("chat.status.error"), kind: "error" };
-    if (channel.unreadCount > 0) return { label: t("chat.status.unread"), kind: "unread" };
-    return { label: t("chat.status.idle"), kind: "idle" };
-  }
-
   async function confirmArchive(): Promise<void> {
     const channel = archiveCandidate;
     archiveCandidate = null;
@@ -355,14 +341,10 @@
 {/if}
 
 {#snippet ChannelRow({ channel }: { channel: ChatChannelRead })}
-  {@const status = channelStatus(channel)}
   <div class="channel-row-group" role="listitem" draggable="true" ondragstart={(event) => beginDrag(event, channel.id)}>
     <button type="button" class="channel-row" class:selected={chat.selectedChannelId === channel.id && !chat.channelArchiveOpen} aria-current={chat.selectedChannelId === channel.id ? "page" : undefined} onclick={() => void selectChannel(channel.id)}>
       <Hash size={14} class="shrink-0 opacity-75" />
       <span class="min-w-0 flex-1 truncate">{channel.name}</span>
-      <span class:attention={status.kind === "attention"} class:error={status.kind === "error"} class:unread={status.kind === "unread"} class="status" title={status.label}>
-        {#if status.kind === "working"}<LoaderCircle size={12} class="animate-spin" />{:else if status.kind === "attention" || status.kind === "error"}<CircleAlert size={12} />{:else}<CircleDot size={10} />{/if}
-      </span>
     </button>
     <details class="row-menu">
       <summary aria-label={t("chat.moreActions")}><Ellipsis size={13} /></summary>
@@ -413,10 +395,6 @@
   .channel-row { display: flex; width: 100%; min-width: 0; height: 1.85rem; align-items: center; gap: 0.4rem; border-radius: 0.35rem; padding: 0 1.8rem 0 0.55rem; color: var(--muted-foreground); font-size: 0.8rem; text-align: left; }
   .channel-row:hover, .channel-row.selected { background: var(--accent); color: var(--foreground); }
   .channel-loading { padding-right: 0.55rem; opacity: 0.72; }
-  .channel-row .status { display: grid; width: 0.9rem; flex: 0 0 auto; place-items: center; opacity: 0.55; }
-  .channel-row .status.attention { color: var(--status-tentative); opacity: 1; }
-  .channel-row .status.error { color: var(--destructive); opacity: 1; }
-  .channel-row .status.unread { color: var(--primary); opacity: 1; }
   .row-menu { position: absolute; right: 0.25rem; }
   .row-menu summary { display: none; width: 1.45rem; height: 1.45rem; list-style: none; place-items: center; border-radius: 0.3rem; color: var(--muted-foreground); }
   .channel-row-group:hover .row-menu summary, .row-menu[open] summary { display: grid; }

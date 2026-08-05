@@ -32,6 +32,7 @@
   let busyIds = $state<string[]>([]);
   let refreshingAll = $state(false);
   let refreshResult = $state<ProviderRefreshResult | null>(null);
+  let providersRefreshedOnOpen = $state(false);
   let error = $state<string | null>(null);
   let removeId = $state<string | null>(null);
   let activeTab = $state<ChatSettingsSubsection>("teammates");
@@ -54,6 +55,12 @@
 
   $effect(() => {
     void chat.ensureLoaded().catch((cause) => { error = errorMessage(cause); });
+  });
+
+  $effect(() => {
+    if (activeTab !== "providers" || !chat.settings || providersRefreshedOnOpen) return;
+    providersRefreshedOnOpen = true;
+    void refreshAll();
   });
 
   function setBusy(instanceId: string, busy: boolean): void {

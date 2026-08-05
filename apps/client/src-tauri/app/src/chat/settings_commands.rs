@@ -22,10 +22,11 @@ pub(crate) use super::settings::read_provider;
 use super::settings::{
     apply_provider_probe, config_io_error, credential_error, device_configuration,
     device_state_error, discover_default_providers, discover_default_providers_once,
-    invalidate_provider_state_for_credential, mark_discovery_finished, mutate_chat_config,
-    operation_context, pick_local_path, portable_configuration, provider_instance_read,
-    provider_mut, provider_not_found, provider_runtime_changed, read_chat_config, read_settings,
-    remember_composer_selection, set_working_folder_provider_preference, unique_model_ids,
+    executable_search_directories, invalidate_provider_state_for_credential,
+    mark_discovery_finished, mutate_chat_config, operation_context, pick_local_path,
+    portable_configuration, provider_instance_read, provider_mut, provider_not_found,
+    provider_runtime_changed, read_chat_config, read_settings, remember_composer_selection,
+    replacement_provider_configurations, set_working_folder_provider_preference, unique_model_ids,
     validate_picker_title,
 };
 #[cfg(test)]
@@ -303,18 +304,84 @@ pub async fn chat_probe_provider(
     instance_id: ProviderInstanceId,
 ) -> ChatResult<ProviderProbeResult> {
     let read = read_provider(&app, &instance_id)?;
-    let configuration =
-        materialize_provider_environment(&read.configuration, &PlatformCredentialStore::default())?;
-    let mut driver = ProviderDriverRegistry.create_driver(configuration)?;
-    let probe = driver.probe(&operation_context("probe-provider")).await?;
-    let model_catalog = driver.cached_model_catalog();
+    let original_configuration = read.configuration;
+    let original =
+        probe_provider_configuration(original_configuration.clone(), "probe-provider").await?;
+    let selected = if original.probe.state == ProbeState::ExecutableMissing {
+        discover_replacement_provider_executable(&original_configuration)
+            .await?
+            .unwrap_or(original)
+    } else {
+        original
+    };
+    let probe = selected.probe;
+    let model_catalog = selected.model_catalog;
     update_active_device_scope(&app, |scope| {
         let device = scope.provider_instances.entry(instance_id).or_default();
+        let executable = selected.configuration.executable.trim();
+        device.executable_path = (!executable.is_empty()).then(|| executable.to_string());
         apply_provider_probe(device, &probe, model_catalog.clone());
         Ok(())
     })
     .map_err(device_state_error)?;
     Ok(probe)
+}
+
+struct ProviderProbeAttempt {
+    configuration: ProviderInstanceConfig,
+    probe: ProviderProbeResult,
+    model_catalog: Option<ProviderModelCatalog>,
+}
+
+async fn probe_provider_configuration(
+    configuration: ProviderInstanceConfig,
+    operation_id: &str,
+) -> ChatResult<ProviderProbeAttempt> {
+    let materialized =
+        materialize_provider_environment(&configuration, &PlatformCredentialStore::default())?;
+    let mut driver = ProviderDriverRegistry.create_driver(materialized)?;
+    let probe = driver.probe(&operation_context(operation_id)).await?;
+    Ok(ProviderProbeAttempt {
+        configuration,
+        probe,
+        model_catalog: driver.cached_model_catalog(),
+    })
+}
+
+async fn discover_replacement_provider_executable(
+    configuration: &ProviderInstanceConfig,
+) -> ChatResult<Option<ProviderProbeAttempt>> {
+    let Some(metadata) = ProviderDriverRegistry
+        .list_metadata()
+        .into_iter()
+        .find(|metadata| metadata.family_id == configuration.family_id)
+    else {
+        return Ok(None);
+    };
+    let replacements = replacement_provider_configurations(
+        &metadata,
+        configuration,
+        &executable_search_directories(),
+    );
+    let mut fallback = None;
+    for replacement in replacements {
+        let Ok(attempt) =
+            probe_provider_configuration(replacement, "rediscover-provider-executable").await
+        else {
+            continue;
+        };
+        if attempt.probe.state == ProbeState::ExecutableMissing {
+            continue;
+        }
+        if matches!(
+            attempt.probe.state,
+            ProbeState::Healthy | ProbeState::AuthenticationRequired
+        ) {
+            return Ok(Some(attempt));
+        }
+        fallback.get_or_insert(attempt);
+    }
+    Ok(fallback)
 }
 
 #[tauri::command]
@@ -631,6 +698,29 @@ mod tests {
                 second.to_string_lossy().into_owned()
             ]
         );
+
+        let mut configuration = default_provider_configuration(
+            &metadata,
+            ProviderInstanceId::new("provider-custom").unwrap(),
+            "/missing/provider".to_string(),
+        )
+        .unwrap();
+        configuration.provider_home = Some("/custom/provider-home".to_string());
+        configuration.launch_arguments = vec!["custom-argument".to_string()];
+        let replacements = replacement_provider_configurations(
+            &metadata,
+            &configuration,
+            std::slice::from_ref(&directory),
+        );
+        let expected = found
+            .into_iter()
+            .map(|executable| ProviderInstanceConfig {
+                executable,
+                ..configuration.clone()
+            })
+            .collect::<Vec<_>>();
+
+        assert_eq!(replacements, expected);
         std::fs::remove_dir_all(directory).unwrap();
     }
 }

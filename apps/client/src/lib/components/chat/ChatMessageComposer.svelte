@@ -4,6 +4,7 @@
   import AtSign from "@lucide/svelte/icons/at-sign";
   import Bold from "@lucide/svelte/icons/bold";
   import Clock3 from "@lucide/svelte/icons/clock-3";
+  import CircleAlert from "@lucide/svelte/icons/circle-alert";
   import File from "@lucide/svelte/icons/file";
   import Folder from "@lucide/svelte/icons/folder";
   import Image from "@lucide/svelte/icons/image";
@@ -11,8 +12,13 @@
   import MessageSquareShare from "@lucide/svelte/icons/message-square-share";
   import Plus from "@lucide/svelte/icons/plus";
   import Settings from "@lucide/svelte/icons/settings";
+  import Square from "@lucide/svelte/icons/square";
   import * as chatApi from "$lib/api/chat";
-  import type { ChatParticipantRead, ChatScheduledMessageRead } from "$lib/chat/contracts";
+  import type {
+    ChatParticipantRead,
+    ChatScheduledMessageRead,
+    ChatWorkAssignmentState,
+  } from "$lib/chat/contracts";
   import {
     composerTextareaLayout,
     revealTextareaComposerCaret,
@@ -31,6 +37,7 @@
     type ParticipantMentionClipboardSlice,
   } from "$lib/chat/participant-mentions";
   import { getLocalization } from "$lib/i18n/translator.svelte";
+  import { formatShortcut } from "$lib/keyboard-shortcuts";
   import { getChat, type ChatOrganizationalDraft } from "$lib/stores/chat.svelte";
   import { portal } from "$lib/utils/portal";
   import ChatParticipantAvatar from "./ChatParticipantAvatar.svelte";
@@ -38,6 +45,12 @@
   type ScheduleMenuComponent = typeof import("./ChatMessageScheduleMenu.svelte").default;
 
   const PARTICIPANT_MENTION_CLIPBOARD_TYPE = "application/x-ganbaru-participant-mentions";
+  const STOPPABLE_ASSIGNMENT_STATES = new Set<ChatWorkAssignmentState>([
+    "queued",
+    "working",
+    "waiting_for_answer",
+    "waiting_for_approval",
+  ]);
 
   let {
     destination,
@@ -77,6 +90,8 @@
   let resourcePath = $state("");
   let resourceKind = $state<"file" | "folder">("file");
   let sending = $state(false);
+  let stopping = $state(false);
+  let retryingAssignment = $state(false);
   let error = $state<string | null>(null);
   const teammateDetails = $derived(new Map(chat.teammates.map((teammate) => [
     teammate.participant.id,
@@ -93,6 +108,15 @@
   const validation = $derived(invokedAiCount > 1 ? t("chat.organization.oneAgentOnly") : null);
   const channelName = $derived(chat.selectedChannel?.name ?? "");
   const hasMessageContent = $derived(Boolean(text.trim() || attachmentIds.length || resourceReferences.length));
+  const activeAssignment = $derived.by(() => {
+    const assignment = threadComposer ? chat.replyThread?.assignment : null;
+    return assignment && STOPPABLE_ASSIGNMENT_STATES.has(assignment.state) ? assignment : null;
+  });
+  const failedAssignment = $derived.by(() => {
+    const assignment = threadComposer ? chat.replyThread?.assignment : null;
+    return assignment?.state === "failed" ? assignment : null;
+  });
+  const stopShortcut = formatShortcut("Mod + .");
   const nextScheduledMessage = $derived(scheduledMessages.find((message) => message.state !== "failed") ?? scheduledMessages[0] ?? null);
 
   $effect(() => {
@@ -167,6 +191,12 @@
     });
     observer.observe(textarea);
     return () => observer.disconnect();
+  });
+
+  onMount(() => {
+    const stop = () => { void stopAssignment(); };
+    window.addEventListener("ganbaru-ai:chat-stop-requested", stop);
+    return () => window.removeEventListener("ganbaru-ai:chat-stop-requested", stop);
   });
 
   $effect(() => {
@@ -501,6 +531,39 @@
     }
   }
 
+  async function stopAssignment(): Promise<void> {
+    const assignment = activeAssignment;
+    if (!assignment || stopping) return;
+    stopping = true;
+    error = null;
+    try {
+      await chat.cancelAssignment(assignment.id);
+    } catch (cause: unknown) {
+      error = cause instanceof Error ? cause.message : String(cause);
+    } finally {
+      stopping = false;
+    }
+  }
+
+  async function retryFailedAssignment(): Promise<void> {
+    const assignment = failedAssignment;
+    if (!assignment || retryingAssignment) return;
+    retryingAssignment = true;
+    error = null;
+    try {
+      await chat.retryAssignment(assignment.id);
+    } catch (cause: unknown) {
+      error = cause instanceof Error ? cause.message : String(cause);
+    } finally {
+      retryingAssignment = false;
+    }
+  }
+
+  function performPrimaryAction(): void {
+    if (activeAssignment) void stopAssignment();
+    else void post();
+  }
+
   function configureTeammate(participantId: string): void {
     mentionOpen = false;
     window.dispatchEvent(new CustomEvent("ganbaru-ai:chat-configure-teammate", { detail: { participantId } }));
@@ -508,6 +571,13 @@
 </script>
 
 <div class="composer-stack">
+  {#if failedAssignment}
+    <div class="assignment-error-summary" role="status">
+      <CircleAlert size={13} />
+      <span>{t("chat.organization.workStopped")}</span>
+      <button type="button" disabled={retryingAssignment} onclick={() => void retryFailedAssignment()}>{t("chat.organization.retry")}</button>
+    </div>
+  {/if}
   {#if nextScheduledMessage}
     <div class="scheduled-summary">
       <Clock3 size={13} />
@@ -654,7 +724,16 @@
         ><MessageSquareShare size={15} /></button>
       {/if}
     </div>
-    <button type="button" class="send-button" disabled={sending || Boolean(validation) || !hasMessageContent} onclick={() => void post()}><ArrowUp size={16} /><span class="sr-only">{scheduledFor ? t("chat.organization.scheduleMessage") : t("chat.composer.send")}</span></button>
+    <button
+      type="button"
+      class="send-button"
+      data-action={activeAssignment ? "stop" : "send"}
+      disabled={sending || Boolean(validation) || (!activeAssignment && !hasMessageContent)}
+      aria-label={activeAssignment ? t("chat.organization.stopWorkShortcut", stopShortcut) : scheduledFor ? t("chat.organization.scheduleMessage") : t("chat.composer.send")}
+      aria-busy={stopping || undefined}
+      title={activeAssignment ? t("chat.organization.stopWorkShortcut", stopShortcut) : undefined}
+      onclick={performPrimaryAction}
+    >{#if activeAssignment}<Square size={13} />{:else}<ArrowUp size={16} />{/if}</button>
   </div>
   {#if validation}<p class="composer-error" role="alert">{validation}</p>{/if}
   {#if error}<p class="composer-error" role="alert">{error}</p>{/if}
@@ -663,6 +742,11 @@
 
 <style>
   .composer-stack { width:min(100%,54rem); }
+  .assignment-error-summary { display:flex; min-height:2rem; align-items:center; gap:0.45rem; margin:0 0.35rem 0.35rem; border-radius:0.55rem; background:color-mix(in srgb,var(--destructive) 9%,transparent); padding:0.25rem 0.35rem 0.25rem 0.55rem; color:var(--destructive); }
+  .assignment-error-summary :global(svg) { flex:0 0 auto; }
+  .assignment-error-summary > span { min-width:0; flex:1; font-size:0.7rem; }
+  .assignment-error-summary > button { min-height:1.5rem; border-radius:0.4rem; padding:0.2rem 0.45rem; font-size:0.68rem; font-weight:500; }
+  .assignment-error-summary > button:hover:not(:disabled) { background:color-mix(in srgb,var(--destructive) 10%,transparent); }
   .organizational-composer { position:relative; width:100%; border:1px solid color-mix(in srgb,var(--border) 88%,transparent); border-radius:1.3rem; background:var(--card); box-shadow:0 8px 22px -18px rgb(0 0 0 / 0.24),0 1px 4px -3px rgb(0 0 0 / 0.16); }
   .scheduled-summary { display:flex; min-height:2rem; align-items:center; gap:0.45rem; margin:0 0.35rem 0.35rem; border-radius:0.55rem; background:color-mix(in srgb,var(--accent) 58%,transparent); padding:0.25rem 0.35rem 0.25rem 0.55rem; color:var(--muted-foreground); }
   .scheduled-summary :global(svg) { flex:0 0 auto; }

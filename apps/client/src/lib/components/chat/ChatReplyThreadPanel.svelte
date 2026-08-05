@@ -1,10 +1,7 @@
 <script lang="ts">
-  import CircleStop from "@lucide/svelte/icons/circle-stop";
   import MessagesSquare from "@lucide/svelte/icons/messages-square";
-  import RotateCcw from "@lucide/svelte/icons/rotate-ccw";
   import X from "@lucide/svelte/icons/x";
   import { tick } from "svelte";
-  import type { ChatWorkAssignmentState } from "$lib/chat/contracts";
   import {
     exactRunPresentationReady,
     latestRenderableAgentRun,
@@ -61,9 +58,6 @@
   const destination = $derived(chat.openReplyThreadId
     ? `reply-thread:${chat.openReplyThreadId}`
     : "reply-thread:none");
-  const canCancel = $derived(assignment && [
-    "queued", "working", "waiting_for_answer", "waiting_for_approval",
-  ].includes(assignment.state));
 
   function sameDay(left: string, right: string): boolean {
     return new Date(left).toDateString() === new Date(right).toDateString();
@@ -71,27 +65,6 @@
 
   function entryCreatedAt(entry: (typeof renderEntries)[number]): string {
     return entry.kind === "message" ? entry.message.createdAt : entry.run.createdAt;
-  }
-
-  function stateLabel(state: ChatWorkAssignmentState): string {
-    const labels: Record<ChatWorkAssignmentState, string> = {
-      queued: t("chat.organization.queued"),
-      working: t("chat.status.working"),
-      waiting_for_answer: t("chat.status.waitingAnswer"),
-      waiting_for_approval: t("chat.status.waitingApproval"),
-      ready_for_review: t("chat.status.readyForReview"),
-      completed: t("chat.organization.completed"),
-      failed: t("chat.organization.failed"),
-      cancelled: t("chat.organization.cancelled"),
-    };
-    return labels[state];
-  }
-
-  function run(action: () => Promise<unknown>): void {
-    actionError = null;
-    void action().catch((cause: unknown) => {
-      actionError = cause instanceof Error ? cause.message : String(cause);
-    });
   }
 
   function preventMiddleButtonScroll(event: MouseEvent): void {
@@ -167,15 +140,6 @@
     <span></span>
   </header>
 
-  {#if assignment && (assignment.state === "failed" || canCancel)}
-    <div class="work-banner" data-state={assignment.state}>
-      <span><strong>{assignment.teammate.displayName}</strong> · {stateLabel(assignment.state)}</span>
-      <div>
-        {#if assignment.state === "failed"}<button type="button" onclick={() => run(() => chat.retryAssignment(assignment.id))}><RotateCcw size={13} />{t("chat.organization.retry")}</button>{/if}
-        {#if canCancel}<button type="button" onclick={() => run(() => chat.cancelAssignment(assignment.id))}><CircleStop size={13} />{t("chat.organization.cancelWork")}</button>{/if}
-      </div>
-    </div>
-  {/if}
   {#if actionError}<p class="thread-error" role="alert">{actionError}</p>{/if}
 
   <div
@@ -234,8 +198,6 @@
   .thread-tab-shell:hover .tab-close, .tab-close:focus-visible { opacity:1; }
   .tab-close:hover { background:var(--accent); }
   .thread-header > span { flex:1; }
-  .work-banner { display:flex; flex:0 0 auto; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:0.4rem; border-bottom:1px solid var(--border); background:color-mix(in srgb,var(--accent) 62%,transparent); padding:0.45rem 0.7rem; font-size:0.7rem; }
-  .work-banner > div { display:flex; flex-wrap:wrap; gap:0.25rem; }.work-banner button { display:flex; align-items:center; gap:0.25rem; border-radius:0.35rem; padding:0.25rem 0.4rem; }.work-banner button:hover { background:var(--accent); }
   .thread-scroll { min-height:0; flex:1; overflow-y:auto; overscroll-behavior:contain; padding-block:0.4rem; }
   .date-divider { display:flex; align-items:center; gap:0.5rem; margin:0.75rem; color:var(--muted-foreground); font-size:0.65rem; }
   .date-divider::before,.date-divider::after { height:1px; flex:1; background:var(--border); content:""; }

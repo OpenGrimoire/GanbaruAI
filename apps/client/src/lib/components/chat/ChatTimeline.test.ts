@@ -2,7 +2,12 @@
 
 import { mount, tick, unmount } from "svelte";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { ChatTimelineItemRead, ChatTimelinePageRead, JsonValue } from "$lib/chat/contracts";
+import type {
+  ChatThreadShellRead,
+  ChatTimelineItemRead,
+  ChatTimelinePageRead,
+  JsonValue,
+} from "$lib/chat/contracts";
 import { getChat } from "$lib/stores/chat.svelte";
 import ChatTimeline from "./ChatTimeline.svelte";
 
@@ -170,14 +175,59 @@ describe("ChatTimeline", () => {
     expect(target.querySelector(".chat-process-toggle")?.getAttribute("aria-expanded")).toBe("true");
   });
 
-  function mountTimeline(): HTMLDivElement {
+  it("keeps provider-thread recovery banners out of embedded agent runs", async () => {
+    const chat = getChat();
+    const failedThread = thread("thread-error", { state: "error", latestTurnState: "failed" });
+    chat.activeThreads = [failedThread];
+    chat.selectedThreadId = failedThread.id;
+
+    const embedded = mountTimeline({ embedded: true });
+    await tick();
+    expect(embedded.querySelector(".chat-timeline-banner")).toBeNull();
+
+    const standalone = mountTimeline();
+    await tick();
+    expect(standalone.querySelector(".chat-timeline-banner")?.textContent).toContain(
+      "This chat stopped because of a provider error.",
+    );
+  });
+
+  function mountTimeline(props: { embedded?: boolean } = {}): HTMLDivElement {
     const target = document.createElement("div");
     document.body.append(target);
-    const component = mount(ChatTimeline, { target });
+    const component = mount(ChatTimeline, { target, props });
     mounted.push({ target, component });
     return target;
   }
 });
+
+function thread(
+  id: string,
+  overrides: Partial<ChatThreadShellRead> = {},
+): ChatThreadShellRead {
+  return {
+    id,
+    workingFolderId: "working-folder:test",
+    projectId: "project:test",
+    title: "Test thread",
+    providerFamilyId: "codex",
+    providerInstanceId: "codex",
+    providerThreadId: null,
+    modelId: null,
+    modelOptions: [],
+    modes: { safetyMode: "ask_for_approval", interactionMode: "build" },
+    state: "idle",
+    latestTurnState: null,
+    latestPreview: null,
+    messageCount: 1,
+    revision: 1,
+    lastEventSequence: 1,
+    lastActivityAt: timestamp,
+    unreadAt: null,
+    archivedAt: null,
+    ...overrides,
+  };
+}
 
 function message(
   activityId: string,

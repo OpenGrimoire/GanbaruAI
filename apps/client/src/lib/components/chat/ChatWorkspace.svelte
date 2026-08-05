@@ -430,6 +430,11 @@
       commandMenuOpen = false;
       return;
     }
+    if (hasOnlyShortcutModifier(event) && event.key === ".") {
+      event.preventDefault();
+      window.dispatchEvent(new Event("ganbaru-ai:chat-stop-requested"));
+      return;
+    }
     if (isEditingTarget(event.target)) return;
     if (hasOnlyShortcutModifier(event) && event.key.toLowerCase() === "n") {
       event.preventDefault();
@@ -470,10 +475,6 @@
       event.preventDefault();
       commandMenuOpen = !commandMenuOpen;
       return;
-    }
-    if (hasOnlyShortcutModifier(event) && event.key === ".") {
-      event.preventDefault();
-      window.dispatchEvent(new Event("ganbaru-ai:chat-stop-requested"));
     }
   }
 

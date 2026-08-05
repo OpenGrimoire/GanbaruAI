@@ -5,7 +5,7 @@ use super::persistence::{
     mark_turn_dispatch_failed, persist_user_turn, read_attachment_references,
     read_thread_runtime_data, replay_send_receipt, PersistUserTurnContext,
 };
-use super::session::{ensure_session, EnsureSessionContext};
+use super::session::{ensure_session_with_executable_recovery, EnsureSessionContext};
 use super::support::{
     chat_pool, device_state_error, now_timestamp, operation_context, versioned_value,
     PROVIDER_START_TIMEOUT, TURN_OPERATION_TIMEOUT,
@@ -209,7 +209,7 @@ pub(crate) async fn send_turn(
     .await;
 
     let operation = async {
-        let session = ensure_session(EnsureSessionContext {
+        let session = ensure_session_with_executable_recovery(EnsureSessionContext {
             app: &app,
             pool: &pool,
             owner: &owner,

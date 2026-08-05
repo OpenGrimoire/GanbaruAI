@@ -129,6 +129,21 @@ pub(crate) fn installed_provider_executables(
     executables
 }
 
+pub(crate) fn replacement_provider_configurations(
+    metadata: &ProviderFamilyMetadataRead,
+    configuration: &ProviderInstanceConfig,
+    search_directories: &[PathBuf],
+) -> Vec<ProviderInstanceConfig> {
+    installed_provider_executables(metadata, search_directories)
+        .into_iter()
+        .filter(|executable| executable != &configuration.executable)
+        .map(|executable| ProviderInstanceConfig {
+            executable,
+            ..configuration.clone()
+        })
+        .collect()
+}
+
 #[cfg(windows)]
 fn executable_candidate_names(name: &str) -> Vec<String> {
     if Path::new(name).extension().is_some() {

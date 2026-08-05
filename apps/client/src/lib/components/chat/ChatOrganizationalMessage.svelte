@@ -1,6 +1,6 @@
 <script lang="ts">
   import MessageCircle from "@lucide/svelte/icons/message-circle";
-  import type { ChatMessageRead, ChatWorkAssignmentState } from "$lib/chat/contracts";
+  import type { ChatMessageRead } from "$lib/chat/contracts";
   import { organizationalMessageActionTarget } from "$lib/chat/message-action-target";
   import { chatParticipantDisplayName } from "$lib/chat/participant-display";
   import { formatDateTime } from "$lib/i18n/formatters";
@@ -33,19 +33,6 @@
   ));
   const actionTarget = $derived(organizationalMessageActionTarget(message));
 
-  function stateLabel(state: ChatWorkAssignmentState): string {
-    const labels: Record<ChatWorkAssignmentState, string> = {
-      queued: t("chat.organization.queued"),
-      working: t("chat.status.working"),
-      waiting_for_answer: t("chat.status.waitingAnswer"),
-      waiting_for_approval: t("chat.status.waitingApproval"),
-      ready_for_review: t("chat.status.readyForReview"),
-      completed: t("chat.organization.completed"),
-      failed: t("chat.organization.failed"),
-      cancelled: t("chat.organization.cancelled"),
-    };
-    return labels[state];
-  }
 </script>
 
 <article
@@ -88,7 +75,6 @@
         </span>
         <MessageCircle size={13} />
         <span>{t("chat.organization.replies", message.replyThread.replyCount)}</span>
-        {#if message.replyThread.workState}<span class="work-state" data-state={message.replyThread.workState}>{stateLabel(message.replyThread.workState)}</span>{/if}
         {#if message.replyThread.unread}<span class="unread-dot" aria-label={t("chat.status.unread")}></span>{/if}
       </button>
     {/if}
@@ -114,9 +100,7 @@
   .message-context { display:flex; flex-wrap:wrap; gap:0.3rem; margin-top:0.3rem; }
   .message-context span { border-radius:999px; background:var(--accent); padding:0.15rem 0.4rem; color:var(--muted-foreground); font-size:0.65rem; }
   .reply-strip { display:flex; width:min(100%,46rem); min-height:2rem; align-items:center; gap:0.4rem; margin-top:0.35rem; border-radius:0.4rem; color:color-mix(in srgb,var(--primary) 70%,var(--foreground)); font-size:0.68rem; text-align:left; }
-  .reply-strip:hover,.reply-strip:focus-visible { background:var(--accent); }
+  .reply-strip:hover,.reply-strip:focus-visible { background:color-mix(in srgb,var(--accent) 45%,transparent); }
   .reply-avatars { display:flex; padding-left:0.2rem; }.reply-avatars :global(.participant-avatar + .participant-avatar) { margin-left:-0.35rem; }
-  .work-state { margin-left:auto; border-radius:999px; background:var(--accent); padding:0.12rem 0.38rem; color:var(--foreground); white-space:nowrap; }
-  .work-state[data-state^="waiting"],.work-state[data-state="ready_for_review"] { color:var(--destructive); }
   .unread-dot { width:0.42rem; height:0.42rem; flex:0 0 auto; border-radius:999px; background:var(--primary); }
 </style>
