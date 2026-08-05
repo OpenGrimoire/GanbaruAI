@@ -665,10 +665,10 @@
   .scheduled-summary-anchor { position:relative; flex:0 0 auto; }
   .scheduled-summary-anchor > button { min-height:1.5rem; border-radius:0.4rem; padding:0.2rem 0.45rem; color:var(--foreground); font-size:0.68rem; font-weight:500; }
   .scheduled-summary-anchor > button:hover,.scheduled-summary-anchor > button[aria-expanded="true"] { background:color-mix(in srgb,var(--background) 70%,transparent); }
-  .textarea-frame { padding:1rem 1.25rem 0.35rem; }
+  .textarea-frame { padding:1rem 1.25rem 0; }
   textarea { display:block; box-sizing:border-box; width:100%; min-height:2lh; max-height:6lh; resize:none; overflow-y:hidden; border:0; background:transparent; padding:0; color:var(--foreground); font:inherit; font-size:var(--chat-conversation-font-size,0.933333rem); line-height:var(--chat-conversation-line-height,1.4rem); outline:none; }
   textarea::placeholder { color:color-mix(in srgb,var(--muted-foreground) 52%,transparent); }
-  .composer-footer { display:flex; min-height:3rem; align-items:center; justify-content:space-between; gap:0.5rem; padding:0.3rem 0.75rem 0.65rem; }
+  .composer-footer { display:flex; min-height:2.6rem; align-items:center; justify-content:space-between; gap:0.5rem; padding:0 0.75rem 0.5rem; }
   .composer-tools { display:flex; align-items:center; gap:0.3rem; }
   .menu-anchor { position:relative; }
   .tool-button { display:grid; width:1.9rem; height:1.9rem; place-items:center; border-radius:0.5rem; color:var(--muted-foreground); }
