@@ -1,4 +1,4 @@
-import type { ChatMessageRead } from "./contracts";
+import type { ChatMessageRead, ChatReplyThreadSummaryRead } from "./contracts";
 
 export interface ChatMessageReactionParticipant {
   participantId: string;
@@ -23,6 +23,16 @@ export function unreadMessageStartIndex(
     if (remaining === 0) return index;
   }
   return 0;
+}
+
+/** Applies the latest reply-thread summary to its root message when it is loaded. */
+export function applyReplyThreadSummary(
+  messages: readonly ChatMessageRead[],
+  summary: ChatReplyThreadSummaryRead,
+): ChatMessageRead[] {
+  return messages.map((message) => message.replyThread?.id === summary.id
+    ? { ...message, replyThread: summary }
+    : message);
 }
 
 /** Returns whether a picker value is supported by message reactions. */

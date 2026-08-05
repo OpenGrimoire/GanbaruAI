@@ -381,12 +381,23 @@ pub(super) async fn read_reply_thread_summary(
         );
     }
     let reply_count = u64_value(row.try_get("reply_count").map_err(persistence_error)?)?;
-    let read_ordinal: i64 = sqlx::query_scalar(
-        "SELECT coalesce((
-            SELECT last_read_reply_ordinal FROM chat_reply_thread_read_cursors
-            WHERE reply_thread_id = ? AND participant_id = ?
-         ), 0)",
+    let unread: i64 = sqlx::query_scalar(
+        "SELECT EXISTS(
+            SELECT 1
+            FROM chat_conversation_items item
+            JOIN chat_communication_messages message ON message.item_id = item.id
+            WHERE item.reply_thread_id = ?
+              AND item.item_kind = 'message'
+              AND message.author_participant_id != ?
+              AND item.ordinal > coalesce((
+                  SELECT cursor.last_read_reply_ordinal
+                  FROM chat_reply_thread_read_cursors cursor
+                  WHERE cursor.reply_thread_id = ? AND cursor.participant_id = ?
+              ), 0)
+         )",
     )
+    .bind(reply_thread_id.as_str())
+    .bind(LOCAL_PARTICIPANT_ID)
     .bind(reply_thread_id.as_str())
     .bind(LOCAL_PARTICIPANT_ID)
     .fetch_one(pool)
@@ -397,7 +408,7 @@ pub(super) async fn read_reply_thread_summary(
         reply_count,
         last_activity_at: timestamp(row.try_get("last_activity_at").map_err(persistence_error)?)?,
         participants: participant_reads,
-        unread: reply_count > u64_value(read_ordinal)?,
+        unread: unread != 0,
         work_state: read_active_or_latest_assignment(pool, reply_thread_id)
             .await?
             .map(|assignment| assignment.state),
@@ -455,6 +466,14 @@ pub(super) async fn read_reply_thread_page(
     }
     let runs = read_agent_runs(pool, reply_thread_id).await?;
     let summary = read_reply_thread_summary(pool, reply_thread_id).await?;
+    let latest_ordinal: i64 = sqlx::query_scalar(
+        "SELECT coalesce(max(ordinal), 0)
+         FROM chat_conversation_items WHERE reply_thread_id = ?",
+    )
+    .bind(reply_thread_id.as_str())
+    .fetch_one(pool)
+    .await
+    .map_err(persistence_error)?;
     sqlx::query(
         "INSERT INTO chat_reply_thread_read_cursors
             (reply_thread_id, participant_id, last_read_reply_ordinal, updated_at)
@@ -468,7 +487,7 @@ pub(super) async fn read_reply_thread_page(
     )
     .bind(reply_thread_id.as_str())
     .bind(LOCAL_PARTICIPANT_ID)
-    .bind(i64_value(summary.reply_count)?)
+    .bind(latest_ordinal)
     .bind(now_timestamp()?.as_str())
     .execute(pool)
     .await

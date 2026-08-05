@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
-import type { ChatMessageRead, ChatParticipantKind } from "./contracts";
+import type {
+  ChatMessageRead,
+  ChatParticipantKind,
+  ChatReplyThreadSummaryRead,
+} from "./contracts";
 import {
+  applyReplyThreadSummary,
   isChatMessageReactionValue,
   toggleChatMessageReactionParticipant,
   unreadMessageStartIndex,
@@ -47,6 +52,25 @@ describe("organizational unread messages", () => {
 
   it("returns the loaded-page start when the unread count exceeds loaded incoming messages", () => {
     expect(unreadMessageStartIndex([message("local", "local_user")], 2)).toBe(0);
+  });
+
+  it("clears a root message unread dot from a freshly read thread summary", () => {
+    const root = message("root", "local_user");
+    const summary: ChatReplyThreadSummaryRead = {
+      id: "reply-thread:test",
+      replyCount: 1,
+      lastActivityAt: "2026-08-04T12:00:00.000Z",
+      participants: [],
+      unread: true,
+      workState: null,
+    };
+    root.replyThread = summary;
+    const readSummary = { ...summary, unread: false };
+
+    const updated = applyReplyThreadSummary([root, message("other", "human")], readSummary);
+
+    expect(updated[0]?.replyThread).toEqual(readSummary);
+    expect(updated[1]?.replyThread).toBeNull();
   });
 });
 

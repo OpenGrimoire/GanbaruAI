@@ -6,8 +6,10 @@ import type {
   ChatMessageRead,
   ChatReplyThreadId,
   ChatReplyThreadPageRead,
+  ChatReplyThreadSummaryRead,
 } from "$lib/chat/contracts";
 import { chatErrorMessage } from "$lib/chat/error-presentation";
+import { applyReplyThreadSummary } from "$lib/chat/organizational-message-model";
 
 const CACHE_MAX_ENTRIES = 6;
 const CACHE_MAX_BYTES = 8 * 1024 * 1024;
@@ -166,6 +168,7 @@ export class ChatCommunicationController {
     try {
       const page = await chatApi.readChatReplyThreadPage(replyThreadId);
       if (!this.isCurrentReplyThreadRequest(request, replyThreadId)) return;
+      this.updateLoadedReplyThreadSummary(page.thread);
       this.replyThreadPages = [page];
       this.replyThread = page;
       this.replyThreadCache.set(replyThreadId, [page]);
@@ -187,6 +190,7 @@ export class ChatCommunicationController {
     try {
       const page = await chatApi.readChatReplyThreadPage(replyThreadId, currentPage.previousCursor);
       if (!this.isCurrentReplyThreadRequest(request, replyThreadId)) return;
+      this.updateLoadedReplyThreadSummary(page.thread);
       this.replyThreadPages = [page, ...this.replyThreadPages].slice(0, MAX_PAGES_PER_CONVERSATION);
       this.replyThread = mergeReplyThreadPages(this.replyThreadPages);
       this.replyThreadCache.set(replyThreadId, this.replyThreadPages);
@@ -202,6 +206,7 @@ export class ChatCommunicationController {
     try {
       const page = await chatApi.readChatReplyThreadPage(replyThreadId, cursor);
       if (!this.isCurrentReplyThreadRequest(request, replyThreadId)) return;
+      this.updateLoadedReplyThreadSummary(page.thread);
       this.replyThreadPages = [page];
       this.replyThread = page;
     } catch (error: unknown) {
@@ -215,6 +220,20 @@ export class ChatCommunicationController {
 
   private isCurrentChannelRequest(request: number, channelId: ChatChannelId): boolean {
     return request === this.channelRequest && this.options.selectedChannelId() === channelId;
+  }
+
+  private updateLoadedReplyThreadSummary(summary: ChatReplyThreadSummaryRead): void {
+    const updatedPages = this.channelPages.map((page) => ({
+      ...page,
+      messages: applyReplyThreadSummary(page.messages, summary),
+    }));
+    if (!updatedPages.some((page, index) => page.messages.some(
+      (message, messageIndex) => message !== this.channelPages[index]?.messages[messageIndex],
+    ))) return;
+    this.channelPages = updatedPages;
+    this.channelMessages = mergeMessages(updatedPages.flatMap((page) => page.messages));
+    const channelId = this.options.selectedChannelId();
+    if (channelId) this.channelCache.set(channelId, updatedPages);
   }
 
   private isCurrentReplyThreadRequest(request: number, replyThreadId: ChatReplyThreadId): boolean {

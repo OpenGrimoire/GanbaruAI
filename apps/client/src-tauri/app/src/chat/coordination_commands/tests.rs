@@ -586,6 +586,176 @@ fn channel_unread_count_excludes_local_messages() {
 }
 
 #[test]
+fn reply_thread_unread_excludes_local_messages_and_tracks_item_ordinals() {
+    tauri::async_runtime::block_on(async {
+        let pool = migrated_pool().await;
+        sqlx::raw_sql(
+            "INSERT INTO project_groups (id, name)
+             VALUES ('group:thread-unread', 'Thread unread');
+             INSERT INTO projects (id, group_id, name)
+             VALUES ('project:thread-unread', 'group:thread-unread', 'Thread unread');
+             INSERT INTO chat_conversations
+                 (id, project_id, conversation_kind, last_activity_at,
+                  created_at, updated_at)
+             VALUES (
+                 'conversation:thread-unread', 'project:thread-unread', 'channel',
+                 '2026-08-04T19:03:00.000Z', '2026-08-04T19:00:00.000Z',
+                 '2026-08-04T19:03:00.000Z'
+             );
+             INSERT INTO chat_participants
+                 (id, participant_kind, display_name, normalized_handle,
+                  created_at, updated_at)
+             VALUES (
+                 'participant:thread-collaborator', 'human', 'Collaborator',
+                 'thread-collaborator', '2026-08-04T19:00:00.000Z',
+                 '2026-08-04T19:00:00.000Z'
+             );
+             INSERT INTO chat_conversation_items
+                 (id, conversation_id, item_kind, ordinal, created_at)
+             VALUES (
+                 'item:thread-root', 'conversation:thread-unread', 'message', 1,
+                 '2026-08-04T19:00:00.000Z'
+             );
+             INSERT INTO chat_communication_messages
+                 (item_id, author_participant_id, created_at)
+             VALUES (
+                 'item:thread-root', 'participant:local-owner',
+                 '2026-08-04T19:00:00.000Z'
+             );
+             INSERT INTO chat_communication_message_revisions
+                 (id, message_item_id, revision, normalized_markdown, created_at)
+             VALUES (
+                 'revision:thread-root', 'item:thread-root', 1, 'Root',
+                 '2026-08-04T19:00:00.000Z'
+             );
+             UPDATE chat_communication_messages
+             SET current_revision_id = 'revision:thread-root'
+             WHERE item_id = 'item:thread-root';
+             INSERT INTO chat_reply_threads
+                 (id, conversation_id, root_item_id, reply_count, last_activity_at,
+                  created_at, updated_at)
+             VALUES (
+                 'reply-thread:unread', 'conversation:thread-unread',
+                 'item:thread-root', 1, '2026-08-04T19:02:00.000Z',
+                 '2026-08-04T19:00:00.000Z', '2026-08-04T19:02:00.000Z'
+             );
+             INSERT INTO chat_conversation_items
+                 (id, conversation_id, reply_thread_id, item_kind, ordinal, created_at)
+             VALUES
+                 ('item:thread-work', 'conversation:thread-unread',
+                  'reply-thread:unread', 'work_update', 1,
+                  '2026-08-04T19:01:00.000Z'),
+                 ('item:thread-local', 'conversation:thread-unread',
+                  'reply-thread:unread', 'message', 2,
+                  '2026-08-04T19:02:00.000Z');
+             INSERT INTO chat_communication_messages
+                 (item_id, author_participant_id, created_at)
+             VALUES (
+                 'item:thread-local', 'participant:local-owner',
+                 '2026-08-04T19:02:00.000Z'
+             );
+             INSERT INTO chat_communication_message_revisions
+                 (id, message_item_id, revision, normalized_markdown, created_at)
+             VALUES (
+                 'revision:thread-local', 'item:thread-local', 1, 'Local reply',
+                 '2026-08-04T19:02:00.000Z'
+             );
+             UPDATE chat_communication_messages
+             SET current_revision_id = 'revision:thread-local'
+             WHERE item_id = 'item:thread-local';",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        let thread_id = ChatReplyThreadId::new("reply-thread:unread").unwrap();
+
+        let local_only = super::reads::read_reply_thread_summary(&pool, &thread_id)
+            .await
+            .unwrap();
+        assert!(!local_only.unread);
+
+        sqlx::raw_sql(
+            "INSERT INTO chat_conversation_items
+                 (id, conversation_id, reply_thread_id, item_kind, ordinal, created_at)
+             VALUES (
+                 'item:thread-incoming', 'conversation:thread-unread',
+                 'reply-thread:unread', 'message', 3,
+                 '2026-08-04T19:03:00.000Z'
+             );
+             INSERT INTO chat_communication_messages
+                 (item_id, author_participant_id, created_at)
+             VALUES (
+                 'item:thread-incoming', 'participant:thread-collaborator',
+                 '2026-08-04T19:03:00.000Z'
+             );
+             INSERT INTO chat_communication_message_revisions
+                 (id, message_item_id, revision, normalized_markdown, created_at)
+             VALUES (
+                 'revision:thread-incoming', 'item:thread-incoming', 1,
+                 'Incoming reply', '2026-08-04T19:03:00.000Z'
+             );
+             UPDATE chat_communication_messages
+             SET current_revision_id = 'revision:thread-incoming'
+             WHERE item_id = 'item:thread-incoming';
+             UPDATE chat_reply_threads
+             SET reply_count = 2, last_activity_at = '2026-08-04T19:03:00.000Z',
+                 updated_at = '2026-08-04T19:03:00.000Z'
+             WHERE id = 'reply-thread:unread';",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        let incoming = super::reads::read_reply_thread_summary(&pool, &thread_id)
+            .await
+            .unwrap();
+        assert!(incoming.unread);
+
+        super::reads::read_reply_thread_page(&pool, &thread_id, None, 50)
+            .await
+            .unwrap();
+        let read_ordinal: i64 = sqlx::query_scalar(
+            "SELECT last_read_reply_ordinal FROM chat_reply_thread_read_cursors
+             WHERE reply_thread_id = ? AND participant_id = 'participant:local-owner'",
+        )
+        .bind(thread_id.as_str())
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(read_ordinal, 3);
+        let read = super::reads::read_reply_thread_summary(&pool, &thread_id)
+            .await
+            .unwrap();
+        assert!(!read.unread);
+
+        sqlx::raw_sql(
+            "INSERT INTO chat_conversation_items
+                 (id, conversation_id, reply_thread_id, item_kind, ordinal, created_at)
+             VALUES (
+                 'item:thread-local-after-read', 'conversation:thread-unread',
+                 'reply-thread:unread', 'message', 4,
+                 '2026-08-04T19:04:00.000Z'
+             );
+             INSERT INTO chat_communication_messages
+                 (item_id, author_participant_id, created_at)
+             VALUES (
+                 'item:thread-local-after-read', 'participant:local-owner',
+                 '2026-08-04T19:04:00.000Z'
+             );
+             UPDATE chat_reply_threads SET reply_count = 3
+             WHERE id = 'reply-thread:unread';",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        let local_after_read = super::reads::read_reply_thread_summary(&pool, &thread_id)
+            .await
+            .unwrap();
+        assert!(!local_after_read.unread);
+    });
+}
+
+#[test]
 fn two_structured_ai_mentions_are_rejected_before_dispatch() {
     tauri::async_runtime::block_on(async {
         let pool = migrated_pool().await;
