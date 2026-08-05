@@ -142,8 +142,13 @@
     if (!textarea) return;
     const lineHeight = Number.parseFloat(getComputedStyle(textarea).lineHeight);
     if (!Number.isFinite(lineHeight) || lineHeight <= 0) return;
+    // Remove the two-line floor while measuring actual content. Some WebViews
+    // include the constrained height in scrollHeight at fractional scales.
+    textarea.style.minHeight = "0px";
     textarea.style.height = "0px";
-    const layout = composerTextareaLayout(textarea.scrollHeight, lineHeight);
+    const contentHeight = textarea.scrollHeight;
+    textarea.style.removeProperty("min-height");
+    const layout = composerTextareaLayout(contentHeight, lineHeight);
     textarea.style.height = `${layout.height}px`;
     textarea.style.overflowY = layout.overflowing ? "auto" : "hidden";
   }
