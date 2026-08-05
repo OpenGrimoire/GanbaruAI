@@ -6,6 +6,7 @@
   import * as chatApi from "$lib/api/chat";
   import type { ChatPendingRequestRead, UserInputAnswer } from "$lib/chat/contracts";
   import { parseApprovalChoices, parseUserInputQuestions, validateUserInputAnswers } from "$lib/chat/composer-model";
+  import { chatErrorMessage } from "$lib/chat/error-presentation";
   import { formatList, formatNumber } from "$lib/i18n/formatters";
   import { getLocalization } from "$lib/i18n/translator.svelte";
   import { getChat } from "$lib/stores/chat.svelte";
@@ -60,7 +61,7 @@
     try {
       await chat.resolveApproval({ kind: choice.decisionKind, providerOptionId: choice.id, updatedToolInput: null });
     } catch (cause: unknown) {
-      error = cause instanceof Error ? cause.message : String(cause);
+      error = chatErrorMessage(cause);
       resolving = false;
     }
   }
@@ -97,7 +98,7 @@
       }
       answerDraftReady = true;
     } catch (cause: unknown) {
-      if (request === answerDraftRequest) error = cause instanceof Error ? cause.message : String(cause);
+      if (request === answerDraftRequest) error = chatErrorMessage(cause);
     }
   }
 
@@ -129,7 +130,7 @@
         })),
       });
     } catch (cause: unknown) {
-      error = cause instanceof Error ? cause.message : String(cause);
+      error = chatErrorMessage(cause);
     }
   }
 
@@ -171,7 +172,7 @@
     try {
       await chat.resolveUserInput(response);
     } catch (cause: unknown) {
-      error = cause instanceof Error ? cause.message : String(cause);
+      error = chatErrorMessage(cause);
       resolving = false;
     }
   }

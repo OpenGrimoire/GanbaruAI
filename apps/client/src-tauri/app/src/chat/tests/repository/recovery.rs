@@ -23,6 +23,26 @@ fn startup_recovery_interrupts_only_turns_without_proven_resumability() {
         )
         .await
         .unwrap();
+        append_canonical_event(
+            &pool,
+            canonical_request(
+                "event-orphan-request",
+                Some("turn-orphan"),
+                CanonicalEvent::RequestOpened(RequestOpenedEvent {
+                    request_id: ProviderRequestId::new("request-orphan").unwrap(),
+                    kind: CanonicalRequestKind::CommandExecution,
+                    title: "Approve command".to_string(),
+                    detail: None,
+                    allowed_decisions: Vec::new(),
+                    safe_payload: VersionedJson {
+                        schema_version: 1,
+                        value: serde_json::json!({}),
+                    },
+                }),
+            ),
+        )
+        .await
+        .unwrap();
         let mut resumable = HashSet::new();
         resumable.insert(ChatThreadId::new("thread-1").unwrap());
         assert_eq!(
@@ -31,6 +51,13 @@ fn startup_recovery_interrupts_only_turns_without_proven_resumability() {
                 .unwrap(),
             0
         );
+        let request_state: String = sqlx::query_scalar(
+            "SELECT resolution_state FROM chat_pending_requests WHERE id = 'request-orphan'",
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(request_state, "open");
         assert_eq!(
             recover_orphaned_turns(&pool, &HashSet::new(), &UtcTimestamp::new(NOW).unwrap())
                 .await
@@ -49,5 +76,34 @@ fn startup_recovery_interrupts_only_turns_without_proven_resumability() {
                 .await
                 .unwrap();
         assert_eq!(event_type, "turn_aborted");
+        let request_state: String = sqlx::query_scalar(
+            "SELECT resolution_state FROM chat_pending_requests WHERE id = 'request-orphan'",
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(request_state, "interrupted");
+
+        sqlx::query(
+            "UPDATE chat_pending_requests
+             SET resolution_state = 'open', resolved_at = NULL
+             WHERE id = 'request-orphan'",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        assert_eq!(
+            recover_orphaned_turns(&pool, &HashSet::new(), &UtcTimestamp::new(NOW).unwrap())
+                .await
+                .unwrap(),
+            0
+        );
+        let legacy_request_state: String = sqlx::query_scalar(
+            "SELECT resolution_state FROM chat_pending_requests WHERE id = 'request-orphan'",
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(legacy_request_state, "interrupted");
     });
 }

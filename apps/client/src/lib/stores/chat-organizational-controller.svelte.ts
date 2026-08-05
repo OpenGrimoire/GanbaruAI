@@ -168,7 +168,7 @@ export class ChatOrganizationalController {
     if (selectedChannelId && result.dispatchedChannelIds.includes(selectedChannelId)) {
       await this.options.loadChannelMessages(selectedChannelId, true);
       const replyThreadId = this.options.openReplyThreadId();
-      if (replyThreadId) await this.options.loadReplyThread(replyThreadId);
+      if (replyThreadId) await this.options.loadReplyThread(replyThreadId, true);
     }
     return result;
   }

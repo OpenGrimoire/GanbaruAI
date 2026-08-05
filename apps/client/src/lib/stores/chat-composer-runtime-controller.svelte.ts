@@ -403,7 +403,7 @@ export class ChatComposerRuntimeController {
     const thread = this.options.selectedThread();
     if (!pending || !thread) return;
     await chatApi.resolveChatApproval({
-      command: { clientCommandId: crypto.randomUUID(), expectedThreadRevision: thread.revision },
+      command: { clientCommandId: crypto.randomUUID(), expectedThreadRevision: null },
       threadId: thread.id,
       requestId: pending.id,
       providerRequestId: pending.providerRequestId,
@@ -417,7 +417,7 @@ export class ChatComposerRuntimeController {
     const thread = this.options.selectedThread();
     if (!pending || !thread) return;
     await chatApi.resolveChatUserInput({
-      command: { clientCommandId: crypto.randomUUID(), expectedThreadRevision: thread.revision },
+      command: { clientCommandId: crypto.randomUUID(), expectedThreadRevision: null },
       threadId: thread.id,
       requestId: pending.id,
       providerRequestId: pending.providerRequestId,

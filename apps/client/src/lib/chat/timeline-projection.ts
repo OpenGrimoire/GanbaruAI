@@ -95,6 +95,14 @@ export function includeOptimisticTimelineMessage(
   return [...rows, optimisticMessage].sort(compareRows);
 }
 
+/** Limits an embedded execution timeline to the exact provider-neutral run turn. */
+export function timelineRowsForTurn(
+  rows: readonly TimelineRow[],
+  turnId: ChatTurnId | null,
+): TimelineRow[] {
+  return turnId === null ? [...rows] : rows.filter((row) => row.turnId === turnId);
+}
+
 /** Finds the first model-owned display row in each turn for participant headers. */
 export function timelineModelGroupStartIds(
   rows: readonly TimelineDisplayRow[],

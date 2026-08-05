@@ -32,12 +32,67 @@ pub(super) async fn dispatch_assignment_job(
     if claimed.rows_affected() != 1 {
         return Ok(());
     }
-    let result =
-        dispatch_claimed_assignment(app, db_url, &pool, &assignment_id, &claim_token).await;
-    if let Err(error) = &result {
-        fail_assignment_dispatch(&pool, &assignment_id, &claim_token, error).await?;
+    let result = dispatch_claimed_assignment(
+        app.clone(),
+        db_url.clone(),
+        &pool,
+        &assignment_id,
+        &claim_token,
+    )
+    .await;
+    if let Err(error) = result {
+        fail_assignment_dispatch(&pool, &assignment_id, &claim_token, &error).await?;
+        return Err(error);
     }
-    result.map(|_| ())
+    mark_initial_assignment_input_delivered(&pool, &assignment_id).await?;
+    deliver_pending_assignment_inputs(app, db_url, &pool, &assignment_id).await
+}
+
+async fn mark_initial_assignment_input_delivered(
+    pool: &SqlitePool,
+    assignment_id: &ChatWorkAssignmentId,
+) -> ChatResult<()> {
+    let now = now_timestamp()?;
+    sqlx::query(
+        "UPDATE chat_work_assignment_inputs
+         SET delivery_state = 'delivered', delivered_at = ?
+         WHERE assignment_id = ? AND routing_kind IN ('trigger', 'follow_up')
+           AND delivery_state = 'pending'",
+    )
+    .bind(now.as_str())
+    .bind(assignment_id.as_str())
+    .execute(pool)
+    .await
+    .map_err(persistence_error)?;
+    Ok(())
+}
+
+pub(super) async fn deliver_pending_assignment_inputs(
+    app: tauri::AppHandle,
+    db_url: String,
+    pool: &SqlitePool,
+    assignment_id: &ChatWorkAssignmentId,
+) -> ChatResult<()> {
+    let message_ids = sqlx::query_scalar::<_, String>(
+        "SELECT message_item_id FROM chat_work_assignment_inputs
+         WHERE assignment_id = ? AND routing_kind IN ('steer', 'queued_continuation')
+           AND delivery_state = 'pending'
+         ORDER BY ordinal",
+    )
+    .bind(assignment_id.as_str())
+    .fetch_all(pool)
+    .await
+    .map_err(persistence_error)?;
+    for message_id in message_ids {
+        deliver_assignment_input(
+            app.clone(),
+            db_url.clone(),
+            assignment_id.clone(),
+            ChatConversationItemId::new(message_id).map_err(identifier_error)?,
+        )
+        .await?;
+    }
+    Ok(())
 }
 
 async fn dispatch_claimed_assignment(

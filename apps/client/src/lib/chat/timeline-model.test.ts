@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { CanonicalEvent, CanonicalStoredEvent, ChatTimelineItemRead, ChatTimelineTurnRead } from "./contracts";
-import { buildTimelineDisplayRows, includeOptimisticTimelineMessage, parseTimelineUserContext, projectCanonicalTimeline, projectTimelineReadModel, timelineActivityShowsLiveStatus, timelineActivitySupportsDisclosure, timelineModelGroupStartIds } from "./timeline-model";
+import { buildTimelineDisplayRows, includeOptimisticTimelineMessage, parseTimelineUserContext, projectCanonicalTimeline, projectTimelineReadModel, timelineActivityShowsLiveStatus, timelineActivitySupportsDisclosure, timelineModelGroupStartIds, timelineRowsForTurn } from "./timeline-model";
 
 const start = "2026-07-21T14:00:00.000Z";
 
@@ -320,6 +320,17 @@ describe("canonical timeline projection", () => {
       "message-pending",
     ]);
     expect(includeOptimisticTimelineMessage([...existing, optimistic], optimistic).filter((row) => row.id === optimistic.id)).toHaveLength(1);
+  });
+
+  it("limits embedded execution history to one exact turn", () => {
+    const projection = projectCanonicalTimeline([
+      stored(1, { type: "item_completed", payload: { itemId: "old", kind: "command_execution", status: "completed", title: "Old command", detail: null, safeMetadata: null } }, { turnId: "turn-old" }),
+      stored(2, { type: "item_completed", payload: { itemId: "current", kind: "command_execution", status: "completed", title: "Current command", detail: null, safeMetadata: null } }, { turnId: "turn-current" }),
+    ]);
+
+    expect(timelineRowsForTurn(projection.rows, "turn-current").map((row) => row.id))
+      .toEqual(["activity:current"]);
+    expect(timelineRowsForTurn(projection.rows, null)).toEqual(projection.rows);
   });
 
   it("groups consecutive settled activities with stable row IDs", () => {

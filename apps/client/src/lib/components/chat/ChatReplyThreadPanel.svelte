@@ -6,8 +6,10 @@
   import { tick } from "svelte";
   import type { ChatWorkAssignmentState } from "$lib/chat/contracts";
   import {
+    exactRunPresentationReady,
     latestRenderableAgentRun,
-    repliesWithoutRenderedRunProjection,
+    replyThreadRenderEntries,
+    shouldGroupReplyMessages,
   } from "$lib/chat/reply-thread-model";
   import { getLocalization } from "$lib/i18n/translator.svelte";
   import { getChat } from "$lib/stores/chat.svelte";
@@ -30,15 +32,29 @@
   const { t } = getLocalization();
   let scroller = $state<HTMLDivElement | null>(null);
   let actionError = $state<string | null>(null);
-  let executionLoading = $state(false);
   let executionSelectionRequest = 0;
   let executionThreadScope = $state<string | null>(null);
   const page = $derived(chat.replyThread);
   const assignment = $derived(page?.assignment ?? null);
   const executionRun = $derived(latestRenderableAgentRun(page?.agentRuns ?? []));
-  const visibleReplies = $derived(repliesWithoutRenderedRunProjection(
+  const loadedExecutionTurnIds = $derived(new Set([
+    ...chat.timelineItems.flatMap((item) => item.turnId ? [item.turnId] : []),
+    ...chat.timelinePages.flatMap((timelinePage) => timelinePage.turns.map((turn) => turn.turnId)),
+  ]));
+  const loadedExecutionRuns = $derived((page?.agentRuns ?? []).filter((run) => (
+    run.providerExecutionThreadId === chat.selectedThreadId
+    && loadedExecutionTurnIds.has(run.providerExecutionTurnId)
+  )));
+  const executionPresentationReady = $derived(exactRunPresentationReady(
+    executionRun,
+    chat.selectedExecutionRunId,
+    chat.selectedThreadId,
+    loadedExecutionTurnIds,
+  ));
+  const renderEntries = $derived(replyThreadRenderEntries(
     page?.replies ?? [],
-    executionRun?.id ?? null,
+    loadedExecutionRuns,
+    chat.selectedExecutionRunId ? chat.selectedThreadId : null,
   ));
   const destination = $derived(chat.openReplyThreadId
     ? `reply-thread:${chat.openReplyThreadId}`
@@ -84,7 +100,6 @@
     if (executionThreadScope === replyThreadId) return;
     executionThreadScope = replyThreadId;
     executionSelectionRequest += 1;
-    executionLoading = false;
     actionError = null;
   });
 
@@ -92,30 +107,28 @@
     const agentRun = executionRun;
     if (!agentRun || chat.selectedExecutionRunId === agentRun.id) return;
     const request = ++executionSelectionRequest;
-    executionLoading = true;
     actionError = null;
     void chat.selectAssignmentExecution(agentRun.id)
       .catch((cause: unknown) => {
         if (request === executionSelectionRequest) {
           actionError = cause instanceof Error ? cause.message : String(cause);
         }
-      })
-      .finally(() => {
-        if (request === executionSelectionRequest) executionLoading = false;
       });
   });
 
   $effect(() => {
     const element = scroller;
     const key = destination;
-    if (!element) return;
+    const presentationReady = executionPresentationReady;
+    if (!element || !presentationReady) return;
     void tick().then(() => { element.scrollTop = chat.organizationalScrollPositions[key] ?? 0; });
   });
 
   $effect(() => {
     const element = scroller;
     const anchorId = chat.messageAnchorId;
-    if (!element || !anchorId || !chat.openReplyThreadId) return;
+    const presentationReady = executionPresentationReady;
+    if (!element || !anchorId || !chat.openReplyThreadId || !presentationReady) return;
     void tick().then(() => {
       const target = element.querySelector<HTMLElement>(`[data-message-item-id="${CSS.escape(anchorId)}"]`);
       if (!target) return;
@@ -158,27 +171,33 @@
   <div
     bind:this={scroller}
     class="thread-scroll"
+    aria-busy={!executionPresentationReady || chat.replyThreadLoading || undefined}
     onscroll={() => { if (scroller) chat.setOrganizationalScrollPosition(destination, scroller.scrollTop); }}
   >
     {#if chat.replyThreadError}<p class="thread-error" role="alert">{chat.replyThreadError}</p>{/if}
-    {#if page}
+    {#if page && executionPresentationReady}
       {#if page.previousCursor}<button type="button" class="load-older" onclick={() => void chat.loadOlderReplyThreadMessages()}>{t("chat.organization.loadOlder")}</button>{/if}
       <div class="root-message"><ChatOrganizationalMessage message={page.rootMessage} showReplyStrip={false} /></div>
       <div class="reply-divider"><span>{t("chat.organization.replies", page.thread.replyCount)}</span></div>
-      {#each visibleReplies as reply, index (reply.itemId)}
-        <ChatOrganizationalMessage message={reply} showReplyStrip={false} grouped={index > 0 && visibleReplies[index - 1].author.id === reply.author.id} />
+      {#each renderEntries as entry, index (entry.key)}
+        {#if entry.kind === "message"}
+          {@const previous = renderEntries[index - 1]}
+          <ChatOrganizationalMessage
+            message={entry.message}
+            showReplyStrip={false}
+            grouped={previous?.kind === "message" && shouldGroupReplyMessages(previous.message, entry.message)}
+          />
+        {:else if chat.selectedExecutionRunId && entry.run.providerExecutionThreadId === chat.selectedThreadId}
+          <ChatExecutionTimeline
+            embedded
+            hideUserMessages
+            teammateName={assignment?.teammate.displayName ?? null}
+            effort={entry.run.effort}
+            turnId={entry.run.providerExecutionTurnId}
+          />
+        {/if}
       {/each}
-      {#if executionLoading && chat.selectedExecutionRunId !== executionRun?.id}
-        <p class="thread-loading" role="status">{t("common.loading")}</p>
-      {:else if executionRun && chat.selectedExecutionRunId === executionRun.id}
-        <ChatExecutionTimeline
-          embedded
-          hideUserMessages
-          teammateName={assignment?.teammate.displayName ?? null}
-          effort={executionRun.effort}
-        />
-      {/if}
-    {:else if chat.replyThreadLoading}
+    {:else if chat.replyThreadLoading || page}
       <p class="thread-loading" role="status">{t("common.loading")}</p>
     {/if}
   </div>
@@ -195,6 +214,8 @@
   .thread-header.reserve-global-actions { padding-right:var(--chat-global-actions-width); }
   .thread-tab-shell { display:flex; width:9.5rem; min-width:3.75rem; height:2rem; flex:0 1 9.5rem; align-items:stretch; overflow:hidden; border-radius:0.55rem; background:var(--accent); color:var(--foreground); user-select:none; }
   .thread-tab { display:flex; min-width:0; flex:1 1 auto; align-items:center; gap:0.4rem; overflow:hidden; padding:0.3rem 0.2rem 0.3rem 0.65rem; text-align:left; user-select:none; }
+  :global(html[data-focus-intent="keyboard"]) .thread-tab:focus { outline:none; }
+  :global(html[data-focus-intent="keyboard"]) .thread-tab-shell:has(.thread-tab:focus) { box-shadow:inset 0 0 0 2px var(--ring); }
   .thread-tab :global(svg) { flex:0 0 auto; }.thread-tab strong { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:0.733333rem; font-weight:500; user-select:none; }
   .tab-close { display:grid; width:1.5rem; flex:0 0 auto; place-items:center; border-radius:0.3rem; opacity:0; }
   .thread-tab-shell:hover .tab-close, .tab-close:focus-visible { opacity:1; }

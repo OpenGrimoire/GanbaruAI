@@ -1,14 +1,16 @@
 use crate::chat::events::{
     CanonicalEvent, CanonicalRuntimeEvent, ChangedFileSummary, ContentDeltaEvent, DiffUpdatedEvent,
-    ItemLifecycleEvent, RequestOpenedEvent, ThreadRevertedEvent, TurnCompletedEvent,
-    TurnStartedEvent,
+    ItemLifecycleEvent, RequestOpenedEvent, SessionExitedEvent, ThreadRevertedEvent,
+    TurnAbortedEvent, TurnCompletedEvent, TurnStartedEvent, UserInputQuestion,
+    UserInputRequestedEvent,
 };
 use crate::chat::ingestion::{ChatChangeEmitter, ChatEventIngestor};
 use crate::chat::models::{
     ActivityStatus, CanonicalItemKind, CanonicalRequestKind, ChatAttachmentId, ChatCheckpointId,
     ChatCommandId, ChatEventId, ChatThreadId, ChatTurnId, ChatTurnState, ContentStreamKind,
     InteractionMode, ProjectWorkingFolderId, ProviderFamilyId, ProviderInstanceId,
-    ProviderRequestId, SafetyMode, TurnModeSnapshot, UtcTimestamp, VersionedJson,
+    ProviderRequestId, ProviderSessionId, SafetyMode, TurnModeSnapshot, UtcTimestamp,
+    VersionedJson,
 };
 use crate::chat::models::{ChatChangeNotification, ChatError, ChatResult};
 use crate::chat::repository::attachments::{

@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { tick, untrack } from "svelte";
+  import { onMount, tick, untrack } from "svelte";
   import ArrowUp from "@lucide/svelte/icons/arrow-up";
   import AtSign from "@lucide/svelte/icons/at-sign";
   import Bold from "@lucide/svelte/icons/bold";
@@ -33,6 +33,7 @@
   import { getLocalization } from "$lib/i18n/translator.svelte";
   import { getChat, type ChatOrganizationalDraft } from "$lib/stores/chat.svelte";
   import { portal } from "$lib/utils/portal";
+  import ChatParticipantAvatar from "./ChatParticipantAvatar.svelte";
 
   type ScheduleMenuComponent = typeof import("./ChatMessageScheduleMenu.svelte").default;
 
@@ -146,6 +147,22 @@
     textarea.style.height = `${layout.height}px`;
     textarea.style.overflowY = layout.overflowing ? "auto" : "hidden";
   }
+
+  onMount(() => {
+    if (!textarea) return;
+    if (typeof ResizeObserver === "undefined") {
+      resizeTextarea();
+      return;
+    }
+    let measuredWidth = -1;
+    const observer = new ResizeObserver(([entry]) => {
+      if (!entry || entry.contentRect.width === measuredWidth) return;
+      measuredWidth = entry.contentRect.width;
+      resizeTextarea();
+    });
+    observer.observe(textarea);
+    return () => observer.disconnect();
+  });
 
   $effect(() => {
     text;
@@ -380,6 +397,7 @@
     selectionEnd = 0;
     alsoSendToChannel = false;
     scheduledFor = null;
+    persist();
   }
 
   function formatScheduledInstant(value: string): string {
@@ -550,7 +568,7 @@
         {#each candidates as candidate, index (candidate.participant.id)}
           <div class="candidate-row" class:active={index === mentionIndex} role="option" aria-selected={index === mentionIndex}>
             <button type="button" class="candidate-select" onclick={() => chooseMention(candidate.participant)}>
-            <span class="participant-avatar" aria-hidden="true">{candidate.participant.displayName.slice(0, 1).toLocaleUpperCase()}</span>
+            <ChatParticipantAvatar participant={candidate.participant} size={29} />
             <span class="candidate-copy"><strong>{candidate.participant.displayName}</strong><small>{candidate.purpose || `@${candidate.participant.handle ?? ""}`}</small></span>
             {#if candidate.participant.kind === "ai_teammate"}<span class="agent-badge">{t("chat.organization.agent")}</span>{/if}
             </button>
@@ -677,7 +695,6 @@
   .candidate-row { display:flex; width:100%; min-height:3rem; align-items:center; gap:0.3rem; border-radius:0.4rem; padding:0.2rem; }.candidate-row:is(:hover,.active) { background:var(--accent); }
   .candidate-select { display:flex; min-width:0; flex:1; align-items:center; gap:0.5rem; padding:0.2rem; text-align:left; }
   .mention-picker > p { padding:0.65rem; color:var(--muted-foreground); font-size:0.75rem; }
-  .participant-avatar { display:grid; width:1.8rem; height:1.8rem; flex:0 0 auto; place-items:center; border-radius:0.4rem; background:color-mix(in srgb,var(--primary) 16%,var(--accent)); font-size:0.72rem; font-weight:700; }
   .candidate-copy { display:grid; min-width:0; flex:1; }
   .candidate-copy strong,.candidate-copy small { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
   .candidate-copy strong { font-size:0.76rem; }.candidate-copy small { color:var(--muted-foreground); font-size:0.67rem; }

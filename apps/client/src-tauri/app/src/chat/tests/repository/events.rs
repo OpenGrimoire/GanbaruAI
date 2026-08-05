@@ -229,6 +229,197 @@ fn projections_keep_assistant_phase_and_turn_diff_data() {
 }
 
 #[test]
+fn terminal_lifecycle_events_expire_open_interaction_requests() {
+    tauri::async_runtime::block_on(async {
+        let pool = pool_with_thread().await;
+        let modes = TurnModeSnapshot {
+            safety_mode: SafetyMode::AskForApproval,
+            interaction_mode: InteractionMode::Build,
+        };
+
+        append_canonical_event(
+            &pool,
+            canonical_request(
+                "event-completed-turn-start",
+                Some("turn-completed-request"),
+                CanonicalEvent::TurnStarted(TurnStartedEvent {
+                    provider_turn_id: None,
+                    state: ChatTurnState::Active,
+                    modes,
+                    model_id: None,
+                    model_options: Vec::new(),
+                }),
+            ),
+        )
+        .await
+        .unwrap();
+        append_canonical_event(
+            &pool,
+            canonical_request(
+                "event-completed-request",
+                Some("turn-completed-request"),
+                CanonicalEvent::RequestOpened(RequestOpenedEvent {
+                    request_id: ProviderRequestId::new("request-completed").unwrap(),
+                    kind: CanonicalRequestKind::CommandExecution,
+                    title: "Approve command".to_string(),
+                    detail: None,
+                    allowed_decisions: Vec::new(),
+                    safe_payload: VersionedJson {
+                        schema_version: 1,
+                        value: serde_json::json!({}),
+                    },
+                }),
+            ),
+        )
+        .await
+        .unwrap();
+        append_canonical_event(
+            &pool,
+            canonical_request(
+                "event-completed-turn-end",
+                Some("turn-completed-request"),
+                CanonicalEvent::TurnCompleted(TurnCompletedEvent {
+                    state: ChatTurnState::Completed,
+                    stop_reason: None,
+                    usage: None,
+                    changed_files: Vec::new(),
+                }),
+            ),
+        )
+        .await
+        .unwrap();
+
+        append_canonical_event(
+            &pool,
+            canonical_request(
+                "event-aborted-turn-start",
+                Some("turn-aborted-request"),
+                CanonicalEvent::TurnStarted(TurnStartedEvent {
+                    provider_turn_id: None,
+                    state: ChatTurnState::Active,
+                    modes,
+                    model_id: None,
+                    model_options: Vec::new(),
+                }),
+            ),
+        )
+        .await
+        .unwrap();
+        append_canonical_event(
+            &pool,
+            canonical_request(
+                "event-aborted-request",
+                Some("turn-aborted-request"),
+                CanonicalEvent::UserInputRequested(UserInputRequestedEvent {
+                    request_id: ProviderRequestId::new("request-aborted").unwrap(),
+                    questions: vec![UserInputQuestion {
+                        id: "question-1".to_string(),
+                        header: None,
+                        question: "Choose an option".to_string(),
+                        options: Vec::new(),
+                        multiple: false,
+                        free_form_allowed: true,
+                        required: true,
+                    }],
+                }),
+            ),
+        )
+        .await
+        .unwrap();
+        append_canonical_event(
+            &pool,
+            canonical_request(
+                "event-aborted-turn-end",
+                Some("turn-aborted-request"),
+                CanonicalEvent::TurnAborted(TurnAbortedEvent {
+                    state: ChatTurnState::Interrupted,
+                    reason: "Stopped".to_string(),
+                    recoverable: true,
+                }),
+            ),
+        )
+        .await
+        .unwrap();
+
+        append_canonical_event(
+            &pool,
+            canonical_request(
+                "event-exited-turn-start",
+                Some("turn-exited-request"),
+                CanonicalEvent::TurnStarted(TurnStartedEvent {
+                    provider_turn_id: None,
+                    state: ChatTurnState::Active,
+                    modes,
+                    model_id: None,
+                    model_options: Vec::new(),
+                }),
+            ),
+        )
+        .await
+        .unwrap();
+        append_canonical_event(
+            &pool,
+            canonical_request(
+                "event-exited-request",
+                Some("turn-exited-request"),
+                CanonicalEvent::RequestOpened(RequestOpenedEvent {
+                    request_id: ProviderRequestId::new("request-exited").unwrap(),
+                    kind: CanonicalRequestKind::CommandExecution,
+                    title: "Approve command".to_string(),
+                    detail: None,
+                    allowed_decisions: Vec::new(),
+                    safe_payload: VersionedJson {
+                        schema_version: 1,
+                        value: serde_json::json!({}),
+                    },
+                }),
+            ),
+        )
+        .await
+        .unwrap();
+        append_canonical_event(
+            &pool,
+            canonical_request(
+                "event-session-exited",
+                None,
+                CanonicalEvent::SessionExited(SessionExitedEvent {
+                    session_id: ProviderSessionId::new("session-1").unwrap(),
+                    expected: true,
+                    exit_code: None,
+                    reason: Some("App closed".to_string()),
+                }),
+            ),
+        )
+        .await
+        .unwrap();
+
+        let requests: Vec<(String, String, bool)> = sqlx::query_as(
+            "SELECT id, resolution_state, resolved_at IS NOT NULL
+             FROM chat_pending_requests ORDER BY id",
+        )
+        .fetch_all(&pool)
+        .await
+        .unwrap();
+        assert_eq!(
+            requests,
+            vec![
+                (
+                    "request-aborted".to_string(),
+                    "interrupted".to_string(),
+                    true
+                ),
+                ("request-completed".to_string(), "stale".to_string(), true),
+                (
+                    "request-exited".to_string(),
+                    "interrupted".to_string(),
+                    true
+                ),
+            ]
+        );
+    });
+}
+
+#[test]
 fn projection_failure_rolls_back_event_and_thread_advance() {
     tauri::async_runtime::block_on(async {
         let pool = pool_with_thread().await;

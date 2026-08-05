@@ -20,9 +20,10 @@
   import Wrench from "@lucide/svelte/icons/wrench";
   import RotateCcw from "@lucide/svelte/icons/rotate-ccw";
   import { chatScrollBehavior } from "$lib/chat/responsive-layout";
+  import type { ChatTurnId } from "$lib/chat/contracts";
   import { activityFilePath, fileChangePresentation, fileReadActivityPresentation, fileSearchActivityPresentation, isFileReadActivity, isFileSearchActivity, isImageViewActivity, summarizeActivityKinds, transientActivitySummary, type ActivitySummaryCount } from "$lib/chat/activity-presentation";
   import { chatModelParticipant, type ChatModelParticipant } from "$lib/chat/participant-identity";
-  import { buildTimelineDisplayRows, includeOptimisticTimelineMessage, projectTimelineReadModel, timelineActivityShowsLiveStatus, timelineActivitySupportsDisclosure, timelineModelGroupStartIds, type TimelineActivityGroupRow, type TimelineActivityRow, type TimelineDisplayRow, type TimelineMessageRow, type TimelinePlanRow, type TimelineTurnFoldRow } from "$lib/chat/timeline-model";
+  import { buildTimelineDisplayRows, includeOptimisticTimelineMessage, projectTimelineReadModel, timelineActivityShowsLiveStatus, timelineActivitySupportsDisclosure, timelineModelGroupStartIds, timelineRowsForTurn, type TimelineActivityGroupRow, type TimelineActivityRow, type TimelineDisplayRow, type TimelineMessageRow, type TimelinePlanRow, type TimelineTurnFoldRow } from "$lib/chat/timeline-model";
   import { computeTimelineVirtualWindow, nextTimelineUnreadCount, scrollTopForPreservedAnchor, timelineMinimapRows, timelineScrollbarThumbGeometry, timelineScrollIntent, type TimelineScrollbarThumbGeometry, type TimelineScrollIntent } from "$lib/chat/timeline-virtualization";
   import { formatDateTime, formatList, formatNumber } from "$lib/i18n/formatters";
   import { getLocalization } from "$lib/i18n/translator.svelte";
@@ -43,12 +44,14 @@
     hideUserMessages = false,
     teammateName = null,
     effort = null,
+    turnId = null,
   } = $props<{
     bottomInsetPx?: number;
     embedded?: boolean;
     hideUserMessages?: boolean;
     teammateName?: string | null;
     effort?: string | null;
+    turnId?: ChatTurnId | null;
   }>();
   const COMPOSER_READING_GAP_PX = 8;
   const TIMELINE_EDGE_PADDING_PX = 16;
@@ -97,7 +100,10 @@
   const optimisticMessage = $derived(chat.pendingUserMessage?.threadId === (selectedThread?.id ?? chat.draftThreadId)
     ? chat.pendingUserMessage.row
     : null);
-  const timelineRows = $derived(includeOptimisticTimelineMessage(projection.rows, optimisticMessage)
+  const timelineRows = $derived(timelineRowsForTurn(
+    includeOptimisticTimelineMessage(projection.rows, optimisticMessage),
+    turnId,
+  )
     .filter((row) => !hideUserMessages || row.kind !== "message" || row.role !== "user"));
   const displayRows = $derived(buildTimelineDisplayRows(timelineRows.filter((row) => row.kind !== "plan" || !dismissedPlans.includes(row.id)), projection.turns, new Set(expandedTurns), new Set(expandedGroups)));
   const turnsById = $derived(new Map(projection.turns.map((turn) => [turn.id, turn])));

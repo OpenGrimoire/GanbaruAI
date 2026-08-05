@@ -70,6 +70,25 @@ pub async fn recover_orphaned_turns(
         .await?;
         recovered += 1;
     }
+    sqlx::query(
+        "UPDATE chat_pending_requests
+         SET resolution_state = 'interrupted', resolved_at = ?
+         WHERE resolution_state = 'open' AND (
+             turn_id IS NULL OR NOT EXISTS (
+                 SELECT 1 FROM chat_turns
+                 WHERE chat_turns.id = chat_pending_requests.turn_id
+                   AND chat_turns.thread_id = chat_pending_requests.thread_id
+                   AND chat_turns.invalidated_at IS NULL
+                   AND chat_turns.state IN (
+                       'dispatching', 'active', 'waiting_for_approval', 'waiting_for_user_input'
+                   )
+             )
+         )",
+    )
+    .bind(now.as_str())
+    .execute(pool)
+    .await
+    .map_err(persistence_error)?;
     Ok(recovered)
 }
 

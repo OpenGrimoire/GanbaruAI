@@ -2,6 +2,7 @@
 
 import { mount, tick, unmount } from "svelte";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import SettingsModal from "./SettingsModal.svelte";
 
 vi.mock("@tauri-apps/api/window", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@tauri-apps/api/window")>();
@@ -17,6 +18,11 @@ vi.mock("$lib/stores/themeEditor.svelte", () => ({
 
 vi.mock("$lib/stores/viewport.svelte", () => ({
   getViewport: () => ({ below: () => false }),
+}));
+
+vi.mock("$lib/buildInfo", () => ({
+  BUILD_REF: "0.0.0+test",
+  GITHUB_REPOSITORY: "opengrimoire/ganbaru-ai",
 }));
 
 vi.mock("$lib/components/settings/settings-detail-registry", async () => {
@@ -47,11 +53,8 @@ describe("SettingsModal remount state", () => {
 
   it("does not retain the previous active section across modal instances", async () => {
     vi.stubGlobal("ResizeObserver", ResizeObserverStub);
-    vi.stubGlobal("__GANBARU_AI_BUILD_REF__", "0.0.0+test");
-    vi.stubGlobal("__GANBARU_AI_GITHUB_REPOSITORY__", "opengrimoire/ganbaru-ai");
     target = document.createElement("div");
     document.body.append(target);
-    const { default: SettingsModal } = await import("./SettingsModal.svelte");
 
     component = mount(SettingsModal, {
       target,
@@ -61,7 +64,6 @@ describe("SettingsModal remount state", () => {
     expect(target.querySelector("[data-settings-modal-panel]")?.getAttribute("data-settings-section"))
       .toBe("about");
     expect(target.textContent).not.toContain("Loading");
-
     await unmount(component);
     component = mount(SettingsModal, {
       target,

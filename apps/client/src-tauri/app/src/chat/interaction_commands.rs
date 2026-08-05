@@ -1,5 +1,6 @@
 //! Native composer resources and interaction command facade.
 
+use super::command_support::{chat_pool, now_timestamp};
 use super::events::{AccountStatusEvent, RateLimitStatusEvent, ThreadUsageUpdatedEvent};
 use super::interaction;
 use super::models::{
@@ -7,8 +8,11 @@ use super::models::{
     DriverOperationReceipt, McpStatusRead, ProjectWorkingFolderId, ProviderCapabilities,
     ProviderInstanceId, ProviderSessionState, UtcTimestamp, VersionedJson,
 };
-use super::repository::attachments;
+use super::repository::{attachments, recovery::recover_orphaned_turns};
+use super::runtime::ChatRuntimeRegistry;
 use serde::{Deserialize, Serialize};
+use std::collections::HashSet;
+use tauri::Manager;
 
 pub use super::composer::workspace_mentions::ProjectWorkingFolderPathPage;
 
@@ -212,6 +216,26 @@ pub async fn chat_read_interaction_state(
     thread_id: ChatThreadId,
 ) -> ChatResult<ChatInteractionStateRead> {
     interaction::read_interaction_state(app, db_url, thread_id).await
+}
+
+#[tauri::command]
+pub async fn chat_recover_interrupted_turns(
+    app: tauri::AppHandle,
+    db_url: String,
+) -> ChatResult<()> {
+    let mut live_threads = HashSet::new();
+    for owner in app.state::<ChatRuntimeRegistry>().owners()? {
+        if owner.snapshot()?.session_id.is_some() {
+            live_threads.insert(owner.thread_id().clone());
+        }
+    }
+    recover_orphaned_turns(
+        &chat_pool(app, db_url).await?,
+        &live_threads,
+        &now_timestamp()?,
+    )
+    .await?;
+    Ok(())
 }
 
 #[tauri::command]

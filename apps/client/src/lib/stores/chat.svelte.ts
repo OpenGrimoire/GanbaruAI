@@ -356,6 +356,7 @@ class ChatStore {
     this.loading = true;
     this.error = null;
     try {
+      await chatApi.recoverInterruptedChatTurns();
       const [settings, workingFolders, navigationChannels, teammates] = await Promise.all([
         chatApi.readChatSettings(),
         workingFolderApi.listCachedProjectWorkingFolders(),
@@ -581,7 +582,7 @@ class ChatStore {
   async openReplyThread(replyThreadId: ChatReplyThreadId): Promise<void> {
     this.openReplyThreadId = replyThreadId;
     this.selectedExecutionRunId = null;
-    await this.loadReplyThread(replyThreadId);
+    await this.loadReplyThread(replyThreadId, true);
   }
 
   async searchOrganizationalMessages(query: string): Promise<ChatMessageSearchResultRead[]> {
@@ -877,6 +878,7 @@ class ChatStore {
   }
 
   private async refreshNativeChange(threadId: string): Promise<void> {
+    this.threadCollectionController.upsert(await chatApi.readChatThreadShell(threadId));
     const channelId = this.selectedChannelId;
     if (channelId) await this.loadChannelMessages(channelId, true);
     if (this.openReplyThreadId) await this.loadReplyThread(this.openReplyThreadId, true);

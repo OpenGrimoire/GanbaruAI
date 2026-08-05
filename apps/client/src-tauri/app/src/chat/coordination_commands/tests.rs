@@ -35,6 +35,132 @@ fn message(markdown: &str) -> PostChatMessageCommand {
     }
 }
 
+async fn seed_review_assignment_with_stranded_replies(pool: &SqlitePool) {
+    sqlx::raw_sql(
+        "INSERT INTO project_groups (id, name) VALUES ('group:review', 'Review');
+         INSERT INTO projects (id, group_id, name)
+         VALUES ('project:review', 'group:review', 'Review');
+         INSERT INTO project_working_folders
+             (id, project_id, display_name, kind, managed_relative_path)
+         VALUES ('folder:review', 'project:review', 'Review', 'managed', 'projects/review');
+         UPDATE chat_conversations SET id = 'conversation:review'
+         WHERE project_id = 'project:review' AND conversation_kind = 'channel';
+         UPDATE chat_channels SET id = 'channel:review'
+         WHERE project_id = 'project:review' AND is_default = 1;
+         INSERT INTO chat_participants
+             (id, participant_kind, display_name, normalized_handle, created_at, updated_at)
+         VALUES (
+             'participant:review-agent', 'ai_teammate', 'Ganbaru', 'ganbaru',
+             '2026-08-04T17:00:00.000Z', '2026-08-04T17:00:00.000Z'
+         );
+         INSERT INTO chat_ai_teammates
+             (participant_id, purpose, instructions, created_at, updated_at)
+         VALUES (
+             'participant:review-agent', 'Test', 'Test',
+             '2026-08-04T17:00:00.000Z', '2026-08-04T17:00:00.000Z'
+         );
+         INSERT INTO chat_teammate_policy_revisions
+             (id, teammate_id, revision, provider_instance_id,
+              model_selection_data, created_at)
+         VALUES (
+             'policy:review', 'participant:review-agent', 1, 'provider:review',
+             '{\"providerManagedModel\":true,\"modelId\":null,\"modelOptions\":[]}',
+             '2026-08-04T17:00:00.000Z'
+         );
+         INSERT INTO chat_conversation_memberships
+             (conversation_id, participant_id, approval_policy, created_at, updated_at)
+         VALUES (
+             'conversation:review', 'participant:review-agent', 'ask_for_approval',
+             '2026-08-04T17:00:00.000Z', '2026-08-04T17:00:00.000Z'
+         );
+         INSERT INTO chat_teammate_working_folder_grants
+             (conversation_id, teammate_id, project_id, working_folder_id,
+              is_default, created_at)
+         VALUES (
+             'conversation:review', 'participant:review-agent', 'project:review',
+             'folder:review', 1, '2026-08-04T17:00:00.000Z'
+         );
+         INSERT INTO chat_conversation_items
+             (id, conversation_id, item_kind, ordinal, created_at)
+         VALUES (
+             'item:review-root', 'conversation:review', 'message', 1,
+             '2026-08-04T17:00:00.000Z'
+         );
+         INSERT INTO chat_communication_messages
+             (item_id, author_participant_id, created_at)
+         VALUES (
+             'item:review-root', 'participant:local-owner',
+             '2026-08-04T17:00:00.000Z'
+         );
+         INSERT INTO chat_communication_message_revisions
+             (id, message_item_id, revision, normalized_markdown, created_at)
+         VALUES (
+             'revision:review-root', 'item:review-root', 1, 'Create hello.py',
+             '2026-08-04T17:00:00.000Z'
+         );
+         UPDATE chat_communication_messages
+         SET current_revision_id = 'revision:review-root'
+         WHERE item_id = 'item:review-root';
+         INSERT INTO chat_reply_threads
+             (id, conversation_id, root_item_id, reply_count, last_activity_at,
+              created_at, updated_at)
+         VALUES (
+             'reply-thread:review', 'conversation:review', 'item:review-root', 2,
+             '2026-08-04T17:02:00.000Z', '2026-08-04T17:00:00.000Z',
+             '2026-08-04T17:02:00.000Z'
+         );
+         INSERT INTO chat_conversation_items
+             (id, conversation_id, reply_thread_id, item_kind, ordinal, created_at)
+         VALUES
+             ('item:review-reply-1', 'conversation:review', 'reply-thread:review',
+              'message', 1, '2026-08-04T17:01:00.000Z'),
+             ('item:review-reply-2', 'conversation:review', 'reply-thread:review',
+              'message', 2, '2026-08-04T17:02:00.000Z');
+         INSERT INTO chat_communication_messages
+             (item_id, author_participant_id, created_at)
+         VALUES
+             ('item:review-reply-1', 'participant:local-owner',
+              '2026-08-04T17:01:00.000Z'),
+             ('item:review-reply-2', 'participant:local-owner',
+              '2026-08-04T17:02:00.000Z');
+         INSERT INTO chat_communication_message_revisions
+             (id, message_item_id, revision, normalized_markdown, created_at)
+         VALUES
+             ('revision:review-reply-1', 'item:review-reply-1', 1,
+              'Ok, remove it now.', '2026-08-04T17:01:00.000Z'),
+             ('revision:review-reply-2', 'item:review-reply-2', 1,
+              '@ganbaru Ok, remove it now.', '2026-08-04T17:02:00.000Z');
+         UPDATE chat_communication_messages
+         SET current_revision_id = 'revision:review-reply-1'
+         WHERE item_id = 'item:review-reply-1';
+         UPDATE chat_communication_messages
+         SET current_revision_id = 'revision:review-reply-2'
+         WHERE item_id = 'item:review-reply-2';
+         INSERT INTO chat_work_assignments
+             (id, reply_thread_id, teammate_id, triggering_message_item_id,
+              state, created_at, updated_at)
+         VALUES (
+             'assignment:review', 'reply-thread:review', 'participant:review-agent',
+             'item:review-root', 'ready_for_review',
+             '2026-08-04T17:00:00.000Z', '2026-08-04T17:02:00.000Z'
+         );
+         INSERT INTO chat_work_assignment_inputs
+             (id, assignment_id, message_item_id, ordinal, routing_kind,
+              delivery_state, created_at, delivered_at)
+         VALUES
+             ('input:review-root', 'assignment:review', 'item:review-root', 1,
+              'trigger', 'delivered', '2026-08-04T17:00:00.000Z',
+              '2026-08-04T17:00:00.000Z'),
+             ('input:review-reply-1', 'assignment:review', 'item:review-reply-1', 2,
+              'queued_continuation', 'pending', '2026-08-04T17:01:00.000Z', NULL),
+             ('input:review-reply-2', 'assignment:review', 'item:review-reply-2', 3,
+              'queued_continuation', 'pending', '2026-08-04T17:02:00.000Z', NULL);",
+    )
+    .execute(pool)
+    .await
+    .unwrap();
+}
+
 #[test]
 fn scheduled_delivery_requires_a_near_future_time_within_one_year() {
     let now = UtcTimestamp::new("2026-08-03T00:00:00.000Z").unwrap();
@@ -147,6 +273,75 @@ fn immediate_scheduled_delivery_claim_is_atomic() {
         .await
         .unwrap_err();
         assert_eq!(duplicate.code, ChatErrorCode::Busy);
+    });
+}
+
+#[test]
+fn restart_rehomes_review_replies_into_one_ordered_follow_up_assignment() {
+    tauri::async_runtime::block_on(async {
+        let pool = migrated_pool().await;
+        seed_review_assignment_with_stranded_replies(&pool).await;
+        let now = UtcTimestamp::new("2026-08-04T17:03:00.000Z").unwrap();
+
+        let recovered = assignments::recover_stranded_follow_up_assignments(&pool, &now)
+            .await
+            .unwrap();
+
+        assert_eq!(recovered, 1);
+        let old_state: String = sqlx::query_scalar(
+            "SELECT state FROM chat_work_assignments WHERE id = 'assignment:review'",
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(old_state, "completed");
+        let follow_up = sqlx::query(
+            "SELECT id, triggering_message_item_id, previous_assignment_id, state
+             FROM chat_work_assignments WHERE previous_assignment_id = 'assignment:review'",
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        let follow_up_id = follow_up.get::<String, _>("id");
+        assert_eq!(
+            follow_up.get::<String, _>("triggering_message_item_id"),
+            "item:review-reply-1"
+        );
+        assert_eq!(follow_up.get::<String, _>("state"), "queued");
+        let inputs = sqlx::query(
+            "SELECT message_item_id, ordinal, routing_kind, delivery_state
+             FROM chat_work_assignment_inputs WHERE assignment_id = ? ORDER BY ordinal",
+        )
+        .bind(&follow_up_id)
+        .fetch_all(&pool)
+        .await
+        .unwrap();
+        assert_eq!(inputs.len(), 2);
+        assert_eq!(
+            inputs[0].get::<String, _>("message_item_id"),
+            "item:review-reply-1"
+        );
+        assert_eq!(inputs[0].get::<String, _>("routing_kind"), "follow_up");
+        assert_eq!(
+            inputs[1].get::<String, _>("message_item_id"),
+            "item:review-reply-2"
+        );
+        assert_eq!(
+            inputs[1].get::<String, _>("routing_kind"),
+            "queued_continuation"
+        );
+        assert!(inputs
+            .iter()
+            .all(|input| input.get::<String, _>("delivery_state") == "pending"));
+        let queued_job: i64 = sqlx::query_scalar(
+            "SELECT count(*) FROM chat_assignment_dispatch_jobs
+             WHERE assignment_id = ? AND state = 'queued'",
+        )
+        .bind(follow_up_id)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(queued_job, 1);
     });
 }
 

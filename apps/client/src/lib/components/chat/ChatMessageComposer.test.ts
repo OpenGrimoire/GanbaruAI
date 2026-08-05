@@ -12,6 +12,7 @@ describe("ChatMessageComposer", () => {
 
   afterEach(async () => {
     vi.restoreAllMocks();
+    vi.unstubAllGlobals();
     if (component) await unmount(component);
     target?.remove();
     component = undefined;
@@ -20,6 +21,7 @@ describe("ChatMessageComposer", () => {
 
   it("uses one send action and resets channel sharing after a thread reply", async () => {
     const chat = getChat();
+    const destination = `reply-thread:${crypto.randomUUID()}`;
     const post = vi.spyOn(chat, "postOrganizationalMessage").mockResolvedValue(
       undefined as unknown as PostChatMessageResult,
     );
@@ -28,7 +30,7 @@ describe("ChatMessageComposer", () => {
     component = mount(ChatMessageComposer, {
       target,
       props: {
-        destination: `reply-thread:${crypto.randomUUID()}`,
+        destination,
         placeholder: "Reply",
         threadComposer: true,
       },
@@ -54,6 +56,57 @@ describe("ChatMessageComposer", () => {
       expect(post).toHaveBeenCalledWith(expect.any(String), { alsoSendToChannel: true });
       expect(share?.getAttribute("aria-pressed")).toBe("false");
     });
+
+    await unmount(component);
+    component = mount(ChatMessageComposer, {
+      target,
+      props: { destination, placeholder: "Reply", threadComposer: true },
+    });
+    expect(target.querySelector<HTMLTextAreaElement>("textarea")?.value).toBe("");
+  });
+
+  it("recalculates an empty composer after its mounted width settles", async () => {
+    const callbacks: ResizeObserverCallback[] = [];
+    class TestResizeObserver {
+      constructor(callback: ResizeObserverCallback) {
+        callbacks.push(callback);
+      }
+
+      observe(): void {}
+      unobserve(): void {}
+      disconnect(): void {}
+    }
+    vi.stubGlobal("ResizeObserver", TestResizeObserver);
+    target = document.createElement("div");
+    document.body.append(target);
+    component = mount(ChatMessageComposer, {
+      target,
+      props: {
+        destination: `reply-thread:${crypto.randomUUID()}`,
+        placeholder: "Reply in thread",
+        threadComposer: true,
+      },
+    });
+
+    const textarea = target.querySelector<HTMLTextAreaElement>("textarea");
+    if (!textarea) throw new Error("Expected the organizational composer textarea");
+    textarea.style.lineHeight = "20px";
+    let contentHeight = 120;
+    Object.defineProperty(textarea, "scrollHeight", { get: () => contentHeight });
+    await vi.waitFor(() => expect(callbacks).toHaveLength(1));
+
+    callbacks[0]?.(
+      [{ contentRect: { width: 1 } } as unknown as ResizeObserverEntry],
+      {} as ResizeObserver,
+    );
+    expect(textarea.style.height).toBe("120px");
+
+    contentHeight = 40;
+    callbacks[0]?.(
+      [{ contentRect: { width: 400 } } as unknown as ResizeObserverEntry],
+      {} as ResizeObserver,
+    );
+    expect(textarea.style.height).toBe("40px");
   });
 
   it("arms scheduling without a draft and waits for the send action", async () => {

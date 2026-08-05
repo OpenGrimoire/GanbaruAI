@@ -344,6 +344,10 @@ export async function readChatInteractionState(threadId: ChatThreadId): Promise<
   }));
 }
 
+export async function recoverInterruptedChatTurns(): Promise<void> {
+  await invoke("chat_recover_interrupted_turns", { dbUrl: await ensureDbUrl() });
+}
+
 export async function compactChatContext(threadId: ChatThreadId): Promise<void> {
   await invoke("chat_compact_context", {
     dbUrl: await ensureDbUrl(), threadId, clientCommandId: crypto.randomUUID(),

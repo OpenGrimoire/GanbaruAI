@@ -10,6 +10,11 @@ pub(in crate::chat::repository) async fn apply_projection(
     let thread_id = runtime.thread_id.as_str();
     let mut changed = Vec::new();
     match &runtime.event {
+        CanonicalEvent::SessionExited(_) => {
+            if expire_open_requests_for_thread(transaction, runtime, "interrupted").await? {
+                changed.push("pending_requests".to_string());
+            }
+        }
         CanonicalEvent::ThreadStarted(event) => {
             sqlx::query(
                 "UPDATE chat_threads
@@ -174,6 +179,9 @@ pub(in crate::chat::repository) async fn apply_projection(
             .await
             .map_err(persistence_error)?;
             changed.extend(["turns".to_string(), "thread".to_string()]);
+            if expire_open_requests_for_turn(transaction, runtime, "stale").await? {
+                changed.push("pending_requests".to_string());
+            }
         }
         CanonicalEvent::TurnAborted(event) => {
             let turn_id = required_turn_id(runtime)?;
@@ -205,6 +213,9 @@ pub(in crate::chat::repository) async fn apply_projection(
             .await
             .map_err(persistence_error)?;
             changed.extend(["turns".to_string(), "thread".to_string()]);
+            if expire_open_requests_for_turn(transaction, runtime, "interrupted").await? {
+                changed.push("pending_requests".to_string());
+            }
         }
         CanonicalEvent::DiffUpdated(event) => {
             let turn_id = required_turn_id(runtime)?;
@@ -633,4 +644,46 @@ async fn resolve_request<T: Serialize>(
         ));
     }
     Ok(())
+}
+
+async fn expire_open_requests_for_turn(
+    transaction: &mut Transaction<'_, Sqlite>,
+    runtime: &CanonicalRuntimeEvent,
+    state: &str,
+) -> ChatResult<bool> {
+    let Some(turn_id) = runtime.turn_id.as_ref() else {
+        return Ok(false);
+    };
+    let result = sqlx::query(
+        "UPDATE chat_pending_requests
+         SET resolution_state = ?, resolved_at = ?
+         WHERE thread_id = ? AND turn_id = ? AND resolution_state = 'open'",
+    )
+    .bind(state)
+    .bind(runtime.created_at.as_str())
+    .bind(runtime.thread_id.as_str())
+    .bind(turn_id.as_str())
+    .execute(&mut **transaction)
+    .await
+    .map_err(persistence_error)?;
+    Ok(result.rows_affected() > 0)
+}
+
+async fn expire_open_requests_for_thread(
+    transaction: &mut Transaction<'_, Sqlite>,
+    runtime: &CanonicalRuntimeEvent,
+    state: &str,
+) -> ChatResult<bool> {
+    let result = sqlx::query(
+        "UPDATE chat_pending_requests
+         SET resolution_state = ?, resolved_at = ?
+         WHERE thread_id = ? AND resolution_state = 'open'",
+    )
+    .bind(state)
+    .bind(runtime.created_at.as_str())
+    .bind(runtime.thread_id.as_str())
+    .execute(&mut **transaction)
+    .await
+    .map_err(persistence_error)?;
+    Ok(result.rows_affected() > 0)
 }

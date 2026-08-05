@@ -1,14 +1,36 @@
-import type { ChatAgentRunRead, VersionedJson } from "./contracts";
+import type {
+  ChatAgentRunRead,
+  ChatMessageRead,
+  ChatThreadId,
+  VersionedJson,
+} from "./contracts";
 
 interface RichReply {
   richContent: VersionedJson;
 }
+
+export type ReplyThreadRenderEntry =
+  | { kind: "message"; key: string; message: ChatMessageRead }
+  | { kind: "execution"; key: string; run: ChatAgentRunRead };
 
 /** Returns the newest agent run whose provider execution can be rendered. */
 export function latestRenderableAgentRun(
   agentRuns: readonly ChatAgentRunRead[],
 ): ChatAgentRunRead | null {
   return agentRuns.findLast((agentRun) => agentRun.providerExecutionThreadId !== null) ?? null;
+}
+
+/** Returns whether the exact run can replace its durable projection without a visual swap. */
+export function exactRunPresentationReady(
+  run: ChatAgentRunRead | null,
+  selectedRunId: string | null,
+  selectedProviderThreadId: ChatThreadId | null,
+  loadedTurnIds: ReadonlySet<string>,
+): boolean {
+  if (!run) return true;
+  return selectedRunId === run.id
+    && selectedProviderThreadId === run.providerExecutionThreadId
+    && loadedTurnIds.has(run.providerExecutionTurnId);
 }
 
 /** Removes only the projected copies owned by the provider run rendered in the thread. */
@@ -26,4 +48,68 @@ export function projectedAgentRunId(message: RichReply): string | null {
   return value.type === "agent_update" && typeof value.agentRunId === "string"
     ? value.agentRunId
     : null;
+}
+
+/** Keeps distinct semantic agent updates visually attributable in a reply thread. */
+export function shouldGroupReplyMessages(
+  previous: ChatMessageRead | null,
+  current: ChatMessageRead,
+): boolean {
+  if (!previous || previous.author.id !== current.author.id) return false;
+  if (projectedAgentRunId(previous) !== null || projectedAgentRunId(current) !== null) return false;
+  const elapsedMs = Date.parse(current.createdAt) - Date.parse(previous.createdAt);
+  return elapsedMs >= 0 && elapsedMs <= 5 * 60 * 1_000;
+}
+
+/** Replaces projected run copies with exact execution turns at the same thread position. */
+export function replyThreadRenderEntries(
+  replies: readonly ChatMessageRead[],
+  agentRuns: readonly ChatAgentRunRead[],
+  renderedProviderThreadId: ChatThreadId | null,
+): ReplyThreadRenderEntry[] {
+  if (renderedProviderThreadId === null) {
+    return replies.map((message) => ({ kind: "message", key: message.itemId, message }));
+  }
+  const renderedRuns = agentRuns.filter((run) => (
+    run.providerExecutionThreadId === renderedProviderThreadId
+  ));
+  const renderedRunIds = new Set(renderedRuns.map((run) => run.id));
+  const positioned: Array<{ position: number; entry: ReplyThreadRenderEntry }> = replies
+    .filter((reply) => {
+      const runId = projectedAgentRunId(reply);
+      return runId === null || !renderedRunIds.has(runId);
+    })
+    .map((message) => ({
+      position: message.ordinal,
+      entry: { kind: "message", key: message.itemId, message },
+    }));
+  for (const run of renderedRuns) {
+    const projectedOrdinals = replies
+      .filter((reply) => projectedAgentRunId(reply) === run.id)
+      .map((reply) => reply.ordinal);
+    positioned.push({
+      position: projectedOrdinals.length > 0
+        ? Math.max(...projectedOrdinals)
+        : fallbackRunPosition(replies, run.createdAt),
+      entry: { kind: "execution", key: `execution:${run.id}`, run },
+    });
+  }
+  return positioned
+    .sort((left, right) => left.position - right.position || left.entry.key.localeCompare(right.entry.key))
+    .map(({ entry }) => entry);
+}
+
+function fallbackRunPosition(replies: readonly ChatMessageRead[], createdAt: string): number {
+  let precedingOrdinal: number | null = null;
+  let followingOrdinal: number | null = null;
+  for (const reply of replies) {
+    if (reply.createdAt <= createdAt) {
+      precedingOrdinal = Math.max(precedingOrdinal ?? reply.ordinal, reply.ordinal);
+    } else {
+      followingOrdinal = Math.min(followingOrdinal ?? reply.ordinal, reply.ordinal);
+    }
+  }
+  if (precedingOrdinal !== null) return precedingOrdinal + 0.5;
+  if (followingOrdinal !== null) return followingOrdinal - 0.5;
+  return 0.5;
 }

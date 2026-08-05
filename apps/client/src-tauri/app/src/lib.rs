@@ -960,6 +960,7 @@ pub fn run(context: tauri::Context<tauri::Wry>) {
             chat::interaction_commands::chat_search_working_folder_paths,
             chat::interaction_commands::chat_validate_working_folder_mentions,
             chat::interaction_commands::chat_list_prompt_catalog,
+            chat::interaction_commands::chat_recover_interrupted_turns,
             chat::interaction_commands::chat_read_interaction_state,
             chat::interaction_commands::chat_compact_context,
             chat::interaction_commands::chat_read_mcp_status,

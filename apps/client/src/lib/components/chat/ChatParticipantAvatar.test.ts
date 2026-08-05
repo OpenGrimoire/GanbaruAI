@@ -2,8 +2,10 @@
 
 import { mount, tick, unmount } from "svelte";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { ChatParticipantRead } from "$lib/chat/contracts";
+import type { ChatAiTeammateRead, ChatParticipantRead } from "$lib/chat/contracts";
+import { getChat } from "$lib/stores/chat.svelte";
 import { getPreferences } from "$lib/stores/preferences.svelte";
+import { modelSettings } from "./ChatComposer.test-support";
 import ChatParticipantAvatar from "./ChatParticipantAvatar.svelte";
 
 const profileImage = vi.hoisted(() => ({
@@ -24,12 +26,25 @@ const localParticipant: ChatParticipantRead = {
   archivedAt: null,
 };
 
+const agentParticipant: ChatParticipantRead = {
+  id: "participant:ganbaru",
+  kind: "ai_teammate",
+  displayName: "Ganbaru",
+  handle: "ganbaru",
+  avatar: { schemaVersion: 1, value: {} },
+  revision: 1,
+  archivedAt: null,
+};
+
 describe("ChatParticipantAvatar", () => {
   let target: HTMLDivElement | undefined;
   let component: ReturnType<typeof mount> | undefined;
   const preferences = getPreferences();
+  const chat = getChat();
   const originalDisplayName = preferences.profileDisplayName;
   const originalImagePath = preferences.profileImagePath;
+  const originalSettings = chat.settings;
+  const originalTeammates = chat.teammates;
 
   afterEach(async () => {
     if (component) await unmount(component);
@@ -38,6 +53,8 @@ describe("ChatParticipantAvatar", () => {
     target = undefined;
     preferences.setProfileDisplayName(originalDisplayName);
     preferences.setProfileImagePath(originalImagePath);
+    chat.settings = originalSettings;
+    chat.teammates = originalTeammates;
     profileImage.load.mockClear();
   });
 
@@ -62,5 +79,39 @@ describe("ChatParticipantAvatar", () => {
     });
     expect(profileImage.load).toHaveBeenCalledWith(imagePath);
     expect(localParticipant.displayName).toBe("You");
+  });
+
+  it("uses the teammate provider identity instead of a generic agent icon", () => {
+    chat.settings = modelSettings();
+    chat.teammates = [{
+      participant: agentParticipant,
+      purpose: "Coding",
+      instructions: "",
+      configurationState: "healthy",
+      latestPolicy: {
+        id: "policy:ganbaru:1",
+        teammateId: agentParticipant.id,
+        revision: 1,
+        providerInstanceId: "codex-local",
+        providerManagedModel: false,
+        modelId: "gpt-5.6-sol",
+        modelOptions: [],
+        effort: "medium",
+        speed: null,
+        providerOptions: { schemaVersion: 1, value: {} },
+        createdAt: "2026-08-04T12:00:00.000Z",
+      },
+      channelCount: 1,
+    } satisfies ChatAiTeammateRead];
+    target = document.createElement("div");
+    document.body.append(target);
+    component = mount(ChatParticipantAvatar, {
+      target,
+      props: { participant: agentParticipant, size: 32 },
+    });
+
+    expect(target.querySelector('.model-avatar[aria-label="OpenAI"]')).not.toBeNull();
+    expect(target.querySelector(".provider-icon svg")).not.toBeNull();
+    expect(target.querySelector(".agent-fallback")).toBeNull();
   });
 });

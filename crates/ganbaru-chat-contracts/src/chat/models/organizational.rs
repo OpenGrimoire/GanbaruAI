@@ -46,6 +46,7 @@ pub enum ChatApprovalPolicy {
 }
 
 impl ChatWorkAssignmentState {
+    /// Returns whether the assignment still occupies the thread's active work slot.
     pub fn is_active(self) -> bool {
         matches!(
             self,
@@ -55,6 +56,28 @@ impl ChatWorkAssignmentState {
                 | Self::WaitingForApproval
                 | Self::ReadyForReview
         )
+    }
+
+    /// Returns whether a new message can still be delivered to this assignment.
+    pub fn accepts_continuation(self) -> bool {
+        matches!(
+            self,
+            Self::Queued | Self::Working | Self::WaitingForAnswer | Self::WaitingForApproval
+        )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::ChatWorkAssignmentState;
+
+    #[test]
+    fn review_work_is_active_but_requires_a_new_follow_up_assignment() {
+        let state = ChatWorkAssignmentState::ReadyForReview;
+
+        assert!(state.is_active());
+        assert!(!state.accepts_continuation());
+        assert!(ChatWorkAssignmentState::Working.accepts_continuation());
     }
 }
 

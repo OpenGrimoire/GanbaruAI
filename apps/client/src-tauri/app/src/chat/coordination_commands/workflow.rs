@@ -64,7 +64,7 @@ pub(super) async fn resolve_invoked_teammate(
     };
     let active_assignment = latest_assignment
         .as_ref()
-        .filter(|assignment| assignment.state.is_active())
+        .filter(|assignment| assignment.state.accepts_continuation())
         .cloned();
     let teammate_id = ai_mentions.into_iter().next().or_else(|| {
         latest_assignment
@@ -142,6 +142,30 @@ pub(super) async fn persist_assignment_routing(
         .latest_assignment
         .as_ref()
         .map(|assignment| &assignment.id);
+    if let Some(previous) = invocation
+        .latest_assignment
+        .as_ref()
+        .filter(|assignment| assignment.state == ChatWorkAssignmentState::ReadyForReview)
+    {
+        let settled = sqlx::query(
+            "UPDATE chat_work_assignments
+             SET state = 'completed', settled_at = ?, revision = revision + 1, updated_at = ?
+             WHERE id = ? AND state = 'ready_for_review'",
+        )
+        .bind(now.as_str())
+        .bind(now.as_str())
+        .bind(previous.id.as_str())
+        .execute(&mut **transaction)
+        .await
+        .map_err(persistence_error)?;
+        if settled.rows_affected() != 1 {
+            return Err(ChatError::new(
+                ChatErrorCode::Conflict,
+                "The reviewed assignment changed before the follow-up was created",
+                true,
+            ));
+        }
+    }
     sqlx::query(
         "INSERT INTO chat_work_assignments
             (id, reply_thread_id, teammate_id, triggering_message_item_id,

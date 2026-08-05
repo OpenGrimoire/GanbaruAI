@@ -65,6 +65,24 @@ describe("ChatRequestPanel", () => {
     });
   });
 
+  it("shows the message from a structured approval error", async () => {
+    vi.spyOn(getChat(), "resolveApproval").mockRejectedValue({
+      code: "stale_revision",
+      message: "Chat thread revision is stale",
+      recoverable: true,
+    });
+    const body = setup(approval());
+    await tick();
+    body.querySelector<HTMLButtonElement>(".request-actions button")?.click();
+    await tick();
+    await Promise.resolve();
+    await tick();
+
+    expect(body.querySelector('[role="alert"]')?.textContent).toBe("Chat thread revision is stale");
+    expect(body.textContent).not.toContain("[object Object]");
+    expect(body.querySelector<HTMLButtonElement>(".request-actions button")?.disabled).toBe(false);
+  });
+
   it("restores, validates, previews, and durably saves multi-step answers", async () => {
     vi.useFakeTimers();
     api.readDraft.mockResolvedValueOnce({
