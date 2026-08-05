@@ -90,7 +90,7 @@ export const chat = {
     noTopic: "Sin tema",
     changeFolderDraftWarning: "Cambiar la carpeta de trabajo elimina los adjuntos y menciones de archivos de este borrador. ¿Continuar?",
     welcomeTitle: (name: string) => `Te damos la bienvenida a #${name}`,
-    welcomeDescription: "Este es el inicio de un canal durable. Los mensajes permanecen juntos aquí aunque Ganbaru inicie una nueva sesión de IA en segundo plano.",
+    welcomeDescription: "Este es el inicio del canal.",
   },
   organization: {
     agent: "Agente",

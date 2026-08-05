@@ -1,6 +1,5 @@
 <script lang="ts">
   import Bot from "@lucide/svelte/icons/bot";
-  import Hash from "@lucide/svelte/icons/hash";
   import X from "@lucide/svelte/icons/x";
   import { tick } from "svelte";
   import { formatDateTime } from "$lib/i18n/formatters";
@@ -69,8 +68,7 @@
     <div class="feed-canvas">
       {#if channel}
         <header class="channel-introduction">
-          <span><Hash size={22} /></span>
-          <h1>{channel.name}</h1>
+          <h1>#{channel.name}</h1>
           <p>{channel.topic || t("chat.channels.welcomeDescription")}</p>
         </header>
       {/if}
@@ -107,8 +105,7 @@
   .channel-feed { min-height:0; flex:1; overflow-y:auto; overscroll-behavior:contain; }
   .feed-canvas { width:min(100%,54rem); min-height:100%; margin-inline:auto; padding:0 0.75rem 1rem; }
   .channel-introduction { max-width:54rem; padding:2.25rem 1rem 1.4rem; }
-  .channel-introduction > span { display:grid; width:2.75rem; height:2.75rem; place-items:center; border-radius:0.65rem; background:var(--accent); }
-  .channel-introduction h1 { margin-top:0.7rem; font-size:1.25rem; font-weight:700; }
+  .channel-introduction h1 { font-size:1.25rem; font-weight:700; }
   .channel-introduction p { margin-top:0.3rem; color:var(--muted-foreground); font-size:0.82rem; line-height:1.35rem; }
   .first-teammate { display:grid; grid-template-columns:auto minmax(0,1fr) auto auto; align-items:center; gap:0.65rem; margin:0 1rem 1rem; border:1px solid var(--border); border-radius:0.75rem; background:color-mix(in srgb,var(--card) 72%,transparent); padding:0.7rem 0.75rem; }
   .first-teammate > :global(svg) { color:var(--muted-foreground); }.first-teammate strong { font-size:0.78rem; }.first-teammate p { margin-top:0.12rem; color:var(--muted-foreground); font-size:0.7rem; line-height:1.05rem; }

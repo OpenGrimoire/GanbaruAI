@@ -87,7 +87,7 @@ export const chat = {
     noTopic: "No topic",
     changeFolderDraftWarning: "Changing the working folder removes this draft's attachments and file mentions. Continue?",
     welcomeTitle: (name: string) => `Welcome to #${name}`,
-    welcomeDescription: "This is the beginning of a durable channel. Messages stay together here even when Ganbaru starts a new AI session behind the scenes.",
+    welcomeDescription: "This is the start of the channel.",
   },
   organization: {
     agent: "Agent",
