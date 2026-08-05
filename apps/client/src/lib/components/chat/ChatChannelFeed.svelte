@@ -4,6 +4,7 @@
   import { tick } from "svelte";
   import { formatDateTime } from "$lib/i18n/formatters";
   import { unreadMessageStartIndex } from "$lib/chat/organizational-message-model";
+  import { organizationalScrollFollowsEnd } from "$lib/chat/organizational-scroll";
   import { getLocalization } from "$lib/i18n/translator.svelte";
   import { getChat } from "$lib/stores/chat.svelte";
   import ChatMessageComposer from "./ChatMessageComposer.svelte";
@@ -15,6 +16,8 @@
   const { t } = localization;
   let feed = $state<HTMLDivElement | null>(null);
   let teammateSetupDismissed = $state(false);
+  let followingEnd = true;
+  let restoredDestination: string | null = null;
   const channel = $derived(chat.selectedChannel);
   const destination = $derived(channel ? `channel:${channel.id}` : "channel:none");
   const unreadStart = $derived(unreadMessageStartIndex(
@@ -40,11 +43,64 @@
     await chat.openReplyThread(threadId);
   }
 
+  function rememberScrollPosition(): void {
+    if (!feed) return;
+    followingEnd = organizationalScrollFollowsEnd(feed);
+    chat.setOrganizationalScrollPosition(destination, feed.scrollTop);
+  }
+
+  function scrollToBottomForUserAction(): void {
+    const element = feed;
+    const key = destination;
+    if (!element) return;
+    followingEnd = true;
+    void tick().then(() => {
+      if (element !== feed || key !== destination) return;
+      element.scrollTop = element.scrollHeight;
+      chat.setOrganizationalScrollPosition(key, element.scrollTop);
+    });
+  }
+
+  function followNewContentIfAtBottom(): void {
+    const element = feed;
+    const key = destination;
+    if (!element || restoredDestination !== key || !followingEnd) return;
+    void tick().then(() => {
+      if (element !== feed || key !== destination || !followingEnd) return;
+      element.scrollTop = element.scrollHeight;
+      chat.setOrganizationalScrollPosition(key, element.scrollTop);
+    });
+  }
+
   $effect(() => {
     const element = feed;
     const key = destination;
     if (!element) return;
-    void tick().then(() => { element.scrollTop = chat.organizationalScrollPositions[key] ?? 0; });
+    restoredDestination = null;
+    void tick().then(() => {
+      if (element !== feed || key !== destination) return;
+      element.scrollTop = chat.organizationalScrollPositions[key] ?? element.scrollHeight;
+      followingEnd = organizationalScrollFollowsEnd(element);
+      restoredDestination = key;
+    });
+  });
+
+  $effect(() => {
+    const element = feed;
+    const key = destination;
+    if (!element || typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(() => {
+      if (restoredDestination !== key || !followingEnd) return;
+      element.scrollTop = element.scrollHeight;
+      chat.setOrganizationalScrollPosition(key, element.scrollTop);
+    });
+    observer.observe(element);
+    return () => observer.disconnect();
+  });
+
+  $effect(() => {
+    chat.channelMessages;
+    followNewContentIfAtBottom();
   });
 
   $effect(() => {
@@ -68,7 +124,7 @@
     role="feed"
     aria-busy={chat.channelMessagesLoading}
     onpointerdown={() => void chat.markSelectedChannelRead()}
-    onscroll={() => { if (feed) chat.setOrganizationalScrollPosition(destination, feed.scrollTop); }}
+    onscroll={rememberScrollPosition}
   >
     <div class="feed-canvas">
       {#if channel}
@@ -101,7 +157,7 @@
     </div>
   </div>
   {#if channel && !channel.archivedAt}
-    <div class="channel-composer-dock"><ChatMessageComposer {destination} placeholder={t("chat.organization.messageChannel", channel.name)} /></div>
+    <div class="channel-composer-dock"><ChatMessageComposer {destination} placeholder={t("chat.organization.messageChannel", channel.name)} onRequestScrollToBottom={scrollToBottomForUserAction} /></div>
   {/if}
 </section>
 

@@ -21,6 +21,7 @@
   } from "$lib/chat/contracts";
   import {
     composerTextareaLayout,
+    measureTextareaContentHeight,
     revealTextareaComposerCaret,
   } from "$lib/chat/composer-scroll";
   import {
@@ -56,10 +57,12 @@
     destination,
     placeholder,
     threadComposer = false,
+    onRequestScrollToBottom = () => undefined,
   }: {
     destination: string;
     placeholder: string;
     threadComposer?: boolean;
+    onRequestScrollToBottom?: () => void;
   } = $props();
 
   const chat = getChat();
@@ -166,12 +169,7 @@
     if (!textarea) return;
     const lineHeight = Number.parseFloat(getComputedStyle(textarea).lineHeight);
     if (!Number.isFinite(lineHeight) || lineHeight <= 0) return;
-    // Remove the two-line floor while measuring actual content. Some WebViews
-    // include the constrained height in scrollHeight at fractional scales.
-    textarea.style.minHeight = "0px";
-    textarea.style.height = "0px";
-    const contentHeight = textarea.scrollHeight;
-    textarea.style.removeProperty("min-height");
+    const contentHeight = measureTextareaContentHeight(textarea);
     const layout = composerTextareaLayout(contentHeight, lineHeight);
     textarea.style.height = `${layout.height}px`;
     textarea.style.overflowY = layout.overflowing ? "auto" : "hidden";
@@ -522,6 +520,7 @@
         await chat.postOrganizationalMessage(destination, {
           alsoSendToChannel: threadComposer && alsoSendToChannel,
         });
+        onRequestScrollToBottom();
       }
       clearComposerAfterDelivery();
     } catch (cause: unknown) {
@@ -552,6 +551,7 @@
     error = null;
     try {
       await chat.retryAssignment(assignment.id);
+      onRequestScrollToBottom();
     } catch (cause: unknown) {
       error = cause instanceof Error ? cause.message : String(cause);
     } finally {

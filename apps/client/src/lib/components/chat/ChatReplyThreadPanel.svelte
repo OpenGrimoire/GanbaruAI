@@ -9,6 +9,7 @@
     shouldGroupReplyMessages,
   } from "$lib/chat/reply-thread-model";
   import { formatDateTime } from "$lib/i18n/formatters";
+  import { organizationalScrollFollowsEnd } from "$lib/chat/organizational-scroll";
   import { getLocalization } from "$lib/i18n/translator.svelte";
   import { getChat } from "$lib/stores/chat.svelte";
   import ChatExecutionTimeline from "./ChatExecutionTimeline.svelte";
@@ -33,6 +34,8 @@
   let actionError = $state<string | null>(null);
   let executionSelectionRequest = 0;
   let executionThreadScope = $state<string | null>(null);
+  let followingEnd = true;
+  let restoredDestination: string | null = null;
   const page = $derived(chat.replyThread);
   const assignment = $derived(page?.assignment ?? null);
   const executionRun = $derived(latestRenderableAgentRun(page?.agentRuns ?? []));
@@ -78,6 +81,35 @@
     onClose();
   }
 
+  function rememberScrollPosition(): void {
+    if (!scroller) return;
+    followingEnd = organizationalScrollFollowsEnd(scroller);
+    chat.setOrganizationalScrollPosition(destination, scroller.scrollTop);
+  }
+
+  function scrollToBottomForUserAction(): void {
+    const element = scroller;
+    const key = destination;
+    if (!element) return;
+    followingEnd = true;
+    void tick().then(() => {
+      if (element !== scroller || key !== destination) return;
+      element.scrollTop = element.scrollHeight;
+      chat.setOrganizationalScrollPosition(key, element.scrollTop);
+    });
+  }
+
+  function followNewContentIfAtBottom(): void {
+    const element = scroller;
+    const key = destination;
+    if (!element || restoredDestination !== key || !followingEnd) return;
+    void tick().then(() => {
+      if (element !== scroller || key !== destination || !followingEnd) return;
+      element.scrollTop = element.scrollHeight;
+      chat.setOrganizationalScrollPosition(key, element.scrollTop);
+    });
+  }
+
   $effect(() => {
     const replyThreadId = chat.openReplyThreadId;
     if (executionThreadScope === replyThreadId) return;
@@ -104,7 +136,34 @@
     const key = destination;
     const presentationReady = executionPresentationReady;
     if (!element || !presentationReady) return;
-    void tick().then(() => { element.scrollTop = chat.organizationalScrollPositions[key] ?? 0; });
+    restoredDestination = null;
+    void tick().then(() => {
+      if (element !== scroller || key !== destination) return;
+      element.scrollTop = chat.organizationalScrollPositions[key] ?? element.scrollHeight;
+      followingEnd = organizationalScrollFollowsEnd(element);
+      restoredDestination = key;
+    });
+  });
+
+  $effect(() => {
+    const element = scroller;
+    const key = destination;
+    if (!element || typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(() => {
+      if (restoredDestination !== key || !followingEnd) return;
+      element.scrollTop = element.scrollHeight;
+      chat.setOrganizationalScrollPosition(key, element.scrollTop);
+    });
+    observer.observe(element);
+    return () => observer.disconnect();
+  });
+
+  $effect(() => {
+    page;
+    renderEntries;
+    chat.timelineItems;
+    chat.timelinePages;
+    followNewContentIfAtBottom();
   });
 
   $effect(() => {
@@ -146,7 +205,7 @@
     bind:this={scroller}
     class="thread-scroll"
     aria-busy={!executionPresentationReady || chat.replyThreadLoading || undefined}
-    onscroll={() => { if (scroller) chat.setOrganizationalScrollPosition(destination, scroller.scrollTop); }}
+    onscroll={rememberScrollPosition}
   >
     {#if chat.replyThreadError}<p class="thread-error" role="alert">{chat.replyThreadError}</p>{/if}
     {#if page && executionPresentationReady}
@@ -181,7 +240,7 @@
 
   {#if page && !chat.selectedChannel?.archivedAt}
     {#if chat.interaction?.pendingRequest}<div class="thread-request"><ChatRequestPanel pending={chat.interaction.pendingRequest} /></div>{/if}
-    <div class="thread-composer"><ChatMessageComposer {destination} threadComposer placeholder={t("chat.organization.replyInThread")} /></div>
+    <div class="thread-composer"><ChatMessageComposer {destination} threadComposer placeholder={t("chat.organization.replyInThread")} onRequestScrollToBottom={scrollToBottomForUserAction} /></div>
   {/if}
 </section>
 

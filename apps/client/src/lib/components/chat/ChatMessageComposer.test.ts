@@ -134,6 +134,7 @@ describe("ChatMessageComposer", () => {
     chat.replyThread = page;
     vi.spyOn(chat, "listScheduledOrganizationalMessages").mockResolvedValue([]);
     const retry = vi.spyOn(chat, "retryAssignment").mockResolvedValue();
+    const requestScrollToBottom = vi.fn();
     target = document.createElement("div");
     document.body.append(target);
     component = mount(ChatMessageComposer, {
@@ -142,6 +143,7 @@ describe("ChatMessageComposer", () => {
         destination: `reply-thread:${page.thread.id}`,
         placeholder: "Reply",
         threadComposer: true,
+        onRequestScrollToBottom: requestScrollToBottom,
       },
     });
 
@@ -151,7 +153,10 @@ describe("ChatMessageComposer", () => {
     expect(retryButton?.textContent).toBe("Retry work");
     retryButton?.click();
 
-    await vi.waitFor(() => expect(retry).toHaveBeenCalledWith(page.assignment?.id));
+    await vi.waitFor(() => {
+      expect(retry).toHaveBeenCalledWith(page.assignment?.id);
+      expect(requestScrollToBottom).toHaveBeenCalledOnce();
+    });
   });
 
   it("uses one send action and resets channel sharing after a thread reply", async () => {
@@ -160,6 +165,7 @@ describe("ChatMessageComposer", () => {
     const post = vi.spyOn(chat, "postOrganizationalMessage").mockResolvedValue(
       undefined as unknown as PostChatMessageResult,
     );
+    const requestScrollToBottom = vi.fn();
     target = document.createElement("div");
     document.body.append(target);
     component = mount(ChatMessageComposer, {
@@ -168,6 +174,7 @@ describe("ChatMessageComposer", () => {
         destination,
         placeholder: "Reply",
         threadComposer: true,
+        onRequestScrollToBottom: requestScrollToBottom,
       },
     });
 
@@ -190,12 +197,18 @@ describe("ChatMessageComposer", () => {
     await vi.waitFor(() => {
       expect(post).toHaveBeenCalledWith(expect.any(String), { alsoSendToChannel: true });
       expect(share?.getAttribute("aria-pressed")).toBe("false");
+      expect(requestScrollToBottom).toHaveBeenCalledOnce();
     });
 
     await unmount(component);
     component = mount(ChatMessageComposer, {
       target,
-      props: { destination, placeholder: "Reply", threadComposer: true },
+      props: {
+        destination,
+        placeholder: "Reply",
+        threadComposer: true,
+        onRequestScrollToBottom: requestScrollToBottom,
+      },
     });
     expect(target.querySelector<HTMLTextAreaElement>("textarea")?.value).toBe("");
   });
@@ -227,7 +240,11 @@ describe("ChatMessageComposer", () => {
     if (!textarea) throw new Error("Expected the organizational composer textarea");
     textarea.style.lineHeight = "20px";
     let contentHeight = 120;
-    Object.defineProperty(textarea, "scrollHeight", { get: () => contentHeight });
+    const liveHeightsDuringMeasurement: string[] = [];
+    vi.spyOn(HTMLTextAreaElement.prototype, "scrollHeight", "get").mockImplementation(function (this: HTMLTextAreaElement) {
+      if (this !== textarea) liveHeightsDuringMeasurement.push(textarea.style.height);
+      return contentHeight;
+    });
     await vi.waitFor(() => expect(callbacks).toHaveLength(1));
 
     callbacks[0]?.(
@@ -235,6 +252,7 @@ describe("ChatMessageComposer", () => {
       {} as ResizeObserver,
     );
     expect(textarea.style.height).toBe("120px");
+    expect(liveHeightsDuringMeasurement).not.toContain("0px");
 
     contentHeight = 40;
     callbacks[0]?.(
@@ -242,6 +260,7 @@ describe("ChatMessageComposer", () => {
       {} as ResizeObserver,
     );
     expect(textarea.style.height).toBe("40px");
+    expect(liveHeightsDuringMeasurement).not.toContain("0px");
   });
 
   it("arms scheduling without a draft and waits for the send action", async () => {

@@ -21,6 +21,45 @@ export function composerTextareaLayout(
   };
 }
 
+/** Measures textarea content without collapsing the live composer layout. */
+export function measureTextareaContentHeight(textarea: HTMLTextAreaElement): number {
+  const ownerDocument = textarea.ownerDocument;
+  if (!ownerDocument.body) return textarea.scrollHeight;
+  const computed = getComputedStyle(textarea);
+  const mirror = textarea.cloneNode(false) as HTMLTextAreaElement;
+  mirror.value = textarea.value || " ";
+  mirror.rows = 1;
+  mirror.tabIndex = -1;
+  mirror.setAttribute("aria-hidden", "true");
+  mirror.style.position = "fixed";
+  mirror.style.top = "0";
+  mirror.style.left = "-10000px";
+  mirror.style.boxSizing = computed.boxSizing;
+  mirror.style.width = `${textarea.getBoundingClientRect().width || textarea.clientWidth}px`;
+  mirror.style.height = "0";
+  mirror.style.minHeight = "0";
+  mirror.style.maxHeight = "none";
+  mirror.style.overflow = "hidden";
+  mirror.style.visibility = "hidden";
+  mirror.style.pointerEvents = "none";
+  mirror.style.fontFamily = computed.fontFamily;
+  mirror.style.fontSize = computed.fontSize;
+  mirror.style.fontStyle = computed.fontStyle;
+  mirror.style.fontWeight = computed.fontWeight;
+  mirror.style.letterSpacing = computed.letterSpacing;
+  mirror.style.lineHeight = computed.lineHeight;
+  mirror.style.padding = computed.padding;
+  mirror.style.borderWidth = computed.borderWidth;
+  mirror.style.whiteSpace = computed.whiteSpace;
+  mirror.style.overflowWrap = computed.overflowWrap;
+  mirror.style.wordBreak = computed.wordBreak;
+  mirror.style.tabSize = computed.tabSize;
+  ownerDocument.body.append(mirror);
+  const contentHeight = mirror.scrollHeight;
+  mirror.remove();
+  return contentHeight;
+}
+
 /** Resolves the native scroll position that fully reveals one caret line. */
 export function composerScrollTopForCaret(
   currentScrollTop: number,
