@@ -93,7 +93,7 @@
       {#each chat.channelMessages as message, index (message.itemId)}
         {#if index === unreadStart && (channel?.unreadCount ?? 0) > 0}<div class="divider unread"><span>{t("chat.organization.unreadMessages")}</span></div>{/if}
         {#if index === 0 || !sameDay(chat.channelMessages[index - 1].createdAt, message.createdAt)}
-          <div class="divider"><span>{formatDateTime(localization.locale, Date.parse(message.createdAt), { dateStyle: "full" })}</span></div>
+          <div class="divider" class:first-date={index === 0}><span>{formatDateTime(localization.locale, Date.parse(message.createdAt), { dateStyle: "full" })}</span></div>
         {/if}
         <ChatOrganizationalMessage {message} grouped={grouped(index)} onOpenThread={(trigger) => { if (message.replyThread) void openThread(message.replyThread.id, trigger); }} />
       {/each}
@@ -108,14 +108,15 @@
 <style>
   .channel-surface { display:flex; min-height:0; flex:1; flex-direction:column; overflow:hidden; }
   .channel-feed { min-height:0; flex:1; overflow-y:auto; overscroll-behavior:contain; }
-  .feed-canvas { width:min(100%,54rem); min-height:100%; margin-inline:auto; padding:0 0.75rem 1rem; }
-  .channel-introduction { max-width:54rem; padding:2.25rem 1rem 1.4rem; }
+  .feed-canvas { --channel-feed-section-space:1.2rem; width:min(100%,54rem); min-height:100%; margin-inline:auto; padding:0 0.75rem 1rem; }
+  .channel-introduction { max-width:54rem; padding:var(--channel-feed-section-space) 1rem 0; }
   .channel-introduction h1 { font-size:1.25rem; font-weight:700; }
   .channel-introduction p { margin-top:0.3rem; color:var(--muted-foreground); font-size:0.82rem; line-height:1.35rem; }
   .first-teammate { display:grid; grid-template-columns:auto minmax(0,1fr) auto auto; align-items:center; gap:0.65rem; margin:0 1rem 1rem; border:1px solid var(--border); border-radius:0.75rem; background:color-mix(in srgb,var(--card) 72%,transparent); padding:0.7rem 0.75rem; }
   .first-teammate > :global(svg) { color:var(--muted-foreground); }.first-teammate strong { font-size:0.78rem; }.first-teammate p { margin-top:0.12rem; color:var(--muted-foreground); font-size:0.7rem; line-height:1.05rem; }
   .setup-teammate { min-height:1.9rem; border-radius:0.45rem; background:var(--primary); padding-inline:0.65rem; color:var(--primary-foreground); font-size:0.7rem; font-weight:600; }.dismiss-setup { display:grid; width:1.8rem; height:1.8rem; place-items:center; border-radius:0.4rem; color:var(--muted-foreground); }.dismiss-setup:hover { background:var(--accent); color:var(--foreground); }
   .divider { display:flex; align-items:center; gap:0.5rem; margin:0.75rem 0; color:var(--muted-foreground); font-size:0.65rem; }
+  .divider.first-date { margin-top:var(--channel-feed-section-space); margin-bottom:calc(var(--channel-feed-section-space) - var(--chat-conversation-entry-space,0.45rem)); }
   .divider::before,.divider::after { height:1px; flex:1; background:var(--border); content:""; }.divider.unread { color:var(--primary); }.divider.unread::before,.divider.unread::after { background:color-mix(in srgb,var(--primary) 55%,var(--border)); }
   .load-older { display:block; margin:0.6rem auto; border-radius:0.4rem; padding:0.3rem 0.55rem; color:var(--muted-foreground); font-size:0.7rem; }.load-older:hover { background:var(--accent); }
   .channel-composer-dock { display:flex; flex:0 0 auto; justify-content:center; padding:0.5rem 1rem 0.75rem; background:linear-gradient(to bottom,transparent,var(--cal-bg) 18%); }
