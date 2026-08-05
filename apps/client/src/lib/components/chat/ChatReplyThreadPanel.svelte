@@ -261,7 +261,7 @@
   .date-divider { display:flex; align-items:center; gap:0.5rem; margin:0.75rem; color:var(--muted-foreground); font-size:0.65rem; }
   .date-divider::before,.date-divider::after { height:1px; flex:1; background:var(--border); content:""; }
   .thread-request { flex:0 0 auto; border-top:1px solid var(--border); padding:0.5rem; }
-  .thread-composer { display:flex; flex:0 0 auto; justify-content:center; padding:0.5rem; }
+  .thread-composer { display:flex; flex:0 0 auto; justify-content:center; padding:0.5rem 0.5rem 0.75rem; }
   .thread-error,.thread-loading { padding:0.6rem; color:var(--destructive); font-size:0.7rem; }.thread-loading { color:var(--muted-foreground); }
   .load-older { display:block; margin:0.3rem auto 0.6rem; border-radius:0.4rem; padding:0.3rem 0.5rem; color:var(--muted-foreground); font-size:0.68rem; }.load-older:hover { background:var(--accent); }
   @media (hover:none) { .tab-close { opacity:1; } }
