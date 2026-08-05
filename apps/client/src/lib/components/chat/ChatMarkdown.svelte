@@ -58,16 +58,18 @@
 <div bind:this={root} class="chat-markdown">{@html safeHtml}</div>
 
 <style>
-  .chat-markdown { overflow-wrap: anywhere; line-height: 1.65; }
-  .chat-markdown :global(p + p), .chat-markdown :global(p + ul), .chat-markdown :global(p + ol), .chat-markdown :global(pre), .chat-markdown :global(table), .chat-markdown :global(blockquote) { margin-top: 0.8rem; }
-  .chat-markdown :global(h1), .chat-markdown :global(h2), .chat-markdown :global(h3) { margin-top: 1.1rem; font-weight: 650; }
+  .chat-markdown { overflow-wrap:anywhere; line-height:inherit; }
+  .chat-markdown :global(p + p), .chat-markdown :global(p + ul), .chat-markdown :global(p + ol), .chat-markdown :global(ul + p), .chat-markdown :global(ol + p), .chat-markdown :global(pre + p), .chat-markdown :global(table + p), .chat-markdown :global(blockquote + p) { margin-top:var(--chat-conversation-flow-space,0.5rem); }
+  .chat-markdown :global(pre:not(:first-child)), .chat-markdown :global(table:not(:first-child)), .chat-markdown :global(blockquote:not(:first-child)) { margin-top:var(--chat-conversation-block-space,0.65rem); }
+  .chat-markdown :global(h1), .chat-markdown :global(h2), .chat-markdown :global(h3) { font-weight:650; }
+  .chat-markdown :global(h1:not(:first-child)), .chat-markdown :global(h2:not(:first-child)), .chat-markdown :global(h3:not(:first-child)) { margin-top:0.8rem; }
   .chat-markdown :global(ul), .chat-markdown :global(ol) { padding-left: 1.4rem; }
   .chat-markdown :global(ul) { list-style: disc; }
   .chat-markdown :global(ol) { list-style: decimal; }
   .chat-markdown :global(blockquote) { border-left: 2px solid var(--border); padding-left: 0.8rem; color: var(--muted-foreground); }
-  .chat-markdown :global(pre) { overflow-x: auto; border: 1px solid var(--border); border-radius: 0.5rem; background: var(--muted); padding: 0.65rem; font-size: 0.733333rem; }
+  .chat-markdown :global(pre) { overflow-x:auto; border:1px solid var(--border); border-radius:0.5rem; background:var(--muted); padding:0.6rem; font-size:0.733333rem; }
   .chat-markdown :global(pre.chat-code-wrap code) { white-space: pre-wrap; overflow-wrap: anywhere; }
-  .chat-markdown :global(.chat-code-toolbar) { display: flex; align-items: center; gap: 0.5rem; margin: -0.35rem -0.35rem 0.5rem; color: var(--muted-foreground); font-family: sans-serif; font-size: 0.666667rem; }
+  .chat-markdown :global(.chat-code-toolbar) { display:flex; align-items:center; gap:0.5rem; margin:-0.3rem -0.3rem 0.4rem; color:var(--muted-foreground); font-family:sans-serif; font-size:0.666667rem; }
   .chat-markdown :global(.chat-code-toolbar span) { margin-right: auto; }
   .chat-markdown :global(.chat-code-toolbar button) { border-radius: 0.25rem; padding: 0.15rem 0.35rem; }
   .chat-markdown :global(.chat-code-toolbar button:hover) { background: var(--accent); color: var(--foreground); }

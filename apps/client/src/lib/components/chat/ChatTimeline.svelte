@@ -7,7 +7,6 @@
   import ArrowDown from "@lucide/svelte/icons/arrow-down";
   import ChevronRight from "@lucide/svelte/icons/chevron-right";
   import CircleAlert from "@lucide/svelte/icons/circle-alert";
-  import Copy from "@lucide/svelte/icons/copy";
   import FileText from "@lucide/svelte/icons/file-text";
   import Globe from "@lucide/svelte/icons/globe";
   import ImageIcon from "@lucide/svelte/icons/image";
@@ -16,14 +15,12 @@
   import MessageSquare from "@lucide/svelte/icons/message-square";
   import Search from "@lucide/svelte/icons/search";
   import Settings from "@lucide/svelte/icons/settings";
-  import SmilePlus from "@lucide/svelte/icons/smile-plus";
   import Terminal from "@lucide/svelte/icons/terminal";
   import Wrench from "@lucide/svelte/icons/wrench";
   import RotateCcw from "@lucide/svelte/icons/rotate-ccw";
+  import { executionMessageActionTarget } from "$lib/chat/message-action-target";
   import { chatScrollBehavior } from "$lib/chat/responsive-layout";
   import type { ChatTurnId } from "$lib/chat/contracts";
-  import type { ChatMessageReaction } from "$lib/chat/organizational-message-model";
-  import { LOCAL_CHAT_PARTICIPANT_ID } from "$lib/chat/participant-display";
   import { activityFilePath, fileChangePresentation, fileReadActivityPresentation, fileSearchActivityPresentation, isFileReadActivity, isFileSearchActivity, isImageViewActivity, summarizeActivityKinds, transientActivitySummary, type ActivitySummaryCount } from "$lib/chat/activity-presentation";
   import { chatModelParticipant, type ChatModelParticipant } from "$lib/chat/participant-identity";
   import { buildTimelineDisplayRows, includeOptimisticTimelineMessage, projectTimelineReadModel, timelineActivityShowsLiveStatus, timelineActivitySupportsDisclosure, timelineModelGroupStartIds, timelineRowsForTurn, type TimelineActivityGroupRow, type TimelineActivityRow, type TimelineDisplayRow, type TimelineMessageRow, type TimelinePlanRow, type TimelineTurnFoldRow } from "$lib/chat/timeline-model";
@@ -34,12 +31,12 @@
   import { getPreferences } from "$lib/stores/preferences.svelte";
   import { getSettingsLauncher } from "$lib/stores/settingsLauncher.svelte";
   import { writeTextToClipboard } from "$lib/utils/clipboard";
-  import type IconPicker from "$lib/components/icon-picker/IconPicker.svelte";
-  import ProjectIcon from "$lib/components/projects/ProjectIcon.svelte";
   import ChatMarkdown from "./ChatMarkdown.svelte";
   import ChatActivityDetail from "./ChatActivityDetail.svelte";
   import ChatChangedFilesSummary from "./ChatChangedFilesSummary.svelte";
   import ChatImageGallery from "./ChatImageGallery.svelte";
+  import ChatMessageActionToolbar from "./ChatMessageActionToolbar.svelte";
+  import ChatMessageReactionList from "./ChatMessageReactionList.svelte";
   import ChatModelAvatar from "./ChatModelAvatar.svelte";
   import ProfileAvatar from "$lib/components/profile/ProfileAvatar.svelte";
 
@@ -82,11 +79,8 @@
   let previousItemCount = $state(0);
   let restoredThreadId = $state<string | null>(null);
   let reducedMotion = $state(false);
-  let copiedMessageId = $state<string | null>(null);
-  let copiedMessageTimer: ReturnType<typeof setTimeout> | null = null;
-  let ReactionPicker = $state<typeof IconPicker | null>(null);
-  let reactionPickerMessageId = $state<string | null>(null);
-  let reactionPickerValue = $state("emoji:👍");
+  let hoveredActionMessageId = $state<string | null>(null);
+  let hoveredActionTurnId = $state<ChatTurnId | null>(null);
   let disclosureMeasureFrame: number | null = null;
   let destroyed = false;
   let pendingDisclosureAnchor: { rowId: string; viewportOffset: number } | null = null;
@@ -114,11 +108,24 @@
   const displayRows = $derived(buildTimelineDisplayRows(timelineRows.filter((row) => row.kind !== "plan" || !dismissedPlans.includes(row.id)), projection.turns, new Set(expandedTurns), new Set(expandedGroups)));
   const turnsById = $derived(new Map(projection.turns.map((turn) => [turn.id, turn])));
   const modelGroupStartIds = $derived(timelineModelGroupStartIds(displayRows));
+  const assistantActionMessages = $derived.by(() => {
+    const messages = new Map<ChatTurnId, TimelineMessageRow>();
+    for (const row of displayRows) {
+      if (row.kind !== "message" || row.role !== "assistant" || row.state !== "complete" || !row.turnId) continue;
+      const current = messages.get(row.turnId);
+      const replacesCurrent = !current
+        || row.phase === "final_answer" && current.phase !== "final_answer"
+        || row.phase === current.phase && row.sequence > current.sequence;
+      if (replacesCurrent) {
+        messages.set(row.turnId, row);
+      }
+    }
+    return messages;
+  });
   const virtualWindow = $derived(computeTimelineVirtualWindow(displayRows, measuredHeights, scrollTop, viewportHeight));
   const renderedRows = $derived(embedded
     ? displayRows.map((row, index) => ({ row, index }))
     : virtualWindow.items);
-  const localReactionDisplayName = $derived(preferences.profileDisplayName.trim() || t("chat.timeline.you"));
   const selectedWorkingFolder = $derived(chat.selectedWorkingFolder);
   const selectedProvider = $derived(chat.settings?.providerInstances.find((provider) => provider.configuration.instanceId === selectedThread?.providerInstanceId) ?? null);
   const minimapRows = $derived(timelineMinimapRows(displayRows));
@@ -129,10 +136,8 @@
       ? latestTimelinePage.revision
       : latestTimelinePage.threadRevision
     : 0}:${chat.pendingUserMessage?.row.id ?? ""}`);
-  const bottomPadding = $derived(
-    (embedded ? 0 : virtualWindow.paddingBottom)
-      + (bottomInsetPx > 0 ? bottomInsetPx + COMPOSER_READING_GAP_PX : TIMELINE_EDGE_PADDING_PX),
-  );
+  const bottomPadding = $derived(virtualWindow.paddingBottom
+    + (bottomInsetPx > 0 ? bottomInsetPx + COMPOSER_READING_GAP_PX : TIMELINE_EDGE_PADDING_PX));
 
   $effect(() => {
     if (!chat.timelineLoading || displayRows.length > 0) {
@@ -175,7 +180,6 @@
 
   onDestroy(() => {
     destroyed = true;
-    if (copiedMessageTimer) clearTimeout(copiedMessageTimer);
     if (disclosureMeasureFrame !== null) cancelAnimationFrame(disclosureMeasureFrame);
   });
 
@@ -402,55 +406,23 @@
     return list.includes(id) ? list.filter((entry) => entry !== id) : [...list, id];
   }
 
-  function copy(value: string, messageId: string | null = null): void {
-    void writeTextToClipboard(value).then(() => {
-      if (!messageId) return;
-      copiedMessageId = messageId;
-      if (copiedMessageTimer) clearTimeout(copiedMessageTimer);
-      copiedMessageTimer = setTimeout(() => {
-        copiedMessageId = null;
-        copiedMessageTimer = null;
-      }, 2_000);
-    }).catch(reportError);
+  function copy(value: string): void {
+    void writeTextToClipboard(value).catch(reportError);
   }
 
-  function reactionMessageKey(messageId: string): string {
-    return `timeline:${messageId}`;
+  function showModelActionToolbar(turnId: ChatTurnId): void {
+    hoveredActionMessageId = null;
+    hoveredActionTurnId = turnId;
   }
 
-  function reactionsForMessage(messageId: string): readonly ChatMessageReaction[] {
-    return chat.messageReactionsFor(reactionMessageKey(messageId));
+  function showUserActionToolbar(messageId: string): void {
+    hoveredActionMessageId = messageId;
+    hoveredActionTurnId = null;
   }
 
-  async function openReactionPicker(messageId: string): Promise<void> {
-    reactionPickerMessageId = messageId;
-    if (ReactionPicker) return;
-    try {
-      ReactionPicker = (await import("$lib/components/icon-picker/IconPicker.svelte")).default;
-    } catch (error: unknown) {
-      reactionPickerMessageId = null;
-      reportError(error);
-    }
-  }
-
-  function toggleReaction(messageId: string, value: string): void {
-    reactionPickerValue = value;
-    chat.toggleSessionMessageReaction(
-      reactionMessageKey(messageId),
-      value,
-      localReactionDisplayName,
-    );
-  }
-
-  function localUserSelected(reaction: ChatMessageReaction): boolean {
-    return reaction.participants.some(({ participantId }) => participantId === LOCAL_CHAT_PARTICIPANT_ID);
-  }
-
-  function reactionTooltip(reaction: ChatMessageReaction): string {
-    const names = reaction.participants.map((participant) => participant.participantId === LOCAL_CHAT_PARTICIPANT_ID
-      ? localReactionDisplayName
-      : participant.displayName);
-    return t("chat.organization.reactedBy", formatList(localization.locale, names), names.length);
+  function clearActionToolbar(): void {
+    hoveredActionMessageId = null;
+    hoveredActionTurnId = null;
   }
 
   function reportError(error: unknown): void {
@@ -784,62 +756,6 @@
   {/if}
 {/snippet}
 
-{#snippet messageReactionList(message: TimelineMessageRow)}
-  {@const reactions = reactionsForMessage(message.id)}
-  {#if reactions.length > 0}
-    <div class="message-reaction-list">
-      {#each reactions as reaction (reaction.value)}
-        <button
-          type="button"
-          class="message-reaction-chip"
-          class:selected={localUserSelected(reaction)}
-          aria-pressed={localUserSelected(reaction)}
-          aria-label={reactionTooltip(reaction)}
-          data-app-tooltip={reactionTooltip(reaction)}
-          onclick={() => toggleReaction(message.id, reaction.value)}
-        >
-          <ProjectIcon name={reaction.value} size={12} />
-          <span>{reaction.participants.length}</span>
-        </button>
-      {/each}
-    </div>
-  {/if}
-{/snippet}
-
-{#snippet addReactionButton(message: TimelineMessageRow)}
-  {#if ReactionPicker && reactionPickerMessageId === message.id}
-    <ReactionPicker
-      value={reactionPickerValue}
-      onChange={(value) => toggleReaction(message.id, value)}
-      ariaLabel={t("chat.organization.addReaction")}
-      showIcons={false}
-      showUpload={false}
-      showRemove={false}
-      initiallyOpen
-    >
-      {#snippet trigger({ open, toggle })}
-        <button
-          type="button"
-          class="message-action-button"
-          class:active={open}
-          aria-label={t("chat.organization.addReaction")}
-          aria-expanded={open}
-          data-app-tooltip={t("chat.organization.addReaction")}
-          onclick={toggle}
-        ><SmilePlus size={14} /></button>
-      {/snippet}
-    </ReactionPicker>
-  {:else}
-    <button
-      type="button"
-      class="message-action-button"
-      aria-label={t("chat.organization.addReaction")}
-      data-app-tooltip={t("chat.organization.addReaction")}
-      onclick={() => void openReactionPicker(message.id)}
-    ><SmilePlus size={14} /></button>
-  {/if}
-{/snippet}
-
 {#snippet modelRowContent(row: TimelineDisplayRow)}
   {#if row.kind === "message"}
     {@const message = row as TimelineMessageRow}
@@ -860,19 +776,7 @@
         />
       {/if}
       {#if message.state === "complete"}
-        <div class="chat-message-meta mt-2 flex flex-wrap items-center gap-2 text-muted-foreground">
-          {@render messageReactionList(message)}
-          <div class="message-action-controls">
-            {@render addReactionButton(message)}
-            <button
-              type="button"
-              class="message-action-button"
-              aria-label={copiedMessageId === message.id ? t("chat.timeline.copied") : t("chat.timeline.copy")}
-              title={copiedMessageId === message.id ? t("chat.timeline.copied") : t("chat.timeline.copy")}
-              onclick={() => copy(message.markdown, message.id)}
-            ><Copy size={13} /></button>
-          </div>
-        </div>
+        <ChatMessageReactionList target={executionMessageActionTarget(message)} />
       {/if}
     </article>
   {:else if row.kind === "activity"}
@@ -933,13 +837,38 @@
   {#if selectedProvider && (!selectedProvider.configuration.enabled || selectedProvider.lastProbe?.state !== "healthy")}<div class="chat-timeline-banner text-status-tentative"><CircleAlert size={14} /><span>{selectedProvider.lastProbe?.detail ?? t("chat.status.providerUnavailable")}</span><button type="button" onclick={() => void chat.probeProvider(selectedProvider.configuration.instanceId).catch(reportError)}>{t("chat.timeline.retry")}</button><button type="button" onclick={() => settings.open("chat", { chatSubsection: "providers" })}><Settings size={13} />{t("chat.timeline.openSettings")}</button></div>{/if}
   {#if selectedThread?.state === "error"}<div class="chat-timeline-banner text-destructive"><CircleAlert size={14} /><span>{t("chat.timeline.threadError")}</span><button type="button" onclick={() => void chat.startNewChannelSession().catch(reportError)}><MessageSquare size={13} />{t("chat.timeline.startNewThread")}</button></div>{/if}
   {#if operationError || chat.timelineError}<div role="alert" class="chat-timeline-banner text-destructive"><span>{operationError ?? chat.timelineError}</span>{#if selectedThread || chat.selectedChannelId}<button type="button" onclick={() => void retryTimeline().catch(reportError)}>{t("chat.timeline.retry")}</button>{/if}</div>{/if}
-  <div bind:this={scroller} class="chat-timeline-scroller h-full overflow-y-auto" role="feed" aria-busy={chat.timelineLoading || undefined} aria-label={t("chat.title")} onscroll={handleScroll}>
-    <div bind:this={timelineContent} class="chat-timeline-content mx-auto flex min-h-full flex-col justify-end py-4" style={`padding-top:${embedded ? 8 : virtualWindow.paddingTop + TIMELINE_EDGE_PADDING_PX}px;padding-bottom:${bottomPadding}px`}>
+  <div bind:this={scroller} class="chat-timeline-scroller h-full overflow-y-auto" role="feed" aria-busy={chat.timelineLoading || undefined} aria-label={t("chat.title")} onscroll={handleScroll} onpointerleave={clearActionToolbar}>
+    <div
+      bind:this={timelineContent}
+      class="chat-timeline-content mx-auto flex min-h-full flex-col justify-end"
+      style={`padding-top:${embedded ? "var(--chat-conversation-entry-space, 0.45rem)" : `${virtualWindow.paddingTop + TIMELINE_EDGE_PADDING_PX}px`};padding-bottom:${embedded ? "var(--chat-conversation-entry-space, 0.45rem)" : `${bottomPadding}px`}`}
+    >
       {#if loadingOlder}<div class="mb-3 flex justify-center text-xs text-muted-foreground"><LoaderCircle size={14} class="animate-spin" />{t("chat.timeline.loadingOlder")}</div>{/if}
       {#if initialTimelineLoadingVisible}<div class="py-12 text-center text-sm text-muted-foreground">{t("common.loading")}</div>{/if}
       {#each renderedRows as virtual (virtual.row.id)}
         {@const row = virtual.row}
-        <div data-timeline-row-id={row.id} class="chat-timeline-row" class:optimistic={row.id === optimisticMessage?.id} class:participant-start={row.kind === "message" && row.role === "user" || modelGroupStartIds.has(row.id)} role="article" aria-label={rowAriaLabel(row)} aria-posinset={virtual.index + 1} aria-setsize={displayRows.length} tabindex="-1">
+        <div
+          data-timeline-row-id={row.id}
+          class="chat-timeline-row"
+          class:optimistic={row.id === optimisticMessage?.id}
+          class:participant-start={row.kind === "message" && row.role === "user" || modelGroupStartIds.has(row.id)}
+          class:model-owned={isModelOwnedRow(row)}
+          role="article"
+          aria-label={rowAriaLabel(row)}
+          aria-posinset={virtual.index + 1}
+          aria-setsize={displayRows.length}
+          tabindex="-1"
+          onpointerenter={() => {
+            if (isModelOwnedRow(row) && row.turnId) showModelActionToolbar(row.turnId);
+            else if (row.kind === "message" && row.role === "user") showUserActionToolbar(row.id);
+            else clearActionToolbar();
+          }}
+          onpointerleave={() => {
+            if (row.kind === "message" && row.role === "user" && hoveredActionMessageId === row.id) {
+              hoveredActionMessageId = null;
+            }
+          }}
+        >
           {#if row.kind === "message"}
             {@const message = row as TimelineMessageRow}
             {@const messageExpanded = expandedMessages.includes(message.id)}
@@ -953,15 +882,27 @@
                     <div use:measureExpandableHeight class="chat-message-expandable" class:collapsed={message.markdown.length > 1200 && !messageExpanded} class:expanded={messageExpanded}><div><p class="wrap-break-word whitespace-pre-wrap">{message.markdown}</p></div></div>
                     {#if messageImages(message).length > 0}<ChatImageGallery images={messageImages(message)} />{/if}
                     {#if message.userContext && hasMessageContextChips(message)}<div class="chat-user-context">{#each message.userContext.attachments.filter((attachment) => attachment.kind !== "image" || !attachment.id) as attachment}<button type="button" title={attachment.status ?? t("chat.timeline.attachment")} onclick={() => copy(attachment.displayName)}><FileText size={12} /><span>{attachment.displayName}</span>{#if attachment.byteSize !== null}<small>{formatNumber(localization.locale, attachment.byteSize)} B</small>{/if}</button>{/each}{#each message.userContext.mentions as mention}<button type="button" title={t("chat.timeline.mention")} onclick={() => copy(mention.relativePath)}><span>@</span><span>{mention.relativePath}</span></button>{/each}{#each message.userContext.terminalContext as context}<button type="button" title={t("chat.timeline.terminalContext")} onclick={() => copy(context)}><Terminal size={12} /><span>{context}</span></button>{/each}</div>{/if}
-                    <div class="chat-message-meta mt-2 flex flex-wrap items-center gap-2 text-muted-foreground">{@render messageReactionList(message)}<div class="message-action-controls">{@render addReactionButton(message)}<button type="button" class="message-action-button" aria-label={copiedMessageId === message.id ? t("chat.timeline.copied") : t("chat.timeline.copy")} title={copiedMessageId === message.id ? t("chat.timeline.copied") : t("chat.timeline.copy")} onclick={() => copy(message.markdown, message.id)}><Copy size={13} /></button>{#if message.markdown.length > 1200}<button type="button" data-timeline-disclosure-expanded={messageExpanded} aria-expanded={messageExpanded} onclick={() => { expandedMessages = toggle(expandedMessages, message.id); }}>{messageExpanded ? t("chat.timeline.showLess") : t("chat.timeline.showMore")}</button>{/if}{#if message.userContext?.preCheckpointId && (!message.sourceThreadId || message.sourceThreadId === chat.selectedThreadId)}<button type="button" class="inline-flex items-center gap-1" onclick={() => window.dispatchEvent(new CustomEvent("ganbaru-ai:chat-revert-message", { detail: { threadId: message.sourceThreadId ?? chat.selectedThreadId, checkpointId: message.userContext?.preCheckpointId, turnId: message.turnId } }))}><RotateCcw size={11} />{t("chat.timeline.revert")}</button>{/if}</div></div>
+                    <ChatMessageReactionList target={executionMessageActionTarget(message)} />
+                    {#if message.markdown.length > 1200 || message.userContext?.preCheckpointId && (!message.sourceThreadId || message.sourceThreadId === chat.selectedThreadId)}
+                      <div class="chat-message-secondary-actions text-muted-foreground">
+                        {#if message.markdown.length > 1200}<button type="button" data-timeline-disclosure-expanded={messageExpanded} aria-expanded={messageExpanded} onclick={() => { expandedMessages = toggle(expandedMessages, message.id); }}>{messageExpanded ? t("chat.timeline.showLess") : t("chat.timeline.showMore")}</button>{/if}
+                        {#if message.userContext?.preCheckpointId && (!message.sourceThreadId || message.sourceThreadId === chat.selectedThreadId)}<button type="button" class="inline-flex items-center gap-1" onclick={() => window.dispatchEvent(new CustomEvent("ganbaru-ai:chat-revert-message", { detail: { threadId: message.sourceThreadId ?? chat.selectedThreadId, checkpointId: message.userContext?.preCheckpointId, turnId: message.turnId } }))}><RotateCcw size={11} />{t("chat.timeline.revert")}</button>{/if}
+                      </div>
+                    {/if}
+                    <ChatMessageActionToolbar
+                      target={executionMessageActionTarget(message)}
+                      visible={hoveredActionMessageId === message.id}
+                      onError={reportError}
+                    />
                   </article>
                 </div>
               </div>
             {:else if modelGroupStartIds.has(row.id)}
               {@const participant = participantForRow(row)}
+              {@const actionMessage = row.turnId ? assistantActionMessages.get(row.turnId) : undefined}
               <div class="chat-participant-row">
                 <ChatModelAvatar familyId={participant.company.iconFamilyId} label={participant.company.name} size={embedded ? 32 : 36} />
-                <div class="chat-participant-content"><div class="chat-participant-header"><strong>{teammateName ?? participant.displayName}</strong><span>{timestampLabel(row.createdAt)}</span></div>{@render modelRowContent(row)}</div>
+                <div class="chat-participant-content"><div class="chat-participant-header"><strong>{teammateName ?? participant.displayName}</strong><span>{timestampLabel(row.createdAt)}</span></div>{#if actionMessage}<ChatMessageActionToolbar target={executionMessageActionTarget(actionMessage)} visible={hoveredActionTurnId === row.turnId} onError={reportError} />{/if}{@render modelRowContent(row)}</div>
               </div>
             {:else}
               <div class="chat-participant-followup">{@render modelRowContent(row)}</div>
@@ -969,9 +910,10 @@
           {:else if isModelOwnedRow(row)}
             {#if modelGroupStartIds.has(row.id)}
               {@const participant = participantForRow(row)}
+              {@const actionMessage = row.turnId ? assistantActionMessages.get(row.turnId) : undefined}
               <div class="chat-participant-row">
                 <ChatModelAvatar familyId={participant.company.iconFamilyId} label={participant.company.name} size={embedded ? 32 : 36} />
-                <div class="chat-participant-content"><div class="chat-participant-header"><strong>{teammateName ?? participant.displayName}</strong><span>{timestampLabel(row.createdAt)}</span></div>{@render modelRowContent(row)}</div>
+                <div class="chat-participant-content"><div class="chat-participant-header"><strong>{teammateName ?? participant.displayName}</strong><span>{timestampLabel(row.createdAt)}</span></div>{#if actionMessage}<ChatMessageActionToolbar target={executionMessageActionTarget(actionMessage)} visible={hoveredActionTurnId === row.turnId} onError={reportError} />{/if}{@render modelRowContent(row)}</div>
               </div>
             {:else}
               <div class="chat-participant-followup">{@render modelRowContent(row)}</div>
@@ -1010,15 +952,14 @@
 </div>
 
 <style>
-  .chat-execution-timeline.embedded { min-height:0; flex:none; overflow:visible; }
+  .chat-execution-timeline.embedded { --chat-conversation-font-size:var(--chat-organizational-font-size,0.84rem); --chat-conversation-line-height:var(--chat-organizational-line-height,1.42rem); min-height:0; flex:none; overflow:visible; }
   .chat-execution-timeline.embedded .chat-timeline-scroller { height:auto; overflow:visible; }
   .chat-execution-timeline.embedded .chat-timeline-content { width:100%; min-height:0; justify-content:flex-start; }
-  .chat-execution-timeline.embedded .chat-timeline-row { --chat-participant-gap:0.65rem; padding:0.4rem 1rem; }
+  .chat-execution-timeline.embedded .chat-timeline-row { --chat-participant-gap:0.65rem; margin:0; padding:0 1rem; }
+  .chat-execution-timeline.embedded .chat-timeline-row.participant-start { margin-top:0; }
   .chat-execution-timeline.embedded .chat-participant-row { grid-template-columns:32px minmax(0,1fr); }
   .chat-execution-timeline.embedded .chat-participant-followup { margin-left:calc(32px + var(--chat-participant-gap)); }
-  .chat-execution-timeline.embedded .chat-participant-header strong { font-size:0.82rem; }
-  .chat-execution-timeline.embedded .chat-participant-header span { font-size:0.65rem; }
-  .chat-execution-timeline.embedded .chat-user-message,.chat-execution-timeline.embedded .chat-assistant-message { font-size:0.84rem; line-height:1.42rem; }
+  .chat-execution-timeline.embedded .chat-participant-header span { font-size:var(--chat-organizational-time-font-size,0.65rem); }
   .chat-timeline-content { width: calc(100% - 1.5rem); max-width: 54rem; }
   .chat-timeline-scroller { overflow-anchor: none; scrollbar-width: none; }
   .chat-timeline-scroller::-webkit-scrollbar { display: none; width: 0; height: 0; }
@@ -1026,29 +967,20 @@
   .chat-timeline-scrollbar.visible { pointer-events: auto; opacity: 1; }
   .chat-timeline-scrollbar-thumb { position: absolute; left: 2px; width: 4px; contain: strict; border-radius: 9999px; background-color: var(--app-scrollbar-thumb); cursor: default; will-change: height, transform; }
   .chat-timeline-scrollbar-thumb:hover, .chat-timeline-scrollbar-thumb.dragging { background-color: var(--app-scrollbar-thumb-hover); }
-  .chat-timeline-row { --chat-participant-gap: 0.75rem; margin-bottom: 0.25rem; border-radius: 0.4rem; padding-block: 0.2rem; }
+  .chat-timeline-row { --chat-participant-gap: 0.75rem; border-radius: 0.4rem; }
   .chat-timeline-row.optimistic { animation: chat-message-in 140ms ease-out; }
   .chat-timeline-row.participant-start { margin-top: 1.1rem; }
   .chat-timeline-row:first-child { margin-top: 0; }
   .chat-participant-row { display: grid; min-width: 0; grid-template-columns: 36px minmax(0, 1fr); align-items: start; gap: var(--chat-participant-gap); }
-  .chat-participant-content { min-width: 0; }
+  .chat-participant-content { --chat-message-action-anchor-bottom:1.25rem; position:relative; min-width:0; }
   .chat-participant-followup { min-width: 0; margin-left: calc(36px + var(--chat-participant-gap)); }
   .chat-participant-header { display: flex; min-height: 1.25rem; min-width: 0; align-items: baseline; gap: 0.45rem; margin-bottom: 0.12rem; line-height: 1.25rem; }
   .chat-participant-header strong { min-width: 0; overflow: hidden; color: var(--foreground); font-size: var(--chat-conversation-font-size, 0.933333rem); font-weight: 650; text-overflow: ellipsis; white-space: nowrap; }
   .chat-participant-header span { flex: 0 0 auto; color: var(--muted-foreground); font-size: 0.7rem; font-weight: 400; }
   .chat-timeline-banner { display: flex; min-height: 2.25rem; align-items: center; justify-content: center; gap: 0.5rem; border-bottom: 1px solid var(--border); background: var(--background); padding: 0.4rem 0.75rem; font-size: 0.733333rem; }
   .chat-timeline-banner button { display: inline-flex; align-items: center; gap: 0.25rem; border-radius: 0.25rem; border: 1px solid var(--border); padding: 0.2rem 0.45rem; }
-  .chat-user-message, .chat-assistant-message { width: 100%; min-width: 0; color: var(--foreground); font-size: var(--chat-conversation-font-size, 0.933333rem); line-height: var(--chat-conversation-line-height, 1.4rem); }
-  .message-reaction-list { display:flex; max-width:100%; flex-wrap:wrap; gap:0.25rem; }
-  .message-reaction-chip { display:inline-flex; min-width:2.35rem; height:1.5rem; align-items:center; justify-content:center; gap:0.3rem; border:1px solid transparent; border-radius:0.4rem; background:color-mix(in srgb,var(--accent) 76%,transparent); padding-inline:0.35rem; color:var(--muted-foreground); font-size:0.7rem; font-variant-numeric:tabular-nums; }
-  .message-reaction-chip:hover,.message-reaction-chip:focus-visible { border-color:var(--border); background:var(--accent); color:var(--foreground); }
-  .message-reaction-chip.selected { border-color:color-mix(in srgb,var(--primary) 60%,var(--border)); background:color-mix(in srgb,var(--primary) 13%,transparent); color:var(--primary); }
-  .chat-message-meta { font-size: 0.7rem; }
-  .message-action-controls { display:flex; flex-wrap:wrap; align-items:center; opacity:0; transition:opacity 150ms ease; }
-  .message-action-controls > button:not(.message-action-button) { margin-left:0.5rem; }
-  .chat-user-message:hover .message-action-controls, .chat-user-message:focus-within .message-action-controls, .chat-assistant-message:hover .message-action-controls, .chat-assistant-message:focus-within .message-action-controls { opacity:1; }
-  .message-action-button { display:inline-grid; width:1.75rem; height:1.75rem; place-items:center; border-radius:0.4rem; color:var(--muted-foreground); }
-  .message-action-button:hover,.message-action-button:focus-visible,.message-action-button.active { background:var(--accent); color:var(--foreground); }
+  .chat-user-message, .chat-assistant-message { width:100%; min-width:0; color:var(--foreground); font-size:var(--chat-conversation-font-size, 0.933333rem); line-height:var(--chat-conversation-line-height, 1.4rem); }
+  .chat-message-secondary-actions { display:flex; flex-wrap:wrap; align-items:center; gap:0.75rem; margin-top:0.4rem; font-size:0.7rem; }
   .chat-user-context { display: flex; flex-wrap: wrap; gap: 0.3rem; margin-top: 0.55rem; }
   .chat-user-context button { display: inline-flex; max-width: 100%; align-items: center; gap: 0.3rem; border: 1px solid var(--border); border-radius: 999px; padding: 0.18rem 0.45rem; color: var(--muted-foreground); font-size: 0.666667rem; }
   .chat-user-context button span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -1065,8 +997,8 @@
   .chat-process-toggle:focus-visible { border-radius: 0.25rem; outline: 2px solid var(--ring); outline-offset: 2px; }
   .chat-process-toggle.failed, .chat-process-step.failed { color: var(--destructive); }
   .chat-process-summary { padding-left: 0; }
-  .chat-process-history { display: grid; min-width: 0; gap: 0.1rem; margin-block: 0.35rem 0.55rem; color: var(--muted-foreground); }
-  .chat-process-step { display: grid; width: 100%; min-width: 0; grid-template-columns: 1rem minmax(0, 1fr) 1rem; align-items: start; gap: 0.45rem; color: var(--muted-foreground); padding-block: 0.15rem; font-size: var(--chat-conversation-font-size, 0.933333rem); line-height: var(--chat-conversation-line-height, 1.4rem); }
+  .chat-process-history { display:grid; min-width:0; gap:var(--chat-conversation-tight-space,0.125rem); margin-block:var(--chat-conversation-tight-space,0.125rem) 0; color:var(--muted-foreground); }
+  .chat-process-step { display:grid; width:100%; min-width:0; grid-template-columns:1rem minmax(0,1fr) 1rem; align-items:start; gap:0.45rem; color:var(--muted-foreground); font-size:var(--chat-conversation-font-size,0.933333rem); line-height:var(--chat-conversation-line-height,1.4rem); }
   .chat-process-step.disclosure { display: block; }
   .chat-process-step.thinking { grid-template-columns: minmax(0, 1fr); }
   .chat-process-step > span { width: fit-content; min-width: 0; max-width: 100%; justify-self: start; overflow-wrap: anywhere; }
@@ -1113,7 +1045,7 @@
   .chat-jump-latest { position: absolute; bottom: 1rem; left: 50%; display: inline-flex; min-height: 2.25rem; transform: translateX(-50%); align-items: center; gap: 0.4rem; border: 1px solid var(--border); border-radius: 999px; background: var(--popover); padding: 0.35rem 0.75rem; box-shadow: 0 6px 20px rgb(0 0 0 / 0.16); font-size: 0.733333rem; }
   @keyframes chat-message-in { from { opacity: 0; transform: translateY(0.2rem); } to { opacity: 1; transform: translateY(0); } }
   @keyframes chat-process-shimmer { 0%, 8% { background-position: 100% 0; } 65%, 100% { background-position: 0% 0; } }
-  @media (hover: none) { .message-action-controls, .chat-plan-actions { opacity: 1; } }
+  @media (hover: none) { .chat-plan-actions { opacity:1; } }
   @media (prefers-reduced-motion: reduce) { .chat-timeline-row.optimistic, .chat-process-step.active > span, .chat-process-step.active .chat-process-step-label > span, .chat-process-toggle.active .chat-process-toggle-label > span { animation: none; background: none; color: inherit; -webkit-text-fill-color: currentColor; } .chat-process-toggle :global(svg), :global(.chat-step-chevron), .chat-disclosure-region, .chat-disclosure-inner, .chat-message-expandable, .chat-message-expandable::after { transition: none; } }
   @media (forced-colors: active) { .chat-process-step.active > span, .chat-process-step.active .chat-process-step-label > span, .chat-process-toggle.active .chat-process-toggle-label > span { animation: none; background: none; color: inherit; -webkit-text-fill-color: currentColor; } }
   @container chat-shell (max-width: 420px) {

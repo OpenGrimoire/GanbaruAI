@@ -929,6 +929,13 @@
   .chat-workspace {
     --chat-conversation-font-size: 0.933333rem;
     --chat-conversation-line-height: 1.4rem;
+    --chat-conversation-tight-space: 0.125rem;
+    --chat-conversation-flow-space: 0.5rem;
+    --chat-conversation-block-space: 0.65rem;
+    --chat-organizational-font-size: 0.84rem;
+    --chat-organizational-line-height: 1.42rem;
+    --chat-organizational-time-font-size: 0.65rem;
+    --chat-conversation-entry-space: 0.45rem;
     --chat-rail-column-width: 2.75rem;
     --chat-reply-thread-column-width: 0px;
     --chat-inspector-column-width: 0px;

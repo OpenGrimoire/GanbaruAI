@@ -57,16 +57,17 @@ describe("ChatTimeline", () => {
     vi.unstubAllGlobals();
   });
 
-  it("offers Add reaction immediately before Copy on user messages", async () => {
+  it("offers reaction, copy, and more actions in the floating user message toolbar", async () => {
     const chat = getChat();
     chat.timelineItems = [message("user-message", null, "user", "Please check this")];
     const target = mountTimeline();
     await tick();
 
-    const actions = [...target.querySelectorAll<HTMLButtonElement>(".chat-user-message .chat-message-meta button")];
-    expect(actions.slice(0, 2).map((button) => button.getAttribute("aria-label"))).toEqual([
+    const actions = [...target.querySelectorAll<HTMLButtonElement>(".chat-user-message .message-action-controls button")];
+    expect(actions.map((button) => button.getAttribute("aria-label"))).toEqual([
       "Add reaction",
       "Copy",
+      "More Chat actions",
     ]);
   });
 
@@ -82,11 +83,27 @@ describe("ChatTimeline", () => {
 
     expect(target.querySelector(".chat-process-toggle")?.textContent).toContain("Worked for 2s");
     expect(target.querySelector(".chat-process-toggle")?.textContent).not.toContain("Ran commands");
-    const answerActions = target.querySelector(".chat-assistant-message .chat-message-meta");
+    const answerActions = target.querySelector(".chat-participant-header + .message-action-controls");
     expect(answerActions?.querySelector('button[aria-label="Copy"]')).not.toBeNull();
     expect(answerActions?.querySelector('button[aria-label="Add reaction"]')).not.toBeNull();
     expect(answerActions?.textContent?.trim()).toBe("");
     expect(answerActions?.textContent).not.toContain("2s");
+    expect(answerActions?.closest(".chat-timeline-row")?.querySelector(".chat-participant-header")).not.toBeNull();
+    expect(target.querySelector(".chat-assistant-message .message-action-controls")).toBeNull();
+
+    const processRow = answerActions?.closest<HTMLElement>(".chat-timeline-row");
+    processRow?.dispatchEvent(new Event("pointerenter"));
+    await tick();
+    expect(answerActions?.classList.contains("visible")).toBe(true);
+
+    processRow?.dispatchEvent(new Event("pointerleave"));
+    target.querySelector<HTMLElement>('[data-timeline-row-id="answer"]')?.dispatchEvent(new Event("pointerenter"));
+    await tick();
+    expect(answerActions?.classList.contains("visible")).toBe(true);
+
+    target.querySelector<HTMLElement>(".chat-timeline-scroller")?.dispatchEvent(new Event("pointerleave"));
+    await tick();
+    expect(answerActions?.classList.contains("visible")).toBe(false);
   });
 
   it("renders and removes the local participant from a selected reaction", async () => {

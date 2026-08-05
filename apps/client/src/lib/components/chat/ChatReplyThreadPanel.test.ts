@@ -158,6 +158,7 @@ describe("ChatReplyThreadPanel", () => {
     expect(target.querySelectorAll(".date-divider")).toHaveLength(1);
     expect(target.querySelectorAll('button[aria-label="Copy"]')).toHaveLength(2);
     expect(target.querySelectorAll('button[aria-label="Add reaction"]')).toHaveLength(2);
+    expect(target.querySelectorAll('button[aria-label="More Chat actions"]')).toHaveLength(2);
     expect(target.textContent).not.toContain("1 reply");
   });
 });
