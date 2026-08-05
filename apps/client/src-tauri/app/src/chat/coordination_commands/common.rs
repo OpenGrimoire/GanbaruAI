@@ -11,6 +11,10 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 pub(super) const MAX_MESSAGE_BYTES: usize = 128 * 1024;
 
+pub(super) fn has_thread_eligible_mention(request: &PostChatMessageCommand) -> bool {
+    !request.participant_mentions.is_empty()
+}
+
 pub(super) fn validate_policy(
     app: &tauri::AppHandle,
     policy: &ChatTeammatePolicyInput,

@@ -7,16 +7,14 @@
     embedded = false,
     hideUserMessages = false,
     teammateName = null,
-    effort = null,
     turnId = null,
   }: {
     bottomInsetPx?: number;
     embedded?: boolean;
     hideUserMessages?: boolean;
     teammateName?: string | null;
-    effort?: string | null;
     turnId?: ChatTurnId | null;
   } = $props();
 </script>
 
-<ChatTimeline {bottomInsetPx} {embedded} {hideUserMessages} {teammateName} {effort} {turnId} />
+<ChatTimeline {bottomInsetPx} {embedded} {hideUserMessages} {teammateName} {turnId} />

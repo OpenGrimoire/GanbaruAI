@@ -3,6 +3,7 @@
   import X from "@lucide/svelte/icons/x";
   import { tick } from "svelte";
   import { formatDateTime } from "$lib/i18n/formatters";
+  import { unreadMessageStartIndex } from "$lib/chat/organizational-message-model";
   import { getLocalization } from "$lib/i18n/translator.svelte";
   import { getChat } from "$lib/stores/chat.svelte";
   import ChatMessageComposer from "./ChatMessageComposer.svelte";
@@ -16,7 +17,10 @@
   let teammateSetupDismissed = $state(false);
   const channel = $derived(chat.selectedChannel);
   const destination = $derived(channel ? `channel:${channel.id}` : "channel:none");
-  const unreadStart = $derived(Math.max(0, chat.channelMessages.length - (channel?.unreadCount ?? 0)));
+  const unreadStart = $derived(unreadMessageStartIndex(
+    chat.channelMessages,
+    channel?.unreadCount ?? 0,
+  ));
 
   function sameDay(left: string, right: string): boolean {
     return new Date(left).toDateString() === new Date(right).toDateString();
@@ -63,6 +67,7 @@
     class="channel-feed"
     role="feed"
     aria-busy={chat.channelMessagesLoading}
+    onpointerdown={() => void chat.markSelectedChannelRead()}
     onscroll={() => { if (feed) chat.setOrganizationalScrollPosition(destination, feed.scrollTop); }}
   >
     <div class="feed-canvas">

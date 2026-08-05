@@ -133,6 +133,8 @@ export const chat = {
     imageNumber: (number: number) => `Image ${number}`,
     images: (count: number) => `${count} ${count === 1 ? "image" : "images"}`,
     replies: (count: number) => `${count} ${count === 1 ? "reply" : "replies"}`,
+    addReaction: "Add reaction",
+    reactedBy: (names: string, _count: number) => `${names} reacted`,
     queued: "Queued",
     completed: "Completed",
     failed: "Failed",

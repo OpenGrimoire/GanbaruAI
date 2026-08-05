@@ -136,4 +136,28 @@ describe("ChatReplyThreadPanel", () => {
     expect(target.querySelector('.thread-scroll[aria-busy="true"]')).not.toBeNull();
     expect(target.querySelector('[data-message-item-id="reply:test"]')).toBeNull();
   });
+
+  it("renders the root and replies as one normal dated message flow", async () => {
+    const messageOnlyPage = { ...page, agentRuns: [] };
+    chat.openReplyThreadId = messageOnlyPage.thread.id;
+    chat.replyThread = messageOnlyPage;
+    chat.replyThreadPages = [messageOnlyPage];
+    chat.selectedExecutionRunId = null;
+    chat.selectedThreadId = null;
+    vi.spyOn(chat, "listScheduledOrganizationalMessages").mockResolvedValue([]);
+    target = document.createElement("div");
+    document.body.append(target);
+    component = mount(ChatReplyThreadPanel, {
+      target,
+      props: { onClose: vi.fn() },
+    });
+    await tick();
+
+    expect(target.querySelector(".root-message")).toBeNull();
+    expect(target.querySelector(".reply-divider")).toBeNull();
+    expect(target.querySelectorAll(".date-divider")).toHaveLength(1);
+    expect(target.querySelectorAll('button[aria-label="Copy"]')).toHaveLength(2);
+    expect(target.querySelectorAll('button[aria-label="Add reaction"]')).toHaveLength(2);
+    expect(target.textContent).not.toContain("1 reply");
+  });
 });

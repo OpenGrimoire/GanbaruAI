@@ -123,7 +123,7 @@ pub struct ScheduleChatMessageCommand {
 #[serde(rename_all = "camelCase")]
 pub struct PostChatMessageResult {
     pub message: ChatMessageRead,
-    pub reply_thread_id: ChatReplyThreadId,
+    pub reply_thread_id: Option<ChatReplyThreadId>,
     pub assignment: Option<ChatWorkAssignmentRead>,
     pub assignment_input_queued: bool,
 }

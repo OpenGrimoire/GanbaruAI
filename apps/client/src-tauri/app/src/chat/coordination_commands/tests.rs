@@ -1,8 +1,11 @@
-use super::common::{normalized_fts_query, validate_message_request};
+use super::common::{has_thread_eligible_mention, normalized_fts_query, validate_message_request};
 use super::scheduling::{claim_scheduled_message_for_immediate_send, validate_scheduled_for};
 use super::*;
 use serde_json::json;
 use sqlx::{Row, SqlitePool};
+
+const REMOVE_EMPTY_UNMENTIONED_CHAT_THREADS: &str =
+    include_str!("../../../../migrations/20260805014734_remove_empty_unmentioned_chat_threads.sql");
 
 async fn migrated_pool() -> SqlitePool {
     let pool = sqlx::sqlite::SqlitePoolOptions::new()
@@ -360,6 +363,225 @@ fn plain_at_text_is_valid_but_does_not_invoke_a_teammate() {
         .await
         .unwrap();
         assert!(invocation.is_none());
+    });
+}
+
+#[test]
+fn only_structured_participant_mentions_make_top_level_messages_thread_eligible() {
+    let mut request = message("Ordinary channel message");
+    assert!(!has_thread_eligible_mention(&request));
+
+    request.normalized_markdown = "@ganbaru Please review this.".to_string();
+    request.participant_mentions = vec![ChatParticipantMentionInput {
+        participant_id: ChatParticipantId::new("participant:ganbaru").unwrap(),
+        participant_kind: ChatParticipantKind::AiTeammate,
+        handle_snapshot: Some("ganbaru".to_string()),
+        label_snapshot: "Ganbaru".to_string(),
+        start_offset: 0,
+        end_offset: 8,
+    }];
+
+    assert!(has_thread_eligible_mention(&request));
+}
+
+#[test]
+fn empty_unmentioned_thread_cleanup_preserves_mentioned_threads() {
+    tauri::async_runtime::block_on(async {
+        let pool = migrated_pool().await;
+        sqlx::raw_sql(
+            "INSERT INTO project_groups (id, name) VALUES ('group:cleanup', 'Cleanup');
+             INSERT INTO projects (id, group_id, name)
+             VALUES ('project:cleanup', 'group:cleanup', 'Cleanup');
+             INSERT INTO chat_conversations
+                 (id, project_id, conversation_kind, last_activity_at,
+                  created_at, updated_at)
+             VALUES (
+                 'conversation:cleanup', 'project:cleanup', 'channel',
+                 '2026-08-04T18:00:00.000Z', '2026-08-04T18:00:00.000Z',
+                 '2026-08-04T18:00:00.000Z'
+             );
+             INSERT INTO chat_channels
+                 (id, project_id, conversation_id, name, created_at, updated_at)
+             VALUES (
+                 'channel:cleanup', 'project:cleanup', 'conversation:cleanup',
+                 'cleanup', '2026-08-04T18:00:00.000Z',
+                 '2026-08-04T18:00:00.000Z'
+             );
+             INSERT INTO chat_conversation_items
+                 (id, conversation_id, item_kind, ordinal, created_at)
+             VALUES
+                 ('item:ordinary', 'conversation:cleanup', 'message', 1,
+                  '2026-08-04T18:00:00.000Z'),
+                 ('item:mentioned', 'conversation:cleanup', 'message', 2,
+                  '2026-08-04T18:01:00.000Z'),
+                 ('item:drafted', 'conversation:cleanup', 'message', 3,
+                  '2026-08-04T18:02:00.000Z'),
+                 ('item:scheduled', 'conversation:cleanup', 'message', 4,
+                  '2026-08-04T18:03:00.000Z');
+             INSERT INTO chat_communication_messages
+                 (item_id, author_participant_id, created_at)
+             VALUES
+                 ('item:ordinary', 'participant:local-owner',
+                  '2026-08-04T18:00:00.000Z'),
+                 ('item:mentioned', 'participant:local-owner',
+                  '2026-08-04T18:01:00.000Z'),
+                 ('item:drafted', 'participant:local-owner',
+                  '2026-08-04T18:02:00.000Z'),
+                 ('item:scheduled', 'participant:local-owner',
+                  '2026-08-04T18:03:00.000Z');
+             INSERT INTO chat_communication_message_revisions
+                 (id, message_item_id, revision, normalized_markdown, created_at)
+             VALUES
+                 ('revision:ordinary', 'item:ordinary', 1, 'Ordinary',
+                  '2026-08-04T18:00:00.000Z'),
+                 ('revision:mentioned', 'item:mentioned', 1, '@You Mentioned',
+                  '2026-08-04T18:01:00.000Z');
+             UPDATE chat_communication_messages
+             SET current_revision_id = 'revision:ordinary'
+             WHERE item_id = 'item:ordinary';
+             UPDATE chat_communication_messages
+             SET current_revision_id = 'revision:mentioned'
+             WHERE item_id = 'item:mentioned';
+             INSERT INTO chat_participant_mentions
+                 (id, message_revision_id, participant_id, participant_kind,
+                  label_snapshot, start_offset, end_offset)
+             VALUES (
+                 'mention:cleanup', 'revision:mentioned', 'participant:local-owner',
+                 'local_user', 'You', 0, 4
+             );
+             INSERT INTO chat_reply_threads
+                 (id, conversation_id, root_item_id, last_activity_at,
+                  created_at, updated_at)
+             VALUES
+                 ('thread:ordinary', 'conversation:cleanup', 'item:ordinary',
+                  '2026-08-04T18:00:00.000Z', '2026-08-04T18:00:00.000Z',
+                  '2026-08-04T18:00:00.000Z'),
+                 ('thread:mentioned', 'conversation:cleanup', 'item:mentioned',
+                  '2026-08-04T18:01:00.000Z', '2026-08-04T18:01:00.000Z',
+                  '2026-08-04T18:01:00.000Z'),
+                 ('thread:drafted', 'conversation:cleanup', 'item:drafted',
+                  '2026-08-04T18:02:00.000Z', '2026-08-04T18:02:00.000Z',
+                  '2026-08-04T18:02:00.000Z'),
+                 ('thread:scheduled', 'conversation:cleanup', 'item:scheduled',
+                  '2026-08-04T18:03:00.000Z', '2026-08-04T18:03:00.000Z',
+                  '2026-08-04T18:03:00.000Z');
+             INSERT INTO chat_organizational_drafts
+                 (id, participant_id, conversation_id, reply_thread_id,
+                  created_at, updated_at)
+             VALUES (
+                 'draft:cleanup', 'participant:local-owner',
+                 'conversation:cleanup', 'thread:drafted',
+                 '2026-08-04T18:02:00.000Z', '2026-08-04T18:02:00.000Z'
+             );
+             INSERT INTO chat_scheduled_messages
+                 (id, client_command_id, channel_id, reply_thread_id,
+                  request_data, scheduled_for, available_at, created_at, updated_at)
+             VALUES (
+                 'scheduled:cleanup', 'command:scheduled-cleanup',
+                 'channel:cleanup', 'thread:scheduled', '{}',
+                 '2026-08-05T18:03:00.000Z', '2026-08-05T18:03:00.000Z',
+                 '2026-08-04T18:03:00.000Z', '2026-08-04T18:03:00.000Z'
+             );
+             INSERT INTO chat_organizational_command_receipts
+                 (client_command_id, command_kind, state, result_schema_version,
+                  result_data, created_at, updated_at)
+             VALUES (
+                 'command:ordinary-cleanup', 'post_message', 'completed', 1,
+                 '{\"message\":{\"itemId\":\"item:ordinary\"},\"replyThreadId\":\"thread:ordinary\"}',
+                 '2026-08-04T18:00:00.000Z', '2026-08-04T18:00:00.000Z'
+             );",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        sqlx::raw_sql(REMOVE_EMPTY_UNMENTIONED_CHAT_THREADS)
+            .execute(&pool)
+            .await
+            .unwrap();
+
+        let remaining = sqlx::query_scalar::<_, String>(
+            "SELECT id FROM chat_reply_threads
+             WHERE conversation_id = 'conversation:cleanup' ORDER BY id",
+        )
+        .fetch_all(&pool)
+        .await
+        .unwrap();
+        assert_eq!(
+            remaining,
+            vec!["thread:drafted", "thread:mentioned", "thread:scheduled"]
+        );
+        let receipt_thread_id = sqlx::query_scalar::<_, Option<String>>(
+            "SELECT json_extract(result_data, '$.replyThreadId')
+             FROM chat_organizational_command_receipts
+             WHERE client_command_id = 'command:ordinary-cleanup'",
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(receipt_thread_id, None);
+    });
+}
+
+#[test]
+fn channel_unread_count_excludes_local_messages() {
+    tauri::async_runtime::block_on(async {
+        let pool = migrated_pool().await;
+        sqlx::raw_sql(
+            "INSERT INTO project_groups (id, name) VALUES ('group:unread', 'Unread');
+             INSERT INTO projects (id, group_id, name)
+             VALUES ('project:unread', 'group:unread', 'Unread');
+             INSERT INTO chat_conversations
+                 (id, project_id, conversation_kind, last_activity_at,
+                  created_at, updated_at)
+             VALUES (
+                 'conversation:unread', 'project:unread', 'channel',
+                 '2026-08-04T19:01:00.000Z', '2026-08-04T19:00:00.000Z',
+                 '2026-08-04T19:01:00.000Z'
+             );
+             INSERT INTO chat_channels
+                 (id, project_id, conversation_id, name, created_at, updated_at)
+             VALUES (
+                 'channel:unread', 'project:unread', 'conversation:unread',
+                 'general', '2026-08-04T19:00:00.000Z',
+                 '2026-08-04T19:01:00.000Z'
+             );
+             INSERT INTO chat_participants
+                 (id, participant_kind, display_name, normalized_handle,
+                  created_at, updated_at)
+             VALUES (
+                 'participant:collaborator', 'human', 'Collaborator',
+                 'collaborator',
+                 '2026-08-04T19:00:00.000Z', '2026-08-04T19:00:00.000Z'
+             );
+             INSERT INTO chat_conversation_items
+                 (id, conversation_id, item_kind, ordinal, created_at)
+             VALUES
+                 ('item:local-unread', 'conversation:unread', 'message', 1,
+                  '2026-08-04T19:00:00.000Z'),
+                 ('item:incoming-unread', 'conversation:unread', 'message', 2,
+                  '2026-08-04T19:01:00.000Z');
+             INSERT INTO chat_communication_messages
+                 (item_id, author_participant_id, created_at)
+             VALUES
+                 ('item:local-unread', 'participant:local-owner',
+                  '2026-08-04T19:00:00.000Z'),
+                 ('item:incoming-unread', 'participant:collaborator',
+                  '2026-08-04T19:01:00.000Z');",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        let channel = super::super::channel_commands::read_channel(
+            &pool,
+            &ChatChannelId::new("channel:unread").unwrap(),
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(channel.message_count, 2);
+        assert_eq!(channel.unread_count, 1);
     });
 }
 

@@ -57,13 +57,17 @@ describe("ChatTimeline", () => {
     vi.unstubAllGlobals();
   });
 
-  it("offers Copy on user messages", async () => {
+  it("offers Add reaction immediately before Copy on user messages", async () => {
     const chat = getChat();
     chat.timelineItems = [message("user-message", null, "user", "Please check this")];
     const target = mountTimeline();
     await tick();
 
-    expect(target.querySelector(".chat-user-message .chat-message-meta")?.textContent).toContain("Copy");
+    const actions = [...target.querySelectorAll<HTMLButtonElement>(".chat-user-message .chat-message-meta button")];
+    expect(actions.slice(0, 2).map((button) => button.getAttribute("aria-label"))).toEqual([
+      "Add reaction",
+      "Copy",
+    ]);
   });
 
   it("keeps turn duration on the process disclosure instead of the final answer actions", async () => {
@@ -79,8 +83,29 @@ describe("ChatTimeline", () => {
     expect(target.querySelector(".chat-process-toggle")?.textContent).toContain("Worked for 2s");
     expect(target.querySelector(".chat-process-toggle")?.textContent).not.toContain("Ran commands");
     const answerActions = target.querySelector(".chat-assistant-message .chat-message-meta");
-    expect(answerActions?.textContent).toContain("Copy");
+    expect(answerActions?.querySelector('button[aria-label="Copy"]')).not.toBeNull();
+    expect(answerActions?.querySelector('button[aria-label="Add reaction"]')).not.toBeNull();
+    expect(answerActions?.textContent?.trim()).toBe("");
     expect(answerActions?.textContent).not.toContain("2s");
+  });
+
+  it("renders and removes the local participant from a selected reaction", async () => {
+    const chat = getChat();
+    chat.timelineItems = [message("reaction-message", null, "user", "React to this")];
+    chat.toggleSessionMessageReaction("timeline:reaction-message", "emoji:✅", "Victor");
+    const target = mountTimeline();
+    await tick();
+
+    const reaction = target.querySelector<HTMLButtonElement>(".message-reaction-chip");
+    expect(reaction?.textContent).toContain("1");
+    expect(reaction?.getAttribute("aria-pressed")).toBe("true");
+    expect(reaction?.dataset.appTooltip).toBe("You reacted");
+    expect(reaction?.compareDocumentPosition(target.querySelector(".message-action-controls")!))
+      .toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+
+    reaction?.click();
+    await tick();
+    expect(target.querySelector(".message-reaction-chip")).toBeNull();
   });
 
   it("groups completed tools with the current live tool and preserves their nested rows", async () => {

@@ -3,9 +3,9 @@
 use super::super::coordination::contracts::*;
 use super::super::models::*;
 use super::common::{
-    conversation_item_id, json_object, message_revision_id, new_id, parse_participant_kind,
-    reply_thread_id, serialization_error, wire_approval_policy, wire_participant_kind,
-    wire_work_state, work_assignment_id,
+    conversation_item_id, has_thread_eligible_mention, json_object, message_revision_id, new_id,
+    parse_participant_kind, reply_thread_id, serialization_error, wire_approval_policy,
+    wire_participant_kind, wire_work_state, work_assignment_id,
 };
 use super::context::freeze_context_package;
 use super::reads::{
@@ -364,21 +364,23 @@ pub(super) async fn insert_channel_copy(
         },
     )
     .await?;
-    let thread_id = reply_thread_id()?;
-    sqlx::query(
-        "INSERT INTO chat_reply_threads
-            (id, conversation_id, root_item_id, last_activity_at, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?)",
-    )
-    .bind(thread_id.as_str())
-    .bind(conversation_id.as_str())
-    .bind(item_id.as_str())
-    .bind(now.as_str())
-    .bind(now.as_str())
-    .bind(now.as_str())
-    .execute(&mut **transaction)
-    .await
-    .map_err(persistence_error)?;
+    if has_thread_eligible_mention(request) {
+        let thread_id = reply_thread_id()?;
+        sqlx::query(
+            "INSERT INTO chat_reply_threads
+                (id, conversation_id, root_item_id, last_activity_at, created_at, updated_at)
+             VALUES (?, ?, ?, ?, ?, ?)",
+        )
+        .bind(thread_id.as_str())
+        .bind(conversation_id.as_str())
+        .bind(item_id.as_str())
+        .bind(now.as_str())
+        .bind(now.as_str())
+        .bind(now.as_str())
+        .execute(&mut **transaction)
+        .await
+        .map_err(persistence_error)?;
+    }
     Ok(())
 }
 
@@ -807,7 +809,12 @@ pub(super) async fn read_post_receipt(
     let message = read_message(pool, &message_item_id).await?;
     let assignment = match assignment_id.as_ref() {
         Some(assignment_id) => Some(read_assignment(pool, assignment_id).await?),
-        None => read_active_or_latest_assignment(pool, &reply_thread_id).await?,
+        None => match reply_thread_id.as_ref() {
+            Some(reply_thread_id) => {
+                read_active_or_latest_assignment(pool, reply_thread_id).await?
+            }
+            None => None,
+        },
     };
     Ok(Some(PostChatMessageResult {
         message,

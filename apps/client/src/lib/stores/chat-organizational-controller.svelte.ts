@@ -80,7 +80,7 @@ export class ChatOrganizationalController {
     });
     this.setDraft(destination, emptyOrganizationalDraft());
     await this.options.loadChannelMessages(channel.id, true);
-    if (replyThreadId || result.assignment) {
+    if ((replyThreadId || result.assignment) && result.replyThreadId) {
       await this.options.openReplyThread(result.replyThreadId);
     }
     this.options.upsertChannel(await chatApi.readChatChannel(channel.id));

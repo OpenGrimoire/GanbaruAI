@@ -16,11 +16,14 @@
   import MessageSquare from "@lucide/svelte/icons/message-square";
   import Search from "@lucide/svelte/icons/search";
   import Settings from "@lucide/svelte/icons/settings";
+  import SmilePlus from "@lucide/svelte/icons/smile-plus";
   import Terminal from "@lucide/svelte/icons/terminal";
   import Wrench from "@lucide/svelte/icons/wrench";
   import RotateCcw from "@lucide/svelte/icons/rotate-ccw";
   import { chatScrollBehavior } from "$lib/chat/responsive-layout";
   import type { ChatTurnId } from "$lib/chat/contracts";
+  import type { ChatMessageReaction } from "$lib/chat/organizational-message-model";
+  import { LOCAL_CHAT_PARTICIPANT_ID } from "$lib/chat/participant-display";
   import { activityFilePath, fileChangePresentation, fileReadActivityPresentation, fileSearchActivityPresentation, isFileReadActivity, isFileSearchActivity, isImageViewActivity, summarizeActivityKinds, transientActivitySummary, type ActivitySummaryCount } from "$lib/chat/activity-presentation";
   import { chatModelParticipant, type ChatModelParticipant } from "$lib/chat/participant-identity";
   import { buildTimelineDisplayRows, includeOptimisticTimelineMessage, projectTimelineReadModel, timelineActivityShowsLiveStatus, timelineActivitySupportsDisclosure, timelineModelGroupStartIds, timelineRowsForTurn, type TimelineActivityGroupRow, type TimelineActivityRow, type TimelineDisplayRow, type TimelineMessageRow, type TimelinePlanRow, type TimelineTurnFoldRow } from "$lib/chat/timeline-model";
@@ -31,6 +34,8 @@
   import { getPreferences } from "$lib/stores/preferences.svelte";
   import { getSettingsLauncher } from "$lib/stores/settingsLauncher.svelte";
   import { writeTextToClipboard } from "$lib/utils/clipboard";
+  import type IconPicker from "$lib/components/icon-picker/IconPicker.svelte";
+  import ProjectIcon from "$lib/components/projects/ProjectIcon.svelte";
   import ChatMarkdown from "./ChatMarkdown.svelte";
   import ChatActivityDetail from "./ChatActivityDetail.svelte";
   import ChatChangedFilesSummary from "./ChatChangedFilesSummary.svelte";
@@ -43,14 +48,12 @@
     embedded = false,
     hideUserMessages = false,
     teammateName = null,
-    effort = null,
     turnId = null,
   } = $props<{
     bottomInsetPx?: number;
     embedded?: boolean;
     hideUserMessages?: boolean;
     teammateName?: string | null;
-    effort?: string | null;
     turnId?: ChatTurnId | null;
   }>();
   const COMPOSER_READING_GAP_PX = 8;
@@ -81,6 +84,9 @@
   let reducedMotion = $state(false);
   let copiedMessageId = $state<string | null>(null);
   let copiedMessageTimer: ReturnType<typeof setTimeout> | null = null;
+  let ReactionPicker = $state<typeof IconPicker | null>(null);
+  let reactionPickerMessageId = $state<string | null>(null);
+  let reactionPickerValue = $state("emoji:👍");
   let disclosureMeasureFrame: number | null = null;
   let destroyed = false;
   let pendingDisclosureAnchor: { rowId: string; viewportOffset: number } | null = null;
@@ -112,6 +118,7 @@
   const renderedRows = $derived(embedded
     ? displayRows.map((row, index) => ({ row, index }))
     : virtualWindow.items);
+  const localReactionDisplayName = $derived(preferences.profileDisplayName.trim() || t("chat.timeline.you"));
   const selectedWorkingFolder = $derived(chat.selectedWorkingFolder);
   const selectedProvider = $derived(chat.settings?.providerInstances.find((provider) => provider.configuration.instanceId === selectedThread?.providerInstanceId) ?? null);
   const minimapRows = $derived(timelineMinimapRows(displayRows));
@@ -407,6 +414,45 @@
     }).catch(reportError);
   }
 
+  function reactionMessageKey(messageId: string): string {
+    return `timeline:${messageId}`;
+  }
+
+  function reactionsForMessage(messageId: string): readonly ChatMessageReaction[] {
+    return chat.messageReactionsFor(reactionMessageKey(messageId));
+  }
+
+  async function openReactionPicker(messageId: string): Promise<void> {
+    reactionPickerMessageId = messageId;
+    if (ReactionPicker) return;
+    try {
+      ReactionPicker = (await import("$lib/components/icon-picker/IconPicker.svelte")).default;
+    } catch (error: unknown) {
+      reactionPickerMessageId = null;
+      reportError(error);
+    }
+  }
+
+  function toggleReaction(messageId: string, value: string): void {
+    reactionPickerValue = value;
+    chat.toggleSessionMessageReaction(
+      reactionMessageKey(messageId),
+      value,
+      localReactionDisplayName,
+    );
+  }
+
+  function localUserSelected(reaction: ChatMessageReaction): boolean {
+    return reaction.participants.some(({ participantId }) => participantId === LOCAL_CHAT_PARTICIPANT_ID);
+  }
+
+  function reactionTooltip(reaction: ChatMessageReaction): string {
+    const names = reaction.participants.map((participant) => participant.participantId === LOCAL_CHAT_PARTICIPANT_ID
+      ? localReactionDisplayName
+      : participant.displayName);
+    return t("chat.organization.reactedBy", formatList(localization.locale, names), names.length);
+  }
+
   function reportError(error: unknown): void {
     operationError = error instanceof Error ? error.message : String(error);
   }
@@ -432,7 +478,11 @@
   }
 
   function timestampLabel(value: string): string {
-    return formatDateTime(localization.locale, new Date(value), { dateStyle: "medium", timeStyle: "short" });
+    return formatDateTime(
+      localization.locale,
+      new Date(value),
+      embedded ? { timeStyle: "short" } : { dateStyle: "medium", timeStyle: "short" },
+    );
   }
 
   function statusLabel(status: TimelineActivityRow["status"]): string {
@@ -445,12 +495,6 @@
       case "failed": return t("chat.timeline.activityStatus.failed");
       case "unknown": return t("chat.timeline.activityStatus.unknown");
     }
-  }
-
-  function tokenUsageLabel(message: TimelineMessageRow): string | null {
-    const usage = message.metadata?.usage;
-    if (!usage || usage.inputTokens === null || usage.outputTokens === null) return null;
-    return t("chat.timeline.tokenUsage", formatNumber(localization.locale, usage.inputTokens), formatNumber(localization.locale, usage.outputTokens));
   }
 
   function scrollToMinimapRow(rowId: string): void {
@@ -740,6 +784,62 @@
   {/if}
 {/snippet}
 
+{#snippet messageReactionList(message: TimelineMessageRow)}
+  {@const reactions = reactionsForMessage(message.id)}
+  {#if reactions.length > 0}
+    <div class="message-reaction-list">
+      {#each reactions as reaction (reaction.value)}
+        <button
+          type="button"
+          class="message-reaction-chip"
+          class:selected={localUserSelected(reaction)}
+          aria-pressed={localUserSelected(reaction)}
+          aria-label={reactionTooltip(reaction)}
+          data-app-tooltip={reactionTooltip(reaction)}
+          onclick={() => toggleReaction(message.id, reaction.value)}
+        >
+          <ProjectIcon name={reaction.value} size={12} />
+          <span>{reaction.participants.length}</span>
+        </button>
+      {/each}
+    </div>
+  {/if}
+{/snippet}
+
+{#snippet addReactionButton(message: TimelineMessageRow)}
+  {#if ReactionPicker && reactionPickerMessageId === message.id}
+    <ReactionPicker
+      value={reactionPickerValue}
+      onChange={(value) => toggleReaction(message.id, value)}
+      ariaLabel={t("chat.organization.addReaction")}
+      showIcons={false}
+      showUpload={false}
+      showRemove={false}
+      initiallyOpen
+    >
+      {#snippet trigger({ open, toggle })}
+        <button
+          type="button"
+          class="message-action-button"
+          class:active={open}
+          aria-label={t("chat.organization.addReaction")}
+          aria-expanded={open}
+          data-app-tooltip={t("chat.organization.addReaction")}
+          onclick={toggle}
+        ><SmilePlus size={14} /></button>
+      {/snippet}
+    </ReactionPicker>
+  {:else}
+    <button
+      type="button"
+      class="message-action-button"
+      aria-label={t("chat.organization.addReaction")}
+      data-app-tooltip={t("chat.organization.addReaction")}
+      onclick={() => void openReactionPicker(message.id)}
+    ><SmilePlus size={14} /></button>
+  {/if}
+{/snippet}
+
 {#snippet modelRowContent(row: TimelineDisplayRow)}
   {#if row.kind === "message"}
     {@const message = row as TimelineMessageRow}
@@ -759,12 +859,19 @@
           {sourceWorkingFolderId}
         />
       {/if}
-      {#if message.metadata}
+      {#if message.state === "complete"}
         <div class="chat-message-meta mt-2 flex flex-wrap items-center gap-2 text-muted-foreground">
-          {#if message.state === "complete"}
-          <button type="button" class="inline-flex items-center gap-1" onclick={() => copy(message.markdown, message.id)}><Copy size={11} />{copiedMessageId === message.id ? t("chat.timeline.copied") : t("chat.timeline.copy")}</button>
-          {/if}
-          {#if message.metadata.changedFiles.length > 0}<span>{t("chat.timeline.changedFiles", formatNumber(localization.locale, message.metadata.changedFiles.length))}</span>{/if}{#if tokenUsageLabel(message)}<span>{tokenUsageLabel(message)}</span>{/if}
+          {@render messageReactionList(message)}
+          <div class="message-action-controls">
+            {@render addReactionButton(message)}
+            <button
+              type="button"
+              class="message-action-button"
+              aria-label={copiedMessageId === message.id ? t("chat.timeline.copied") : t("chat.timeline.copy")}
+              title={copiedMessageId === message.id ? t("chat.timeline.copied") : t("chat.timeline.copy")}
+              onclick={() => copy(message.markdown, message.id)}
+            ><Copy size={13} /></button>
+          </div>
         </div>
       {/if}
     </article>
@@ -846,15 +953,15 @@
                     <div use:measureExpandableHeight class="chat-message-expandable" class:collapsed={message.markdown.length > 1200 && !messageExpanded} class:expanded={messageExpanded}><div><p class="wrap-break-word whitespace-pre-wrap">{message.markdown}</p></div></div>
                     {#if messageImages(message).length > 0}<ChatImageGallery images={messageImages(message)} />{/if}
                     {#if message.userContext && hasMessageContextChips(message)}<div class="chat-user-context">{#each message.userContext.attachments.filter((attachment) => attachment.kind !== "image" || !attachment.id) as attachment}<button type="button" title={attachment.status ?? t("chat.timeline.attachment")} onclick={() => copy(attachment.displayName)}><FileText size={12} /><span>{attachment.displayName}</span>{#if attachment.byteSize !== null}<small>{formatNumber(localization.locale, attachment.byteSize)} B</small>{/if}</button>{/each}{#each message.userContext.mentions as mention}<button type="button" title={t("chat.timeline.mention")} onclick={() => copy(mention.relativePath)}><span>@</span><span>{mention.relativePath}</span></button>{/each}{#each message.userContext.terminalContext as context}<button type="button" title={t("chat.timeline.terminalContext")} onclick={() => copy(context)}><Terminal size={12} /><span>{context}</span></button>{/each}</div>{/if}
-                    <div class="chat-message-meta mt-2 flex flex-wrap items-center gap-2 text-muted-foreground"><button type="button" class="inline-flex items-center gap-1" onclick={() => copy(message.markdown, message.id)}><Copy size={11} />{copiedMessageId === message.id ? t("chat.timeline.copied") : t("chat.timeline.copy")}</button>{#if message.markdown.length > 1200}<button type="button" data-timeline-disclosure-expanded={messageExpanded} aria-expanded={messageExpanded} onclick={() => { expandedMessages = toggle(expandedMessages, message.id); }}>{messageExpanded ? t("chat.timeline.showLess") : t("chat.timeline.showMore")}</button>{/if}{#if message.userContext?.preCheckpointId && (!message.sourceThreadId || message.sourceThreadId === chat.selectedThreadId)}<button type="button" class="inline-flex items-center gap-1" onclick={() => window.dispatchEvent(new CustomEvent("ganbaru-ai:chat-revert-message", { detail: { threadId: message.sourceThreadId ?? chat.selectedThreadId, checkpointId: message.userContext?.preCheckpointId, turnId: message.turnId } }))}><RotateCcw size={11} />{t("chat.timeline.revert")}</button>{/if}</div>
+                    <div class="chat-message-meta mt-2 flex flex-wrap items-center gap-2 text-muted-foreground">{@render messageReactionList(message)}<div class="message-action-controls">{@render addReactionButton(message)}<button type="button" class="message-action-button" aria-label={copiedMessageId === message.id ? t("chat.timeline.copied") : t("chat.timeline.copy")} title={copiedMessageId === message.id ? t("chat.timeline.copied") : t("chat.timeline.copy")} onclick={() => copy(message.markdown, message.id)}><Copy size={13} /></button>{#if message.markdown.length > 1200}<button type="button" data-timeline-disclosure-expanded={messageExpanded} aria-expanded={messageExpanded} onclick={() => { expandedMessages = toggle(expandedMessages, message.id); }}>{messageExpanded ? t("chat.timeline.showLess") : t("chat.timeline.showMore")}</button>{/if}{#if message.userContext?.preCheckpointId && (!message.sourceThreadId || message.sourceThreadId === chat.selectedThreadId)}<button type="button" class="inline-flex items-center gap-1" onclick={() => window.dispatchEvent(new CustomEvent("ganbaru-ai:chat-revert-message", { detail: { threadId: message.sourceThreadId ?? chat.selectedThreadId, checkpointId: message.userContext?.preCheckpointId, turnId: message.turnId } }))}><RotateCcw size={11} />{t("chat.timeline.revert")}</button>{/if}</div></div>
                   </article>
                 </div>
               </div>
             {:else if modelGroupStartIds.has(row.id)}
               {@const participant = participantForRow(row)}
               <div class="chat-participant-row">
-                <ChatModelAvatar familyId={participant.company.iconFamilyId} label={participant.company.name} size={36} />
-                <div class="chat-participant-content"><div class="chat-participant-header"><strong>{teammateName ?? participant.displayName}{#if teammateName}<small> ({participant.displayName}{#if effort}, {effort}{/if})</small>{/if}</strong><span>{timestampLabel(row.createdAt)}</span></div>{@render modelRowContent(row)}</div>
+                <ChatModelAvatar familyId={participant.company.iconFamilyId} label={participant.company.name} size={embedded ? 32 : 36} />
+                <div class="chat-participant-content"><div class="chat-participant-header"><strong>{teammateName ?? participant.displayName}</strong><span>{timestampLabel(row.createdAt)}</span></div>{@render modelRowContent(row)}</div>
               </div>
             {:else}
               <div class="chat-participant-followup">{@render modelRowContent(row)}</div>
@@ -863,8 +970,8 @@
             {#if modelGroupStartIds.has(row.id)}
               {@const participant = participantForRow(row)}
               <div class="chat-participant-row">
-                <ChatModelAvatar familyId={participant.company.iconFamilyId} label={participant.company.name} size={36} />
-                <div class="chat-participant-content"><div class="chat-participant-header"><strong>{teammateName ?? participant.displayName}{#if teammateName}<small> ({participant.displayName}{#if effort}, {effort}{/if})</small>{/if}</strong><span>{timestampLabel(row.createdAt)}</span></div>{@render modelRowContent(row)}</div>
+                <ChatModelAvatar familyId={participant.company.iconFamilyId} label={participant.company.name} size={embedded ? 32 : 36} />
+                <div class="chat-participant-content"><div class="chat-participant-header"><strong>{teammateName ?? participant.displayName}</strong><span>{timestampLabel(row.createdAt)}</span></div>{@render modelRowContent(row)}</div>
               </div>
             {:else}
               <div class="chat-participant-followup">{@render modelRowContent(row)}</div>
@@ -905,7 +1012,13 @@
 <style>
   .chat-execution-timeline.embedded { min-height:0; flex:none; overflow:visible; }
   .chat-execution-timeline.embedded .chat-timeline-scroller { height:auto; overflow:visible; }
-  .chat-execution-timeline.embedded .chat-timeline-content { min-height:0; justify-content:flex-start; }
+  .chat-execution-timeline.embedded .chat-timeline-content { width:100%; min-height:0; justify-content:flex-start; }
+  .chat-execution-timeline.embedded .chat-timeline-row { --chat-participant-gap:0.65rem; padding:0.4rem 1rem; }
+  .chat-execution-timeline.embedded .chat-participant-row { grid-template-columns:32px minmax(0,1fr); }
+  .chat-execution-timeline.embedded .chat-participant-followup { margin-left:calc(32px + var(--chat-participant-gap)); }
+  .chat-execution-timeline.embedded .chat-participant-header strong { font-size:0.82rem; }
+  .chat-execution-timeline.embedded .chat-participant-header span { font-size:0.65rem; }
+  .chat-execution-timeline.embedded .chat-user-message,.chat-execution-timeline.embedded .chat-assistant-message { font-size:0.84rem; line-height:1.42rem; }
   .chat-timeline-content { width: calc(100% - 1.5rem); max-width: 54rem; }
   .chat-timeline-scroller { overflow-anchor: none; scrollbar-width: none; }
   .chat-timeline-scroller::-webkit-scrollbar { display: none; width: 0; height: 0; }
@@ -922,13 +1035,20 @@
   .chat-participant-followup { min-width: 0; margin-left: calc(36px + var(--chat-participant-gap)); }
   .chat-participant-header { display: flex; min-height: 1.25rem; min-width: 0; align-items: baseline; gap: 0.45rem; margin-bottom: 0.12rem; line-height: 1.25rem; }
   .chat-participant-header strong { min-width: 0; overflow: hidden; color: var(--foreground); font-size: var(--chat-conversation-font-size, 0.933333rem); font-weight: 650; text-overflow: ellipsis; white-space: nowrap; }
-  .chat-participant-header strong small { color:var(--muted-foreground); font-size:0.7rem; font-weight:400; }
   .chat-participant-header span { flex: 0 0 auto; color: var(--muted-foreground); font-size: 0.7rem; font-weight: 400; }
   .chat-timeline-banner { display: flex; min-height: 2.25rem; align-items: center; justify-content: center; gap: 0.5rem; border-bottom: 1px solid var(--border); background: var(--background); padding: 0.4rem 0.75rem; font-size: 0.733333rem; }
   .chat-timeline-banner button { display: inline-flex; align-items: center; gap: 0.25rem; border-radius: 0.25rem; border: 1px solid var(--border); padding: 0.2rem 0.45rem; }
   .chat-user-message, .chat-assistant-message { width: 100%; min-width: 0; color: var(--foreground); font-size: var(--chat-conversation-font-size, 0.933333rem); line-height: var(--chat-conversation-line-height, 1.4rem); }
-  .chat-message-meta { font-size: 0.7rem; opacity: 0; transition: opacity 150ms ease; }
-  .chat-user-message:hover .chat-message-meta, .chat-user-message:focus-within .chat-message-meta, .chat-assistant-message:hover .chat-message-meta, .chat-assistant-message:focus-within .chat-message-meta { opacity: 1; }
+  .message-reaction-list { display:flex; max-width:100%; flex-wrap:wrap; gap:0.25rem; }
+  .message-reaction-chip { display:inline-flex; min-width:2.35rem; height:1.5rem; align-items:center; justify-content:center; gap:0.3rem; border:1px solid transparent; border-radius:0.4rem; background:color-mix(in srgb,var(--accent) 76%,transparent); padding-inline:0.35rem; color:var(--muted-foreground); font-size:0.7rem; font-variant-numeric:tabular-nums; }
+  .message-reaction-chip:hover,.message-reaction-chip:focus-visible { border-color:var(--border); background:var(--accent); color:var(--foreground); }
+  .message-reaction-chip.selected { border-color:color-mix(in srgb,var(--primary) 60%,var(--border)); background:color-mix(in srgb,var(--primary) 13%,transparent); color:var(--primary); }
+  .chat-message-meta { font-size: 0.7rem; }
+  .message-action-controls { display:flex; flex-wrap:wrap; align-items:center; opacity:0; transition:opacity 150ms ease; }
+  .message-action-controls > button:not(.message-action-button) { margin-left:0.5rem; }
+  .chat-user-message:hover .message-action-controls, .chat-user-message:focus-within .message-action-controls, .chat-assistant-message:hover .message-action-controls, .chat-assistant-message:focus-within .message-action-controls { opacity:1; }
+  .message-action-button { display:inline-grid; width:1.75rem; height:1.75rem; place-items:center; border-radius:0.4rem; color:var(--muted-foreground); }
+  .message-action-button:hover,.message-action-button:focus-visible,.message-action-button.active { background:var(--accent); color:var(--foreground); }
   .chat-user-context { display: flex; flex-wrap: wrap; gap: 0.3rem; margin-top: 0.55rem; }
   .chat-user-context button { display: inline-flex; max-width: 100%; align-items: center; gap: 0.3rem; border: 1px solid var(--border); border-radius: 999px; padding: 0.18rem 0.45rem; color: var(--muted-foreground); font-size: 0.666667rem; }
   .chat-user-context button span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -993,7 +1113,7 @@
   .chat-jump-latest { position: absolute; bottom: 1rem; left: 50%; display: inline-flex; min-height: 2.25rem; transform: translateX(-50%); align-items: center; gap: 0.4rem; border: 1px solid var(--border); border-radius: 999px; background: var(--popover); padding: 0.35rem 0.75rem; box-shadow: 0 6px 20px rgb(0 0 0 / 0.16); font-size: 0.733333rem; }
   @keyframes chat-message-in { from { opacity: 0; transform: translateY(0.2rem); } to { opacity: 1; transform: translateY(0); } }
   @keyframes chat-process-shimmer { 0%, 8% { background-position: 100% 0; } 65%, 100% { background-position: 0% 0; } }
-  @media (hover: none) { .chat-message-meta, .chat-plan-actions { opacity: 1; } }
+  @media (hover: none) { .message-action-controls, .chat-plan-actions { opacity: 1; } }
   @media (prefers-reduced-motion: reduce) { .chat-timeline-row.optimistic, .chat-process-step.active > span, .chat-process-step.active .chat-process-step-label > span, .chat-process-toggle.active .chat-process-toggle-label > span { animation: none; background: none; color: inherit; -webkit-text-fill-color: currentColor; } .chat-process-toggle :global(svg), :global(.chat-step-chevron), .chat-disclosure-region, .chat-disclosure-inner, .chat-message-expandable, .chat-message-expandable::after { transition: none; } }
   @media (forced-colors: active) { .chat-process-step.active > span, .chat-process-step.active .chat-process-step-label > span, .chat-process-toggle.active .chat-process-toggle-label > span { animation: none; background: none; color: inherit; -webkit-text-fill-color: currentColor; } }
   @container chat-shell (max-width: 420px) {

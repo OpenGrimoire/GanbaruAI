@@ -3,7 +3,7 @@
 </script>
 
 <script lang="ts">
-  import { onMount } from "svelte";
+  import { onMount, untrack } from "svelte";
   import { listen } from "@tauri-apps/api/event";
   import * as chatApi from "$lib/api/chat";
   import type { ChatTerminalRead } from "$lib/chat/contracts";
@@ -27,6 +27,12 @@
 
   const { t } = getLocalization();
   const chat = getChat();
+  const terminalIdentity = untrack(() => ({
+    id: terminalRead.id,
+    threadId: terminalRead.threadId,
+    workingFolderId: terminalRead.workingFolderId,
+  }));
+  const notifyState = untrack(() => onState);
   let host: HTMLDivElement | undefined = $state();
   let xterm: import("@xterm/xterm").Terminal | null = null;
   let outputState = { generation: 0, lastSequence: 0 };
@@ -40,14 +46,18 @@
     let resizeTimer: number | null = null;
     let resizeObserver: ResizeObserver | null = null;
     const disposers: (() => void)[] = [];
-    const ownsResize = () => terminalResizeOwners.get(terminalRead.id) === resizeOwnerId;
+    const ownsResize = () => terminalResizeOwners.get(terminalIdentity.id) === resizeOwnerId;
     const releaseResize = () => {
-      if (ownsResize()) terminalResizeOwners.delete(terminalRead.id);
+      if (ownsResize()) terminalResizeOwners.delete(terminalIdentity.id);
     };
     void Promise.all([
       import("@xterm/xterm"),
       import("@xterm/addon-fit"),
-      chatApi.readChatTerminalSnapshot(terminalRead.id, terminalRead.threadId, terminalRead.workingFolderId),
+      chatApi.readChatTerminalSnapshot(
+        terminalIdentity.id,
+        terminalIdentity.threadId,
+        terminalIdentity.workingFolderId,
+      ),
     ]).then(async ([xtermModule, fitModule, snapshot]) => {
       if (disposed || !host) return;
       const hostStyles = getComputedStyle(host);
@@ -79,27 +89,28 @@
       outputState = { generation: snapshot.terminal.generation, lastSequence: 0 };
       for (const chunk of snapshot.scrollback) applyChunk(chunk);
       terminal.onData((data) => {
-        if (!terminalRead.running) return;
+        if (terminal.options.disableStdin) return;
         claimResize();
         void chatApi.writeChatTerminal(
-          terminalRead.id,
-          terminalRead.threadId,
-          terminalRead.workingFolderId,
+          terminalIdentity.id,
+          terminalIdentity.threadId,
+          terminalIdentity.workingFolderId,
           data,
         ).catch((reason: unknown) => { error = terminalMessage(reason); });
       });
       const resizeTerminal = () => {
+        if (disposed) return;
         const proposed = fit.proposeDimensions();
         if (!proposed || proposed.cols < 20 || proposed.rows < 2) return;
         fit.fit();
-        if (!terminalResizeOwners.has(terminalRead.id)) {
-          terminalResizeOwners.set(terminalRead.id, resizeOwnerId);
+        if (!terminalResizeOwners.has(terminalIdentity.id)) {
+          terminalResizeOwners.set(terminalIdentity.id, resizeOwnerId);
         }
         if (!ownsResize()) return;
         void chatApi.resizeChatTerminal(
-          terminalRead.id,
-          terminalRead.threadId,
-          terminalRead.workingFolderId,
+          terminalIdentity.id,
+          terminalIdentity.threadId,
+          terminalIdentity.workingFolderId,
           terminal.cols,
           terminal.rows,
         ).catch(() => undefined);
@@ -109,7 +120,7 @@
         resizeTimer = window.setTimeout(resizeTerminal, delay);
       };
       const claimResize = () => {
-        terminalResizeOwners.set(terminalRead.id, resizeOwnerId);
+        terminalResizeOwners.set(terminalIdentity.id, resizeOwnerId);
         scheduleResize(0);
       };
       const claimResizeFromInteraction = () => claimResize();
@@ -128,7 +139,7 @@
       const unlistenOutput = await listen<unknown>("chat://terminal-output", (event) => {
         try {
           const chunk = parseChatTerminalOutput(event.payload);
-          if (chunk.terminalId === terminalRead.id) applyChunk(chunk);
+          if (chunk.terminalId === terminalIdentity.id) applyChunk(chunk);
         } catch (reason: unknown) {
           error = terminalMessage(reason);
         }
@@ -141,7 +152,7 @@
       const unlistenState = await listen<unknown>("chat://terminal-state", (event) => {
         try {
           const state = parseChatTerminal(event.payload);
-          if (state.id === terminalRead.id) onState(state);
+          if (state.id === terminalIdentity.id) notifyState(state);
         } catch (reason: unknown) {
           error = terminalMessage(reason);
         }
@@ -176,14 +187,14 @@
 
   async function replay(): Promise<void> {
     const snapshot = await chatApi.readChatTerminalSnapshot(
-      terminalRead.id,
-      terminalRead.threadId,
-      terminalRead.workingFolderId,
+      terminalIdentity.id,
+      terminalIdentity.threadId,
+      terminalIdentity.workingFolderId,
     );
     xterm?.reset();
     outputState = { generation: snapshot.terminal.generation, lastSequence: 0 };
     for (const chunk of snapshot.scrollback) applyChunk(chunk);
-    onState(snapshot.terminal);
+    notifyState(snapshot.terminal);
   }
 
   function handlePaste(event: ClipboardEvent): void {
@@ -206,7 +217,7 @@
   }
 
   $effect(() => {
-    if (xterm) xterm.options.disableStdin = !terminalRead.running;
+    if (xterm) xterm.options.disableStdin = !(terminalRead?.running ?? false);
   });
 </script>
 

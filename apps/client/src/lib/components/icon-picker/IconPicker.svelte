@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { tick, type Snippet } from "svelte";
+  import { onMount, tick, type Snippet } from "svelte";
   import ChevronDown from "@lucide/svelte/icons/chevron-down";
   import {
     deleteProjectIconAssetsIfUnreferenced,
@@ -98,7 +98,10 @@
     ariaLabel,
     trigger,
     uploadAdapter,
+    showIcons = true,
     showUpload = true,
+    showRemove = true,
+    initiallyOpen = false,
     class: className = "",
   }: {
     value: string;
@@ -106,7 +109,10 @@
     ariaLabel: string;
     trigger?: Snippet<[IconPickerTriggerContext]>;
     uploadAdapter?: IconPickerUploadAdapter;
+    showIcons?: boolean;
     showUpload?: boolean;
+    showRemove?: boolean;
+    initiallyOpen?: boolean;
     class?: string;
   } = $props();
 
@@ -185,6 +191,13 @@
   let gridScrollStateFrame: number | null = null;
 
   const parsedValue = $derived(parseProjectIcon(value));
+  const visibleTabs = $derived.by((): ProjectIconPickerTab[] => {
+    const tabs: ProjectIconPickerTab[] = [];
+    if (showIcons) tabs.push("icons");
+    tabs.push("emoji");
+    if (showUpload) tabs.push("upload");
+    return tabs;
+  });
   const customEmojiIds = $derived(new Set(projects.customEmojis.map((emoji) => emoji.id)));
   $effect(() => {
     void projects.ensureCustomEmojis().catch((error) => {
@@ -536,6 +549,7 @@
   }
 
   async function openPicker(): Promise<void> {
+    if (!visibleTabs.includes(activeTab)) activeTab = visibleTabs[0] ?? "emoji";
     placePanel();
     open = true;
     if (parsedValue.kind === "emoji") emojiSkinTone = projectEmojiSkinToneFromEmoji(parsedValue.emoji);
@@ -827,6 +841,14 @@
     else void openPicker();
   }
 
+  onMount(() => {
+    if (initiallyOpen) void openPicker();
+  });
+
+  $effect(() => {
+    if (!visibleTabs.includes(activeTab)) activeTab = visibleTabs[0] ?? "emoji";
+  });
+
   $effect(() => {
     const draft = uploadDraft;
     const requestId = ++uploadPreviewRequestId;
@@ -962,7 +984,7 @@
   >
     <div class="flex h-12 shrink-0 items-center justify-between border-b border-border/70 px-3">
       <div class="flex min-w-0 items-center gap-3">
-        {#each (showUpload ? ["icons", "emoji", "upload"] as const : ["icons", "emoji"] as const) as tab}
+        {#each visibleTabs as tab}
           <button
             type="button"
             class={cn(
@@ -977,13 +999,15 @@
           </button>
         {/each}
       </div>
-      <button
-        type="button"
-        class="h-9 px-1 text-[0.866667rem] text-muted-foreground hover:text-foreground"
-        onclick={removeIcon}
-      >
-        {t("projects.iconPicker.remove")}
-      </button>
+      {#if showRemove}
+        <button
+          type="button"
+          class="h-9 px-1 text-[0.866667rem] text-muted-foreground hover:text-foreground"
+          onclick={removeIcon}
+        >
+          {t("projects.iconPicker.remove")}
+        </button>
+      {/if}
     </div>
 
     {#if activeTab === "emoji"}

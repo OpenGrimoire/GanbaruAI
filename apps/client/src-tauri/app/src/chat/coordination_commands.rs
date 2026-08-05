@@ -25,10 +25,10 @@ mod scheduling;
 mod workflow;
 
 use common::{
-    conversation_item_id, json_object, map_command_receipt_error, map_teammate_write_error,
-    message_revision_id, normalized_fts_query, parse_cursor, parse_participant_kind,
-    reply_thread_id, serialization_error, validate_display_name, validate_handle,
-    validate_message_request, validate_policy, validate_profile_text,
+    conversation_item_id, has_thread_eligible_mention, json_object, map_command_receipt_error,
+    map_teammate_write_error, message_revision_id, normalized_fts_query, parse_cursor,
+    parse_participant_kind, reply_thread_id, serialization_error, validate_display_name,
+    validate_handle, validate_message_request, validate_policy, validate_profile_text,
 };
 use dispatch::{deliver_assignment_input, dispatch_assignment_job};
 pub(crate) use reads::read_memberships_for_conversation;
@@ -39,7 +39,7 @@ use reads::{
 use workflow::{
     insert_channel_copy, insert_communication_message, insert_policy_revision, next_item_ordinal,
     persist_assignment_routing, read_post_receipt, require_reply_thread, resolve_invoked_teammate,
-    upsert_membership_in_transaction, CommunicationMessageWrite,
+    upsert_membership_in_transaction, AssignmentWrite, CommunicationMessageWrite,
 };
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -47,7 +47,7 @@ use workflow::{
 enum StoredPostMessageReceipt {
     Locator {
         message_item_id: ChatConversationItemId,
-        reply_thread_id: ChatReplyThreadId,
+        reply_thread_id: Option<ChatReplyThreadId>,
         assignment_id: Option<ChatWorkAssignmentId>,
         assignment_input_queued: bool,
     },
@@ -509,10 +509,11 @@ pub async fn chat_post_message(
     let now = now_timestamp()?;
     let item_id = conversation_item_id()?;
     let revision_id = message_revision_id()?;
-    let new_reply_thread_id = request
-        .reply_thread_id
-        .clone()
-        .unwrap_or(reply_thread_id()?);
+    let target_reply_thread_id = match request.reply_thread_id.as_ref() {
+        Some(reply_thread_id) => Some(reply_thread_id.clone()),
+        None if has_thread_eligible_mention(&request) => Some(reply_thread_id()?),
+        None => None,
+    };
     let mut transaction = pool.begin().await.map_err(persistence_error)?;
     sqlx::query(
         "INSERT INTO chat_organizational_command_receipts
@@ -545,21 +546,30 @@ pub async fn chat_post_message(
     )
     .await?;
     if request.reply_thread_id.is_none() {
-        sqlx::query(
-            "INSERT INTO chat_reply_threads
+        if let Some(reply_thread_id) = target_reply_thread_id.as_ref() {
+            sqlx::query(
+                "INSERT INTO chat_reply_threads
                 (id, conversation_id, root_item_id, last_activity_at, created_at, updated_at)
              VALUES (?, ?, ?, ?, ?, ?)",
-        )
-        .bind(new_reply_thread_id.as_str())
-        .bind(channel.conversation_id.as_str())
-        .bind(item_id.as_str())
-        .bind(now.as_str())
-        .bind(now.as_str())
-        .bind(now.as_str())
-        .execute(&mut *transaction)
-        .await
-        .map_err(persistence_error)?;
+            )
+            .bind(reply_thread_id.as_str())
+            .bind(channel.conversation_id.as_str())
+            .bind(item_id.as_str())
+            .bind(now.as_str())
+            .bind(now.as_str())
+            .bind(now.as_str())
+            .execute(&mut *transaction)
+            .await
+            .map_err(persistence_error)?;
+        }
     } else {
+        let reply_thread_id = target_reply_thread_id.as_ref().ok_or_else(|| {
+            ChatError::new(
+                ChatErrorCode::Persistence,
+                "A reply message lost its thread identity",
+                true,
+            )
+        })?;
         sqlx::query(
             "UPDATE chat_reply_threads
              SET reply_count = reply_count + 1, last_activity_at = ?,
@@ -567,7 +577,7 @@ pub async fn chat_post_message(
         )
         .bind(now.as_str())
         .bind(now.as_str())
-        .bind(new_reply_thread_id.as_str())
+        .bind(reply_thread_id.as_str())
         .execute(&mut *transaction)
         .await
         .map_err(persistence_error)?;
@@ -582,20 +592,28 @@ pub async fn chat_post_message(
     .execute(&mut *transaction)
     .await
     .map_err(persistence_error)?;
-    let assignment_write = persist_assignment_routing(
-        &mut transaction,
-        &new_reply_thread_id,
-        &item_id,
-        resolved_invocation.as_ref(),
-        &now,
-    )
-    .await?;
+    let assignment_write = match target_reply_thread_id.as_ref() {
+        Some(reply_thread_id) => {
+            persist_assignment_routing(
+                &mut transaction,
+                reply_thread_id,
+                &item_id,
+                resolved_invocation.as_ref(),
+                &now,
+            )
+            .await?
+        }
+        None => AssignmentWrite {
+            assignment_id: None,
+            input_queued: false,
+        },
+    };
     if request.also_send_to_channel && request.reply_thread_id.is_some() {
         insert_channel_copy(&mut transaction, &channel.conversation_id, &request, &now).await?;
     }
     let receipt_locator = StoredPostMessageReceipt::Locator {
         message_item_id: item_id.clone(),
-        reply_thread_id: new_reply_thread_id.clone(),
+        reply_thread_id: target_reply_thread_id.clone(),
         assignment_id: assignment_write.assignment_id.clone(),
         assignment_input_queued: assignment_write.input_queued,
     };
@@ -614,11 +632,16 @@ pub async fn chat_post_message(
     let message = read_message(&pool, &item_id).await?;
     let assignment = match assignment_write.assignment_id.as_ref() {
         Some(assignment_id) => Some(read_assignment(&pool, assignment_id).await?),
-        None => read_active_or_latest_assignment(&pool, &new_reply_thread_id).await?,
+        None => match target_reply_thread_id.as_ref() {
+            Some(reply_thread_id) => {
+                read_active_or_latest_assignment(&pool, reply_thread_id).await?
+            }
+            None => None,
+        },
     };
     let result = PostChatMessageResult {
         message,
-        reply_thread_id: new_reply_thread_id,
+        reply_thread_id: target_reply_thread_id,
         assignment,
         assignment_input_queued: assignment_write.input_queued,
     };

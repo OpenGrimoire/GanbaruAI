@@ -43,6 +43,11 @@ import type {
 import type { ChatComposerSnapshot } from "$lib/chat/composer-controller";
 import { chatErrorMessage } from "$lib/chat/error-presentation";
 import { AsyncFrameCoalescer } from "$lib/chat/frame-coalescer";
+import {
+  toggleChatMessageReactionParticipant,
+  type ChatMessageReaction,
+} from "$lib/chat/organizational-message-model";
+import { LOCAL_CHAT_PARTICIPANT_ID } from "$lib/chat/participant-display";
 import { getProjects } from "$lib/stores/projects.svelte";
 import { preferredProjectWorkingFolder } from "$lib/chat/working-folder-selection";
 import { readLastChatChannelId, saveLastChatChannelId } from "$lib/chat/channel-sections";
@@ -93,6 +98,8 @@ class ChatStore {
   private projectSelectionProjectId: string | null = null;
   private projectSelectionPromise: Promise<void> | null = null;
   private channelSelectionRequest = 0;
+  private channelReadPromise: { channelId: ChatChannelId; promise: Promise<void> } | null = null;
+  private sessionMessageReactions = $state<Record<string, ChatMessageReaction[]>>({});
   private loadPromise: Promise<void> | null = null;
   private readonly nativeChanges = new AsyncFrameCoalescer<string>(
     (threadId) => this.refreshNativeChange(threadId),
@@ -337,6 +344,8 @@ class ChatStore {
     this.loadPromise = null;
     this.projectSelectionProjectId = null;
     this.projectSelectionPromise = null;
+    this.channelReadPromise = null;
+    this.sessionMessageReactions = {};
     this.configurationController.reset();
     this.selectedChannelId = null;
     this.teammates = [];
@@ -508,11 +517,44 @@ class ChatStore {
     await this.loadChannelMessages(channel.id);
     if (request !== this.channelSelectionRequest) return;
     this.interaction = null;
-    if (channel.unreadCount > 0) {
-      void chatApi.setChatChannelRead(channel.id, true)
-        .then((updated) => this.channelNavigationController.upsert(updated))
-        .catch(() => undefined);
-    }
+    if (channel.unreadCount > 0) void this.markSelectedChannelRead();
+  }
+
+  async markSelectedChannelRead(): Promise<void> {
+    const channel = this.selectedChannel;
+    if (!channel || channel.unreadCount === 0) return;
+    if (this.channelReadPromise?.channelId === channel.id) return this.channelReadPromise.promise;
+    const vaultGeneration = this.vaultGeneration;
+    const promise = chatApi.setChatChannelRead(channel.id, true)
+      .then((updated) => {
+        if (this.vaultGeneration === vaultGeneration) this.channelNavigationController.upsert(updated);
+      })
+      .catch((error: unknown) => {
+        console.error(`Could not mark #${channel.name} as read`, error);
+      })
+      .finally(() => {
+        if (this.channelReadPromise?.promise === promise) this.channelReadPromise = null;
+      });
+    this.channelReadPromise = { channelId: channel.id, promise };
+    return promise;
+  }
+
+  messageReactionsFor(messageKey: string): readonly ChatMessageReaction[] {
+    return this.sessionMessageReactions[messageKey] ?? [];
+  }
+
+  toggleSessionMessageReaction(messageKey: string, value: string, displayName: string): void {
+    const normalizedKey = messageKey.trim();
+    if (!normalizedKey) return;
+    const current = this.sessionMessageReactions[normalizedKey] ?? [];
+    this.sessionMessageReactions[normalizedKey] = toggleChatMessageReactionParticipant(
+      current,
+      value,
+      {
+        participantId: LOCAL_CHAT_PARTICIPANT_ID,
+        displayName: displayName.trim(),
+      },
+    );
   }
 
   async createChannel(request: import("$lib/chat/contracts").CreateChatChannelRequest): Promise<ChatChannelRead> {
@@ -546,7 +588,9 @@ class ChatStore {
     destination: string,
     options: { alsoSendToChannel?: boolean } = {},
   ): Promise<import("$lib/chat/contracts").PostChatMessageResult> {
-    return this.organizationalController.post(destination, options);
+    const result = await this.organizationalController.post(destination, options);
+    await this.markSelectedChannelRead();
+    return result;
   }
 
   async scheduleOrganizationalMessage(

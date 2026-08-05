@@ -136,6 +136,8 @@ export const chat = {
     imageNumber: (number: number) => `Imagen ${number}`,
     images: (count: number) => `${count} ${count === 1 ? "imagen" : "imágenes"}`,
     replies: (count: number) => `${count} ${count === 1 ? "respuesta" : "respuestas"}`,
+    addReaction: "Agregar reacción",
+    reactedBy: (names: string, count: number) => count === 1 ? `${names} reaccionó` : `${names} reaccionaron`,
     queued: "En cola",
     completed: "Completado",
     failed: "Fallido",

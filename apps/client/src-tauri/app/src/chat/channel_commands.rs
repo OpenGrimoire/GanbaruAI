@@ -338,8 +338,11 @@ fn channel_read_query(predicate: &str, order: Option<&str>) -> String {
                AND item.reply_thread_id IS NULL
                AND item.item_kind = 'message') AS message_count,
             (SELECT count(*) FROM chat_conversation_items item
+             JOIN chat_communication_messages message ON message.item_id = item.id
              WHERE item.conversation_id = channel.conversation_id
                AND item.reply_thread_id IS NULL
+               AND item.item_kind = 'message'
+               AND message.author_participant_id != '{LOCAL_PARTICIPANT_ID}'
                AND item.ordinal > coalesce((
                     SELECT cursor.last_read_root_ordinal
                     FROM chat_conversation_read_cursors cursor

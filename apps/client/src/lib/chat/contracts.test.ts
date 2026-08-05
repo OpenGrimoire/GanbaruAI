@@ -4,6 +4,7 @@ import {
   parseChatConfigRoot,
   parseChatChannel,
   parseChatChannelPage,
+  parsePostChatMessageResult,
   parseChatMessageSearchResults,
   parseChatScheduledMessage,
   parseChatScheduledMessageDispatch,
@@ -163,6 +164,12 @@ describe("Chat provider contracts", () => {
     });
 
     expect(page.messages[0]?.normalizedMarkdown).toBe("Done");
+    expect(parsePostChatMessageResult({
+      message: page.messages[0],
+      replyThreadId: null,
+      assignment: null,
+      assignmentInputQueued: false,
+    }).replyThreadId).toBeNull();
     expect(() => parseChatChannelPage({ ...page, revision: -1 }))
       .toThrow("revision must not be negative");
   });

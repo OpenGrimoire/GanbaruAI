@@ -11,6 +11,7 @@
     replyThreadRenderEntries,
     shouldGroupReplyMessages,
   } from "$lib/chat/reply-thread-model";
+  import { formatDateTime } from "$lib/i18n/formatters";
   import { getLocalization } from "$lib/i18n/translator.svelte";
   import { getChat } from "$lib/stores/chat.svelte";
   import ChatExecutionTimeline from "./ChatExecutionTimeline.svelte";
@@ -29,7 +30,8 @@
   } = $props();
 
   const chat = getChat();
-  const { t } = getLocalization();
+  const localization = getLocalization();
+  const { t } = localization;
   let scroller = $state<HTMLDivElement | null>(null);
   let actionError = $state<string | null>(null);
   let executionSelectionRequest = 0;
@@ -62,6 +64,14 @@
   const canCancel = $derived(assignment && [
     "queued", "working", "waiting_for_answer", "waiting_for_approval",
   ].includes(assignment.state));
+
+  function sameDay(left: string, right: string): boolean {
+    return new Date(left).toDateString() === new Date(right).toDateString();
+  }
+
+  function entryCreatedAt(entry: (typeof renderEntries)[number]): string {
+    return entry.kind === "message" ? entry.message.createdAt : entry.run.createdAt;
+  }
 
   function stateLabel(state: ChatWorkAssignmentState): string {
     const labels: Record<ChatWorkAssignmentState, string> = {
@@ -177,22 +187,25 @@
     {#if chat.replyThreadError}<p class="thread-error" role="alert">{chat.replyThreadError}</p>{/if}
     {#if page && executionPresentationReady}
       {#if page.previousCursor}<button type="button" class="load-older" onclick={() => void chat.loadOlderReplyThreadMessages()}>{t("chat.organization.loadOlder")}</button>{/if}
-      <div class="root-message"><ChatOrganizationalMessage message={page.rootMessage} showReplyStrip={false} /></div>
-      <div class="reply-divider"><span>{t("chat.organization.replies", page.thread.replyCount)}</span></div>
+      <div class="date-divider"><span>{formatDateTime(localization.locale, Date.parse(page.rootMessage.createdAt), { dateStyle: "full" })}</span></div>
+      <ChatOrganizationalMessage message={page.rootMessage} showReplyStrip={false} />
       {#each renderEntries as entry, index (entry.key)}
+        {@const previousEntry = renderEntries[index - 1]}
+        {@const previousCreatedAt = previousEntry ? entryCreatedAt(previousEntry) : page.rootMessage.createdAt}
+        {#if !sameDay(previousCreatedAt, entryCreatedAt(entry))}
+          <div class="date-divider"><span>{formatDateTime(localization.locale, Date.parse(entryCreatedAt(entry)), { dateStyle: "full" })}</span></div>
+        {/if}
         {#if entry.kind === "message"}
-          {@const previous = renderEntries[index - 1]}
           <ChatOrganizationalMessage
             message={entry.message}
             showReplyStrip={false}
-            grouped={previous?.kind === "message" && shouldGroupReplyMessages(previous.message, entry.message)}
+            grouped={previousEntry?.kind === "message" && shouldGroupReplyMessages(previousEntry.message, entry.message)}
           />
         {:else if chat.selectedExecutionRunId && entry.run.providerExecutionThreadId === chat.selectedThreadId}
           <ChatExecutionTimeline
             embedded
             hideUserMessages
             teammateName={assignment?.teammate.displayName ?? null}
-            effort={entry.run.effort}
             turnId={entry.run.providerExecutionTurnId}
           />
         {/if}
@@ -224,10 +237,10 @@
   .work-banner { display:flex; flex:0 0 auto; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:0.4rem; border-bottom:1px solid var(--border); background:color-mix(in srgb,var(--accent) 62%,transparent); padding:0.45rem 0.7rem; font-size:0.7rem; }
   .work-banner > div { display:flex; flex-wrap:wrap; gap:0.25rem; }.work-banner button { display:flex; align-items:center; gap:0.25rem; border-radius:0.35rem; padding:0.25rem 0.4rem; }.work-banner button:hover { background:var(--accent); }
   .thread-scroll { min-height:0; flex:1; overflow-y:auto; overscroll-behavior:contain; padding-block:0.4rem; }
-  .root-message { padding-block:0.35rem; background:color-mix(in srgb,var(--accent) 28%,transparent); }
-  .reply-divider { display:flex; align-items:center; gap:0.45rem; margin:0.7rem; color:var(--muted-foreground); font-size:0.65rem; }.reply-divider::before,.reply-divider::after { height:1px; flex:1; background:var(--border); content:""; }
+  .date-divider { display:flex; align-items:center; gap:0.5rem; margin:0.75rem; color:var(--muted-foreground); font-size:0.65rem; }
+  .date-divider::before,.date-divider::after { height:1px; flex:1; background:var(--border); content:""; }
   .thread-request { flex:0 0 auto; border-top:1px solid var(--border); padding:0.5rem; }
-  .thread-composer { display:flex; flex:0 0 auto; justify-content:center; border-top:1px solid color-mix(in srgb,var(--border) 55%,transparent); padding:0.5rem; }
+  .thread-composer { display:flex; flex:0 0 auto; justify-content:center; padding:0.5rem; }
   .thread-error,.thread-loading { padding:0.6rem; color:var(--destructive); font-size:0.7rem; }.thread-loading { color:var(--muted-foreground); }
   .load-older { display:block; margin:0.3rem auto 0.6rem; border-radius:0.4rem; padding:0.3rem 0.5rem; color:var(--muted-foreground); font-size:0.68rem; }.load-older:hover { background:var(--accent); }
   @media (hover:none) { .tab-close { opacity:1; } }

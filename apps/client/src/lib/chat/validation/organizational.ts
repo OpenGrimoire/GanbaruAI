@@ -276,7 +276,7 @@ export function parsePostChatMessageResult(
   const record = readRecord(value, label);
   return {
     message: parseChatMessage(record.message, `${label}.message`),
-    replyThreadId: readIdentifier(record.replyThreadId, `${label}.replyThreadId`),
+    replyThreadId: readNullable(record.replyThreadId, `${label}.replyThreadId`, readIdentifier),
     assignment: readNullable(record.assignment, `${label}.assignment`, parseChatWorkAssignment),
     assignmentInputQueued: readBoolean(record.assignmentInputQueued, `${label}.assignmentInputQueued`),
   };

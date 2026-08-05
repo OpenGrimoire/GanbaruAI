@@ -279,7 +279,7 @@ export interface PostChatMessageRequest {
 
 export interface PostChatMessageResult {
   message: ChatMessageRead;
-  replyThreadId: ChatReplyThreadId;
+  replyThreadId: ChatReplyThreadId | null;
   assignment: ChatWorkAssignmentRead | null;
   assignmentInputQueued: boolean;
 }
