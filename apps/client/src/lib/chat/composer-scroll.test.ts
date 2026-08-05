@@ -12,6 +12,12 @@ describe("Chat composer scrolling", () => {
     expect(composerTextareaLayout(154, 22)).toEqual({ height: 132, overflowing: true });
   });
 
+  it("normalizes rounded browser measurements when shrinking to the base height", () => {
+    expect(composerTextareaLayout(45, 22.4).height).toBeCloseTo(44.8);
+    expect(composerTextareaLayout(67, 22.4).height).toBeCloseTo(67.2);
+    expect(composerTextareaLayout(67, 22.4).overflowing).toBe(false);
+  });
+
   it("reveals the complete caret line below the viewport", () => {
     expect(composerScrollTopForCaret(22, 176, 22, 264, 132)).toBe(66);
   });

@@ -1,4 +1,5 @@
 <script lang="ts">
+  import Check from "@lucide/svelte/icons/check";
   import Copy from "@lucide/svelte/icons/copy";
   import EllipsisVertical from "@lucide/svelte/icons/ellipsis-vertical";
   import SmilePlus from "@lucide/svelte/icons/smile-plus";
@@ -116,8 +117,9 @@
     class:copied
     aria-label={copied ? t("chat.timeline.copied") : t("chat.timeline.copy")}
     title={copied ? t("chat.timeline.copied") : t("chat.timeline.copy")}
+    data-app-tooltip-keep-on-click="true"
     onclick={() => void copyMessage()}
-  ><Copy size={13} /></button>
+  >{#if copied}<Check size={13} />{:else}<Copy size={13} />{/if}</button>
   <button
     type="button"
     class="message-action-button"

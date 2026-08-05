@@ -39,11 +39,15 @@ describe("ChatMessageActionToolbar", () => {
       "Copy",
       "More Chat actions",
     ]);
+    expect(actions[1]?.querySelector(".lucide-copy")).not.toBeNull();
+    expect(actions[1]?.dataset.appTooltipKeepOnClick).toBe("true");
     actions[1]?.click();
 
     await vi.waitFor(() => {
       expect(writeText).toHaveBeenCalledWith("Completed answer");
       expect(actions[1]?.getAttribute("aria-label")).toBe("Copied");
+      expect(actions[1]?.getAttribute("title")).toBe("Copied");
+      expect(actions[1]?.querySelector(".lucide-check")).not.toBeNull();
     });
   });
 });

@@ -13,9 +13,11 @@ export function composerTextareaLayout(
 ): ComposerTextareaLayout {
   const minimumHeight = COMPOSER_MIN_VISIBLE_LINES * lineHeight;
   const maximumHeight = COMPOSER_MAX_VISIBLE_LINES * lineHeight;
+  const measuredLineCount = Math.max(1, Math.round(contentHeight / lineHeight));
+  const normalizedContentHeight = measuredLineCount * lineHeight;
   return {
-    height: Math.min(maximumHeight, Math.max(minimumHeight, contentHeight)),
-    overflowing: contentHeight > maximumHeight,
+    height: Math.min(maximumHeight, Math.max(minimumHeight, normalizedContentHeight)),
+    overflowing: measuredLineCount > COMPOSER_MAX_VISIBLE_LINES,
   };
 }
 
