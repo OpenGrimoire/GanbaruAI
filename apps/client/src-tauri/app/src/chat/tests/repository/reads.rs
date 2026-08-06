@@ -133,3 +133,82 @@ fn timeline_cursor_does_not_skip_rows_that_share_a_sequence() {
         assert!(older.previous_cursor.is_none());
     });
 }
+
+#[test]
+fn exact_turn_timeline_read_does_not_depend_on_the_latest_thread_page() {
+    tauri::async_runtime::block_on(async {
+        let pool = pool_with_thread().await;
+        for (suffix, answer) in [("older", "Older answer"), ("newer", "Newer answer")] {
+            let turn_id = format!("turn-{suffix}");
+            append_canonical_event(
+                &pool,
+                canonical_request(
+                    &format!("event-{suffix}-start"),
+                    Some(&turn_id),
+                    CanonicalEvent::TurnStarted(TurnStartedEvent {
+                        provider_turn_id: None,
+                        state: ChatTurnState::Active,
+                        modes: TurnModeSnapshot {
+                            safety_mode: SafetyMode::AskForApproval,
+                            interaction_mode: InteractionMode::Build,
+                        },
+                        model_id: None,
+                        model_options: Vec::new(),
+                    }),
+                ),
+            )
+            .await
+            .unwrap();
+            append_canonical_event(
+                &pool,
+                canonical_request(
+                    &format!("event-{suffix}-answer"),
+                    Some(&turn_id),
+                    CanonicalEvent::ItemCompleted(ItemLifecycleEvent {
+                        item_id: format!("answer-{suffix}"),
+                        kind: CanonicalItemKind::AssistantMessage,
+                        status: ActivityStatus::Completed,
+                        title: Some("Assistant message".to_string()),
+                        detail: Some(answer.to_string()),
+                        safe_metadata: Some(VersionedJson {
+                            schema_version: 1,
+                            value: serde_json::json!({ "phase": "final_answer" }),
+                        }),
+                    }),
+                ),
+            )
+            .await
+            .unwrap();
+            append_canonical_event(
+                &pool,
+                canonical_request(
+                    &format!("event-{suffix}-complete"),
+                    Some(&turn_id),
+                    CanonicalEvent::TurnCompleted(TurnCompletedEvent {
+                        state: ChatTurnState::Completed,
+                        stop_reason: None,
+                        usage: None,
+                        changed_files: Vec::new(),
+                    }),
+                ),
+            )
+            .await
+            .unwrap();
+        }
+
+        let thread_id = ChatThreadId::new("thread-1").unwrap();
+        let turn_id = ChatTurnId::new("turn-older").unwrap();
+        let page = read_timeline_turn(&pool, &thread_id, &turn_id)
+            .await
+            .unwrap();
+
+        assert_eq!(page.thread_id, thread_id);
+        assert_eq!(page.items.len(), 1);
+        assert_eq!(page.items[0].activity_id.as_str(), "answer-older");
+        assert_eq!(page.items[0].source_thread_id.as_ref(), Some(&thread_id));
+        assert_eq!(page.turns.len(), 1);
+        assert_eq!(page.turns[0].turn_id, turn_id);
+        assert!(page.previous_cursor.is_none());
+        assert!(page.next_cursor.is_none());
+    });
+}

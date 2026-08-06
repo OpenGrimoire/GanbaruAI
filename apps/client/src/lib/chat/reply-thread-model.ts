@@ -1,7 +1,6 @@
 import type {
   ChatAgentRunRead,
   ChatMessageRead,
-  ChatThreadId,
   VersionedJson,
 } from "./contracts";
 
@@ -20,17 +19,14 @@ export function latestRenderableAgentRun(
   return agentRuns.findLast((agentRun) => agentRun.providerExecutionThreadId !== null) ?? null;
 }
 
-/** Returns whether the exact run can replace its durable projection without a visual swap. */
-export function exactRunPresentationReady(
-  run: ChatAgentRunRead | null,
-  selectedRunId: string | null,
-  selectedProviderThreadId: ChatThreadId | null,
-  loadedTurnIds: ReadonlySet<string>,
+/** Returns whether every persisted provider run has its exact turn ready to render. */
+export function exactRunPresentationsReady(
+  runs: readonly ChatAgentRunRead[],
+  loadedRunIds: ReadonlySet<string>,
 ): boolean {
-  if (!run) return true;
-  return selectedRunId === run.id
-    && selectedProviderThreadId === run.providerExecutionThreadId
-    && loadedTurnIds.has(run.providerExecutionTurnId);
+  return runs.every((run) => (
+    run.providerExecutionThreadId === null || loadedRunIds.has(run.id)
+  ));
 }
 
 /** Removes only the projected copies owned by the provider run rendered in the thread. */
@@ -65,14 +61,14 @@ export function shouldGroupReplyMessages(
 export function replyThreadRenderEntries(
   replies: readonly ChatMessageRead[],
   agentRuns: readonly ChatAgentRunRead[],
-  renderedProviderThreadId: ChatThreadId | null,
+  loadedRunIds: ReadonlySet<string>,
 ): ReplyThreadRenderEntry[] {
-  if (renderedProviderThreadId === null) {
+  const renderedRuns = agentRuns.filter((run) => (
+    run.providerExecutionThreadId !== null && loadedRunIds.has(run.id)
+  ));
+  if (renderedRuns.length === 0) {
     return replies.map((message) => ({ kind: "message", key: message.itemId, message }));
   }
-  const renderedRuns = agentRuns.filter((run) => (
-    run.providerExecutionThreadId === renderedProviderThreadId
-  ));
   const renderedRunIds = new Set(renderedRuns.map((run) => run.id));
   const positioned: Array<{ position: number; entry: ReplyThreadRenderEntry }> = replies
     .filter((reply) => {

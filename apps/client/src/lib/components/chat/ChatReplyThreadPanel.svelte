@@ -2,8 +2,10 @@
   import MessagesSquare from "@lucide/svelte/icons/messages-square";
   import X from "@lucide/svelte/icons/x";
   import { tick } from "svelte";
+  import * as chatApi from "$lib/api/chat";
+  import type { ChatAgentRunRead, ChatThreadShellRead, ChatTimelinePageRead } from "$lib/chat/contracts";
   import {
-    exactRunPresentationReady,
+    exactRunPresentationsReady,
     latestRenderableAgentRun,
     replyThreadRenderEntries,
     shouldGroupReplyMessages,
@@ -16,6 +18,11 @@
   import ChatMessageComposer from "./ChatMessageComposer.svelte";
   import ChatOrganizationalMessage from "./ChatOrganizationalMessage.svelte";
   import ChatRequestPanel from "./ChatRequestPanel.svelte";
+
+  interface ExactExecutionRead {
+    timelinePage: ChatTimelinePageRead;
+    thread: ChatThreadShellRead;
+  }
 
   let {
     presentation = "complementary",
@@ -34,6 +41,10 @@
   let actionError = $state<string | null>(null);
   let executionSelectionRequest = 0;
   let executionThreadScope = $state<string | null>(null);
+  let exactExecutionScope = "";
+  let exactExecutionRequest = 0;
+  let exactExecutions = $state<Record<string, ExactExecutionRead>>({});
+  let exactExecutionError = $state<string | null>(null);
   let followingEnd = true;
   let restoredDestination: string | null = null;
   const page = $derived(chat.replyThread);
@@ -44,19 +55,20 @@
     ...chat.timelinePages.flatMap((timelinePage) => timelinePage.turns.map((turn) => turn.turnId)),
   ]));
   const loadedExecutionRuns = $derived((page?.agentRuns ?? []).filter((run) => (
-    run.providerExecutionThreadId === chat.selectedThreadId
-    && loadedExecutionTurnIds.has(run.providerExecutionTurnId)
+    exactExecutions[run.id] !== undefined
+    || run.providerExecutionThreadId === chat.selectedThreadId
+      && loadedExecutionTurnIds.has(run.providerExecutionTurnId)
   )));
-  const executionPresentationReady = $derived(exactRunPresentationReady(
-    executionRun,
-    chat.selectedExecutionRunId,
-    chat.selectedThreadId,
-    loadedExecutionTurnIds,
-  ));
+  const loadedExecutionRunIds = $derived(new Set(loadedExecutionRuns.map((run) => run.id)));
+  const executionPresentationReady = $derived(
+    exactRunPresentationsReady(page?.agentRuns ?? [], loadedExecutionRunIds)
+    || exactExecutionError !== null
+    || actionError !== null,
+  );
   const renderEntries = $derived(replyThreadRenderEntries(
     page?.replies ?? [],
     loadedExecutionRuns,
-    chat.selectedExecutionRunId ? chat.selectedThreadId : null,
+    loadedExecutionRunIds,
   ));
   const destination = $derived(chat.openReplyThreadId
     ? `reply-thread:${chat.openReplyThreadId}`
@@ -110,12 +122,65 @@
     });
   }
 
+  async function loadExactExecutions(
+    runs: readonly ChatAgentRunRead[],
+    request: number,
+    scope: string,
+  ): Promise<void> {
+    const threadReads = new Map<string, Promise<ChatThreadShellRead>>();
+    const results = await Promise.allSettled(runs.map(async (run) => {
+      const threadId = run.providerExecutionThreadId;
+      if (!threadId) throw new Error("This execution has not started yet");
+      let threadRead = threadReads.get(threadId);
+      if (!threadRead) {
+        threadRead = chatApi.readChatThreadShell(threadId);
+        threadReads.set(threadId, threadRead);
+      }
+      const [timelinePage, thread] = await Promise.all([
+        chatApi.readChatTimelineTurn(threadId, run.providerExecutionTurnId),
+        threadRead,
+      ]);
+      return [run.id, { timelinePage, thread }] as const;
+    }));
+    if (request !== exactExecutionRequest || scope !== exactExecutionScope) return;
+    const reads: Record<string, ExactExecutionRead> = {};
+    const failures: string[] = [];
+    for (const result of results) {
+      if (result.status === "fulfilled") {
+        reads[result.value[0]] = result.value[1];
+      } else {
+        failures.push(result.reason instanceof Error ? result.reason.message : String(result.reason));
+      }
+    }
+    exactExecutions = reads;
+    exactExecutionError = failures[0] ?? null;
+  }
+
   $effect(() => {
     const replyThreadId = chat.openReplyThreadId;
     if (executionThreadScope === replyThreadId) return;
     executionThreadScope = replyThreadId;
     executionSelectionRequest += 1;
     actionError = null;
+  });
+
+  $effect(() => {
+    const currentPage = page;
+    const settledRuns = (currentPage?.agentRuns ?? []).filter((run) => (
+      run.providerExecutionThreadId !== null
+      && ["completed", "failed", "cancelled"].includes(run.state)
+    ));
+    const scope = currentPage
+      ? `${currentPage.thread.id}:${settledRuns.map((run) => `${run.id}:${run.updatedAt}`).join("|")}`
+      : "";
+    if (scope === exactExecutionScope) return;
+    exactExecutionScope = scope;
+    const request = ++exactExecutionRequest;
+    exactExecutions = {};
+    exactExecutionError = null;
+    if (settledRuns.length > 0) {
+      void loadExactExecutions(settledRuns, request, scope);
+    }
   });
 
   $effect(() => {
@@ -199,7 +264,7 @@
     <span></span>
   </header>
 
-  {#if actionError}<p class="thread-error" role="alert">{actionError}</p>{/if}
+  {#if actionError || exactExecutionError}<p class="thread-error" role="alert">{actionError ?? exactExecutionError}</p>{/if}
 
   <div
     bind:this={scroller}
@@ -224,12 +289,15 @@
             showReplyStrip={false}
             grouped={previousEntry?.kind === "message" && shouldGroupReplyMessages(previousEntry.message, entry.message)}
           />
-        {:else if chat.selectedExecutionRunId && entry.run.providerExecutionThreadId === chat.selectedThreadId}
+        {:else}
+          {@const exactExecution = exactExecutions[entry.run.id]}
           <ChatExecutionTimeline
             embedded
             hideUserMessages
             teammateName={assignment?.teammate.displayName ?? null}
             turnId={entry.run.providerExecutionTurnId}
+            timelinePage={exactExecution?.timelinePage ?? null}
+            executionThread={exactExecution?.thread ?? null}
           />
         {/if}
       {/each}

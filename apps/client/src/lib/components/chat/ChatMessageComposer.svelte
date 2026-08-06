@@ -645,7 +645,6 @@
             <button type="button" class="candidate-select" onclick={() => chooseMention(candidate.participant)}>
             <ChatParticipantAvatar participant={candidate.participant} size={29} />
             <span class="candidate-copy"><strong>{candidate.participant.displayName}</strong><small>{candidate.purpose || `@${candidate.participant.handle ?? ""}`}</small></span>
-            {#if candidate.participant.kind === "ai_teammate"}<span class="agent-badge">{t("chat.organization.agent")}</span>{/if}
             </button>
             {#if candidate.configurationState && candidate.configurationState !== "healthy"}
               <span class="needs-setup">{t("chat.organization.needsSetup")}</span>
@@ -787,7 +786,7 @@
   .candidate-copy { display:grid; min-width:0; flex:1; }
   .candidate-copy strong,.candidate-copy small { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
   .candidate-copy strong { font-size:0.76rem; }.candidate-copy small { color:var(--muted-foreground); font-size:0.67rem; }
-  .agent-badge,.needs-setup { flex:0 0 auto; border:1px solid var(--border); border-radius:999px; padding:0.1rem 0.35rem; color:var(--muted-foreground); font-size:0.6rem; }
+  .needs-setup { flex:0 0 auto; border:1px solid var(--border); border-radius:999px; padding:0.1rem 0.35rem; color:var(--muted-foreground); font-size:0.6rem; }
   .needs-setup { color:var(--destructive); }.configure { display:flex; align-items:center; gap:0.2rem; font-size:0.65rem; }
   .composer-error { padding:0 0.75rem 0.5rem; color:var(--destructive); font-size:0.7rem; }
   @media (forced-colors:active) { .organizational-composer,.composer-menu,.mention-picker { border:1px solid CanvasText; } }

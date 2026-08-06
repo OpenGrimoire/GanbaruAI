@@ -310,32 +310,7 @@ pub async fn read_timeline_page(
     rows.truncate(page_limit as usize);
     let mut items = rows
         .into_iter()
-        .map(|row| {
-            let row_id: String = row.try_get("row_id").map_err(persistence_error)?;
-            let data: String = row.try_get("item_data").map_err(persistence_error)?;
-            Ok(ChatTimelineItemRead {
-                activity_id: ChatActivityId::new(row_id).map_err(|_| corrupt_data())?,
-                turn_id: row
-                    .try_get::<Option<String>, _>("turn_id")
-                    .map_err(persistence_error)?
-                    .map(ChatTurnId::new)
-                    .transpose()
-                    .map_err(|_| corrupt_data())?,
-                sequence_anchor: unsigned(
-                    row.try_get("sequence_anchor").map_err(persistence_error)?,
-                )?,
-                kind: row.try_get("item_kind").map_err(persistence_error)?,
-                data: VersionedJson {
-                    schema_version: u32::try_from(
-                        row.try_get::<i64, _>("schema_version")
-                            .map_err(persistence_error)?,
-                    )
-                    .map_err(|_| corrupt_data())?,
-                    value: serde_json::from_str(&data).map_err(serialization_error)?,
-                },
-                source_thread_id: None,
-            })
-        })
+        .map(|row| row_to_timeline_item(row, None))
         .collect::<ChatResult<Vec<_>>>()?;
     items.reverse();
     let turn_ids = items
@@ -368,6 +343,103 @@ pub async fn read_timeline_page(
         items,
         turns,
         thread_revision: revision,
+    })
+}
+
+/// Reads the complete projected timeline for one exact turn.
+pub async fn read_timeline_turn(
+    pool: &SqlitePool,
+    thread_id: &ChatThreadId,
+    turn_id: &ChatTurnId,
+) -> ChatResult<ChatTimelinePageRead> {
+    let revision = sqlx::query_scalar::<_, i64>(
+        "SELECT t.revision
+         FROM chat_threads t
+         JOIN chat_turns turn ON turn.thread_id = t.id
+         WHERE t.id = ? AND turn.id = ? AND turn.invalidated_at IS NULL",
+    )
+    .bind(thread_id.as_str())
+    .bind(turn_id.as_str())
+    .fetch_optional(pool)
+    .await
+    .map_err(persistence_error)?
+    .ok_or_else(turn_not_found)
+    .and_then(unsigned)?;
+    let rows = sqlx::query(
+        "SELECT row_id, turn_id, sequence_anchor, item_kind, schema_version, item_data
+         FROM (
+           SELECT id AS row_id, turn_id, sequence_anchor, 'message' AS item_kind,
+                  content_metadata_schema_version AS schema_version,
+                  json_object('role', role, 'markdown', normalized_markdown,
+                              'streamingState', streaming_state,
+                              'providerItemId', provider_item_id,
+                              'metadata', json(content_metadata_data),
+                              'createdAt', created_at, 'updatedAt', updated_at) AS item_data
+           FROM chat_messages WHERE thread_id = ?
+           UNION ALL
+           SELECT id, turn_id, sequence_anchor, 'activity', safe_metadata_schema_version,
+                  json_object('activityKind', item_kind, 'status', status, 'title', title,
+                              'detail', detail, 'providerItemId', provider_item_id,
+                              'metadata', json(safe_metadata_data),
+                              'createdAt', created_at, 'updatedAt', updated_at)
+           FROM chat_activities WHERE thread_id = ?
+           UNION ALL
+           SELECT id, origin_turn_id, sequence_anchor, 'plan', steps_schema_version,
+                  json_object('markdown', markdown, 'steps', json(steps_data), 'state', state,
+                              'createdAt', created_at, 'updatedAt', updated_at)
+           FROM chat_plans WHERE thread_id = ?
+         )
+         WHERE turn_id = ?
+         ORDER BY sequence_anchor, row_id",
+    )
+    .bind(thread_id.as_str())
+    .bind(thread_id.as_str())
+    .bind(thread_id.as_str())
+    .bind(turn_id.as_str())
+    .fetch_all(pool)
+    .await
+    .map_err(persistence_error)?;
+    let items = rows
+        .into_iter()
+        .map(|row| row_to_timeline_item(row, Some(thread_id.clone())))
+        .collect::<ChatResult<Vec<_>>>()?;
+    let turn_ids = BTreeSet::from([turn_id.as_str().to_string()]);
+    let turns = read_timeline_turns_by_ids(pool, &turn_ids).await?;
+    Ok(ChatTimelinePageRead {
+        thread_id: thread_id.clone(),
+        items,
+        turns,
+        previous_cursor: None,
+        next_cursor: None,
+        thread_revision: revision,
+    })
+}
+
+fn row_to_timeline_item(
+    row: sqlx::sqlite::SqliteRow,
+    source_thread_id: Option<ChatThreadId>,
+) -> ChatResult<ChatTimelineItemRead> {
+    let row_id: String = row.try_get("row_id").map_err(persistence_error)?;
+    let data: String = row.try_get("item_data").map_err(persistence_error)?;
+    Ok(ChatTimelineItemRead {
+        activity_id: ChatActivityId::new(row_id).map_err(|_| corrupt_data())?,
+        turn_id: row
+            .try_get::<Option<String>, _>("turn_id")
+            .map_err(persistence_error)?
+            .map(ChatTurnId::new)
+            .transpose()
+            .map_err(|_| corrupt_data())?,
+        sequence_anchor: unsigned(row.try_get("sequence_anchor").map_err(persistence_error)?)?,
+        kind: row.try_get("item_kind").map_err(persistence_error)?,
+        data: VersionedJson {
+            schema_version: u32::try_from(
+                row.try_get::<i64, _>("schema_version")
+                    .map_err(persistence_error)?,
+            )
+            .map_err(|_| corrupt_data())?,
+            value: serde_json::from_str(&data).map_err(serialization_error)?,
+        },
+        source_thread_id,
     })
 }
 
@@ -580,6 +652,9 @@ fn parse_turn_state(value: &str) -> ChatResult<ChatTurnState> {
 }
 fn not_found() -> ChatError {
     ChatError::new(ChatErrorCode::NotFound, "Chat thread was not found", true)
+}
+fn turn_not_found() -> ChatError {
+    ChatError::new(ChatErrorCode::NotFound, "Chat turn was not found", true)
 }
 fn persistence_error<T>(_error: T) -> ChatError {
     ChatError::new(

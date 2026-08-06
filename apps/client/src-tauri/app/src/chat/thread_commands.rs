@@ -118,6 +118,16 @@ pub async fn chat_read_timeline_page(
 }
 
 #[tauri::command]
+pub async fn chat_read_timeline_turn(
+    app: tauri::AppHandle,
+    db_url: String,
+    thread_id: ChatThreadId,
+    turn_id: super::models::ChatTurnId,
+) -> ChatResult<ChatTimelinePageRead> {
+    reads::read_timeline_turn(&chat_pool(app, db_url).await?, &thread_id, &turn_id).await
+}
+
+#[tauri::command]
 pub async fn chat_fork_thread(
     app: tauri::AppHandle,
     db_url: String,

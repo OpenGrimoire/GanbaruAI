@@ -57,7 +57,6 @@
     {#if !grouped}
       <header>
         <strong>{authorDisplayName}</strong>
-        {#if message.author.kind === "ai_teammate"}<span class="agent-badge">{t("chat.organization.agent")}</span>{/if}
         <time datetime={message.createdAt}>{formatDateTime(localization.locale, Date.parse(message.createdAt), { timeStyle: "short" })}</time>
       </header>
     {/if}
@@ -95,7 +94,6 @@
   .message-body { --chat-message-action-anchor-bottom:1.3rem; --chat-message-reaction-margin-top:0.35rem; position:relative; min-width:0; max-width:54rem; }
   header { display:flex; min-height:1.3rem; align-items:baseline; gap:0.4rem; }
   header strong { font-size:var(--chat-organizational-font-size,0.84rem); } header time { color:var(--muted-foreground); font-size:var(--chat-organizational-time-font-size,0.65rem); }
-  .agent-badge { border:1px solid var(--border); border-radius:999px; padding:0.05rem 0.3rem; color:var(--muted-foreground); font-size:0.58rem; }
   .message-copy { white-space:pre-wrap; overflow-wrap:anywhere; color:var(--foreground); font-size:var(--chat-organizational-font-size,0.84rem); line-height:var(--chat-organizational-line-height,1.42rem); }
   .message-context { display:flex; flex-wrap:wrap; gap:0.3rem; margin-top:0.3rem; }
   .message-context span { border-radius:999px; background:var(--accent); padding:0.15rem 0.4rem; color:var(--muted-foreground); font-size:0.65rem; }

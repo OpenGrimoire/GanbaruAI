@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { ChatAgentRunRead, ChatMessageRead, VersionedJson } from "./contracts";
 import {
-  exactRunPresentationReady,
+  exactRunPresentationsReady,
   latestRenderableAgentRun,
   replyThreadRenderEntries,
   repliesWithoutRenderedRunProjection,
@@ -38,18 +38,15 @@ describe("reply thread provider projection", () => {
     ])?.id).toBe("run-3");
   });
 
-  it("keeps projected agent content hidden until the exact run turn is loaded", () => {
-    const run = agentRun("run-1", "thread-1");
+  it("keeps projected agent content hidden until every exact run turn is loaded", () => {
+    const first = agentRun("run-1", "thread-1");
+    const second = agentRun("run-2", "thread-2");
 
-    expect(exactRunPresentationReady(run, null, null, new Set())).toBe(false);
-    expect(exactRunPresentationReady(run, "run-1", "thread-1", new Set())).toBe(false);
-    expect(exactRunPresentationReady(
-      run,
-      "run-1",
-      "thread-1",
-      new Set([run.providerExecutionTurnId]),
-    )).toBe(true);
-    expect(exactRunPresentationReady(null, null, null, new Set())).toBe(true);
+    expect(exactRunPresentationsReady([first, second], new Set())).toBe(false);
+    expect(exactRunPresentationsReady([first, second], new Set([first.id]))).toBe(false);
+    expect(exactRunPresentationsReady([first, second], new Set([first.id, second.id]))).toBe(true);
+    expect(exactRunPresentationsReady([], new Set())).toBe(true);
+    expect(exactRunPresentationsReady([agentRun("pending", null)], new Set())).toBe(true);
   });
 
   it("hides only the materialized copy of the rendered run", () => {
@@ -119,12 +116,12 @@ describe("reply thread execution placement", () => {
     const olderRun = agentRun("run-1", "thread-1");
     const currentRun = { ...agentRun("run-2", "thread-1"), createdAt: "2026-08-02T09:00:01Z" };
 
-    expect(replyThreadRenderEntries(replies, [olderRun, currentRun], "thread-1")
+    expect(replyThreadRenderEntries(replies, [olderRun, currentRun], new Set([olderRun.id, currentRun.id]))
       .map((entry) => entry.key))
       .toEqual(["execution:run-1", "retry", "execution:run-2"]);
   });
 
-  it("retains projections owned by an execution thread that is not loaded", () => {
+  it("retains projections owned by a run whose exact turn is not loaded", () => {
     const projection = message("other-run", "teammate-1", "2026-08-02T08:00:00Z", {
       type: "agent_update",
       agentRunId: "run-1",
@@ -133,7 +130,7 @@ describe("reply thread execution placement", () => {
     expect(replyThreadRenderEntries(
       [projection],
       [agentRun("run-1", "thread-1")],
-      "thread-2",
+      new Set(),
     ).map((entry) => entry.key)).toEqual(["other-run"]);
   });
 });

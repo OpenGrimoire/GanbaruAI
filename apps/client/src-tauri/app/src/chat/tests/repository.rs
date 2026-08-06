@@ -25,7 +25,7 @@ use crate::chat::repository::lifecycle::{
 };
 use crate::chat::repository::reads::{
     parse_timeline_cursor, read_project_shells, read_thread_shell_window, read_thread_shells,
-    read_timeline_page, search_thread_titles,
+    read_timeline_page, read_timeline_turn, search_thread_titles,
 };
 use crate::chat::repository::rebuild::rebuild_thread_projections;
 use crate::chat::repository::receipts::{

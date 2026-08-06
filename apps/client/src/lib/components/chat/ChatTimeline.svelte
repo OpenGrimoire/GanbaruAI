@@ -20,7 +20,7 @@
   import RotateCcw from "@lucide/svelte/icons/rotate-ccw";
   import { executionMessageActionTarget } from "$lib/chat/message-action-target";
   import { chatScrollBehavior } from "$lib/chat/responsive-layout";
-  import type { ChatTurnId } from "$lib/chat/contracts";
+  import type { ChatThreadShellRead, ChatTimelinePageRead, ChatTurnId } from "$lib/chat/contracts";
   import { activityFilePath, fileChangePresentation, fileReadActivityPresentation, fileSearchActivityPresentation, isFileReadActivity, isFileSearchActivity, isImageViewActivity, summarizeActivityKinds, transientActivitySummary, type ActivitySummaryCount } from "$lib/chat/activity-presentation";
   import { chatModelParticipant, type ChatModelParticipant } from "$lib/chat/participant-identity";
   import { buildTimelineDisplayRows, includeOptimisticTimelineMessage, projectTimelineReadModel, timelineActivityShowsLiveStatus, timelineActivitySupportsDisclosure, timelineModelGroupStartIds, timelineRowsForTurn, type TimelineActivityGroupRow, type TimelineActivityRow, type TimelineDisplayRow, type TimelineMessageRow, type TimelinePlanRow, type TimelineTurnFoldRow } from "$lib/chat/timeline-model";
@@ -46,12 +46,16 @@
     hideUserMessages = false,
     teammateName = null,
     turnId = null,
+    timelinePage = null,
+    executionThread = null,
   } = $props<{
     bottomInsetPx?: number;
     embedded?: boolean;
     hideUserMessages?: boolean;
     teammateName?: string | null;
     turnId?: ChatTurnId | null;
+    timelinePage?: ChatTimelinePageRead | null;
+    executionThread?: ChatThreadShellRead | null;
   }>();
   const COMPOSER_READING_GAP_PX = 8;
   const TIMELINE_EDGE_PADDING_PX = 16;
@@ -93,13 +97,21 @@
     startScrollTop: number;
     scrollPerPixel: number;
   } | null>(null);
-  const pageTurns = $derived(chat.timelinePages.flatMap((page) => page.turns));
-  const projection = $derived(projectTimelineReadModel(chat.timelineItems, pageTurns));
-  const selectedThread = $derived(chat.selectedThread);
+  const timelinePages = $derived(timelinePage ? [timelinePage] : chat.timelinePages);
+  const timelineItems = $derived(timelinePage ? timelinePage.items : chat.timelineItems);
+  const timelineLoading = $derived(timelinePage ? false : chat.timelineLoading);
+  const pageTurns = $derived(timelinePages.flatMap((page) => page.turns));
+  const projection = $derived(projectTimelineReadModel(timelineItems, pageTurns));
+  const selectedThread = $derived(executionThread ?? chat.selectedThread);
   const timelineIdentity = $derived(chat.selectedChannelId ?? selectedThread?.id ?? null);
-  const optimisticMessage = $derived(chat.pendingUserMessage?.threadId === (selectedThread?.id ?? chat.draftThreadId)
-    ? chat.pendingUserMessage.row
-    : null);
+  const optimisticMessage = $derived.by(() => {
+    if (timelinePage) return null;
+    const pendingMessage = chat.pendingUserMessage;
+    if (!pendingMessage) return null;
+    return pendingMessage.threadId === (selectedThread?.id ?? chat.draftThreadId)
+      ? pendingMessage.row
+      : null;
+  });
   const timelineRows = $derived(timelineRowsForTurn(
     includeOptimisticTimelineMessage(projection.rows, optimisticMessage),
     turnId,
@@ -126,26 +138,28 @@
   const renderedRows = $derived(embedded
     ? displayRows.map((row, index) => ({ row, index }))
     : virtualWindow.items);
-  const selectedWorkingFolder = $derived(chat.selectedWorkingFolder);
+  const selectedWorkingFolder = $derived(executionThread
+    ? chat.workingFolders.find((entry) => entry.workingFolder.id === executionThread.workingFolderId) ?? null
+    : chat.selectedWorkingFolder);
   const selectedProvider = $derived(chat.settings?.providerInstances.find((provider) => provider.configuration.instanceId === selectedThread?.providerInstanceId) ?? null);
   const minimapRows = $derived(timelineMinimapRows(displayRows));
   const showMinimap = $derived(!embedded && displayRows.length >= 80 && viewportWidth >= 900 && minimapRows.length > 0);
-  const latestTimelinePage = $derived(chat.timelinePages.at(-1));
+  const latestTimelinePage = $derived(timelinePages.at(-1));
   const timelineRevision = $derived(`${latestTimelinePage
     ? "revision" in latestTimelinePage
       ? latestTimelinePage.revision
       : latestTimelinePage.threadRevision
-    : 0}:${chat.pendingUserMessage?.row.id ?? ""}`);
+    : 0}:${timelinePage ? "" : chat.pendingUserMessage?.row.id ?? ""}`);
   const bottomPadding = $derived(virtualWindow.paddingBottom
     + (bottomInsetPx > 0 ? bottomInsetPx + COMPOSER_READING_GAP_PX : TIMELINE_EDGE_PADDING_PX));
 
   $effect(() => {
-    if (!chat.timelineLoading || displayRows.length > 0) {
+    if (!timelineLoading || displayRows.length > 0) {
       initialTimelineLoadingVisible = false;
       return;
     }
     const timer = window.setTimeout(() => {
-      if (chat.timelineLoading && displayRows.length === 0) {
+      if (timelineLoading && displayRows.length === 0) {
         initialTimelineLoadingVisible = true;
       }
     }, 180);
@@ -190,7 +204,7 @@
   });
 
   $effect(() => {
-    const count = chat.timelineItems.length;
+    const count = timelineItems.length;
     if (count > previousItemCount) {
       unreadEvents = nextTimelineUnreadCount(unreadEvents, count - previousItemCount, intent, false);
     }
@@ -211,7 +225,7 @@
 
   $effect(() => {
     const identity = timelineIdentity;
-    if (embedded || !identity || chat.timelineLoading || restoredThreadId === identity) return;
+    if (embedded || !identity || timelineLoading || restoredThreadId === identity) return;
     restoredThreadId = identity;
     void tick().then(() => {
       if (destroyed || !scroller || timelineIdentity !== identity) return;
@@ -232,7 +246,7 @@
   }
 
   async function loadOlder(): Promise<void> {
-    if (!scroller || loadingOlder || !chat.timelinePages.some((page) => page.previousCursor !== null)) return;
+    if (!scroller || loadingOlder || !timelinePages.some((page) => page.previousCursor !== null)) return;
     loadingOlder = true;
     const anchor = scroller.querySelector<HTMLElement>("[data-timeline-row-id]");
     const anchorId = anchor?.dataset.timelineRowId;
@@ -685,7 +699,8 @@
       : row.kind === "turn_fold"
         ? row.hiddenRows[0]?.sourceThreadId
         : row.sourceThreadId;
-    const sourceThread = [...chat.activeThreads, ...chat.archivedThreads]
+    const sourceThread = [executionThread, ...chat.activeThreads, ...chat.archivedThreads]
+      .filter((thread): thread is ChatThreadShellRead => thread !== null)
       .find((thread) => thread.id === sourceThreadId)
       ?? selectedThread;
     const sourceProvider = chat.settings?.providerInstances.find((provider) => (
@@ -759,11 +774,12 @@
 {#snippet modelRowContent(row: TimelineDisplayRow)}
   {#if row.kind === "message"}
     {@const message = row as TimelineMessageRow}
-    {@const sourceThreadId = message.sourceThreadId ?? chat.selectedThreadId}
+    {@const sourceThreadId = message.sourceThreadId ?? selectedThread?.id ?? chat.selectedThreadId}
     {@const sourceWorkingFolderId = sourceThreadId
-      ? [...chat.activeThreads, ...chat.archivedThreads]
+      ? [executionThread, ...chat.activeThreads, ...chat.archivedThreads]
+        .filter((thread): thread is ChatThreadShellRead => thread !== null)
         .find((thread) => thread.id === sourceThreadId)?.workingFolderId
-        ?? (sourceThreadId === chat.selectedThreadId ? chat.selectedWorkingFolderId : null)
+        ?? (sourceThreadId === selectedThread?.id ? selectedThread.workingFolderId : null)
       : null}
     <article class="chat-assistant-message">
       <ChatMarkdown markdown={message.markdown} onError={reportError} />
@@ -838,8 +854,8 @@
     {#if selectedProvider && (!selectedProvider.configuration.enabled || selectedProvider.lastProbe?.state !== "healthy")}<div class="chat-timeline-banner text-status-tentative"><CircleAlert size={14} /><span>{selectedProvider.lastProbe?.detail ?? t("chat.status.providerUnavailable")}</span><button type="button" onclick={() => void chat.probeProvider(selectedProvider.configuration.instanceId).catch(reportError)}>{t("chat.timeline.retry")}</button><button type="button" onclick={() => settings.open("chat", { chatSubsection: "providers" })}><Settings size={13} />{t("chat.timeline.openSettings")}</button></div>{/if}
     {#if selectedThread?.state === "error"}<div class="chat-timeline-banner text-destructive"><CircleAlert size={14} /><span>{t("chat.timeline.threadError")}</span><button type="button" onclick={() => void chat.startNewChannelSession().catch(reportError)}><MessageSquare size={13} />{t("chat.timeline.startNewThread")}</button></div>{/if}
   {/if}
-  {#if operationError || chat.timelineError}<div role="alert" class="chat-timeline-banner text-destructive"><span>{operationError ?? chat.timelineError}</span>{#if selectedThread || chat.selectedChannelId}<button type="button" onclick={() => void retryTimeline().catch(reportError)}>{t("chat.timeline.retry")}</button>{/if}</div>{/if}
-  <div bind:this={scroller} class="chat-timeline-scroller h-full overflow-y-auto" role="feed" aria-busy={chat.timelineLoading || undefined} aria-label={t("chat.title")} onscroll={handleScroll} onpointerleave={clearActionToolbar}>
+  {#if operationError || !timelinePage && chat.timelineError}<div role="alert" class="chat-timeline-banner text-destructive"><span>{operationError ?? chat.timelineError}</span>{#if selectedThread || chat.selectedChannelId}<button type="button" onclick={() => void retryTimeline().catch(reportError)}>{t("chat.timeline.retry")}</button>{/if}</div>{/if}
+  <div bind:this={scroller} class="chat-timeline-scroller h-full overflow-y-auto" role="feed" aria-busy={timelineLoading || undefined} aria-label={t("chat.title")} onscroll={handleScroll} onpointerleave={clearActionToolbar}>
     <div
       bind:this={timelineContent}
       class="chat-timeline-content mx-auto flex min-h-full flex-col justify-end"

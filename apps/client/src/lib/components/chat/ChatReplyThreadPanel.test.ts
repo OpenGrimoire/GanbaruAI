@@ -1,15 +1,26 @@
 // @vitest-environment jsdom
 
 import { mount, tick, unmount } from "svelte";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import * as chatApi from "$lib/api/chat";
 import type {
   ChatAgentRunRead,
   ChatMessageRead,
   ChatParticipantRead,
   ChatReplyThreadPageRead,
+  ChatThreadShellRead,
+  ChatTimelinePageRead,
 } from "$lib/chat/contracts";
 import { getChat } from "$lib/stores/chat.svelte";
 import ChatReplyThreadPanel from "./ChatReplyThreadPanel.svelte";
+
+class ResizeObserverMock implements ResizeObserver {
+  constructor(_callback: ResizeObserverCallback) {}
+
+  observe(): void {}
+  unobserve(): void {}
+  disconnect(): void {}
+}
 
 const localParticipant: ChatParticipantRead = {
   id: "participant:local-owner",
@@ -36,6 +47,7 @@ function message(
   author: ChatParticipantRead,
   markdown: string,
   ordinal: number,
+  agentRunId: string | null = author.kind === "ai_teammate" ? "run:test" : null,
 ): ChatMessageRead {
   return {
     itemId,
@@ -47,9 +59,9 @@ function message(
     normalizedMarkdown: markdown,
     richContent: {
       schemaVersion: 1,
-      value: ordinal === 0
-        ? { type: "doc" }
-        : { type: "agent_update", agentRunId: "run:test", updateKind: "result" },
+      value: agentRunId
+        ? { type: "agent_update", agentRunId, updateKind: "result" }
+        : { type: "message", content: [{ type: "text", text: markdown }] },
     },
     mentions: [],
     attachmentIds: [],
@@ -75,6 +87,70 @@ const run: ChatAgentRunRead = {
   createdAt: "2026-08-04T17:00:30.000Z",
   updatedAt: "2026-08-04T17:01:00.000Z",
 };
+
+function threadShell(id: string): ChatThreadShellRead {
+  return {
+    id,
+    workingFolderId: "folder:test",
+    projectId: "project:test",
+    title: "Execution",
+    providerFamilyId: "codex",
+    providerInstanceId: "provider:test",
+    providerThreadId: null,
+    modelId: null,
+    modelOptions: [],
+    modes: { safetyMode: "ask_for_approval", interactionMode: "build" },
+    state: "idle",
+    latestTurnState: "completed",
+    latestPreview: null,
+    messageCount: 1,
+    revision: 1,
+    lastEventSequence: 3,
+    lastActivityAt: "2026-08-04T17:01:00.000Z",
+    unreadAt: null,
+    archivedAt: null,
+  };
+}
+
+function exactTimelinePage(threadId: string, turnId: string, markdown: string): ChatTimelinePageRead {
+  return {
+    threadId,
+    items: [{
+      activityId: `answer:${turnId}`,
+      turnId,
+      sequenceAnchor: 2,
+      kind: "message",
+      data: {
+        schemaVersion: 1,
+        value: {
+          role: "assistant",
+          markdown,
+          streamingState: "complete",
+          providerItemId: null,
+          metadata: { phase: "final_answer" },
+          createdAt: "2026-08-04T17:01:00.000Z",
+          updatedAt: "2026-08-04T17:01:00.000Z",
+        },
+      },
+      sourceThreadId: threadId,
+    }],
+    turns: [{
+      turnId,
+      state: "completed",
+      startedAt: "2026-08-04T17:00:30.000Z",
+      completedAt: "2026-08-04T17:01:00.000Z",
+      stopReason: null,
+      modelId: null,
+      modelOptions: [],
+      modes: { safetyMode: "ask_for_approval", interactionMode: "build" },
+      usage: null,
+      changedFiles: [],
+    }],
+    previousCursor: null,
+    nextCursor: null,
+    threadRevision: 1,
+  };
+}
 
 const page: ChatReplyThreadPageRead = {
   thread: {
@@ -103,8 +179,24 @@ describe("ChatReplyThreadPanel", () => {
   const originalSelectedExecutionRunId = chat.selectedExecutionRunId;
   const originalSelectedThreadId = chat.selectedThreadId;
 
+  beforeEach(() => {
+    vi.stubGlobal("ResizeObserver", ResizeObserverMock);
+    vi.stubGlobal("CSS", { escape: (value: string) => value });
+    vi.stubGlobal("matchMedia", vi.fn(() => ({
+      matches: false,
+      media: "",
+      onchange: null,
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+      addListener: vi.fn(),
+      removeListener: vi.fn(),
+      dispatchEvent: vi.fn(),
+    })));
+  });
+
   afterEach(async () => {
     vi.restoreAllMocks();
+    vi.unstubAllGlobals();
     if (component) await unmount(component);
     target?.remove();
     component = undefined;
@@ -123,6 +215,8 @@ describe("ChatReplyThreadPanel", () => {
     chat.selectedExecutionRunId = null;
     chat.selectedThreadId = null;
     vi.spyOn(chat, "selectAssignmentExecution").mockReturnValue(new Promise(() => undefined));
+    vi.spyOn(chatApi, "readChatTimelineTurn").mockReturnValue(new Promise(() => undefined));
+    vi.spyOn(chatApi, "readChatThreadShell").mockReturnValue(new Promise(() => undefined));
     vi.spyOn(chat, "listScheduledOrganizationalMessages").mockResolvedValue([]);
     target = document.createElement("div");
     document.body.append(target);
@@ -160,5 +254,63 @@ describe("ChatReplyThreadPanel", () => {
     expect(target.querySelectorAll('button[aria-label="Add reaction"]')).toHaveLength(2);
     expect(target.querySelectorAll('button[aria-label="More Chat actions"]')).toHaveLength(2);
     expect(target.textContent).not.toContain("1 reply");
+  });
+
+  it("renders exact historical turns across provider thread handoffs", async () => {
+    const firstRun = {
+      ...run,
+      id: "run:first",
+      providerExecutionThreadId: "provider-thread:first",
+      providerExecutionTurnId: "turn:first",
+    };
+    const secondRun = {
+      ...run,
+      id: "run:second",
+      providerExecutionThreadId: "provider-thread:second",
+      providerExecutionTurnId: "turn:second",
+      createdAt: "2026-08-04T17:03:30.000Z",
+      updatedAt: "2026-08-04T17:04:00.000Z",
+    };
+    const handoffPage: ChatReplyThreadPageRead = {
+      ...page,
+      replies: [
+        message("reply:first", agentParticipant, "Projected first answer", 1, firstRun.id),
+        message("reply:human", localParticipant, "Continue", 2),
+        message("reply:second", agentParticipant, "Projected second answer", 3, secondRun.id),
+      ],
+      agentRuns: [firstRun, secondRun],
+    };
+    const timelinePages = new Map([
+      [firstRun.providerExecutionTurnId, exactTimelinePage(firstRun.providerExecutionThreadId, firstRun.providerExecutionTurnId, "Exact first answer")],
+      [secondRun.providerExecutionTurnId, exactTimelinePage(secondRun.providerExecutionThreadId, secondRun.providerExecutionTurnId, "Exact second answer")],
+    ]);
+    chat.openReplyThreadId = handoffPage.thread.id;
+    chat.replyThread = handoffPage;
+    chat.replyThreadPages = [handoffPage];
+    chat.selectedExecutionRunId = null;
+    chat.selectedThreadId = null;
+    vi.spyOn(chat, "selectAssignmentExecution").mockResolvedValue();
+    vi.spyOn(chatApi, "readChatTimelineTurn").mockImplementation(async (_threadId, turnId) => {
+      const timelinePage = timelinePages.get(turnId);
+      if (!timelinePage) throw new Error("Missing test timeline");
+      return timelinePage;
+    });
+    vi.spyOn(chatApi, "readChatThreadShell").mockImplementation(async (threadId) => threadShell(threadId));
+    vi.spyOn(chat, "listScheduledOrganizationalMessages").mockResolvedValue([]);
+    target = document.createElement("div");
+    document.body.append(target);
+    component = mount(ChatReplyThreadPanel, {
+      target,
+      props: { onClose: vi.fn() },
+    });
+
+    await vi.waitFor(() => {
+      expect(target?.textContent).toContain("Exact first answer");
+      expect(target?.textContent).toContain("Exact second answer");
+    });
+    expect(target.textContent).not.toContain("Projected first answer");
+    expect(target.textContent).not.toContain("Projected second answer");
+    expect(target.querySelectorAll(".chat-execution-timeline")).toHaveLength(2);
+    expect(target.querySelector(".agent-badge")).toBeNull();
   });
 });

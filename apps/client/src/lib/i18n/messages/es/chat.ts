@@ -93,7 +93,6 @@ export const chat = {
     welcomeDescription: "Este es el inicio del canal.",
   },
   organization: {
-    agent: "Agente",
     teammate: "compañero",
     mentionTeammate: "Mencionar a un miembro del canal",
     noMentionResults: "Ningún miembro del canal coincide con esta mención.",

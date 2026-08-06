@@ -220,6 +220,17 @@ export async function readChatTimelinePage(
   }));
 }
 
+export async function readChatTimelineTurn(
+  threadId: ChatThreadId,
+  turnId: ChatTurnId,
+): Promise<ChatTimelinePageRead> {
+  return parseChatTimelinePage(await invoke<unknown>("chat_read_timeline_turn", {
+    dbUrl: await ensureDbUrl(),
+    threadId,
+    turnId,
+  }));
+}
+
 export async function openChatExternalUrl(url: string): Promise<void> {
   await invoke("chat_open_external_url", { url });
 }

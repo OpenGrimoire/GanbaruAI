@@ -901,6 +901,7 @@ pub fn run(context: tauri::Context<tauri::Wry>) {
             chat::thread_commands::chat_read_thread_shell,
             chat::thread_commands::chat_search_thread_titles,
             chat::thread_commands::chat_read_timeline_page,
+            chat::thread_commands::chat_read_timeline_turn,
             chat::thread_commands::chat_fork_thread,
             chat::thread_commands::chat_open_external_url,
             chat::thread_commands::chat_rename_thread,
