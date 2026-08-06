@@ -55,6 +55,8 @@ export const chat = {
     explorerLabel: "Canales del proyecto",
     search: "Buscar canales",
     noResults: "Ningún canal coincide con la búsqueda.",
+    empty: "No hay canales en este proyecto.",
+    navigatorLabel: "Navegador de canales",
     createTitle: "Crear canal",
     editTitle: "Editar canal",
     setupDescription: "Dale al canal un propósito durable y colócalo en tu navegación personal.",

@@ -52,6 +52,8 @@ export const chat = {
     explorerLabel: "Project channels",
     search: "Search channels",
     noResults: "No channels match your search.",
+    empty: "No channels in this project.",
+    navigatorLabel: "Channel navigator",
     createTitle: "Create channel",
     editTitle: "Edit channel",
     setupDescription: "Give the channel a durable purpose and place it in your personal navigation.",

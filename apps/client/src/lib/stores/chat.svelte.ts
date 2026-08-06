@@ -308,6 +308,10 @@ class ChatStore {
       : null;
   }
 
+  channelsForProject(projectId: string): ChatChannelRead[] {
+    return this.channelNavigationController.channelsForProject(projectId);
+  }
+
   get selectedThread(): ChatThreadShellRead | null {
     return this.selectedThreadId
       ? this.threadCollectionController.find(this.selectedThreadId)

@@ -48,7 +48,15 @@ export class ChatChannelNavigationController {
   }
 
   channelsForProject(projectId: string): ChatChannelRead[] {
-    return this.navigationChannels.filter((channel) => channel.projectId === projectId);
+    const channels = new Map(
+      this.navigationChannels
+        .filter((channel) => channel.projectId === projectId)
+        .map((channel) => [channel.id, channel]),
+    );
+    for (const channel of this.activeChannels) {
+      if (channel.projectId === projectId) channels.set(channel.id, channel);
+    }
+    return [...channels.values()].sort(channelSort);
   }
 
   find(channelId: ChatChannelId): ChatChannelRead | null {

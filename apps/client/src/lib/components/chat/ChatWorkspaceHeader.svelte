@@ -17,10 +17,13 @@
   import { getViewport } from "$lib/stores/viewport.svelte";
   import { cn } from "$lib/utils";
   import ProjectIcon from "$lib/components/projects/ProjectIcon.svelte";
-  import ProjectNavigator from "$lib/components/projects/ProjectNavigator.svelte";
   import WorkspaceBreadcrumbTerminalIcon from "$lib/components/WorkspaceBreadcrumbTerminalIcon.svelte";
+  import ChatChannelPickerPanel from "./ChatChannelPickerPanel.svelte";
+  import ChatProjectNavigator from "./ChatProjectNavigator.svelte";
   import ChatTitleEditor from "./ChatTitleEditor.svelte";
   import ChatParticipantAvatar from "./ChatParticipantAvatar.svelte";
+
+  type ChatNavigatorMode = ProjectNavigatorPanelMode | "channels";
 
   let {
     explorerExpanded: _explorerExpanded,
@@ -44,10 +47,11 @@
   const identityIconStrokeWidth = COMPACT_IDENTITY_ICON_STROKE_WIDTH;
   const identityEmojiScale = COMPACT_IDENTITY_EMOJI_SCALE;
   let navigatorOpen = $state(false);
-  let navigatorMode = $state<ProjectNavigatorPanelMode>("groups");
+  let navigatorMode = $state<ChatNavigatorMode>("groups");
   let navigatorAnchorElement = $state<HTMLButtonElement | null>(null);
   let groupTriggerElement = $state<HTMLButtonElement | null>(null);
   let projectTriggerElement = $state<HTMLButtonElement | null>(null);
+  let channelTriggerElement = $state<HTMLButtonElement | null>(null);
   let identityElement = $state<HTMLDivElement | null>(null);
   let headerElement = $state<HTMLDivElement | null>(null);
   let navigatorPanelElement = $state<HTMLDivElement | null>(null);
@@ -58,11 +62,20 @@
   const selectedProject = $derived(projects.selectedProject);
   const selectedGroup = $derived(projects.selectedGroup);
   const selectedChannel = $derived(chat.selectedChannel);
+  const selectedProjectChannels = $derived(
+    selectedProject ? chat.channelsForProject(selectedProject.id) : [],
+  );
+  const channelNavigatorPanelHeight = $derived(Math.min(
+    navigatorPanelMaxHeight,
+    Math.max(124, selectedProjectChannels.length * 32 + 84),
+  ));
   const selectedFolder = $derived(chat.selectedWorkingFolder);
   const channelMembers = $derived(selectedChannel?.memberships.filter((membership) => membership.removedAt === null) ?? []);
 
-  function triggerForMode(mode: ProjectNavigatorPanelMode): HTMLButtonElement | null {
-    return mode === "groups" ? groupTriggerElement : projectTriggerElement;
+  function triggerForMode(mode: ChatNavigatorMode): HTMLButtonElement | null {
+    if (mode === "groups") return groupTriggerElement;
+    if (mode === "projects") return projectTriggerElement;
+    return channelTriggerElement;
   }
 
   function refreshNavigatorGeometry(): void {
@@ -83,7 +96,7 @@
     navigatorPanelMaxHeight = geometry.height;
   }
 
-  function openNavigator(mode: ProjectNavigatorPanelMode): void {
+  function openNavigator(mode: ChatNavigatorMode): void {
     if (editingTitle) return;
     navigatorMode = mode;
     navigatorAnchorElement = triggerForMode(mode);
@@ -91,7 +104,7 @@
     requestAnimationFrame(refreshNavigatorGeometry);
   }
 
-  function toggleNavigator(mode: ProjectNavigatorPanelMode): void {
+  function toggleNavigator(mode: ChatNavigatorMode): void {
     if (navigatorOpen && navigatorMode === mode) navigatorOpen = false;
     else openNavigator(mode);
   }
@@ -104,6 +117,16 @@
 
   function selectProject(): void {
     navigatorOpen = false;
+  }
+
+  async function selectChannel(channelId: string): Promise<void> {
+    await chat.selectChannel(channelId);
+    navigatorOpen = false;
+  }
+
+  function createChannel(): void {
+    navigatorOpen = false;
+    window.dispatchEvent(new Event("ganbaru-ai:chat-new-channel"));
   }
 
   async function commitTitle(title: string): Promise<void> {
@@ -140,7 +163,7 @@
           {#if editingTitle && !selectedChannel.isDefault}
             <div class="min-w-36 max-w-64 px-1"><ChatTitleEditor title={selectedChannel.name} onCommit={commitTitle} onCancel={() => { editingTitle = false; }} /></div>
           {:else}
-            <button type="button" class="chat-context-segment" aria-label={t("chat.channels.edit")} data-chat-channel-trigger onclick={() => { if (!selectedChannel.isDefault) editingTitle = true; }}><Hash size={identityIconSize} /><span class="truncate font-semibold">{selectedChannel.name}</span></button>
+            <button bind:this={channelTriggerElement} type="button" class={cn("chat-context-segment", navigatorOpen && navigatorMode === "channels" && "bg-accent")} aria-label={t("chat.channels.navigatorLabel")} aria-expanded={navigatorOpen && navigatorMode === "channels"} data-chat-channel-trigger onpointerenter={() => openNavigator("channels")} onclick={() => toggleNavigator("channels")}><Hash size={identityIconSize} strokeWidth={identityIconStrokeWidth} class="shrink-0" /><span class="truncate font-semibold">{selectedChannel.name}</span><WorkspaceBreadcrumbTerminalIcon kind="chevron" class="shrink-0 text-muted-foreground" /></button>
           {/if}
           {#if selectedChannel.topic}<span class="hidden max-w-80 truncate px-1 text-xs text-muted-foreground @min-[760px]:inline">{selectedChannel.topic}</span>{/if}
         {/if}
@@ -150,8 +173,30 @@
       {/if}
     </div>
     {#if navigatorOpen}
-      <div bind:this={navigatorPanelElement} class="fixed z-80" style={navigatorPanelStyle} role="dialog" tabindex="-1" aria-label={t("projects.navigator.pickerLabel")}>
-        <ProjectNavigator selectedProjectId={projects.selectedProjectId} selectedGroupId={selectedGroup?.id ?? null} iconStrokeWidth={identityIconStrokeWidth} {showInactiveProjects} panelMode={navigatorMode} panelMaxHeight={navigatorPanelMaxHeight} onShowInactiveProjectsChange={(value) => { showInactiveProjects = value; }} onProjectSelected={selectProject} />
+      <div bind:this={navigatorPanelElement} class="fixed z-80" style={navigatorPanelStyle} role="dialog" tabindex="-1" aria-label={navigatorMode === "channels" ? t("chat.channels.navigatorLabel") : t("projects.navigator.pickerLabel")}>
+        {#if navigatorMode === "channels"}
+          <ChatChannelPickerPanel
+            channels={selectedProjectChannels}
+            selectedChannelId={selectedChannel?.id ?? null}
+            frameStyle={`width:100%;height:${channelNavigatorPanelHeight}px;max-height:${channelNavigatorPanelHeight}px`}
+            iconStrokeWidth={identityIconStrokeWidth}
+            onChannelSelected={(channel) => selectChannel(channel.id)}
+            onCreateChannel={createChannel}
+          />
+        {:else}
+          <ChatProjectNavigator
+            selectedProjectId={projects.selectedProjectId}
+            selectedGroupId={selectedGroup?.id ?? null}
+            iconStrokeWidth={identityIconStrokeWidth}
+            {showInactiveProjects}
+            panelMode={navigatorMode}
+            panelMaxHeight={navigatorPanelMaxHeight}
+            onShowInactiveProjectsChange={(value) => { showInactiveProjects = value; }}
+            onProjectSelected={selectProject}
+            onChannelSelected={() => { navigatorOpen = false; }}
+            onCreateChannel={() => { createChannel(); }}
+          />
+        {/if}
       </div>
     {/if}
   </div>

@@ -32,21 +32,30 @@ const projectState = vi.hoisted(() => {
     createdAt: "2026-07-26T12:00:00.000Z",
     updatedAt: "2026-07-26T12:00:00.000Z",
   };
+  const secondProject = {
+    ...project,
+    id: "project-2",
+    name: "Website",
+    icon: "🌐",
+    sortOrder: 1,
+  };
   const store = {
     selectedProjectId: project.id as string | null,
     selectedProject: project,
     selectedGroup: group,
-    projects: [project],
+    projects: [project, secondProject],
     groups: [group],
     customEmojis: [],
     loading: false,
     loaded: true,
     loadError: null,
-    projectById: (id: string | null | undefined) => id === project.id ? project : undefined,
+    projectById: (id: string | null | undefined) => (
+      [project, secondProject].find((entry) => entry.id === id)
+    ),
     groupById: (id: string | null | undefined) => id === group.id ? group : undefined,
     visibleGroups: () => [group],
-    projectsForGroup: (groupId: string) => groupId === group.id ? [project] : [],
-    projectsForGroupIncludingInactive: (groupId: string) => groupId === group.id ? [project] : [],
+    projectsForGroup: (groupId: string) => groupId === group.id ? [project, secondProject] : [],
+    projectsForGroupIncludingInactive: (groupId: string) => groupId === group.id ? [project, secondProject] : [],
     selectProject: vi.fn(async (_id: string) => undefined),
     addGroup: vi.fn(async () => group),
     addProject: vi.fn(async () => project),
@@ -112,6 +121,40 @@ describe("ChatWorkspaceHeader", () => {
       archivedAt: null,
       createdAt: "2026-07-26T12:00:00.000Z",
       updatedAt: "2026-07-26T12:00:00.000Z",
+    }, {
+      id: "channel-design",
+      conversationId: "conversation-design",
+      projectId: "project-1",
+      name: "design",
+      topic: "Product design",
+      isDefault: false,
+      memberships: [],
+      messageCount: 0,
+      unreadCount: 0,
+      latestPreview: null,
+      lastActivityAt: "2026-07-26T12:00:00.000Z",
+      attentionState: null,
+      revision: 1,
+      archivedAt: null,
+      createdAt: "2026-07-26T12:00:00.000Z",
+      updatedAt: "2026-07-26T12:00:00.000Z",
+    }, {
+      id: "channel-research",
+      conversationId: "conversation-research",
+      projectId: "project-2",
+      name: "research",
+      topic: "Website research",
+      isDefault: true,
+      memberships: [],
+      messageCount: 0,
+      unreadCount: 0,
+      latestPreview: null,
+      lastActivityAt: "2026-07-26T12:00:00.000Z",
+      attentionState: null,
+      revision: 1,
+      archivedAt: null,
+      createdAt: "2026-07-26T12:00:00.000Z",
+      updatedAt: "2026-07-26T12:00:00.000Z",
     }];
     chat.archivedChannels = [];
     chat.selectedChannelId = "channel-general";
@@ -153,7 +196,7 @@ describe("ChatWorkspaceHeader", () => {
     return target;
   }
 
-  it("uses the shared Project navigator from both project identity triggers", async () => {
+  it("uses the shared project navigation panels from both project identity triggers", async () => {
     const target = setup(true);
     const groupTrigger = target.querySelector<HTMLButtonElement>("[data-chat-group-trigger]");
     const projectTrigger = target.querySelector<HTMLButtonElement>("[data-chat-project-trigger]");
@@ -194,6 +237,59 @@ describe("ChatWorkspaceHeader", () => {
     const collapsed = setup(false);
     expect(collapsed.querySelector("[data-chat-channel-trigger]")?.textContent).toContain("general");
     expect(collapsed.querySelector("[data-chat-new-channel-button]")).not.toBeNull();
+  });
+
+  it("opens the current project's complete channel navigator from the channel segment", async () => {
+    const target = setup(true);
+    const channelTrigger = target.querySelector("[data-chat-channel-trigger]");
+
+    (channelTrigger as HTMLButtonElement | null)?.click();
+    await tick();
+
+    const channelPicker = document.querySelector("[data-chat-channel-picker]");
+    expect(channelPicker?.textContent).toContain("general");
+    expect(channelPicker?.textContent).toContain("design");
+    expect(channelPicker?.querySelectorAll("[data-chat-channel-option]")).toHaveLength(2);
+    expect(channelTrigger?.querySelector("svg")?.getAttribute("stroke-width")).toBe("1.5");
+  });
+
+  it("cascades from a hovered project to that project's channels", async () => {
+    const target = setup(true);
+    target.querySelector<HTMLButtonElement>("[data-chat-project-trigger]")?.click();
+    await tick();
+    const projectButton = [...document.querySelectorAll<HTMLButtonElement>(
+      ".project-picker-panel button",
+    )].find((button) => button.textContent?.includes("Website"));
+
+    projectButton?.focus();
+    await tick();
+    await tick();
+
+    const channelPicker = document.querySelector("[data-chat-channel-picker]");
+    expect(channelPicker?.textContent).toContain("research");
+    expect(channelPicker?.textContent).not.toContain("general");
+  });
+
+  it("keeps the full group to project to channel hover hierarchy", async () => {
+    const target = setup(true);
+    target.querySelector<HTMLButtonElement>("[data-chat-group-trigger]")?.click();
+    await tick();
+    const groupButton = [...document.querySelectorAll<HTMLButtonElement>(
+      ".project-picker-panel button",
+    )].find((button) => button.textContent?.includes("Work"));
+
+    groupButton?.focus();
+    await tick();
+    await tick();
+    const projectButton = [...document.querySelectorAll<HTMLButtonElement>(
+      ".project-picker-panel.fixed button",
+    )].find((button) => button.textContent?.includes("Ganbaru"));
+
+    projectButton?.focus();
+    await tick();
+    await tick();
+
+    expect(document.querySelector("[data-chat-channel-picker]")?.textContent).toContain("general");
   });
 
   it("reveals the chat segment editor when renaming from an expanded explorer", () => {
