@@ -82,8 +82,11 @@
   let mentionIndex = $state(0);
   let mentionStyle = $state("");
   let addMenuOpen = $state(false);
+  let addMenuAnchor = $state<HTMLDivElement | null>(null);
   let scheduleMenuOpen = $state(false);
+  let scheduleMenuAnchor = $state<HTMLDivElement | null>(null);
   let scheduledMessagesOpen = $state(false);
+  let scheduledMessagesAnchor = $state<HTMLDivElement | null>(null);
   let ScheduleMenu = $state<ScheduleMenuComponent | null>(null);
   let scheduleMenuLoad = $state<Promise<void> | null>(null);
   let scheduledFor = $state<string | null>(initialDraft.scheduledFor);
@@ -483,6 +486,19 @@
     if (scheduledMessagesOpen) void loadScheduleMenu();
   }
 
+  $effect(() => {
+    if (!addMenuOpen && !scheduleMenuOpen && !scheduledMessagesOpen) return;
+    const closeMenusFromOutside = (event: PointerEvent) => {
+      const target = event.target;
+      if (!(target instanceof Node)) return;
+      if (addMenuOpen && !addMenuAnchor?.contains(target)) addMenuOpen = false;
+      if (scheduleMenuOpen && !scheduleMenuAnchor?.contains(target)) scheduleMenuOpen = false;
+      if (scheduledMessagesOpen && !scheduledMessagesAnchor?.contains(target)) scheduledMessagesOpen = false;
+    };
+    window.addEventListener("pointerdown", closeMenusFromOutside, true);
+    return () => window.removeEventListener("pointerdown", closeMenusFromOutside, true);
+  });
+
   async function loadScheduledMessages(currentDestination: string): Promise<void> {
     const request = ++scheduledMessagesRequest;
     try {
@@ -586,7 +602,7 @@
         scheduledMessages.length,
         formatScheduledInstant(nextScheduledMessage.scheduledFor),
       )}</span>
-      <div class="scheduled-summary-anchor">
+      <div bind:this={scheduledMessagesAnchor} class="scheduled-summary-anchor">
         <button
           type="button"
           aria-haspopup="dialog"
@@ -665,7 +681,7 @@
 
   <div class="composer-footer">
     <div class="composer-tools">
-      <div class="menu-anchor">
+      <div bind:this={addMenuAnchor} class="menu-anchor">
         <button type="button" class="tool-button" aria-label={t("chat.organization.addContext")} aria-expanded={addMenuOpen} onclick={() => { addMenuOpen = !addMenuOpen; scheduleMenuOpen = false; scheduledMessagesOpen = false; }}><Plus size={16} /></button>
         {#if addMenuOpen}
           <div class="composer-menu add-menu">
@@ -681,7 +697,7 @@
       <button type="button" class="tool-button" aria-label={t("chat.organization.bold")} onclick={() => wrapSelection("**")}><Bold size={15} /></button>
       <button type="button" class="tool-button" aria-label={t("chat.organization.italic")} onclick={() => wrapSelection("_")}><Italic size={15} /></button>
       <button type="button" class="tool-button" aria-label={t("chat.organization.mentionTeammate")} onclick={() => { replaceRange(selectionStart, selectionEnd, "@"); }}><AtSign size={15} /></button>
-      <div class="menu-anchor">
+      <div bind:this={scheduleMenuAnchor} class="menu-anchor">
         <button
           type="button"
           class="tool-button"

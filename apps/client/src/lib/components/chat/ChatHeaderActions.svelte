@@ -1,6 +1,6 @@
 <script lang="ts">
   import Archive from "@lucide/svelte/icons/archive";
-  import Ellipsis from "@lucide/svelte/icons/ellipsis";
+  import EllipsisVertical from "@lucide/svelte/icons/ellipsis-vertical";
   import FolderOpen from "@lucide/svelte/icons/folder-open";
   import PanelBottom from "@lucide/svelte/icons/panel-bottom";
   import PanelRight from "@lucide/svelte/icons/panel-right";
@@ -27,6 +27,7 @@
   const settings = getSettingsLauncher();
   const { t } = getLocalization();
   let actionError = $state<string | null>(null);
+  let moreActions = $state<HTMLDetailsElement | null>(null);
   const selectedFolder = $derived(chat.selectedWorkingFolder);
   const selectedThread = $derived(chat.selectedThread);
   const selectedChannel = $derived(chat.selectedChannel);
@@ -45,7 +46,14 @@
     )) return;
     run(() => chat.archiveChannel(channel));
   }
+
+  function closeMoreActionsFromOutside(event: PointerEvent): void {
+    const target = event.target;
+    if (moreActions?.open && target instanceof Node && !moreActions.contains(target)) moreActions.open = false;
+  }
 </script>
+
+<svelte:window onpointerdown={closeMoreActionsFromOutside} />
 
 <div class="chat-header-actions flex min-w-0 shrink-0 items-center gap-1" data-chat-header-actions>
   {#if actionError}<p role="alert" class="max-w-40 truncate text-[0.666667rem] text-destructive">{actionError}</p>{/if}
@@ -55,8 +63,8 @@
   <button type="button" class={cn("chat-header-icon-button", chat.inspectorOpen && "bg-accent text-foreground")} aria-label={chat.inspectorOpen ? t("chat.closeInspector") : t("chat.openInspector")} aria-pressed={chat.inspectorOpen} data-chat-inspector-action onclick={() => { chat.inspectorOpen = !chat.inspectorOpen; }}>
     <PanelRight size={14} strokeWidth={1.75} />
   </button>
-  <details class="relative">
-    <summary class="chat-header-icon-button list-none" aria-label={t("chat.moreActions")}><Ellipsis size={14} strokeWidth={1.75} /></summary>
+  <details bind:this={moreActions} class="relative">
+    <summary class="chat-header-icon-button list-none" aria-label={t("chat.moreActions")}><EllipsisVertical size={14} strokeWidth={1.75} /></summary>
     <div class="chat-actions-menu right-0 top-8">
       {#if selectedChannel && !selectedChannel.isDefault}<button type="button" onclick={onRename}><Pencil size={13} />{t("chat.rename")}</button>{/if}
       {#if selectedFolder?.bindingStatus === "available"}<button type="button" onclick={() => run(() => chat.openWorkingFolder(selectedFolder.workingFolder.id))}><FolderOpen size={13} />{t("chat.openFolder")}</button>{/if}

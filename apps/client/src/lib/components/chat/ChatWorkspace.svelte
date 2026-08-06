@@ -61,6 +61,7 @@
   const MAX_BOTTOM_PANEL_HEIGHT = 520;
   const PANEL_TRANSITION_MS = 440;
   const HEADER_ACTION_EDGE_GAP_PX = 12;
+  const HEADER_PANEL_EDGE_GAP_PX = 8;
   const INITIAL_SHELL_WIDTH = 1_200;
   const INITIAL_SHELL_HEIGHT = 700;
   const INITIAL_FONT_SCALE = 1;
@@ -292,9 +293,11 @@
     const actionBounds = bottomPanelAction?.getBoundingClientRect()
       ?? globalActionsElement.getBoundingClientRect();
     const inspectorActionBounds = inspectorAction?.getBoundingClientRect();
-    const actionGap = inspectorActionBounds
-      ? Math.max(0, inspectorActionBounds.left - actionBounds.right)
-      : HEADER_ACTION_EDGE_GAP_PX;
+    const actionGap = actionBounds.left >= headerBounds.right
+      ? HEADER_PANEL_EDGE_GAP_PX
+      : inspectorActionBounds
+        ? Math.max(0, inspectorActionBounds.left - actionBounds.right)
+        : HEADER_ACTION_EDGE_GAP_PX;
     const inset = chatHeaderActionInset(
       headerBounds.right,
       actionBounds.left,

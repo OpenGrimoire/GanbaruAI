@@ -163,6 +163,17 @@
     };
   });
 
+  onMount(() => {
+    const closeAttachmentMenuFromOutside = (event: PointerEvent) => {
+      const target = event.target;
+      if (attachmentMenu?.open && target instanceof Node && !attachmentMenu.contains(target)) {
+        attachmentMenu.open = false;
+      }
+    };
+    window.addEventListener("pointerdown", closeAttachmentMenuFromOutside, true);
+    return () => window.removeEventListener("pointerdown", closeAttachmentMenuFromOutside, true);
+  });
+
   function preparePlanTurn(mode: "plan" | "build"): void {
     const action = mode === "plan"
       ? t("chat.inspector.continuePlanningPrompt")

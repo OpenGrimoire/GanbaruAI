@@ -202,10 +202,10 @@
   <div class="flex-1"></div>
   {#if actionError}<p role="alert" class="max-w-40 truncate text-[0.666667rem] text-destructive">{actionError}</p>{/if}
   <div class="flex shrink-0 items-center gap-1">
+    {#if selectedFolder?.bindingStatus === "available"}<button type="button" class="chat-toolbar-icon-button" title={t("chat.openFolder")} aria-label={t("chat.openFolder")} onclick={() => run(() => chat.openWorkingFolder(selectedFolder.workingFolder.id))}><FolderOpen size={14} /></button>{/if}
     {#if selectedChannel}
       <button type="button" class="chat-toolbar-icon-button" title={t("chat.organization.manageMembers")} aria-label={t("chat.organization.manageMembers")} onclick={() => window.dispatchEvent(new Event("ganbaru-ai:chat-manage-members"))}><Users size={14} /></button>
     {/if}
-    {#if selectedFolder?.bindingStatus === "available"}<button type="button" class="chat-toolbar-icon-button" title={t("chat.openFolder")} aria-label={t("chat.openFolder")} onclick={() => run(() => chat.openWorkingFolder(selectedFolder.workingFolder.id))}><FolderOpen size={14} /></button>{/if}
     {#if selectedFolder?.currentBranch}<span class="chat-branch" title={t("chat.header.branch", selectedFolder.currentBranch)}><GitBranch size={13} /><span>{selectedFolder.currentBranch}</span></span>{/if}
   </div>
 </div>
