@@ -833,7 +833,7 @@
     {/if}
     <div class="chat-disclosure-region" class:expanded={fold.expanded} aria-hidden={!fold.expanded} inert={!fold.expanded}>
       <div class="chat-disclosure-inner">
-        <div class="chat-process-history">{#each fold.hiddenRows as hiddenRow}{#if hiddenRow.kind === "activity"}{@render activityHistoryRow(hiddenRow, false)}{:else}{@render modelRowContent(hiddenRow)}{/if}{/each}</div>
+        <div class="chat-process-history chat-turn-history">{#each fold.hiddenRows as hiddenRow}{#if hiddenRow.kind === "activity"}{@render activityHistoryRow(hiddenRow, false)}{:else}{@render modelRowContent(hiddenRow)}{/if}{/each}</div>
       </div>
     </div>
   {:else if row.kind === "plan"}
@@ -1040,7 +1040,10 @@
   }
   .chat-process-step-trigger:focus-visible { border-radius: 0.25rem; outline: 2px solid var(--ring); outline-offset: 2px; }
   :global(.chat-step-chevron.expanded) { transform: rotate(90deg); }
-  :global(.chat-step-chevron) { transition: transform 120ms ease; }
+  :global(.chat-step-chevron) { transition: opacity 120ms ease, transform 120ms ease; }
+  .chat-turn-history [aria-expanded="false"] :global(.chat-step-chevron) { opacity: 0; }
+  .chat-turn-history [aria-expanded="false"]:hover :global(.chat-step-chevron),
+  .chat-turn-history [aria-expanded="false"]:focus-visible :global(.chat-step-chevron) { opacity: 1; }
   .chat-disclosure-region { display: grid; grid-template-rows: 0fr; opacity: 0; transition: grid-template-rows 420ms cubic-bezier(0.22, 1, 0.36, 1), opacity 180ms ease; }
   .chat-disclosure-region.expanded { grid-template-rows: 1fr; opacity: 1; transition: grid-template-rows 420ms cubic-bezier(0.22, 1, 0.36, 1), opacity 240ms ease 55ms; }
   .chat-disclosure-inner { min-height: 0; overflow: hidden; transform: translateY(-0.3rem); transition: transform 360ms cubic-bezier(0.22, 1, 0.36, 1); }
