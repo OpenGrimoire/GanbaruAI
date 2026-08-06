@@ -44,7 +44,6 @@
   const projects = getProjects();
   const { t } = getLocalization();
   let query = $state("");
-  let searchOpen = $state(false);
   let searchInput = $state<HTMLInputElement | null>(null);
   let setupChannel = $state<ChatChannelRead | null | undefined>(undefined);
   let setupSectionId = $state<string | null>(null);
@@ -85,7 +84,7 @@
 
   $effect(() => {
     const normalized = query.trim();
-    if (!searchOpen || normalized.length < 2) {
+    if (normalized.length < 2) {
       messageSearchRequest += 1;
       messageSearchResults = [];
       messageSearchLoading = false;
@@ -201,7 +200,6 @@
   }
 
   function openSearch(): void {
-    searchOpen = true;
     queueMicrotask(() => searchInput?.focus());
   }
 
@@ -225,7 +223,6 @@
     try {
       await chat.openMessageSearchResult(result);
       query = "";
-      searchOpen = false;
     } catch (cause: unknown) {
       railError = cause instanceof Error ? cause.message : String(cause);
     }
@@ -262,21 +259,14 @@
 {#if expanded}
   <aside class="flex h-full min-h-0 flex-col bg-sidebar/45" aria-label={t("chat.channels.explorerLabel")}>
     <div class="flex h-11 shrink-0 items-center gap-1 px-2">
-      {#if searchOpen}
-        <label class="flex min-w-0 flex-1 items-center gap-1 rounded-md border border-border bg-background px-2"><Search size={13} class="text-muted-foreground" /><input bind:this={searchInput} class="h-7 min-w-0 flex-1 bg-transparent text-xs outline-none" type="search" bind:value={query} placeholder={t("chat.channels.search")} /></label>
-        <button type="button" class="rail-icon" aria-label={t("chat.clearSearch")} onclick={() => { query = ""; searchOpen = false; }}><span aria-hidden="true">×</span></button>
-      {:else}
-        <strong class="min-w-0 flex-1 truncate px-1 text-sm">{projects.selectedProject?.name ?? t("chat.title")}</strong>
-        <button type="button" class="rail-icon" aria-label={t("chat.channels.search")} onclick={openSearch}><Search size={15} /></button>
-        <button type="button" class="rail-icon" aria-label={t("chat.channels.createTitle")} onclick={() => openCreate()}><Plus size={16} /></button>
-      {/if}
+      <label class="flex min-w-0 flex-1 items-center gap-1 rounded-md border border-border bg-background px-2"><Search size={13} class="text-muted-foreground" /><input bind:this={searchInput} class="channel-search-input h-7 min-w-0 flex-1 bg-transparent text-xs outline-none" type="search" bind:value={query} placeholder={t("chat.channels.search")} aria-label={t("chat.channels.search")} /></label>
       <button type="button" class="rail-icon" aria-label={t("chat.collapseRail")} onclick={onCollapse}><ChevronsLeft size={15} /></button>
     </div>
 
     {#if railError}<p class="mx-2 mb-1 rounded bg-destructive/10 px-2 py-1 text-xs text-destructive" role="alert">{railError}</p>{/if}
 
     <div class="min-h-0 flex-1 overflow-y-auto px-1.5 pb-3">
-      {#if searchOpen && query.trim().length >= 2}
+      {#if query.trim().length >= 2}
         <section class="message-results" aria-label={t("chat.organization.messageSearchResults")}>
           <div class="section-heading"><span>{t("chat.organization.messages")}</span>{#if messageSearchLoading}<LoaderCircle size={12} class="animate-spin" aria-label={t("common.loading")} />{/if}</div>
           {#each messageSearchResults as result (result.messageItemId)}
@@ -337,7 +327,7 @@
     </div>
   </aside>
 {:else if showCollapsedStrip}
-  <aside class="flex h-full flex-col items-center bg-sidebar/45 py-2"><button type="button" class="rail-icon" aria-label={t("chat.openRail")} onclick={onExpand}><ChevronsRight size={16} /></button><button type="button" class="rail-icon mt-2" aria-label={t("chat.channels.createTitle")} onclick={() => openCreate()}><Plus size={16} /></button></aside>
+  <aside class="flex h-full flex-col items-center bg-sidebar/45 py-2"><button type="button" class="rail-icon" aria-label={t("chat.openRail")} onclick={onExpand}><ChevronsRight size={16} /></button></aside>
 {/if}
 
 {#snippet ChannelRow({ channel }: { channel: ChatChannelRead })}
@@ -366,11 +356,10 @@
 {#if archiveCandidate}<ConfirmDialog title={t("chat.channels.archiveConfirmTitle", archiveCandidate.name)} message={t("chat.channels.archiveConfirmMessage")} confirmLabel={t("chat.archive")} cancelLabel={t("chat.cancel")} onConfirm={() => void confirmArchive()} onCancel={() => { archiveCandidate = null; }} />{/if}
 {#if deleteSectionCandidate}<ConfirmDialog title={t("chat.channels.deleteSectionTitle", deleteSectionCandidate.name)} message={t("chat.channels.deleteSectionMessage")} confirmLabel={t("chat.channels.deleteSectionConfirm")} cancelLabel={t("chat.cancel")} onConfirm={confirmDeleteSection} onCancel={() => { deleteSectionCandidate = null; }} />{/if}
 
-<svelte:window onkeydown={(event) => { if (event.key === "Escape" && searchOpen) { searchOpen = false; query = ""; } }} />
-
 <style>
   .rail-icon { display: grid; width: 1.75rem; height: 1.75rem; flex: 0 0 auto; place-items: center; border-radius: 0.375rem; color: var(--muted-foreground); }
   .rail-icon:hover { background: var(--accent); color: var(--foreground); }
+  .channel-search-input::-webkit-search-cancel-button { display: none; }
   .channel-section { padding-top: 0.35rem; }
   .message-results { margin-block:0.3rem 0.45rem; border-bottom:1px solid var(--border); padding-bottom:0.45rem; }
   .message-result { display:grid; width:100%; gap:0.18rem; border-radius:0.4rem; padding:0.42rem 0.5rem; text-align:left; }
