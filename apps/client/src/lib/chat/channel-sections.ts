@@ -16,7 +16,7 @@ const LEGACY_STORAGE_PREFIXES = [
 const MAX_SECTIONS = 64;
 const MAX_CHANNELS_PER_SECTION = 1_000;
 
-/** Read and validate the personal channel-section layout for one project. */
+/** Read and validate the custom channel-section layout for one project. */
 export function readChatSidebarSections(projectId: string): ChatSidebarSection[] {
   if (typeof localStorage === "undefined") return [];
   removeUnscopedLegacyPreferences();
@@ -31,7 +31,7 @@ export function readChatSidebarSections(projectId: string): ChatSidebarSection[]
   }
 }
 
-/** Persist a bounded personal channel-section layout for one project. */
+/** Persist a bounded custom channel-section layout for one project. */
 export function saveChatSidebarSections(projectId: string, sections: readonly ChatSidebarSection[]): void {
   if (typeof localStorage === "undefined") return;
   removeUnscopedLegacyPreferences();
@@ -76,7 +76,7 @@ export function normalizeChatSidebarSections(
   }));
 }
 
-/** Move a channel into a personal section, or to the fixed Channels section with null. */
+/** Move a channel into a custom section, or to the fixed Channels section with null. */
 export function moveChatChannelToSection(
   sections: readonly ChatSidebarSection[],
   channelId: string,

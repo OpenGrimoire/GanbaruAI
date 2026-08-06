@@ -19,7 +19,7 @@ describe("Chat channel sections", () => {
 
   afterEach(() => setActiveVaultIdentity(null));
 
-  it("round trips validated personal sections", () => {
+  it("round trips validated custom sections", () => {
     saveChatSidebarSections("project", [{ id: "section", name: "Work", collapsed: true, channelIds: ["a"] }]);
     expect(readChatSidebarSections("project")).toEqual([
       { id: "section", name: "Work", collapsed: true, channelIds: ["a"] },

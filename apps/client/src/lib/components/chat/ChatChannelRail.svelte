@@ -1,11 +1,11 @@
 <script lang="ts">
-  import { onMount } from "svelte";
+  import { onMount, tick } from "svelte";
   import Archive from "@lucide/svelte/icons/archive";
   import ChevronDown from "@lucide/svelte/icons/chevron-down";
   import ChevronRight from "@lucide/svelte/icons/chevron-right";
   import ChevronsLeft from "@lucide/svelte/icons/chevrons-left";
   import ChevronsRight from "@lucide/svelte/icons/chevrons-right";
-  import Ellipsis from "@lucide/svelte/icons/ellipsis";
+  import EllipsisVertical from "@lucide/svelte/icons/ellipsis-vertical";
   import Hash from "@lucide/svelte/icons/hash";
   import LoaderCircle from "@lucide/svelte/icons/loader-circle";
   import Plus from "@lucide/svelte/icons/plus";
@@ -45,6 +45,9 @@
   const { t } = getLocalization();
   let query = $state("");
   let searchInput = $state<HTMLInputElement | null>(null);
+  let railElement = $state<HTMLElement | null>(null);
+  let channelContextMenuElement = $state<HTMLElement | null>(null);
+  let channelContextMenu = $state<{ channel: ChatChannelRead; x: number; y: number } | null>(null);
   let setupChannel = $state<ChatChannelRead | null | undefined>(undefined);
   let setupSectionId = $state<string | null>(null);
   let sections = $state<ChatSidebarSection[]>([]);
@@ -189,6 +192,48 @@
     if (event.dataTransfer) event.dataTransfer.effectAllowed = "move";
   }
 
+  async function openChannelContextMenu(event: MouseEvent, channel: ChatChannelRead): Promise<void> {
+    event.preventDefault();
+    const viewportGap = 8;
+    const trigger = event.currentTarget instanceof HTMLElement ? event.currentTarget : null;
+    const triggerBounds = trigger?.getBoundingClientRect();
+    const openedFromKeyboard = event.clientX === 0 && event.clientY === 0;
+    const initialX = openedFromKeyboard ? triggerBounds?.left ?? viewportGap : event.clientX;
+    const initialY = openedFromKeyboard ? triggerBounds?.bottom ?? viewportGap : event.clientY;
+    channelContextMenu = { channel, x: initialX, y: initialY };
+    await tick();
+    if (!channelContextMenuElement || channelContextMenu?.channel.id !== channel.id) return;
+    const menuBounds = channelContextMenuElement.getBoundingClientRect();
+    channelContextMenu = {
+      channel,
+      x: Math.min(Math.max(viewportGap, initialX), Math.max(viewportGap, window.innerWidth - menuBounds.width - viewportGap)),
+      y: Math.min(Math.max(viewportGap, initialY), Math.max(viewportGap, window.innerHeight - menuBounds.height - viewportGap)),
+    };
+    channelContextMenuElement.querySelector<HTMLButtonElement>("button")?.focus();
+  }
+
+  function editChannelFromContextMenu(): void {
+    const menu = channelContextMenu;
+    if (!menu) return;
+    channelContextMenu = null;
+    setupChannel = menu.channel;
+    setupSectionId = sections.find((section) => section.channelIds.includes(menu.channel.id))?.id ?? null;
+  }
+
+  function moveChannelFromContextMenu(sectionId: string | null): void {
+    const menu = channelContextMenu;
+    if (!menu) return;
+    channelContextMenu = null;
+    moveChannel(menu.channel.id, sectionId);
+  }
+
+  function archiveChannelFromContextMenu(): void {
+    const menu = channelContextMenu;
+    if (!menu) return;
+    channelContextMenu = null;
+    archiveCandidate = menu.channel;
+  }
+
   async function confirmArchive(): Promise<void> {
     const channel = archiveCandidate;
     archiveCandidate = null;
@@ -250,8 +295,18 @@
       onExpand();
       openSearch();
     };
+    const closeOpenMenus = (event: PointerEvent) => {
+      const target = event.target;
+      if (!(target instanceof Node)) return;
+      const openMenus = railElement?.querySelectorAll<HTMLDetailsElement>(".section-menu[open]") ?? [];
+      for (const menu of openMenus) {
+        if (!menu.contains(target)) menu.open = false;
+      }
+      if (channelContextMenu && !channelContextMenuElement?.contains(target)) channelContextMenu = null;
+    };
     window.addEventListener("ganbaru-ai:chat-new-channel", createChannel);
     window.addEventListener("ganbaru-ai:chat-focus-search", focusSearch);
+    document.addEventListener("pointerdown", closeOpenMenus);
     const unsubscribeVault = onActiveVaultIdentityChange(() => {
       loadedProjectId = null;
       sections = [];
@@ -259,13 +314,14 @@
     return () => {
       window.removeEventListener("ganbaru-ai:chat-new-channel", createChannel);
       window.removeEventListener("ganbaru-ai:chat-focus-search", focusSearch);
+      document.removeEventListener("pointerdown", closeOpenMenus);
       unsubscribeVault();
     };
   });
 </script>
 
 {#if expanded}
-  <aside class="flex h-full min-h-0 flex-col bg-sidebar/45" aria-label={t("chat.channels.explorerLabel")}>
+  <aside bind:this={railElement} class="flex h-full min-h-0 flex-col bg-sidebar/45" aria-label={t("chat.channels.explorerLabel")}>
     <div class="flex h-11 shrink-0 items-center gap-1 px-2">
       <label class="flex min-w-0 flex-1 items-center gap-1 rounded-md border border-border bg-background px-2"><Search size={13} class="text-muted-foreground" /><input bind:this={searchInput} class="channel-search-input h-7 min-w-0 flex-1 bg-transparent text-xs outline-none" type="search" bind:value={query} placeholder={t("chat.channels.search")} aria-label={t("chat.channels.search")} /></label>
       <button type="button" class="rail-icon" aria-label={t("chat.collapseRail")} onclick={onCollapse}><ChevronsLeft size={15} /></button>
@@ -293,6 +349,10 @@
             {#if channelsCollapsed}<ChevronRight class="section-chevron" size={13} />{:else}<ChevronDown class="section-chevron" size={13} />{/if}
           </button>
           <button type="button" aria-label={t("chat.channels.createTitle")} onclick={() => openCreate()}><Plus size={13} /></button>
+          <details class="section-menu">
+            <summary aria-label={t("chat.moreActions")}><EllipsisVertical size={13} /></summary>
+            <div><button type="button" onclick={() => { creatingSection = true; }}>{t("chat.channels.newSection")}</button></div>
+          </details>
         </div>
         {#if !channelsCollapsed}
           {#if chat.channelsLoading && projects.selectedProjectId}
@@ -317,9 +377,9 @@
               <span>{section.name}</span>
               {#if section.collapsed}<ChevronRight class="section-chevron" size={13} />{:else}<ChevronDown class="section-chevron" size={13} />{/if}
             </button>
-            <button type="button" aria-label={t("chat.channels.newInSection", section.name)} onclick={() => openCreate(section.id)}><Plus size={13} /></button>
+            <button type="button" aria-label={t("chat.channels.createTitle")} title={t("chat.channels.createTitle")} onclick={() => openCreate(section.id)}><Plus size={13} /></button>
             <details class="section-menu">
-              <summary aria-label={t("chat.channels.deleteSection", section.name)}><Ellipsis size={13} /></summary>
+              <summary aria-label={t("chat.channels.deleteSection", section.name)}><EllipsisVertical size={13} /></summary>
               <div><button type="button" onclick={() => renameSection(section)}>{t("chat.rename")}</button><button type="button" class="danger" onclick={() => { deleteSectionCandidate = section; }}>{t("chat.channels.deleteSectionConfirm")}</button></div>
             </details>
           </div>
@@ -331,8 +391,6 @@
 
       {#if creatingSection}
         <form class="mx-1 mt-2 flex gap-1" onsubmit={(event) => { event.preventDefault(); createSection(); }}><input class="h-8 min-w-0 flex-1 rounded-md border border-border bg-background px-2 text-xs outline-none" bind:value={newSectionName} maxlength="80" placeholder={t("chat.channels.sectionName")} /><button type="submit" class="chat-primary-button px-2">{t("chat.channels.add")}</button></form>
-      {:else}
-        <button type="button" class="mx-1 mt-2 flex h-8 w-[calc(100%-0.5rem)] items-center gap-2 rounded-md px-2 text-xs text-muted-foreground hover:bg-accent hover:text-foreground" onclick={() => { creatingSection = true; }}><Plus size={14} />{t("chat.channels.newSection")}</button>
       {/if}
 
       <section class="channel-section mt-2">
@@ -342,12 +400,13 @@
             {#if directMessagesCollapsed}<ChevronRight class="section-chevron" size={13} />{:else}<ChevronDown class="section-chevron" size={13} />{/if}
           </button>
           <button type="button" aria-label={t("chat.channels.newDirectMessage")}><Plus size={13} /></button>
+          <button type="button" aria-label={t("chat.moreActions")} title={t("chat.moreActions")}><EllipsisVertical size={13} /></button>
         </div>
-        {#if !directMessagesCollapsed}<p class="mx-1 rounded-md px-2 py-1.5 text-xs text-muted-foreground">{t("chat.channels.emptyDirectMessages")}</p>{/if}
+        {#if !directMessagesCollapsed}<p class="mx-1 truncate rounded-md px-2 py-1.5 text-xs text-muted-foreground">{t("chat.channels.emptyDirectMessages")}</p>{/if}
       </section>
     </div>
 
-    <div class="shrink-0 border-t border-border p-2">
+    <div class="shrink-0 p-2">
       <button type="button" class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-[0.8rem] text-muted-foreground hover:bg-accent hover:text-foreground" class:bg-accent={chat.channelArchiveOpen} onclick={() => chat.openChannelArchive()}><Archive size={15} /><span class="min-w-0 flex-1 truncate">{t("chat.channels.archive")}</span>{#if chat.archivedChannels.length > 0}<span class="rounded bg-muted px-1.5 text-[0.666667rem]">{chat.archivedChannels.length}</span>{/if}</button>
     </div>
   </aside>
@@ -355,22 +414,31 @@
   <aside class="flex h-full flex-col items-center bg-sidebar/45 py-2"><button type="button" class="rail-icon" aria-label={t("chat.openRail")} onclick={onExpand}><ChevronsRight size={16} /></button></aside>
 {/if}
 
+{#if channelContextMenu}
+  <div
+    bind:this={channelContextMenuElement}
+    class="channel-context-menu"
+    role="menu"
+    tabindex="-1"
+    style={`left:${channelContextMenu.x}px;top:${channelContextMenu.y}px`}
+    onkeydown={(event) => {
+      if (event.key === "Escape") channelContextMenu = null;
+    }}
+  >
+    <button type="button" role="menuitem" onclick={editChannelFromContextMenu}>{t("chat.channels.edit")}</button>
+    <span>{t("chat.channels.moveTo")}</span>
+    <button type="button" role="menuitem" onclick={() => moveChannelFromContextMenu(null)}>{t("chat.channels.defaultSection")}</button>
+    {#each sections as section (section.id)}<button type="button" role="menuitem" onclick={() => moveChannelFromContextMenu(section.id)}>{section.name}</button>{/each}
+    {#if !channelContextMenu.channel.isDefault}<button type="button" role="menuitem" class="danger" onclick={archiveChannelFromContextMenu}>{t("chat.archive")}</button>{/if}
+  </div>
+{/if}
+
 {#snippet ChannelRow({ channel }: { channel: ChatChannelRead })}
   <div class="channel-row-group" role="listitem" draggable="true" ondragstart={(event) => beginDrag(event, channel.id)}>
-    <button type="button" class="channel-row" class:selected={chat.selectedChannelId === channel.id && !chat.channelArchiveOpen} aria-current={chat.selectedChannelId === channel.id ? "page" : undefined} onclick={() => void selectChannel(channel.id)}>
+    <button type="button" class="channel-row" class:selected={chat.selectedChannelId === channel.id && !chat.channelArchiveOpen} aria-current={chat.selectedChannelId === channel.id ? "page" : undefined} onclick={() => void selectChannel(channel.id)} oncontextmenu={(event) => void openChannelContextMenu(event, channel)}>
       <Hash size={14} class="shrink-0 opacity-75" />
       <span class="min-w-0 flex-1 truncate">{channel.name}</span>
     </button>
-    <details class="row-menu">
-      <summary aria-label={t("chat.moreActions")}><Ellipsis size={13} /></summary>
-      <div>
-        <button type="button" onclick={() => { setupChannel = channel; setupSectionId = sections.find((section) => section.channelIds.includes(channel.id))?.id ?? null; }}>{t("chat.channels.edit")}</button>
-        <span>{t("chat.channels.moveTo")}</span>
-        <button type="button" onclick={() => moveChannel(channel.id, null)}>{t("chat.channels.defaultSection")}</button>
-        {#each sections as section (section.id)}<button type="button" onclick={() => moveChannel(channel.id, section.id)}>{section.name}</button>{/each}
-        {#if !channel.isDefault}<button type="button" class="danger" onclick={() => { archiveCandidate = channel; }}>{t("chat.archive")}</button>{/if}
-      </div>
-    </details>
   </div>
 {/snippet}
 
@@ -399,9 +467,6 @@
   .section-heading > .section-toggle { min-width: 0; flex: 1; justify-content: flex-start; }
   .section-toggle > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .section-toggle :global(.section-chevron) { flex: 0 0 auto; transition: opacity 120ms ease; }
-  .section-toggle.collapsed :global(.section-chevron) { opacity: 0; }
-  .section-toggle.collapsed:hover :global(.section-chevron),
-  .section-toggle.collapsed:focus-visible :global(.section-chevron) { opacity: 1; }
   .section-menu { position:relative; }
   .section-menu summary { display:grid;min-width:1.35rem;min-height:1.35rem;list-style:none;place-items:center;border-radius:0.3rem; }
   .section-menu summary::-webkit-details-marker { display:none; }
@@ -410,17 +475,14 @@
   .section-menu button { display:flex;width:100%;min-height:1.8rem;align-items:center;border-radius:0.3rem;padding-inline:0.5rem;text-align:left;font-size:0.7rem; }
   .section-menu button:hover { background:var(--accent); }
   .section-menu button.danger { color:var(--destructive); }
+  .section-menu > div { box-shadow: 0 2px 8px rgb(0 0 0 / 0.08); }
+  .channel-context-menu { position:fixed;z-index:90;display:grid;width:9rem;max-height:calc(100vh - 1rem);overflow-y:auto;border:1px solid var(--border);border-radius:0.5rem;background:var(--popover);padding:0.25rem;color:var(--popover-foreground);box-shadow:0 2px 8px rgb(0 0 0 / 0.08); }
+  .channel-context-menu button { display:flex;width:100%;min-height:1.8rem;align-items:center;border-radius:0.3rem;padding-inline:0.5rem;text-align:left;font-size:0.7rem; }
+  .channel-context-menu button:hover, .channel-context-menu button:focus-visible { background:var(--accent); }
+  .channel-context-menu > span { padding:0.3rem 0.5rem 0.15rem;color:var(--muted-foreground);font-size:0.6rem;text-transform:uppercase; }
+  .channel-context-menu button.danger { color:var(--destructive); }
   .channel-row-group { position: relative; display: flex; min-width: 0; align-items: center; }
   .channel-row { display: flex; width: 100%; min-width: 0; height: 1.85rem; align-items: center; gap: 0.4rem; border-radius: 0.35rem; padding: 0 1.8rem 0 0.55rem; color: var(--muted-foreground); font-size: 0.8rem; text-align: left; }
   .channel-row:hover, .channel-row.selected { background: var(--accent); color: var(--foreground); }
   .channel-loading { padding-right: 0.55rem; opacity: 0.72; }
-  .row-menu { position: absolute; right: 0.25rem; }
-  .row-menu summary { display: none; width: 1.45rem; height: 1.45rem; list-style: none; place-items: center; border-radius: 0.3rem; color: var(--muted-foreground); }
-  .channel-row-group:hover .row-menu summary, .row-menu[open] summary { display: grid; }
-  .row-menu summary::-webkit-details-marker { display: none; }
-  .row-menu > div { position: fixed; z-index: 80; width: 11rem; transform: translate(-9.5rem, 0.2rem); border: 1px solid var(--border); border-radius: 0.5rem; background: var(--popover); padding: 0.25rem; box-shadow: 0 12px 30px rgb(0 0 0 / 0.2); }
-  .row-menu button, .row-menu span { display: flex; width: 100%; min-height: 1.8rem; align-items: center; border-radius: 0.3rem; padding-inline: 0.5rem; text-align: left; font-size: 0.7rem; }
-  .row-menu button:hover { background: var(--accent); }
-  .row-menu span { min-height: 1.35rem; color: var(--muted-foreground); font-size: 0.6rem; }
-  .row-menu button.danger { color: var(--destructive); }
 </style>
