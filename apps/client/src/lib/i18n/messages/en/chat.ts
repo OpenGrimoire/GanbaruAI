@@ -68,6 +68,8 @@ export const chat = {
     cancel: "Cancel channel setup",
     edit: "Edit channel",
     newInSection: (name: string) => `Create a channel in ${name}`,
+    expandSection: (name: string) => `Expand ${name}`,
+    collapseSection: (name: string) => `Collapse ${name}`,
     deleteSection: (name: string) => `Manage ${name}`,
     sectionName: "Section name",
     add: "Add",

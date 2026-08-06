@@ -51,6 +51,8 @@
   let loadedProjectId = $state<string | null>(null);
   let newSectionName = $state("");
   let creatingSection = $state(false);
+  let channelsCollapsed = $state(false);
+  let directMessagesCollapsed = $state(false);
   let archiveCandidate = $state<ChatChannelRead | null>(null);
   let deleteSectionCandidate = $state<ChatSidebarSection | null>(null);
   let railError = $state<string | null>(null);
@@ -140,6 +142,12 @@
     persist(sections.map((section) => section.id === sectionId
       ? { ...section, collapsed: !section.collapsed }
       : section));
+  }
+
+  function sectionToggleLabel(name: string, collapsed: boolean): string {
+    return collapsed
+      ? t("chat.channels.expandSection", name)
+      : t("chat.channels.collapseSection", name);
   }
 
   function createSection(): void {
@@ -279,25 +287,36 @@
         </section>
       {/if}
       <section class="channel-section" role="group" ondragover={(event) => event.preventDefault()} ondrop={(event) => handleDrop(event, null)}>
-        <div class="section-heading"><span>{t("chat.channels.defaultSection")}</span><button type="button" aria-label={t("chat.channels.createTitle")} onclick={() => openCreate()}><Plus size={13} /></button></div>
-        {#if chat.channelsLoading && projects.selectedProjectId}
-          <div class="channel-row channel-loading" role="status" aria-label={t("common.loading")}>
-            <Hash size={14} class="shrink-0 opacity-75" />
-            <span class="min-w-0 flex-1 truncate">general</span>
-            <LoaderCircle size={12} class="animate-spin" />
-          </div>
-        {:else}
-          {#each unsectionedChannels as channel (channel.id)}
-            {@render ChannelRow({ channel })}
-          {/each}
-          {#if unsectionedChannels.length === 0 && query}<p class="px-2 py-1 text-xs text-muted-foreground">{t("chat.channels.noResults")}</p>{/if}
+        <div class="section-heading">
+          <button type="button" class="section-toggle" class:collapsed={channelsCollapsed} aria-label={sectionToggleLabel(t("chat.channels.defaultSection"), channelsCollapsed)} aria-expanded={!channelsCollapsed} onclick={() => { channelsCollapsed = !channelsCollapsed; }}>
+            <span>{t("chat.channels.defaultSection")}</span>
+            {#if channelsCollapsed}<ChevronRight class="section-chevron" size={13} />{:else}<ChevronDown class="section-chevron" size={13} />{/if}
+          </button>
+          <button type="button" aria-label={t("chat.channels.createTitle")} onclick={() => openCreate()}><Plus size={13} /></button>
+        </div>
+        {#if !channelsCollapsed}
+          {#if chat.channelsLoading && projects.selectedProjectId}
+            <div class="channel-row channel-loading" role="status" aria-label={t("common.loading")}>
+              <Hash size={14} class="shrink-0 opacity-75" />
+              <span class="min-w-0 flex-1 truncate">general</span>
+              <LoaderCircle size={12} class="animate-spin" />
+            </div>
+          {:else}
+            {#each unsectionedChannels as channel (channel.id)}
+              {@render ChannelRow({ channel })}
+            {/each}
+            {#if unsectionedChannels.length === 0 && query}<p class="px-2 py-1 text-xs text-muted-foreground">{t("chat.channels.noResults")}</p>{/if}
+          {/if}
         {/if}
       </section>
 
       {#each sections as section (section.id)}
         <section class="channel-section" role="group" ondragover={(event) => event.preventDefault()} ondrop={(event) => handleDrop(event, section.id)}>
           <div class="section-heading">
-            <button type="button" class="min-w-0 flex-1" onclick={() => toggleSection(section.id)}>{#if section.collapsed}<ChevronRight size={13} />{:else}<ChevronDown size={13} />{/if}<span class="truncate">{section.name}</span></button>
+            <button type="button" class="section-toggle" class:collapsed={section.collapsed} aria-label={sectionToggleLabel(section.name, section.collapsed)} aria-expanded={!section.collapsed} onclick={() => toggleSection(section.id)}>
+              <span>{section.name}</span>
+              {#if section.collapsed}<ChevronRight class="section-chevron" size={13} />{:else}<ChevronDown class="section-chevron" size={13} />{/if}
+            </button>
             <button type="button" aria-label={t("chat.channels.newInSection", section.name)} onclick={() => openCreate(section.id)}><Plus size={13} /></button>
             <details class="section-menu">
               <summary aria-label={t("chat.channels.deleteSection", section.name)}><Ellipsis size={13} /></summary>
@@ -317,8 +336,14 @@
       {/if}
 
       <section class="channel-section mt-2">
-        <div class="section-heading"><span>{t("chat.channels.directMessages")}</span><button type="button" aria-label={t("chat.channels.newDirectMessage")}><Plus size={13} /></button></div>
-        <p class="mx-1 rounded-md px-2 py-1.5 text-xs text-muted-foreground">{t("chat.channels.emptyDirectMessages")}</p>
+        <div class="section-heading">
+          <button type="button" class="section-toggle" class:collapsed={directMessagesCollapsed} aria-label={sectionToggleLabel(t("chat.channels.directMessages"), directMessagesCollapsed)} aria-expanded={!directMessagesCollapsed} onclick={() => { directMessagesCollapsed = !directMessagesCollapsed; }}>
+            <span>{t("chat.channels.directMessages")}</span>
+            {#if directMessagesCollapsed}<ChevronRight class="section-chevron" size={13} />{:else}<ChevronDown class="section-chevron" size={13} />{/if}
+          </button>
+          <button type="button" aria-label={t("chat.channels.newDirectMessage")}><Plus size={13} /></button>
+        </div>
+        {#if !directMessagesCollapsed}<p class="mx-1 rounded-md px-2 py-1.5 text-xs text-muted-foreground">{t("chat.channels.emptyDirectMessages")}</p>{/if}
       </section>
     </div>
 
@@ -369,9 +394,14 @@
   .message-result small { min-width:0; overflow:hidden; color:var(--muted-foreground); font-size:0.6rem; text-overflow:ellipsis; white-space:nowrap; }
   .message-result > span:last-child { display:-webkit-box; overflow:hidden; color:var(--muted-foreground); font-size:0.68rem; line-height:1rem; -webkit-box-orient:vertical; -webkit-line-clamp:2; line-clamp:2; }
   .section-heading { display: flex; min-height: 1.75rem; align-items: center; gap: 0.2rem; padding-inline: 0.45rem; color: var(--muted-foreground); font-size: 0.7rem; font-weight: 600; }
-  .section-heading > span:first-child { min-width: 0; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .section-heading > button { display: flex; min-width: 1.35rem; min-height: 1.35rem; align-items: center; justify-content: center; gap: 0.2rem; border-radius: 0.3rem; }
   .section-heading > button:hover { background: var(--accent); color: var(--foreground); }
+  .section-heading > .section-toggle { min-width: 0; flex: 1; justify-content: flex-start; }
+  .section-toggle > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .section-toggle :global(.section-chevron) { flex: 0 0 auto; transition: opacity 120ms ease; }
+  .section-toggle.collapsed :global(.section-chevron) { opacity: 0; }
+  .section-toggle.collapsed:hover :global(.section-chevron),
+  .section-toggle.collapsed:focus-visible :global(.section-chevron) { opacity: 1; }
   .section-menu { position:relative; }
   .section-menu summary { display:grid;min-width:1.35rem;min-height:1.35rem;list-style:none;place-items:center;border-radius:0.3rem; }
   .section-menu summary::-webkit-details-marker { display:none; }
