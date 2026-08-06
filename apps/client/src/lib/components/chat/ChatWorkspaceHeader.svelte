@@ -4,6 +4,7 @@
   import Hash from "@lucide/svelte/icons/hash";
   import Menu from "@lucide/svelte/icons/menu";
   import MessageSquare from "@lucide/svelte/icons/message-square";
+  import Users from "@lucide/svelte/icons/users";
   import {
     COMPACT_IDENTITY_EMOJI_SCALE,
     COMPACT_IDENTITY_ICON_SIZE,
@@ -21,7 +22,6 @@
   import ChatChannelPickerPanel from "./ChatChannelPickerPanel.svelte";
   import ChatProjectNavigator from "./ChatProjectNavigator.svelte";
   import ChatTitleEditor from "./ChatTitleEditor.svelte";
-  import ChatParticipantAvatar from "./ChatParticipantAvatar.svelte";
 
   type ChatNavigatorMode = ProjectNavigatorPanelMode | "channels";
 
@@ -70,7 +70,6 @@
     Math.max(124, selectedProjectChannels.length * 32 + 84),
   ));
   const selectedFolder = $derived(chat.selectedWorkingFolder);
-  const channelMembers = $derived(selectedChannel?.memberships.filter((membership) => membership.removedAt === null) ?? []);
 
   function triggerForMode(mode: ChatNavigatorMode): HTMLButtonElement | null {
     if (mode === "groups") return groupTriggerElement;
@@ -204,12 +203,9 @@
   {#if actionError}<p role="alert" class="max-w-40 truncate text-[0.666667rem] text-destructive">{actionError}</p>{/if}
   <div class="flex shrink-0 items-center gap-1">
     {#if selectedChannel}
-      <button type="button" class="member-action" aria-label={t("chat.organization.manageMembers")} onclick={() => window.dispatchEvent(new Event("ganbaru-ai:chat-manage-members"))}>
-        <span class="member-avatars">{#each channelMembers.slice(0, 3) as membership (membership.participant.id)}<ChatParticipantAvatar participant={membership.participant} size={20} />{/each}</span>
-        <span>{t("chat.organization.members", channelMembers.length)}</span>
-      </button>
+      <button type="button" class="chat-toolbar-icon-button" title={t("chat.organization.manageMembers")} aria-label={t("chat.organization.manageMembers")} onclick={() => window.dispatchEvent(new Event("ganbaru-ai:chat-manage-members"))}><Users size={14} /></button>
     {/if}
-    {#if selectedFolder?.bindingStatus === "available"}<button type="button" class="chat-header-action" title={t("chat.openFolder")} onclick={() => run(() => chat.openWorkingFolder(selectedFolder.workingFolder.id))}><FolderOpen size={14} /><span class="hidden @min-[760px]:inline">{t("chat.header.open")}</span></button>{/if}
+    {#if selectedFolder?.bindingStatus === "available"}<button type="button" class="chat-toolbar-icon-button" title={t("chat.openFolder")} aria-label={t("chat.openFolder")} onclick={() => run(() => chat.openWorkingFolder(selectedFolder.workingFolder.id))}><FolderOpen size={14} /></button>{/if}
     {#if selectedFolder?.currentBranch}<span class="chat-branch" title={t("chat.header.branch", selectedFolder.currentBranch)}><GitBranch size={13} /><span>{selectedFolder.currentBranch}</span></span>{/if}
   </div>
 </div>
@@ -220,11 +216,7 @@
   .chat-context-divider { flex:0 0 auto;padding-inline:0.125rem;font-weight:600;color:var(--muted-foreground); }
   .chat-inline-new-button,.chat-toolbar-icon-button { display:flex;height:1.75rem;width:1.75rem;flex:0 0 auto;align-items:center;justify-content:center;border-radius:0.375rem;color:var(--muted-foreground); }
   .chat-inline-new-button:hover,.chat-toolbar-icon-button:hover { background:var(--accent);color:var(--foreground); }
-  .chat-header-action { display:inline-flex;min-height:1.75rem;align-items:center;gap:0.375rem;border-radius:0.375rem;padding-inline:0.5rem;color:var(--muted-foreground);font-size:0.733333rem; }
-  .chat-header-action:hover { background:var(--accent);color:var(--foreground); }
   .chat-branch { display:none;min-width:0;max-width:9rem;align-items:center;gap:0.3rem;border-radius:0.375rem;padding:0.25rem 0.4rem;color:var(--muted-foreground);font-size:0.666667rem; }
   .chat-branch span { overflow:hidden;text-overflow:ellipsis;white-space:nowrap; }
-  .member-action { display:flex; min-height:1.75rem; align-items:center; gap:0.35rem; border-radius:0.375rem; padding-inline:0.4rem; color:var(--muted-foreground); font-size:0.68rem; }.member-action:hover { background:var(--accent); color:var(--foreground); }
-  .member-avatars { display:flex; }.member-avatars :global(.participant-avatar + .participant-avatar) { margin-left:-0.35rem; }
   @container chat-shell (min-width:760px) { .chat-branch { display:inline-flex; } }
 </style>
