@@ -796,6 +796,7 @@
   .context-chips button { display:flex; max-width:14rem; align-items:center; gap:0.25rem; border-radius:999px; background:var(--accent); padding:0.22rem 0.45rem; font-size:0.68rem; }
   .context-chips button span { color:var(--muted-foreground); }
   .mention-picker { z-index:100; max-height:min(20rem,60vh); overflow-y:auto; border:1px solid var(--border); border-radius:0.6rem; background:var(--popover); padding:0.3rem; box-shadow:0 14px 38px rgb(0 0 0 / 0.2); }
+  .mention-picker :global(svg.lucide) { stroke-width:var(--icon-stroke-width); }
   .candidate-row { display:flex; width:100%; min-height:3rem; align-items:center; gap:0.3rem; border-radius:0.4rem; padding:0.2rem; }.candidate-row:is(:hover,.active) { background:var(--accent); }
   .candidate-select { display:flex; min-width:0; flex:1; align-items:center; gap:0.5rem; padding:0.2rem; text-align:left; }
   .mention-picker > p { padding:0.65rem; color:var(--muted-foreground); font-size:0.75rem; }

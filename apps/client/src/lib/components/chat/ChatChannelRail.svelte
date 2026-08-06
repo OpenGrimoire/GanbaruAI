@@ -450,8 +450,8 @@
 {#if deleteSectionCandidate}<ConfirmDialog title={t("chat.channels.deleteSectionTitle", deleteSectionCandidate.name)} message={t("chat.channels.deleteSectionMessage")} confirmLabel={t("chat.channels.deleteSectionConfirm")} cancelLabel={t("chat.cancel")} onConfirm={confirmDeleteSection} onCancel={() => { deleteSectionCandidate = null; }} />{/if}
 
 <style>
-  .rail-icon { display: grid; width: 1.75rem; height: 1.75rem; flex: 0 0 auto; place-items: center; border-radius: 0.375rem; color: var(--muted-foreground); }
-  .rail-icon:hover { background: var(--accent); color: var(--foreground); }
+  .rail-icon { display: grid; width: 1.75rem; height: 1.75rem; flex: 0 0 auto; place-items: center; border-radius: 0.375rem; color: var(--foreground); }
+  .rail-icon:hover { background: var(--accent); }
   .channel-search-input::-webkit-search-cancel-button { display: none; }
   .channel-section { padding-top: 0.35rem; }
   .message-results { margin-block:0.3rem 0.45rem; border-bottom:1px solid var(--border); padding-bottom:0.45rem; }
@@ -461,7 +461,7 @@
   .message-result strong { flex:0 0 auto; font-size:0.72rem; }
   .message-result small { min-width:0; overflow:hidden; color:var(--muted-foreground); font-size:0.6rem; text-overflow:ellipsis; white-space:nowrap; }
   .message-result > span:last-child { display:-webkit-box; overflow:hidden; color:var(--muted-foreground); font-size:0.68rem; line-height:1rem; -webkit-box-orient:vertical; -webkit-line-clamp:2; line-clamp:2; }
-  .section-heading { display: flex; min-height: 1.75rem; align-items: center; gap: 0.2rem; padding-inline: 0.45rem; color: var(--muted-foreground); font-size: 0.7rem; font-weight: 600; }
+  .section-heading { --chat-icon-stroke-width: var(--chat-small-simple-icon-stroke-width); display: flex; min-height: 1.75rem; align-items: center; gap: 0.2rem; padding-inline: 0.45rem; color: var(--muted-foreground); font-size: 0.7rem; font-weight: 600; }
   .section-heading > button { display: flex; min-width: 1.35rem; min-height: 1.35rem; align-items: center; justify-content: center; gap: 0.2rem; border-radius: 0.3rem; }
   .section-heading > button:hover { background: var(--accent); color: var(--foreground); }
   .section-heading > .section-toggle { min-width: 0; flex: 1; justify-content: flex-start; }

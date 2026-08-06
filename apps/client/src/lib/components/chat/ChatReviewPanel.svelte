@@ -848,8 +848,8 @@
   .scope-actions button { display: inline-flex; height: 1.7rem; align-items: center; gap: 0.2rem; border-radius: 0.3rem; padding-inline: 0.35rem; color: var(--muted-foreground); font-size: 0.633333rem; white-space: nowrap; }
   .scope-actions button:hover:not(:disabled) { background: var(--accent); color: var(--foreground); }
   .scope-actions button.destructive:hover:not(:disabled), .comment-composer button.destructive:hover:not(:disabled) { background: color-mix(in srgb, var(--destructive) 15%, transparent); color: var(--destructive); }
-  .toolbar-group button, .review-toolbar > button, .search-toolbar > button, .file-toolbar button { display: inline-grid; width: 1.7rem; height: 1.7rem; flex: 0 0 auto; place-items: center; border-radius: 0.3rem; color: var(--muted-foreground); }
-  .toolbar-group button:hover, .toolbar-group button.active, .review-toolbar > button:hover, .review-toolbar > button.active, .file-toolbar button:hover, .search-toolbar > button:hover { background: var(--accent); color: var(--foreground); }
+  .toolbar-group button, .review-toolbar > button, .search-toolbar > button, .file-toolbar button { display: inline-grid; width: 1.7rem; height: 1.7rem; flex: 0 0 auto; place-items: center; border-radius: 0.3rem; color: var(--foreground); }
+  .toolbar-group button:hover, .toolbar-group button.active, .review-toolbar > button:hover, .review-toolbar > button.active, .file-toolbar button:hover, .search-toolbar > button:hover { background: var(--accent); }
   .diff-stats { display: flex; margin-left: auto; gap: 0.3rem; font-family: "SF Mono", "SFMono-Regular", Consolas, monospace; font-size: 0.633333rem; }
   .diff-stats span:first-child { color: var(--action-confirm); }
   .diff-stats span:last-child { color: var(--destructive); }

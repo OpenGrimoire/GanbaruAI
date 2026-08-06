@@ -377,8 +377,8 @@
   .server-list { display: flex; gap: 0.25rem; overflow-x: auto; border-bottom: 1px solid var(--border); padding: 0.3rem 0.45rem; }
   .server-list button { flex: 0 0 auto; border-radius: 0.35rem; background: var(--accent); padding: 0.2rem 0.4rem; color: var(--muted-foreground); font-size: 0.64rem; }
   .viewport-toolbar { display: flex; align-items: center; gap: 0.2rem; border-bottom: 1px solid var(--border); padding: 0.28rem 0.45rem; }
-  .viewport-toolbar button { display: inline-flex; min-height: 1.6rem; align-items: center; justify-content: center; border-radius: 0.35rem; padding: 0.2rem 0.4rem; color: var(--muted-foreground); font-size: 0.66rem; }
-  .viewport-toolbar button:hover, .viewport-toolbar button.active { background: var(--accent); color: var(--foreground); }
+  .viewport-toolbar button { display: inline-flex; min-height: 1.6rem; align-items: center; justify-content: center; border-radius: 0.35rem; padding: 0.2rem 0.4rem; color: var(--foreground); font-size: 0.66rem; }
+  .viewport-toolbar button:hover, .viewport-toolbar button.active { background: var(--accent); }
   .viewport-toolbar span { margin-left: auto; color: var(--muted-foreground); font-size: 0.62rem; }
   .browser-viewport { position: relative; min-height: 0; flex: 1; overflow: hidden; background: color-mix(in srgb, var(--muted) 28%, var(--background)); }
   .empty { display: grid; height: 100%; place-items: center; align-content: center; gap: 0.55rem; padding: 1rem; color: var(--muted-foreground); text-align: center; font-size: 0.72rem; }

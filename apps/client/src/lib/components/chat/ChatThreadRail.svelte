@@ -445,8 +445,8 @@
   .chat-project-explorer.expanded { width: 16rem; }
   .chat-explorer-collapsed-rail { background: var(--cal-bg); opacity: 0; pointer-events: none; transition: opacity 60ms linear; }
   .chat-explorer-collapsed-rail.visible { opacity: 1; pointer-events: auto; transition-delay: 100ms; }
-  .chat-explorer-icon-button { display: flex; width: 1.75rem; height: 1.75rem; flex: 0 0 auto; align-items: center; justify-content: center; border-radius: 0.375rem; color: var(--muted-foreground); }
-  .chat-explorer-icon-button:hover, .chat-explorer-icon-button.active { background: var(--accent); color: var(--foreground); }
+  .chat-explorer-icon-button { display: flex; width: 1.75rem; height: 1.75rem; flex: 0 0 auto; align-items: center; justify-content: center; border-radius: 0.375rem; color: var(--foreground); }
+  .chat-explorer-icon-button:hover, .chat-explorer-icon-button.active { background: var(--accent); }
   .chat-folder-row { display: flex; min-height: 2rem; align-items: center; border-radius: 0.375rem; color: var(--foreground); }
   .chat-folder-row:hover { background: color-mix(in srgb, var(--accent) 68%, transparent); }
   .chat-folder-row.selected { font-weight: 600; }

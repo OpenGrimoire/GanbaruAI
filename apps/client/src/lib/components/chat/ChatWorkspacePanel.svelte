@@ -939,14 +939,14 @@
 </section>
 
 <style>
-  .panel-picker :global(svg), .tab-rename-panel :global(svg) { stroke-width: 2 !important; }
+  .panel-picker :global(svg.lucide), .tab-rename-panel :global(svg.lucide) { stroke-width: var(--icon-stroke-width-compact) !important; }
   .workspace-panel { display: flex; height: 100%; min-height: 0; flex-direction: column; background: var(--cal-bg); }
   .retained-workspace-panel { height: 100%; min-height: 0; }
   .panel-tabbar { --workspace-panel-tab-width: 9.5rem; position: relative; display: flex; min-height: 2.65rem; flex: 0 0 auto; align-items: center; gap: 0.2rem; padding-inline: 0.45rem; }
   .workspace-panel[data-placement="inspector"] .panel-tabbar { height: var(--cal-header-row-h); min-height: var(--cal-header-row-h); border-bottom: 1px solid var(--sidebar); background: var(--cal-header-bg); padding-right: var(--chat-global-actions-width); }
   .panel-tabbar.reordering { user-select: none; }
   .panel-tabbar > :global(.chat-icon-button) { flex: 0 0 auto; align-self: center; }
-  .panel-add-button { display: grid; width: 1.75rem; height: 1.75rem; flex: 0 0 1.75rem; place-items: center; align-self: center; border-radius: 0.375rem; color: var(--muted-foreground); transition: color 120ms ease, background-color 120ms ease; }
+  .panel-add-button { display: grid; width: 1.75rem; height: 1.75rem; flex: 0 0 1.75rem; place-items: center; align-self: center; border-radius: 0.375rem; color: var(--foreground); transition: color 120ms ease, background-color 120ms ease; }
   .panel-add-button:hover, .panel-add-button:focus-visible, .panel-add-button[aria-expanded="true"] { background: var(--accent); color: var(--accent-foreground); }
   .panel-add-button.active { background: var(--accent); color: var(--foreground); }
   .panel-tab-strip { display: flex; min-width: 0; flex: 0 1 auto; align-items: stretch; gap: 0.2rem; overflow-x: auto; overflow-y: hidden; scrollbar-width: none; }
@@ -956,8 +956,8 @@
   .panel-tab-slot.dragging { z-index: 1; transition: none; }
   .terminal-tab, .panel-tab { display: flex; min-width: 0; min-height: 2rem; flex: 1 1 auto; align-items: center; gap: 0.4rem; overflow: hidden; padding: 0.3rem 0.65rem; color: inherit; font-size: 0.733333rem; }
   .terminal-tab > :global(svg), .panel-tab > :global(svg) { flex: 0 0 auto; }
-  .terminal-tab.loading { width: 100%; border-radius: 0.55rem; color: var(--muted-foreground); }
-  .terminal-tab-shell, .panel-tab-shell { display: flex; width: 100%; min-width: 0; align-items: stretch; border-radius: 0.55rem; color: var(--muted-foreground); }
+  .terminal-tab.loading { width: 100%; border-radius: 0.55rem; color: var(--foreground); }
+  .terminal-tab-shell, .panel-tab-shell { display: flex; width: 100%; min-width: 0; align-items: stretch; border-radius: 0.55rem; color: var(--foreground); }
   .terminal-tab-shell:hover, .panel-tab-shell:hover, .terminal-tab.loading:hover { background: color-mix(in srgb, var(--accent) 70%, transparent); color: var(--foreground); }
   .terminal-tab-shell.active, .panel-tab-shell.active, .terminal-tab.loading.active { background: var(--accent); color: var(--foreground); }
   .tab-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

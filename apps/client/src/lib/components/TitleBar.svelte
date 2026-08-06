@@ -439,7 +439,7 @@
 <!-- svelte-ignore a11y_no_static_element_interactions -->
 <div
   data-tauri-drag-region
-  class="flex w-full shrink-0 select-none items-center bg-sidebar"
+  class="app-title-bar flex w-full shrink-0 select-none items-center bg-sidebar"
   style="height: var(--titlebar-h);"
   onwheel={(event) => titleBarTabs?.handleWheel(event)}
   oncontextmenu={openTitleBarMenu}

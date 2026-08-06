@@ -441,8 +441,8 @@
 
   function actionButtonClass(active = false): string {
     return cn(
-      "relative flex h-7 min-w-7 shrink-0 items-center justify-center rounded-md px-1.5 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground",
-      active && "bg-accent text-foreground",
+      "relative flex h-7 min-w-7 shrink-0 items-center justify-center rounded-md px-1.5 text-foreground transition-colors hover:bg-accent",
+      active && "bg-accent",
     );
   }
 
@@ -769,7 +769,7 @@
         >
           <button
             type="button"
-            class="flex h-7 max-w-40 items-center rounded-md px-2 text-[0.8rem] text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus:bg-accent focus:text-foreground"
+            class="flex h-7 max-w-40 items-center rounded-md px-2 text-[0.8rem] text-foreground transition-colors hover:bg-accent focus:bg-accent"
             aria-label={activityPanelLabel}
             aria-expanded={activityPanelOpen}
             aria-controls={activityPanelId}

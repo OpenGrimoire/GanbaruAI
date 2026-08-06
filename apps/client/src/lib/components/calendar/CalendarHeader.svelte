@@ -173,7 +173,7 @@
   <!-- Back arrow -->
   <button
     onclick={() => onNavigate("back")}
-    class="flex h-7 w-6 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+    class="flex h-7 w-6 items-center justify-center rounded-md text-foreground transition-colors hover:bg-accent"
     title={t("calendar.toolbar.previousTitle", shortcutTitle(["←"]))}
     aria-label={t("calendar.toolbar.previous")}
   >
@@ -213,7 +213,7 @@
   <!-- Forward arrow -->
   <button
     onclick={() => onNavigate("forward")}
-    class="flex h-7 w-6 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+    class="flex h-7 w-6 items-center justify-center rounded-md text-foreground transition-colors hover:bg-accent"
     title={t("calendar.toolbar.nextTitle", shortcutTitle(["→"]))}
     aria-label={t("calendar.toolbar.next")}
   >
@@ -230,7 +230,7 @@
       disabled={!calZoom.canZoomOut}
       class="flex h-7 w-7 items-center justify-center rounded-md transition-colors {!calZoom.canZoomOut
         ? 'cursor-default text-muted-foreground/30'
-        : 'text-muted-foreground hover:bg-accent hover:text-foreground'}"
+        : 'text-foreground hover:bg-accent'}"
       title={t("calendar.toolbar.zoomOutTitle")}
       aria-label={t("calendar.toolbar.zoomOut")}
     >
@@ -241,7 +241,7 @@
       disabled={!calZoom.canZoomIn}
       class="flex h-7 w-7 items-center justify-center rounded-md transition-colors {!calZoom.canZoomIn
         ? 'cursor-default text-muted-foreground/30'
-        : 'text-muted-foreground hover:bg-accent hover:text-foreground'}"
+        : 'text-foreground hover:bg-accent'}"
       title={t("calendar.toolbar.zoomInTitle")}
       aria-label={t("calendar.toolbar.zoomIn")}
     >
@@ -252,7 +252,7 @@
         onclick={() => onViewChange(opt.mode)}
         class="rounded-md px-2.5 py-1 text-xs font-medium {viewMode === opt.mode
           ? 'bg-card text-card-foreground'
-          : 'text-muted-foreground hover:bg-accent hover:text-foreground'}"
+          : 'text-foreground hover:bg-accent'}"
         title={`${opt.title} (${shortcutTitle(opt.shortcuts)})`}
       >
         {opt.label}
@@ -266,7 +266,7 @@
     disabled={isOnToday}
     class="ml-1 flex h-7 w-7 items-center justify-center rounded-md transition-colors {isOnToday
       ? 'text-muted-foreground/30 cursor-default'
-      : 'text-muted-foreground hover:bg-accent hover:text-foreground'}"
+      : 'text-foreground hover:bg-accent'}"
     title={t("calendar.toolbar.goToToday", shortcutTitle(todayShortcuts))}
   >
     <RotateCcw size={13} />
@@ -276,7 +276,7 @@
   <div class="relative ml-1">
     <button
       onclick={() => { showAccountPicker = !showAccountPicker; }}
-      class="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+      class="flex h-7 w-7 items-center justify-center rounded-md text-foreground transition-colors hover:bg-accent"
       title={t("calendar.toolbar.calendars")}
       aria-label={t("calendar.toolbar.calendars")}
     >

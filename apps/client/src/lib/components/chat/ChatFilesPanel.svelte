@@ -706,8 +706,8 @@
   .file-search { display: flex; min-width: 0; min-height: 1.75rem; flex: 1; align-items: center; gap: 0.35rem; border-radius: 0.4rem; padding-inline: 0.4rem; color: var(--muted-foreground); }
   .file-search:focus-within { background: var(--background); box-shadow: inset 0 0 0 1px var(--ring); color: var(--foreground); }
   .file-search input { min-width: 0; flex: 1; background: transparent; color: var(--foreground); font-size: 0.7rem; outline: none; }
-  .tree-action { display: inline-grid; width: 1.7rem; height: 1.7rem; flex: 0 0 auto; place-items: center; border-radius: 0.35rem; color: var(--muted-foreground); }
-  .tree-action:hover, .tree-action.active { background: var(--accent); color: var(--foreground); }
+  .tree-action { display: inline-grid; width: 1.7rem; height: 1.7rem; flex: 0 0 auto; place-items: center; border-radius: 0.35rem; color: var(--foreground); }
+  .tree-action:hover, .tree-action.active { background: var(--accent); }
   .live-update-status { flex: 0 0 auto; border-bottom: 1px solid var(--border); padding: 0.3rem 0.45rem; color: var(--muted-foreground); font-size: 0.66rem; line-height: 1.2; }
   .live-update-status.warning { color: var(--status-tentative); }
   .file-editor { position: relative; display: flex; min-width: 0; min-height: 0; flex: 1; flex-direction: column; overflow: hidden; }

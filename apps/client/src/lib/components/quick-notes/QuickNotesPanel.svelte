@@ -484,7 +484,7 @@
         <button
           type="button"
           aria-pressed={collection === "active" && selectedTagId === null}
-          class={`flex h-7 shrink-0 items-center rounded-md px-2.5 text-xs transition-colors ${collection === "active" && selectedTagId === null ? "text-foreground" : "text-muted-foreground hover:bg-accent/60 hover:text-foreground"}`}
+          class={`flex h-7 shrink-0 items-center rounded-md px-2.5 text-xs text-foreground transition-colors ${collection === "active" && selectedTagId === null ? "bg-accent/60" : "hover:bg-accent/60"}`}
           title={`${t("quickNotes.collection.active")} (${t("calendar.toolbar.shortcutKey", "1")})`}
           onclick={() => selectTag(null)}
         >{t("quickNotes.collection.active")}</button>
@@ -492,7 +492,7 @@
           <button
             type="button"
             aria-pressed={collection === "active" && selectedTagId === tag.id}
-            class={`flex h-7 max-w-32 shrink-0 items-center rounded-md px-2.5 text-xs transition-colors ${collection === "active" && selectedTagId === tag.id ? "text-foreground" : "text-muted-foreground hover:bg-accent/60 hover:text-foreground"}`}
+            class={`flex h-7 max-w-32 shrink-0 items-center rounded-md px-2.5 text-xs text-foreground transition-colors ${collection === "active" && selectedTagId === tag.id ? "bg-accent/60" : "hover:bg-accent/60"}`}
             title={tagTitle(tag, index)}
             onclick={() => selectTag(tag.id)}
           ><span class="truncate">{tag.name}</span></button>
@@ -519,7 +519,7 @@
             type="button"
             aria-label={t("quickNotes.search")}
             title={t("quickNotes.search")}
-            class="flex size-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent/60 hover:text-foreground"
+            class="flex size-7 items-center justify-center rounded-md text-foreground transition-colors hover:bg-accent/60"
             onclick={() => void openSearch()}
           ><Search class="size-3.5" strokeWidth={1.5} /></button>
         {/if}
@@ -528,7 +528,7 @@
           aria-pressed={collection === "archive"}
           aria-label={t("quickNotes.collection.archive")}
           title={t("quickNotes.collection.archive")}
-          class={`flex size-7 items-center justify-center rounded-md transition-colors ${collection === "archive" ? "bg-accent text-foreground" : "text-muted-foreground hover:bg-accent/60 hover:text-foreground"}`}
+          class={`flex size-7 items-center justify-center rounded-md text-foreground transition-colors ${collection === "archive" ? "bg-accent" : "hover:bg-accent/60"}`}
           onclick={() => selectCollection("archive")}
         ><Archive class="size-3.5" strokeWidth={1.5} /></button>
         <button
@@ -536,12 +536,12 @@
           aria-pressed={collection === "trash"}
           aria-label={t("quickNotes.collection.trash")}
           title={t("quickNotes.collection.trash")}
-          class={`flex size-7 items-center justify-center rounded-md transition-colors ${collection === "trash" ? "bg-accent text-foreground" : "text-muted-foreground hover:bg-accent/60 hover:text-foreground"}`}
+          class={`flex size-7 items-center justify-center rounded-md text-foreground transition-colors ${collection === "trash" ? "bg-accent" : "hover:bg-accent/60"}`}
           onclick={() => selectCollection("trash")}
         ><Trash2 class="size-3.5" strokeWidth={1.5} /></button>
         <button
           type="button"
-          class="flex size-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent/60 hover:text-foreground"
+          class="flex size-7 items-center justify-center rounded-md text-foreground transition-colors hover:bg-accent/60"
           aria-label={t("common.close")}
           title={t("common.close")}
           onclick={onclose}

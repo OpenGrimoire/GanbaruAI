@@ -65,6 +65,10 @@
 
 :root {
   --radius: 0.5rem;
+  --icon-stroke-width: 1.6;
+  --icon-stroke-width-compact: 1.5;
+  --icon-stroke-width-delicate: 1;
+  --icon-stroke-width-small-simple: 2;
 
   /* Content area */
   --background: #F4F4F7;
@@ -132,6 +136,18 @@
   --titlebar-h: 42px;
   --toolbar-h: 42px;
   --panel-margin: 0.5rem;
+}
+
+svg.lucide:not(.app-title-bar *) {
+  stroke-width: var(--icon-stroke-width);
+}
+
+svg.lucide[stroke-width="1"]:not(.app-title-bar *) {
+  stroke-width: var(--icon-stroke-width-delicate);
+}
+
+svg.lucide[stroke-width="1.5"]:not(.app-title-bar *) {
+  stroke-width: var(--icon-stroke-width-compact);
 }
 
 .dark {

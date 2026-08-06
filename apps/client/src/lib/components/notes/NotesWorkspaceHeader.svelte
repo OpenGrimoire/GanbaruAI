@@ -144,15 +144,15 @@
       primary
         ? "bg-primary text-primary-foreground hover:bg-primary/90"
         : "hover:bg-accent",
-      !primary && (active ? "text-foreground" : "text-muted-foreground"),
-      !primary && open && "bg-accent text-accent-foreground",
+      !primary && "text-foreground",
+      !primary && (active || open) && "bg-accent",
     );
   }
 
   function inlineNewPageButtonClass(): string {
     return cn(
-      "flex h-7 w-5 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors",
-      "hover:bg-accent hover:text-accent-foreground",
+      "flex h-7 w-5 shrink-0 items-center justify-center rounded-md text-foreground transition-colors",
+      "hover:bg-accent",
     );
   }
 
@@ -299,8 +299,8 @@
           bind:this={groupTriggerElement}
           type="button"
           class={cn(
-            "flex h-7 min-w-0 items-center gap-1.5 rounded-md px-1.5 text-left hover:bg-accent hover:text-accent-foreground",
-            navigatorOpen && navigatorMode === "groups" && "bg-accent text-accent-foreground",
+            "flex h-7 min-w-0 items-center gap-1.5 rounded-md px-1.5 text-left hover:bg-accent",
+            navigatorOpen && navigatorMode === "groups" && "bg-accent",
           )}
           aria-label={t("projects.navigator.open")}
           aria-expanded={navigatorOpen && navigatorMode === "groups"}
@@ -321,9 +321,9 @@
           bind:this={projectTriggerElement}
           type="button"
           class={cn(
-            "flex h-7 min-w-0 items-center gap-1.5 rounded-md pl-1.5 text-left hover:bg-accent hover:text-accent-foreground",
+            "flex h-7 min-w-0 items-center gap-1.5 rounded-md pl-1.5 text-left hover:bg-accent",
             selectedPageTitle ? "pr-1.5" : "pr-0.5",
-            navigatorOpen && navigatorMode === "projects" && "bg-accent text-accent-foreground",
+            navigatorOpen && navigatorMode === "projects" && "bg-accent",
           )}
           aria-label={selectedPageTitle ? t("notes.showProjectHome") : t("projects.navigator.open")}
           aria-expanded={navigatorOpen && navigatorMode === "projects"}
@@ -370,11 +370,11 @@
             <button
               type="button"
               class={cn(
-                "flex h-7 min-w-0 items-center gap-1.5 rounded-md px-1.5 text-left hover:bg-accent hover:text-accent-foreground",
+                "flex h-7 min-w-0 items-center gap-1.5 rounded-md px-1.5 text-left hover:bg-accent",
                 navigatorOpen
                   && navigatorMode === "notes"
                   && notesNavigatorSourceKey === node.key
-                  && "bg-accent text-accent-foreground",
+                  && "bg-accent",
               )}
               aria-label={pathTitle}
               aria-expanded={navigatorOpen && navigatorMode === "notes" && notesNavigatorSourceKey === node.key}
@@ -418,8 +418,8 @@
           bind:this={noteTriggerElement}
           type="button"
           class={cn(
-            "flex h-7 min-w-0 items-center gap-1.5 rounded-md pl-1.5 pr-0.5 text-left hover:bg-accent hover:text-accent-foreground",
-            navigatorOpen && navigatorMode === "notes" && "bg-accent text-accent-foreground",
+            "flex h-7 min-w-0 items-center gap-1.5 rounded-md pl-1.5 pr-0.5 text-left hover:bg-accent",
+            navigatorOpen && navigatorMode === "notes" && "bg-accent",
           )}
           aria-label={t("notes.openNoteNavigator")}
           aria-expanded={navigatorOpen && navigatorMode === "notes"}

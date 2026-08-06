@@ -223,6 +223,7 @@
   .attachment-preview > span { max-width: 100%; overflow: hidden; padding: 0.5rem; font-size: 0.666667rem; overflow-wrap: anywhere; }
   .chat-image-remove { position: absolute; top: 0.3rem; right: 0.3rem; display: grid; width: 1.45rem; height: 1.45rem; place-items: center; border: 1px solid rgb(255 255 255 / 0.3); border-radius: 999px; background: rgb(10 10 10 / 0.82); color: white; box-shadow: 0 2px 8px rgb(0 0 0 / 0.25); }
   .chat-image-lightbox { position: fixed; inset: 0; z-index: 80; display: grid; place-items: center; padding: max(0.5rem, 2vmin); }
+  .chat-image-lightbox :global(svg.lucide) { stroke-width: var(--icon-stroke-width); }
   .chat-image-backdrop { position: absolute; inset: 0; background: rgb(0 0 0 / 0.72); backdrop-filter: blur(8px); }
   .chat-image-dialog { position: relative; display: grid; width: min(94vw, 80rem); height: min(92vh, 60rem); min-height: 0; grid-template-rows: auto minmax(0, 1fr); overflow: hidden; border: 1px solid color-mix(in srgb, var(--border) 80%, white 10%); border-radius: 1rem; background: color-mix(in srgb, var(--background) 96%, transparent); box-shadow: 0 24px 80px rgb(0 0 0 / 0.45); }
   .chat-image-dialog > header { display: flex; min-width: 0; flex-wrap: wrap; align-items: center; gap: 0.5rem; border-bottom: 1px solid var(--border); padding: 0.6rem 0.7rem; }

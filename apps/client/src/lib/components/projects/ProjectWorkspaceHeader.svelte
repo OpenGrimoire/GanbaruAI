@@ -134,9 +134,8 @@
 
   function toolbarIconButtonClass(active: boolean, open = false): string {
     return cn(
-      "flex h-7 w-7 shrink-0 items-center justify-center rounded-md transition-colors hover:bg-accent",
-      active ? "text-foreground" : "text-muted-foreground",
-      open && "bg-accent",
+      "flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-foreground transition-colors hover:bg-accent",
+      (active || open) && "bg-accent",
     );
   }
 
@@ -293,8 +292,8 @@
         bind:this={projectGroupTriggerElement}
         type="button"
         class={cn(
-          "flex h-7 min-w-0 items-center gap-1.5 rounded-md px-1.5 text-left hover:bg-accent hover:text-accent-foreground",
-          projectNavigatorOpen && projectNavigatorMode === "groups" && "bg-accent text-accent-foreground",
+          "flex h-7 min-w-0 items-center gap-1.5 rounded-md px-1.5 text-left hover:bg-accent",
+          projectNavigatorOpen && projectNavigatorMode === "groups" && "bg-accent",
         )}
         aria-label={t("projects.navigator.open")}
         aria-expanded={projectNavigatorOpen && projectNavigatorMode === "groups"}
@@ -315,8 +314,8 @@
         bind:this={projectProjectTriggerElement}
         type="button"
         class={cn(
-          "flex h-7 min-w-0 items-center gap-1.5 rounded-md px-1.5 text-left hover:bg-accent hover:text-accent-foreground",
-          projectNavigatorOpen && projectNavigatorMode === "projects" && "bg-accent text-accent-foreground",
+          "flex h-7 min-w-0 items-center gap-1.5 rounded-md px-1.5 text-left hover:bg-accent",
+          projectNavigatorOpen && projectNavigatorMode === "projects" && "bg-accent",
         )}
         aria-label={t("projects.navigator.open")}
         aria-expanded={projectNavigatorOpen && projectNavigatorMode === "projects"}
