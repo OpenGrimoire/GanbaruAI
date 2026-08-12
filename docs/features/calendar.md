@@ -15,7 +15,7 @@ This doc covers the user-facing calendar surface: views, the event model, intera
 
 ## View modes
 
-Four views, switched from the navigation bar.
+Four views, switched from the navigation bar. The compact range controls match Projects view tabs: selected ranges use the foreground color, unselected ranges use the muted foreground, and selection does not add a persistent background. Both selectors use the same 24px control height, horizontal padding, and 12px medium-weight labels at the default font scale.
 
 **Day view.** A single day column, full-height. Best for a deep look at one day's schedule, especially when running a pomodoro (the rail is most readable here). All-day events appear as chips at the top.
 

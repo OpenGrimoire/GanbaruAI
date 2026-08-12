@@ -250,9 +250,9 @@
     {#each viewOptions as opt}
       <button
         onclick={() => onViewChange(opt.mode)}
-        class="rounded-md px-2.5 py-1 text-xs font-medium {viewMode === opt.mode
-          ? 'bg-card text-card-foreground'
-          : 'text-foreground hover:bg-accent'}"
+        class="flex h-6 items-center rounded-md px-2 text-xs font-medium transition-colors hover:bg-accent {viewMode === opt.mode
+          ? 'text-foreground'
+          : 'text-muted-foreground'}"
         title={`${opt.title} (${shortcutTitle(opt.shortcuts)})`}
       >
         {opt.label}

@@ -372,7 +372,7 @@
     {#each PROJECT_VIEW_IDS as view}
       {@const Icon = viewIcon(view)}
       {@const label = viewLabel(view)}
-      <span class="flex h-7 shrink-0 items-center gap-1 rounded-md px-2 text-xs font-medium">
+      <span class="flex h-6 shrink-0 items-center gap-1 rounded-md px-2 text-xs font-medium">
         <Icon size={14} strokeWidth={1.75} class={view === "gantt" ? "-scale-x-100" : undefined} />
         <span>{label}</span>
       </span>
@@ -386,7 +386,7 @@
       <button
         type="button"
         class={cn(
-          "flex h-7 shrink-0 items-center gap-1 rounded-md text-xs font-medium transition-colors hover:bg-accent",
+          "flex h-6 shrink-0 items-center gap-1 rounded-md text-xs font-medium transition-colors hover:bg-accent",
           viewLabelsCollapsed ? "w-7 justify-center px-0" : "px-2",
           projects.activeView === view
             ? "text-foreground"
