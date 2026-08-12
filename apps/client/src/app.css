@@ -221,7 +221,7 @@ svg.lucide[stroke-width="1.5"]:not(.app-title-bar *) {
   --text-sm--line-height: calc(1.25rem * var(--type-scale));
   --text-base: calc(1rem * var(--type-scale));
   --text-base--line-height: calc(1.5rem * var(--type-scale));
-  --text-identity: calc(0.9375rem * var(--type-scale));
+  --text-identity: calc(0.875rem * var(--type-scale));
   --text-identity--line-height: calc(1.25rem * var(--type-scale));
   --text-lg: calc(1.125rem * var(--type-scale));
   --text-lg--line-height: calc(1.75rem * var(--type-scale));

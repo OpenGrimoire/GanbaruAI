@@ -287,7 +287,7 @@
   onscroll={refreshProjectNavigatorPanelGeometry}
 >
   <div bind:this={projectIdentityElement} class="relative min-w-36 shrink-0 min-[760px]:max-w-md">
-    <div class="flex h-7 min-w-0 max-w-full items-center gap-0.5 text-identity">
+    <div class="flex h-7 min-w-0 max-w-full items-center gap-0.5 text-identity font-medium">
       <button
         bind:this={projectGroupTriggerElement}
         type="button"
@@ -307,9 +307,9 @@
           emojiScale={projectIdentityEmojiScale}
           class="shrink-0"
         />
-        <span class="min-w-0 truncate font-semibold text-foreground">{selectedGroup.name}</span>
+        <span class="min-w-0 truncate text-foreground">{selectedGroup.name}</span>
       </button>
-      <span class="shrink-0 px-0.5 font-semibold text-muted-foreground">/</span>
+      <span class="shrink-0 px-0.5 text-muted-foreground">/</span>
       <button
         bind:this={projectProjectTriggerElement}
         type="button"
@@ -329,7 +329,7 @@
           emojiScale={projectIdentityEmojiScale}
           class="shrink-0"
         />
-        <span class="min-w-0 truncate font-semibold text-foreground">{selectedProject.name}</span>
+        <span class="min-w-0 truncate text-foreground">{selectedProject.name}</span>
         <WorkspaceBreadcrumbTerminalIcon kind="chevron" class="shrink-0 text-muted-foreground" />
         {#if selectedProject.status !== "active"}
           <span class={cn("shrink-0 rounded border px-1.5 py-0.5 text-[0.666667rem]", projectLifecycleBadgeClass(selectedProject.status))}>

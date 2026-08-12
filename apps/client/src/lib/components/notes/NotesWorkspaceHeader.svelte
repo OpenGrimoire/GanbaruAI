@@ -293,7 +293,7 @@
   data-notes-workspace-header
 >
   <div bind:this={notesIdentityElement} class="relative min-w-36 shrink-0 min-[760px]:max-w-xl">
-    <div class="flex h-7 min-w-0 max-w-full items-center gap-0.5 text-identity">
+    <div class="flex h-7 min-w-0 max-w-full items-center gap-0.5 text-identity font-medium">
       {#if selectedProject && selectedGroup}
         <button
           bind:this={groupTriggerElement}
@@ -314,9 +314,9 @@
             emojiScale={projectIdentityEmojiScale}
             class="shrink-0"
           />
-          <span class="min-w-0 truncate font-semibold text-foreground">{selectedGroup.name}</span>
+          <span class="min-w-0 truncate text-foreground">{selectedGroup.name}</span>
         </button>
-        <span class="shrink-0 px-0.5 font-semibold text-muted-foreground">/</span>
+        <span class="shrink-0 px-0.5 text-muted-foreground">/</span>
         <button
           bind:this={projectTriggerElement}
           type="button"
@@ -337,7 +337,7 @@
             emojiScale={projectIdentityEmojiScale}
             class="shrink-0"
           />
-          <span class="min-w-0 truncate font-semibold text-foreground">{selectedProject.name}</span>
+          <span class="min-w-0 truncate text-foreground">{selectedProject.name}</span>
           {#if selectedProject.status !== "active"}
             <span class={cn("shrink-0 rounded border px-1.5 py-0.5 text-[0.666667rem]", projectLifecycleBadgeClass(selectedProject.status))}>
               {projectLifecycleLabel(selectedProject.status, t)}
@@ -366,7 +366,7 @@
               : node.page.id === selectedPageId && selectedPageTitle
                 ? selectedPageTitle
                 : notesPageTitle(node.page, t("notes.untitled"))}
-            <span class="shrink-0 px-0.5 font-semibold text-muted-foreground">/</span>
+            <span class="shrink-0 px-0.5 text-muted-foreground">/</span>
             <button
               type="button"
               class={cn(
@@ -396,7 +396,7 @@
                   class="shrink-0"
                 />
               {/if}
-              <span class="min-w-0 truncate font-semibold text-foreground">{pathTitle}</span>
+              <span class="min-w-0 truncate text-foreground">{pathTitle}</span>
               {#if nodeIndex === selectedPagePath.length - 1}
                 <WorkspaceBreadcrumbTerminalIcon kind="chevron" context="notes" class="shrink-0 text-muted-foreground" />
               {/if}
@@ -432,7 +432,7 @@
             emojiScale={NOTES_PAGE_CHROME_EMOJI_SCALE}
             class="shrink-0"
           />
-          <span class="min-w-0 truncate font-semibold text-foreground">{selectedPageTitle ?? t("notes.title")}</span>
+          <span class="min-w-0 truncate text-foreground">{selectedPageTitle ?? t("notes.title")}</span>
           <WorkspaceBreadcrumbTerminalIcon kind="chevron" class="shrink-0 text-muted-foreground" />
         </button>
         <button

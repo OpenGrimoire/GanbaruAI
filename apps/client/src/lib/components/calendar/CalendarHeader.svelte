@@ -185,7 +185,7 @@
     <button
       bind:this={miniCalendarButton}
       onclick={handleHeaderClick}
-      class="flex h-7 items-center rounded-md px-1.5 text-identity font-semibold leading-none text-foreground transition-colors {showMiniCalendar ? 'bg-accent' : 'hover:bg-accent'}"
+      class="flex h-7 items-center rounded-md px-1.5 text-identity font-medium leading-none text-foreground transition-colors {showMiniCalendar ? 'bg-accent' : 'hover:bg-accent'}"
     >
       {formatMonthYear(anchorDate, locale)}
     </button>
