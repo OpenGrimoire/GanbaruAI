@@ -260,10 +260,10 @@
 <style>
   .inspector-scroll { scrollbar-width: thin; scrollbar-color: color-mix(in srgb, var(--foreground) 18%, transparent) transparent; }
   .inspector-section { margin-bottom: 0.25rem; overflow: hidden; border: 1px solid color-mix(in srgb, var(--border) 55%, transparent); border-radius: 0.65rem; background: color-mix(in srgb, var(--background) 28%, transparent); }
-  .inspector-section > button { display: flex; width: 100%; height: 2rem; align-items: center; justify-content: space-between; padding-inline: 0.6rem; color: var(--foreground); font-size: 0.69rem; font-weight: 600; }
+  .inspector-section > button { display: flex; width: 100%; height: 2rem; align-items: center; justify-content: space-between; padding-inline: 0.6rem; color: var(--foreground); font-size: calc(0.69rem * var(--type-scale)); font-weight: 600; }
   .inspector-section > button :global(svg) { transition: transform 140ms ease; }
   .inspector-section dl { padding: 0 0.55rem 0.45rem; }
-  .inspector-section dl > div { display: flex; min-height: 1.55rem; align-items: center; justify-content: space-between; gap: 0.75rem; border-top: 1px solid color-mix(in srgb, var(--border) 35%, transparent); font-size: 0.65rem; }
+  .inspector-section dl > div { display: flex; min-height: 1.55rem; align-items: center; justify-content: space-between; gap: 0.75rem; border-top: 1px solid color-mix(in srgb, var(--border) 35%, transparent); font-size: calc(0.65rem * var(--type-scale)); }
   .inspector-section dt { color: var(--muted-foreground); }
   .inspector-section dd { max-width: 60%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: right; color: var(--foreground); }
   @media (prefers-reduced-motion: reduce) { .inspector-section > button :global(svg) { transition: none; } }

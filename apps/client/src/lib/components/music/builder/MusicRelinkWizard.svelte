@@ -79,11 +79,11 @@
 <style>
   .relink-scroll { scrollbar-width: thin; scrollbar-color: color-mix(in srgb, var(--foreground) 18%, transparent) transparent; }
   .step { display: flex; min-width: 0; align-items: center; gap: 0.35rem; border-radius: 0.55rem; background: color-mix(in srgb, var(--secondary) 55%, transparent); padding: 0.35rem 0.5rem; color: var(--muted-foreground); }
-  .step span { display: grid; height: 1.1rem; width: 1.1rem; flex: none; place-items: center; border-radius: 999px; background: var(--background); font-size: 0.55rem; }
+  .step span { display: grid; height: 1.1rem; width: 1.1rem; flex: none; place-items: center; border-radius: 999px; background: var(--background); font-size: calc(0.55rem * var(--type-scale)); }
   .step-active { background: color-mix(in srgb, var(--primary) 10%, var(--secondary)); color: var(--foreground); font-weight: 600; }
   .relink-stat { display: flex; min-width: 0; flex-direction: column; border-radius: 0.65rem; background: var(--secondary); padding: 0.5rem; }
-  .relink-stat strong { font-size: 0.8rem; font-variant-numeric: tabular-nums; }
-  .relink-stat span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted-foreground); font-size: 0.58rem; }
-  .decision { display: inline-flex; min-height: 1.7rem; max-width: 100%; align-items: center; gap: 0.25rem; overflow: hidden; border: 1px solid var(--border); border-radius: 0.55rem; padding-inline: 0.55rem; color: var(--muted-foreground); font-size: 0.61rem; text-overflow: ellipsis; white-space: nowrap; }
+  .relink-stat strong { font-size: calc(0.8rem * var(--type-scale)); font-variant-numeric: tabular-nums; }
+  .relink-stat span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted-foreground); font-size: calc(0.58rem * var(--type-scale)); }
+  .decision { display: inline-flex; min-height: 1.7rem; max-width: 100%; align-items: center; gap: 0.25rem; overflow: hidden; border: 1px solid var(--border); border-radius: 0.55rem; padding-inline: 0.55rem; color: var(--muted-foreground); font-size: calc(0.61rem * var(--type-scale)); text-overflow: ellipsis; white-space: nowrap; }
   .selected-decision { border-color: color-mix(in srgb, var(--primary) 45%, var(--border)); background: color-mix(in srgb, var(--primary) 10%, var(--card)); color: var(--foreground); }
 </style>

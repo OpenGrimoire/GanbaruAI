@@ -211,24 +211,24 @@
   .chat-request-panel { display: grid; gap: 0.65rem; border: 1px solid color-mix(in oklab, var(--status-tentative) 50%, var(--border)); border-radius: 0.5rem; background: var(--background); padding: 0.7rem; }
   header { display: flex; align-items: flex-start; gap: 0.5rem; }
   header div { min-width: 0; flex: 1; }
-  header strong { font-size: 0.8rem; }
-  header p, .chat-request-panel > small { color: var(--muted-foreground); font-size: 0.7rem; }
-  details summary { display: inline-flex; cursor: pointer; align-items: center; gap: 0.25rem; color: var(--muted-foreground); font-size: 0.7rem; }
-  pre { margin-top: 0.4rem; max-height: 10rem; overflow: auto; white-space: pre-wrap; border-radius: 0.35rem; background: var(--muted); padding: 0.5rem; font-size: 0.666667rem; }
+  header strong { font-size: calc(0.8rem * var(--type-scale)); }
+  header p, .chat-request-panel > small { color: var(--muted-foreground); font-size: calc(0.7rem * var(--type-scale)); }
+  details summary { display: inline-flex; cursor: pointer; align-items: center; gap: 0.25rem; color: var(--muted-foreground); font-size: calc(0.7rem * var(--type-scale)); }
+  pre { margin-top: 0.4rem; max-height: 10rem; overflow: auto; white-space: pre-wrap; border-radius: 0.35rem; background: var(--muted); padding: 0.5rem; font-size: calc(0.666667rem * var(--type-scale)); }
   .request-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 0.4rem; }
-  .request-actions button { min-height: 2rem; border: 1px solid var(--border); border-radius: 0.35rem; padding: 0.3rem 0.6rem; font-size: 0.733333rem; }
+  .request-actions button { min-height: 2rem; border: 1px solid var(--border); border-radius: 0.35rem; padding: 0.3rem 0.6rem; font-size: calc(0.733333rem * var(--type-scale)); }
   .request-actions button:hover { background: var(--accent); }
   .request-actions .danger { border-color: color-mix(in oklab, var(--destructive) 50%, var(--border)); }
-  .question-text { font-size: 0.8rem; }
+  .question-text { font-size: calc(0.8rem * var(--type-scale)); }
   .question-options { display: grid; gap: 0.35rem; }
   .question-options label { display: flex; align-items: flex-start; gap: 0.45rem; border: 1px solid var(--border); border-radius: 0.4rem; padding: 0.45rem; }
   .question-options span, .question-options strong, .question-options small { display: block; }
-  .question-options strong { font-size: 0.733333rem; }
-  .question-options small { color: var(--muted-foreground); font-size: 0.666667rem; }
-  .free-form { display: grid; gap: 0.25rem; color: var(--muted-foreground); font-size: 0.7rem; }
+  .question-options strong { font-size: calc(0.733333rem * var(--type-scale)); }
+  .question-options small { color: var(--muted-foreground); font-size: calc(0.666667rem * var(--type-scale)); }
+  .free-form { display: grid; gap: 0.25rem; color: var(--muted-foreground); font-size: calc(0.7rem * var(--type-scale)); }
   .free-form textarea { min-height: 4rem; resize: vertical; border: 1px solid var(--border); border-radius: 0.4rem; padding: 0.45rem; color: var(--foreground); }
   .answer-preview { border-left: 2px solid var(--primary); padding-left: 0.5rem; }
-  .answer-preview span { color: var(--muted-foreground); font-size: 0.666667rem; }
-  .answer-preview p { white-space: pre-wrap; font-size: 0.733333rem; }
-  .resolving { display: inline-flex; align-items: center; gap: 0.35rem; color: var(--muted-foreground); font-size: 0.7rem; }
+  .answer-preview span { color: var(--muted-foreground); font-size: calc(0.666667rem * var(--type-scale)); }
+  .answer-preview p { white-space: pre-wrap; font-size: calc(0.733333rem * var(--type-scale)); }
+  .resolving { display: inline-flex; align-items: center; gap: 0.35rem; color: var(--muted-foreground); font-size: calc(0.7rem * var(--type-scale)); }
 </style>

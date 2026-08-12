@@ -67,9 +67,9 @@
   .chat-markdown :global(ul) { list-style: disc; }
   .chat-markdown :global(ol) { list-style: decimal; }
   .chat-markdown :global(blockquote) { border-left: 2px solid var(--border); padding-left: 0.8rem; color: var(--muted-foreground); }
-  .chat-markdown :global(pre) { overflow-x:auto; border:1px solid var(--border); border-radius:0.5rem; background:var(--muted); padding:0.6rem; font-size:0.733333rem; }
+  .chat-markdown :global(pre) { overflow-x:auto; border:1px solid var(--border); border-radius:0.5rem; background:var(--muted); padding:0.6rem; font-size: calc(0.8rem * var(--type-scale)); }
   .chat-markdown :global(pre.chat-code-wrap code) { white-space: pre-wrap; overflow-wrap: anywhere; }
-  .chat-markdown :global(.chat-code-toolbar) { display:flex; align-items:center; gap:0.5rem; margin:-0.3rem -0.3rem 0.4rem; color:var(--muted-foreground); font-family:sans-serif; font-size:0.666667rem; }
+  .chat-markdown :global(.chat-code-toolbar) { display:flex; align-items:center; gap:0.5rem; margin:-0.3rem -0.3rem 0.4rem; color:var(--muted-foreground); font-family:sans-serif; font-size: calc(0.75rem * var(--type-scale)); }
   .chat-markdown :global(.chat-code-toolbar span) { margin-right: auto; }
   .chat-markdown :global(.chat-code-toolbar button) { border-radius: 0.25rem; padding: 0.15rem 0.35rem; }
   .chat-markdown :global(.chat-code-toolbar button:hover) { background: var(--accent); color: var(--foreground); }

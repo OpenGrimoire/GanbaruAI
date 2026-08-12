@@ -104,13 +104,13 @@
   .changed-files-card { overflow:hidden; margin-top:var(--chat-conversation-block-space,0.65rem); border:1px solid var(--border); border-radius:0.8rem; background:color-mix(in srgb,var(--muted) 24%,var(--background)); }
   .changed-files-header { display:flex; width:100%; min-width:0; align-items:center; gap:0.45rem; padding:0.55rem 0.65rem; text-align:left; }
   .changed-files-header:hover { background: color-mix(in srgb, var(--accent) 45%, transparent); }
-  .changed-files-header strong { font-size: 0.78rem; font-weight: 600; }
+  .changed-files-header strong { font-size: calc(0.78rem * var(--type-scale)); font-weight: 600; }
   .additions { color: var(--action-confirm); }
   .deletions { color: var(--destructive); }
-  .view-diff { display: inline-flex; margin-left: auto; align-items: center; gap: 0.15rem; color: var(--muted-foreground); font-size: 0.7rem; }
+  .view-diff { display: inline-flex; margin-left: auto; align-items: center; gap: 0.15rem; color: var(--muted-foreground); font-size: calc(0.7rem * var(--type-scale)); }
   .changed-files-list { display:grid; max-height:12rem; overflow:auto; border-top:1px solid var(--border); padding:0.25rem; }
   .changed-files-list button { display:flex; min-width:0; align-items:center; gap:0.4rem; border-radius:0.45rem; padding:0.3rem 0.4rem; text-align:left; }
   .changed-files-list button:hover { background: var(--accent); }
-  .changed-files-list button > span { min-width: 0; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: "SF Mono", "SFMono-Regular", Consolas, monospace; font-size: 0.72rem; }
-  .changed-files-list small { font-family: "SF Mono", "SFMono-Regular", Consolas, monospace; font-size: 0.66rem; }
+  .changed-files-list button > span { min-width: 0; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: "SF Mono", "SFMono-Regular", Consolas, monospace; font-size: calc(0.72rem * var(--type-scale)); }
+  .changed-files-list small { font-family: "SF Mono", "SFMono-Regular", Consolas, monospace; font-size: calc(0.66rem * var(--type-scale)); }
 </style>

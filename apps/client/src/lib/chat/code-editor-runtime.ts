@@ -159,11 +159,11 @@ const editorTheme = EditorView.theme({
     height: "100%",
     color: "var(--chat-syntax-foreground)",
     backgroundColor: "var(--chat-syntax-background)",
-    fontSize: "0.733333rem",
+    fontSize: "calc(0.75rem * var(--type-scale))",
   },
   ".cm-scroller": {
     fontFamily: '"SF Mono", "SFMono-Regular", "JetBrains Mono", "Cascadia Code", Consolas, "Liberation Mono", Menlo, monospace',
-    lineHeight: "21px",
+    lineHeight: "calc(1.25rem * var(--type-scale))",
   },
   ".cm-content": { caretColor: "var(--foreground)" },
   ".cm-cursor, .cm-dropCursor": { borderLeftColor: "var(--foreground)" },

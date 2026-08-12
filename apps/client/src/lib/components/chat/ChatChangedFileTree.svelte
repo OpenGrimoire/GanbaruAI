@@ -84,9 +84,9 @@
 {/if}
 
 <style>
-  .tree-row { display: flex; width: 100%; min-height: 1.75rem; align-items: center; gap: 0.25rem; border-radius: 0.25rem; padding-block: 0.25rem; padding-right: 0.3rem; font-size: 0.75rem; }
+  .tree-row { display: flex; width: 100%; min-height: 1.75rem; align-items: center; gap: 0.25rem; border-radius: 0.25rem; padding-block: 0.25rem; padding-right: 0.3rem; font-size: calc(0.75rem * var(--type-scale)); }
   .tree-row:hover, .tree-row.selected { background: var(--accent); }
-  .file-status { display: inline-grid; min-width: 1rem; height: 1rem; place-items: center; border-radius: 0.25rem; background: var(--muted); color: var(--muted-foreground); font-family: "SF Mono", "SFMono-Regular", Consolas, monospace; font-size: 0.533333rem; font-weight: 600; }
-  .load-more-files { position: sticky; bottom: 0; width: 100%; min-height: 1.9rem; border-top: 1px solid var(--border); background: var(--background); color: var(--primary); font-size: 0.7rem; }
+  .file-status { display: inline-grid; min-width: 1rem; height: 1rem; place-items: center; border-radius: 0.25rem; background: var(--muted); color: var(--muted-foreground); font-family: "SF Mono", "SFMono-Regular", Consolas, monospace; font-size: calc(0.533333rem * var(--type-scale)); font-weight: 600; }
+  .load-more-files { position: sticky; bottom: 0; width: 100%; min-height: 1.9rem; border-top: 1px solid var(--border); background: var(--background); color: var(--primary); font-size: calc(0.7rem * var(--type-scale)); }
   .load-more-files:hover { background: var(--accent); }
 </style>

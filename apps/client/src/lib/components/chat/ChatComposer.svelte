@@ -937,14 +937,14 @@
 </section>
 
 <style>
-  .chat-composer { container-type: inline-size; container-name: chat-composer; position: relative; display: grid; width: min(100%, 54rem); margin: 0 auto; overflow: visible; border: 1px solid color-mix(in srgb, var(--border) 88%, transparent); border-radius: 1.3rem; background: var(--card); box-shadow: 0 8px 22px -18px rgb(0 0 0 / 0.24), 0 1px 4px -3px rgb(0 0 0 / 0.16); }
-  .chat-composer.hero { width: min(100%, 54rem); text-align: left; }
+  .chat-composer { container-type: inline-size; container-name: chat-composer; position: relative; display: grid; width:min(100%,var(--chat-conversation-max-width,60rem)); margin: 0 auto; overflow: visible; border: 1px solid color-mix(in srgb, var(--border) 88%, transparent); border-radius: 1.3rem; background: var(--card); box-shadow: 0 8px 22px -18px rgb(0 0 0 / 0.24), 0 1px 4px -3px rgb(0 0 0 / 0.16); }
+  .chat-composer.hero { width:min(100%,var(--chat-conversation-max-width,60rem)); text-align: left; }
   .chat-composer > :not(.editor-shell) { margin-inline: 0.75rem; }
   .editor-shell { position: relative; }
   .composer-editor-frame { padding: 1rem 1.25rem 0; }
-  .composer-editor { position: relative; display: block; box-sizing: border-box; width: 100%; min-height: 2lh; max-height: 6lh; overflow-y: auto; background: transparent; padding: 0; color: var(--foreground); caret-color: var(--foreground); font-size: var(--chat-conversation-font-size, 0.933333rem); line-height: var(--chat-conversation-line-height, 1.4rem); outline: none; overflow-wrap: anywhere; white-space: pre-wrap; }
+  .composer-editor { position: relative; display: block; box-sizing: border-box; width: 100%; min-height: 2lh; max-height: 6lh; overflow-y: auto; background: transparent; padding: 0; color: var(--foreground); caret-color: var(--foreground); font-size: var(--chat-conversation-font-size, calc(0.9375rem * var(--type-scale))); line-height: var(--chat-conversation-line-height, calc(1.375rem * var(--type-scale))); outline: none; overflow-wrap: anywhere; white-space: pre-wrap; }
   .composer-editor:global([data-empty="true"])::before { position: absolute; color: color-mix(in srgb, var(--muted-foreground) 52%, transparent); content: attr(data-placeholder); pointer-events: none; }
-  .composer-editor :global([data-chat-composer-line]) { display: block; min-height: var(--chat-conversation-line-height, 1.4rem); line-height: inherit; }
+  .composer-editor :global([data-chat-composer-line]) { display: block; min-height: var(--chat-conversation-line-height, calc(1.375rem * var(--type-scale))); line-height: inherit; }
   .composer-toolbar { display: grid; min-height: 2.6rem; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 0.5rem; padding: 0 0.75rem 0.5rem; }
   .toolbar-left, .toolbar-right { display: flex; min-width: 0; align-items: center; gap: 0.3rem; }
   .toolbar-left { overflow: hidden; }
@@ -957,12 +957,12 @@
   .attachment-menu summary:hover, .round-action:hover, .format-action:hover, .format-action.active { background: var(--accent); color: var(--foreground); }
   .format-action:disabled { cursor: default; opacity: 0.45; }
   .mode-divider { width: 1px; height: 1.25rem; flex: 0 0 auto; background: color-mix(in srgb, var(--border) 78%, transparent); margin-inline: 0.1rem; }
-  .composer-mode { display: inline-flex; min-width: 0; height: 1.9rem; flex: 0 1 auto; align-items: center; gap: 0.35rem; border-radius: 0.45rem; padding-inline: 0.4rem; color: var(--muted-foreground); font-size: 0.733333rem; }
+  .composer-mode { display: inline-flex; min-width: 0; height: 1.9rem; flex: 0 1 auto; align-items: center; gap: 0.35rem; border-radius: 0.45rem; padding-inline: 0.4rem; color: var(--muted-foreground); font-size: calc(0.733333rem * var(--type-scale)); }
   .composer-mode:hover { background: var(--accent); color: var(--foreground); }
   .composer-mode :global(svg) { flex: 0 0 auto; }
   .composer-mode span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .attachment-menu > div { position: absolute; left: 0; bottom: calc(100% + 0.5rem); z-index: 35; display: grid; min-width: 13rem; gap: 0.15rem; border: 1px solid var(--border); border-radius: 0.7rem; background: var(--popover); padding: 0.35rem; box-shadow: 0 14px 36px rgb(0 0 0 / 0.2); }
-  .attachment-menu > div button { display: flex; min-height: 2rem; align-items: center; gap: 0.55rem; border-radius: 0.4rem; padding: 0.35rem 0.5rem; color: var(--foreground); font-size: 0.733333rem; text-align: left; }
+  .attachment-menu > div button { display: flex; min-height: 2rem; align-items: center; gap: 0.55rem; border-radius: 0.4rem; padding: 0.35rem 0.5rem; color: var(--foreground); font-size: calc(0.733333rem * var(--type-scale)); text-align: left; }
   .attachment-menu > div button:hover { background: var(--accent); }
   .context-ring { position: relative; display: grid; width: 1.45rem; height: 1.45rem; flex: 0 0 auto; place-items: center; border-radius: 999px; color: var(--muted-foreground); outline: none; }
   .context-ring.warning { color: var(--status-tentative); }
@@ -972,23 +972,23 @@
   .context-fill { stroke: currentColor; stroke-linecap: round; stroke-dasharray: 43.9823; stroke-dashoffset: calc(43.9823 * (1 - var(--context-progress))); transition: stroke-dashoffset 180ms ease; }
   .context-tooltip { position: absolute; right: 50%; bottom: calc(100% + 0.55rem); z-index: 55; display: none; width: max-content; max-width: min(18rem, 80vw); transform: translateX(50%); border: 1px solid var(--border); border-radius: 0.75rem; background: var(--popover); padding: 0.55rem 0.75rem; color: var(--popover-foreground); box-shadow: 0 12px 30px rgb(0 0 0 / 0.18); text-align: center; }
   .context-ring:hover .context-tooltip { display: grid; gap: 0.15rem; }
-  .context-tooltip strong { color: var(--muted-foreground); font-size: 0.7rem; font-weight: 400; }
-  .context-tooltip span { font-size: 0.733333rem; }
-  .context-tooltip small { max-width: 15rem; color: var(--muted-foreground); font-size: 0.633333rem; line-height: 0.9rem; }
-  .toolbar-right small { max-width: 18rem; color: var(--muted-foreground); font-size: 0.666667rem; }
+  .context-tooltip strong { color: var(--muted-foreground); font-size: calc(0.7rem * var(--type-scale)); font-weight: 400; }
+  .context-tooltip span { font-size: calc(0.733333rem * var(--type-scale)); }
+  .context-tooltip small { max-width: 15rem; color: var(--muted-foreground); font-size: calc(0.633333rem * var(--type-scale)); line-height: calc(0.9rem * var(--type-scale)); }
+  .toolbar-right small { max-width: 18rem; color: var(--muted-foreground); font-size: calc(0.666667rem * var(--type-scale)); }
   .primary-action { display: inline-flex; width: 2.1rem; height: 2.1rem; flex: 0 0 auto; align-items: center; justify-content: center; border-radius: 999px; background: color-mix(in srgb, var(--primary) 92%, transparent); color: var(--primary-foreground); box-shadow: 0 2px 7px color-mix(in srgb, var(--primary) 22%, transparent); transition: transform 120ms ease, filter 120ms ease; }
   .primary-action:hover:not(:disabled) { filter: brightness(1.04); transform: scale(1.04); }
   .primary-action:disabled { opacity: 0.5; }
   .force-stop { color: var(--destructive); }
   .mention-chips { display: flex; flex-wrap: wrap; gap: 0.3rem; margin-top: 0.65rem; }
-  .mention-chips > span { display: inline-flex; max-width: 100%; align-items: center; gap: 0.2rem; border: 1px solid var(--border); border-radius: 999px; padding: 0.2rem 0.4rem; font-size: 0.666667rem; }
+  .mention-chips > span { display: inline-flex; max-width: 100%; align-items: center; gap: 0.2rem; border: 1px solid var(--border); border-radius: 999px; padding: 0.2rem 0.4rem; font-size: calc(0.666667rem * var(--type-scale)); }
   .mention-chips small { color: var(--status-tentative); }
-  .queued-row, .recovery-row { display: flex; flex-wrap: wrap; align-items: center; gap: 0.4rem; margin-top: 0.65rem; border: 1px solid var(--border); border-radius: 0.55rem; padding: 0.45rem; font-size: 0.7rem; }
+  .queued-row, .recovery-row { display: flex; flex-wrap: wrap; align-items: center; gap: 0.4rem; margin-top: 0.65rem; border: 1px solid var(--border); border-radius: 0.55rem; padding: 0.45rem; font-size: calc(0.7rem * var(--type-scale)); }
   .queued-row div { min-width: 0; flex: 1; }
   .queued-row p { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted-foreground); }
   .queued-row button, .recovery-row button { border-radius: 0.3rem; padding: 0.25rem 0.4rem; }
   .recovery-row { border-color: color-mix(in oklab, var(--destructive) 45%, var(--border)); color: var(--destructive); }
-  .composer-error { margin-bottom: 0.65rem; color: var(--destructive); font-size: 0.733333rem; }
+  .composer-error { margin-bottom: 0.65rem; color: var(--destructive); font-size: calc(0.733333rem * var(--type-scale)); }
   .request-panel-shell { margin-bottom: 0.75rem; }
   @container chat-composer (max-width: 640px) { .toolbar-right small { max-width: 8rem; } }
   @container chat-composer (max-width: 460px) { .format-action { display: none; } }

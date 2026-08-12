@@ -197,10 +197,10 @@
 </section>
 
 <style>
-  .chat-settings-action { border: 1px solid var(--border); border-radius: 0.375rem; padding: 0.35rem 0.65rem; font-size: 0.733333rem; }
+  .chat-settings-action { border: 1px solid var(--border); border-radius: 0.375rem; padding: 0.35rem 0.65rem; font-size: calc(0.733333rem * var(--type-scale)); }
   .chat-settings-action:disabled { cursor: not-allowed; opacity: 0.5; }
   .number-setting { display: flex; align-items: center; justify-content: space-between; gap: 1rem; padding: 0.25rem; }
-  .number-setting input { width: 7rem; min-height: 1.75rem; border-radius: 0.375rem; border: 1px solid var(--border); background: var(--card); padding-inline: 0.5rem; color: var(--foreground); font-size: 0.8rem; outline: none; }
+  .number-setting input { width: 7rem; min-height: 1.75rem; border-radius: 0.375rem; border: 1px solid var(--border); background: var(--card); padding-inline: 0.5rem; color: var(--foreground); font-size: calc(0.8rem * var(--type-scale)); outline: none; }
   .number-setting input:focus { border-color: var(--ring); box-shadow: 0 0 0 1px var(--ring); }
   .number-setting input:disabled { cursor: not-allowed; opacity: 0.5; }
   @media (max-width: 480px) { .number-setting { align-items: flex-start; flex-direction: column; } }

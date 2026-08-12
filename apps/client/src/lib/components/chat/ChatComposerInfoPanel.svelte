@@ -165,29 +165,29 @@
 <style>
   .composer-info-panel { position: absolute; inset-inline: 0; bottom: calc(100% + 0.4rem); z-index: 30; max-height: min(22rem, calc(100dvh - 7rem)); overflow: auto; overscroll-behavior: contain; margin-inline: 0 !important; border: 1px solid var(--border); border-radius: 0.85rem; background: var(--popover); color: var(--popover-foreground); }
   .composer-info-panel > header { position: sticky; top: 0; z-index: 1; display: flex; min-height: 2.6rem; align-items: center; justify-content: space-between; gap: 1rem; border-bottom: 1px solid color-mix(in srgb, var(--border) 72%, transparent); background: var(--popover); padding: 0.55rem 0.9rem; }
-  .composer-info-panel > header strong { font-size: 0.866667rem; font-weight: 600; }
-  .composer-info-panel > header button { border-radius: 0.4rem; padding: 0.2rem 0.35rem; color: var(--muted-foreground); font-size: 0.733333rem; }
+  .composer-info-panel > header strong { font-size: calc(0.866667rem * var(--type-scale)); font-weight: 600; }
+  .composer-info-panel > header button { border-radius: 0.4rem; padding: 0.2rem 0.35rem; color: var(--muted-foreground); font-size: calc(0.733333rem * var(--type-scale)); }
   .composer-info-panel > header button:hover { background: var(--accent); color: var(--foreground); }
-  .status-panel-grid { display: grid; padding: 0.55rem 0.9rem 0.75rem; font-size: 0.733333rem; }
+  .status-panel-grid { display: grid; padding: 0.55rem 0.9rem 0.75rem; font-size: calc(0.733333rem * var(--type-scale)); }
   .status-panel-grid > div { display: grid; min-width: 0; grid-template-columns: 6.5rem minmax(0, 1fr); align-items: baseline; gap: 0.75rem; padding-block: 0.28rem; }
   .status-panel-grid dt { color: var(--muted-foreground); }
   .status-panel-grid dd { display: flex; min-width: 0; align-items: center; gap: 0.55rem; margin: 0; overflow: hidden; }
   .status-panel-grid code { overflow: hidden; color: inherit; font: inherit; text-overflow: ellipsis; white-space: nowrap; }
-  .status-state { flex: 0 0 auto; border-radius: 999px; background: var(--muted); padding: 0.08rem 0.38rem; color: var(--muted-foreground); font-size: 0.633333rem; }
+  .status-state { flex: 0 0 auto; border-radius: 999px; background: var(--muted); padding: 0.08rem 0.38rem; color: var(--muted-foreground); font-size: calc(0.633333rem * var(--type-scale)); }
   .status-panel-grid > .status-meter-row { align-items: start; }
   .status-meter-row dd { display: grid; gap: 0.28rem; }
   .status-meter-row dd > span:first-child { display: flex; min-width: 0; justify-content: space-between; gap: 0.75rem; }
-  .status-meter-row small { color: var(--muted-foreground); font-size: 0.666667rem; }
+  .status-meter-row small { color: var(--muted-foreground); font-size: calc(0.666667rem * var(--type-scale)); }
   .panel-meter { display: block; width: 100%; height: 0.38rem; overflow: hidden; border-radius: 999px; background: color-mix(in srgb, var(--muted-foreground) 18%, transparent); }
   .panel-meter > span { display: block; width: calc(var(--panel-progress) * 100%); height: 100%; border-radius: inherit; background: color-mix(in srgb, var(--foreground) 72%, var(--muted-foreground)); }
-  .mcp-status-table { display: grid; padding-block: 0.4rem; font-size: 0.733333rem; }
+  .mcp-status-table { display: grid; padding-block: 0.4rem; font-size: calc(0.733333rem * var(--type-scale)); }
   .mcp-status-table > div { display: grid; min-width: 0; grid-template-columns: minmax(8rem, 1fr) minmax(8rem, 1fr) auto; align-items: center; gap: 1rem; padding: 0.36rem 0.9rem; }
   .mcp-status-table > div:hover { background: color-mix(in srgb, var(--accent) 52%, transparent); }
   .mcp-status-table strong { overflow: hidden; font-family: var(--font-mono, monospace); font-weight: 400; text-overflow: ellipsis; white-space: nowrap; }
   .mcp-status-table span { color: var(--muted-foreground); }
   .mcp-status-table span:last-child { justify-self: end; color: var(--destructive); }
   .mcp-status-table span.enabled { color: var(--foreground); }
-  .panel-state, .panel-error { display: flex; min-height: 4.5rem; align-items: center; gap: 0.5rem; padding: 0.75rem 0.9rem; color: var(--muted-foreground); font-size: 0.733333rem; }
+  .panel-state, .panel-error { display: flex; min-height: 4.5rem; align-items: center; gap: 0.5rem; padding: 0.75rem 0.9rem; color: var(--muted-foreground); font-size: calc(0.733333rem * var(--type-scale)); }
   .panel-error { color: var(--destructive); }
   @container chat-composer (max-width: 390px) { .status-panel-grid > div { grid-template-columns: 5rem minmax(0, 1fr); } .mcp-status-table > div { grid-template-columns: minmax(0, 1fr) auto; gap: 0.65rem; } .mcp-status-table span:nth-child(2) { grid-column: 1 / -1; grid-row: 2; } }
 </style>

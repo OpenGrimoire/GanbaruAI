@@ -248,7 +248,7 @@
 
 <style>
   .control-popover :global(svg.lucide) { stroke-width: var(--icon-stroke-width) !important; }
-  .control-trigger { display: inline-flex; min-width: 0; height: 1.9rem; max-width: 10rem; flex: 0 1 auto; align-items: center; gap: 0.4rem; border-radius: 0.55rem; padding: 0.25rem 0.45rem; color: var(--muted-foreground); font-size: 0.766667rem; white-space: nowrap; }
+  .control-trigger { display: inline-flex; min-width: 0; height: 1.9rem; max-width: 10rem; flex: 0 1 auto; align-items: center; gap: 0.4rem; border-radius: 0.55rem; padding: 0.25rem 0.45rem; color: var(--muted-foreground); font-size: calc(0.766667rem * var(--type-scale)); white-space: nowrap; }
   .control-trigger:hover, .control-trigger[aria-expanded="true"] { background: var(--accent); color: var(--foreground); }
   .control-trigger.minimal { padding-inline: 0.35rem; }
   .control-trigger:focus-visible { outline: 2px solid var(--ring); outline-offset: 1px; }
@@ -263,8 +263,8 @@
   .option-icon { display: grid; place-items: center; color: var(--muted-foreground); }
   .option-copy { min-width: 0; }
   .option-copy strong, .option-copy small { display: block; overflow: hidden; text-overflow: ellipsis; }
-  .option-copy strong { font-size: 0.8rem; font-weight: 500; }
-  .option-copy small { margin-top: 0.1rem; color: var(--muted-foreground); font-size: 0.733333rem; line-height: 1.05rem; white-space: normal; }
+  .option-copy strong { font-size: calc(0.8rem * var(--type-scale)); font-weight: 500; }
+  .option-copy small { margin-top: 0.1rem; color: var(--muted-foreground); font-size: calc(0.733333rem * var(--type-scale)); line-height: calc(1.05rem * var(--type-scale)); white-space: normal; }
   .control-popover button > :global(svg:last-child) { visibility: hidden; }
   .control-popover button > :global(svg.visible:last-child) { visibility: visible; }
   @container chat-composer (max-width: 520px) { .control-trigger.compact { width: 1.9rem; padding-inline: 0; justify-content: center; } .control-trigger.compact .control-label, .control-trigger.compact :global(svg:last-child) { display: none; } }

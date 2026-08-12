@@ -841,65 +841,65 @@
   .review-toolbar, .search-toolbar, .file-toolbar { display: flex; min-width: 0; flex: 0 0 auto; align-items: center; gap: 0.3rem; border-bottom: 1px solid var(--border); padding: 0.35rem 0.45rem; }
   .review-toolbar { min-height: 2.65rem; overflow-x: auto; }
   .source-picker { position: relative; display: flex; min-width: 7rem; max-width: 13rem; align-items: center; gap: 0.35rem; border: 1px solid var(--border); border-radius: 0.4rem; padding: 0.25rem 0.35rem; }
-  .source-picker select { min-width: 0; flex: 1; appearance: none; background: transparent; color: var(--foreground); font-size: 0.7rem; outline: none; }
+  .source-picker select { min-width: 0; flex: 1; appearance: none; background: transparent; color: var(--foreground); font-size: calc(0.7rem * var(--type-scale)); outline: none; }
   .source-picker > :global(svg:last-child) { pointer-events: none; }
   .toolbar-group { display: flex; border: 1px solid var(--border); border-radius: 0.4rem; padding: 0.1rem; }
   .scope-actions { display: flex; align-items: center; gap: 0.2rem; }
-  .scope-actions button { display: inline-flex; height: 1.7rem; align-items: center; gap: 0.2rem; border-radius: 0.3rem; padding-inline: 0.35rem; color: var(--muted-foreground); font-size: 0.633333rem; white-space: nowrap; }
+  .scope-actions button { display: inline-flex; height: 1.7rem; align-items: center; gap: 0.2rem; border-radius: 0.3rem; padding-inline: 0.35rem; color: var(--muted-foreground); font-size: calc(0.633333rem * var(--type-scale)); white-space: nowrap; }
   .scope-actions button:hover:not(:disabled) { background: var(--accent); color: var(--foreground); }
   .scope-actions button.destructive:hover:not(:disabled), .comment-composer button.destructive:hover:not(:disabled) { background: color-mix(in srgb, var(--destructive) 15%, transparent); color: var(--destructive); }
   .toolbar-group button, .review-toolbar > button, .search-toolbar > button, .file-toolbar button { display: inline-grid; width: 1.7rem; height: 1.7rem; flex: 0 0 auto; place-items: center; border-radius: 0.3rem; color: var(--foreground); }
   .toolbar-group button:hover, .toolbar-group button.active, .review-toolbar > button:hover, .review-toolbar > button.active, .file-toolbar button:hover, .search-toolbar > button:hover { background: var(--accent); }
-  .diff-stats { display: flex; margin-left: auto; gap: 0.3rem; font-family: "SF Mono", "SFMono-Regular", Consolas, monospace; font-size: 0.633333rem; }
+  .diff-stats { display: flex; margin-left: auto; gap: 0.3rem; font-family: "SF Mono", "SFMono-Regular", Consolas, monospace; font-size: calc(0.633333rem * var(--type-scale)); }
   .diff-stats span:first-child { color: var(--action-confirm); }
   .diff-stats span:last-child { color: var(--destructive); }
-  .comments-toggle { display: inline-flex !important; width: auto !important; padding-inline: 0.35rem; gap: 0.25rem; font-size: 0.633333rem; }
+  .comments-toggle { display: inline-flex !important; width: auto !important; padding-inline: 0.35rem; gap: 0.25rem; font-size: calc(0.633333rem * var(--type-scale)); }
   .search-toolbar { min-height: 2.35rem; }
   .search-toolbar label { display: flex; min-width: 5rem; max-width: 18rem; flex: 1; align-items: center; gap: 0.3rem; border: 1px solid var(--border); border-radius: 0.35rem; padding: 0.22rem 0.35rem; color: var(--muted-foreground); }
-  .search-toolbar input { min-width: 0; flex: 1; background: transparent; color: var(--foreground); font-size: 0.666667rem; outline: none; }
-  .search-toolbar > span { color: var(--muted-foreground); font-family: monospace; font-size: 0.633333rem; }
-  .review-error, .freshness { display: flex; flex: 0 0 auto; align-items: center; gap: 0.4rem; border-bottom: 1px solid color-mix(in srgb, var(--destructive) 30%, var(--border)); padding: 0.4rem 0.55rem; color: var(--destructive); font-size: 0.7rem; }
+  .search-toolbar input { min-width: 0; flex: 1; background: transparent; color: var(--foreground); font-size: calc(0.666667rem * var(--type-scale)); outline: none; }
+  .search-toolbar > span { color: var(--muted-foreground); font-family: monospace; font-size: calc(0.633333rem * var(--type-scale)); }
+  .review-error, .freshness { display: flex; flex: 0 0 auto; align-items: center; gap: 0.4rem; border-bottom: 1px solid color-mix(in srgb, var(--destructive) 30%, var(--border)); padding: 0.4rem 0.55rem; color: var(--destructive); font-size: calc(0.7rem * var(--type-scale)); }
   .review-error button { margin-left: auto; border-radius: 0.3rem; padding: 0.2rem 0.4rem; }
   .freshness { border-color: color-mix(in srgb, var(--status-tentative) 30%, var(--border)); color: var(--status-tentative); }
   .review-workspace { display: grid; min-width: 0; min-height: 0; flex: 1; grid-template-columns: minmax(0, 1fr); overflow: hidden; }
   .review-workspace.comments-open { grid-template-columns: minmax(0, 1fr) minmax(13rem, 22rem); }
   .review-main { display: grid; min-width: 0; min-height: 0; grid-template-columns: 13.5rem minmax(0, 1fr); overflow: hidden; }
   .review-file-list { min-width: 0; min-height: 0; overflow: auto; border-right: 1px solid var(--border); padding: 0.35rem; }
-  .review-file-list > p { padding: 0.7rem; color: var(--muted-foreground); text-align: center; font-size: 0.7rem; }
+  .review-file-list > p { padding: 0.7rem; color: var(--muted-foreground); text-align: center; font-size: calc(0.7rem * var(--type-scale)); }
   .review-content { display: flex; min-width: 0; min-height: 0; flex-direction: column; overflow: hidden; }
   .file-toolbar { min-height: 2.45rem; }
-  .file-toolbar strong { min-width: 0; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: "SF Mono", "SFMono-Regular", Consolas, monospace; font-size: 0.7rem; font-weight: 500; }
-  .file-toolbar .read-only { border-radius: 0.25rem; background: var(--muted); padding: 0.15rem 0.3rem; color: var(--muted-foreground); font-size: 0.583333rem; }
+  .file-toolbar strong { min-width: 0; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: "SF Mono", "SFMono-Regular", Consolas, monospace; font-size: calc(0.7rem * var(--type-scale)); font-weight: 500; }
+  .file-toolbar .read-only { border-radius: 0.25rem; background: var(--muted); padding: 0.15rem 0.3rem; color: var(--muted-foreground); font-size: calc(0.583333rem * var(--type-scale)); }
   .file-toolbar button.destructive:hover { background: color-mix(in srgb, var(--destructive) 15%, transparent); color: var(--destructive); }
   .file-toolbar button[aria-disabled="true"] { opacity: 0.48; }
   .comment-composer { display: grid; flex: 0 0 auto; gap: 0.4rem; border-bottom: 1px solid var(--border); background: var(--background); padding: 0.5rem; }
   .comment-composer > div, .comment-composer footer { display: flex; align-items: center; gap: 0.35rem; }
-  .comment-composer > div strong { margin-right: auto; font-size: 0.7rem; }
-  .comment-composer button { display: inline-flex; align-items: center; gap: 0.2rem; border-radius: 0.3rem; padding: 0.25rem 0.4rem; color: var(--muted-foreground); font-size: 0.633333rem; }
+  .comment-composer > div strong { margin-right: auto; font-size: calc(0.7rem * var(--type-scale)); }
+  .comment-composer button { display: inline-flex; align-items: center; gap: 0.2rem; border-radius: 0.3rem; padding: 0.25rem 0.4rem; color: var(--muted-foreground); font-size: calc(0.633333rem * var(--type-scale)); }
   .comment-composer button:hover { background: var(--accent); color: var(--foreground); }
-  .comment-composer textarea { min-height: 3.5rem; max-height: 9rem; resize: vertical; border: 1px solid var(--border); border-radius: 0.4rem; background: var(--cal-bg); padding: 0.4rem; color: var(--foreground); font-size: 0.7rem; outline: none; }
+  .comment-composer textarea { min-height: 3.5rem; max-height: 9rem; resize: vertical; border: 1px solid var(--border); border-radius: 0.4rem; background: var(--cal-bg); padding: 0.4rem; color: var(--foreground); font-size: calc(0.7rem * var(--type-scale)); outline: none; }
   .comment-composer textarea:focus { border-color: var(--ring); }
   .comment-composer footer { justify-content: flex-end; }
   .comment-composer button.primary { background: var(--primary); color: var(--primary-foreground); }
-  .comment-composer > p { color: var(--muted-foreground); font-size: 0.666667rem; }
-  .review-notice { display: grid; min-height: 0; flex: 1; place-content: center; justify-items: center; gap: 0.5rem; padding: 1rem; color: var(--muted-foreground); text-align: center; font-size: 0.733333rem; }
-  .load-more { flex: 0 0 auto; border-top: 1px solid var(--border); padding: 0.45rem; color: var(--primary); font-size: 0.7rem; }
+  .comment-composer > p { color: var(--muted-foreground); font-size: calc(0.666667rem * var(--type-scale)); }
+  .review-notice { display: grid; min-height: 0; flex: 1; place-content: center; justify-items: center; gap: 0.5rem; padding: 1rem; color: var(--muted-foreground); text-align: center; font-size: calc(0.733333rem * var(--type-scale)); }
+  .load-more { flex: 0 0 auto; border-top: 1px solid var(--border); padding: 0.45rem; color: var(--primary); font-size: calc(0.7rem * var(--type-scale)); }
   .load-more:hover { background: var(--accent); }
   .comments-panel { display: flex; min-width: 0; min-height: 0; flex-direction: column; overflow: hidden; border-left: 1px solid var(--border); background: var(--background); }
-  .comments-panel > header { display: flex; min-height: 2.45rem; align-items: center; justify-content: space-between; gap: 0.4rem; border-bottom: 1px solid var(--border); padding: 0.4rem 0.55rem; font-size: 0.7rem; }
-  .comments-panel > header label { display: flex; align-items: center; gap: 0.3rem; color: var(--muted-foreground); font-size: 0.633333rem; }
+  .comments-panel > header { display: flex; min-height: 2.45rem; align-items: center; justify-content: space-between; gap: 0.4rem; border-bottom: 1px solid var(--border); padding: 0.4rem 0.55rem; font-size: calc(0.7rem * var(--type-scale)); }
+  .comments-panel > header label { display: flex; align-items: center; gap: 0.3rem; color: var(--muted-foreground); font-size: calc(0.633333rem * var(--type-scale)); }
   .comments-panel > div { display: grid; min-height: 0; gap: 0.45rem; overflow: auto; padding: 0.5rem; }
-  .comments-panel article { display: grid; gap: 0.35rem; align-self: start; border: 1px solid var(--border); border-radius: 0.45rem; padding: 0.5rem; font-size: 0.7rem; }
+  .comments-panel article { display: grid; gap: 0.35rem; align-self: start; border: 1px solid var(--border); border-radius: 0.45rem; padding: 0.5rem; font-size: calc(0.7rem * var(--type-scale)); }
   .comments-panel article.resolved { opacity: 0.64; }
   .comment-location { display: flex; min-width: 0; align-items: center; gap: 0.35rem; text-align: left; }
   .comment-location strong { min-width: 0; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .comment-location span, .comment-state { flex: 0 0 auto; color: var(--muted-foreground); font-family: monospace; font-size: 0.6rem; }
+  .comment-location span, .comment-state { flex: 0 0 auto; color: var(--muted-foreground); font-family: monospace; font-size: calc(0.6rem * var(--type-scale)); }
   .comment-state { color: var(--status-tentative); }
   .comments-panel article > p { white-space: pre-wrap; overflow-wrap: anywhere; }
   .comments-panel article footer { display: flex; justify-content: flex-end; gap: 0.25rem; }
-  .comments-panel article footer button { display: inline-flex; align-items: center; gap: 0.2rem; border-radius: 0.3rem; padding: 0.2rem 0.35rem; color: var(--muted-foreground); font-size: 0.633333rem; }
+  .comments-panel article footer button { display: inline-flex; align-items: center; gap: 0.2rem; border-radius: 0.3rem; padding: 0.2rem 0.35rem; color: var(--muted-foreground); font-size: calc(0.633333rem * var(--type-scale)); }
   .comments-panel article footer button:hover { background: var(--accent); color: var(--foreground); }
-  .empty { margin: auto; padding: 1rem; color: var(--muted-foreground); text-align: center; font-size: 0.7rem; }
+  .empty { margin: auto; padding: 1rem; color: var(--muted-foreground); text-align: center; font-size: calc(0.7rem * var(--type-scale)); }
   .spinning { animation: review-spin 900ms linear infinite; }
   @keyframes review-spin { to { transform: rotate(360deg); } }
   @media (prefers-reduced-motion: reduce) { .spinning { animation: none; } }

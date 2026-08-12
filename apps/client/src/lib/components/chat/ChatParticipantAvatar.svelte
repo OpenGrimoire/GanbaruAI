@@ -8,7 +8,15 @@
   import ProfileAvatar from "$lib/components/profile/ProfileAvatar.svelte";
   import ChatModelAvatar from "./ChatModelAvatar.svelte";
 
-  let { participant, size = 32 }: { participant: ChatParticipantRead; size?: number } = $props();
+  let {
+    participant,
+    size = 32,
+    shape = "default",
+  }: {
+    participant: ChatParticipantRead;
+    size?: number;
+    shape?: "default" | "compact";
+  } = $props();
   const chat = getChat();
   const preferences = getPreferences();
   const { t } = getLocalization();
@@ -26,7 +34,7 @@
   class="participant-avatar"
   class:agent={participant.kind === "ai_teammate"}
   class:local={participant.kind === "local_user"}
-  style={`width:${size}px;height:${size}px`}
+  style={`width:${size}px;height:${size}px;--chat-participant-avatar-radius:${shape === "compact" ? "0.2rem" : "22%"}`}
   aria-hidden="true"
 >
   {#if participant.kind === "local_user"}
@@ -47,9 +55,9 @@
 </span>
 
 <style>
-  .participant-avatar { display:inline-grid; flex:0 0 auto; place-items:center; border:1px solid color-mix(in srgb,var(--border) 75%,transparent); border-radius:0.45rem; background:var(--accent); color:var(--foreground); font-size:0.72rem; font-weight:700; }
+  .participant-avatar { display:inline-grid; flex:0 0 auto; place-items:center; border:1px solid color-mix(in srgb,var(--border) 75%,transparent); border-radius:var(--chat-participant-avatar-radius); background:var(--accent); color:var(--foreground); font-size: calc(0.72rem * var(--type-scale)); font-weight:700; }
   .participant-avatar.local { overflow:hidden; border:0; background:transparent; }
   .participant-avatar.local :global(.profile-avatar) { display:grid; }
   .participant-avatar.agent { overflow:hidden; border:0; background:transparent; }
-  .agent-fallback { display:grid; width:100%; height:100%; place-items:center; border:1px solid color-mix(in srgb,var(--border) 75%,transparent); border-radius:22%; background:var(--accent); color:var(--muted-foreground); }
+  .agent-fallback { display:grid; width:100%; height:100%; place-items:center; border:1px solid color-mix(in srgb,var(--border) 75%,transparent); border-radius:var(--chat-participant-avatar-radius); background:var(--accent); color:var(--muted-foreground); }
 </style>

@@ -74,7 +74,7 @@ registerCustomCSSVariableTheme(CHAT_REVIEW_SYNTAX_THEME, {
 }, true);
 const REVIEW_DIFF_UNSAFE_CSS = `
   .chat-review-inline-comments { display: grid; gap: .35rem; padding: .35rem .5rem; }
-  .chat-review-inline-comment { display: grid; gap: .3rem; border: 1px solid var(--border); border-radius: .45rem; background: var(--background); padding: .5rem; color: var(--foreground); font-family: var(--diffs-header-font-family); font-size: .7rem; }
+  .chat-review-inline-comment { display: grid; gap: .3rem; border: 1px solid var(--border); border-radius: .45rem; background: var(--background); padding: .5rem; color: var(--foreground); font-family: var(--diffs-header-font-family); font-size: calc(.7rem * var(--type-scale)); }
   .chat-review-inline-comment[data-state="resolved"] { opacity: .64; }
   .chat-review-inline-comment > div, .chat-review-inline-comment footer { display: flex; align-items: center; gap: .35rem; }
   .chat-review-inline-comment > div span { margin-left: auto; color: var(--status-tentative); }

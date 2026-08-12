@@ -53,7 +53,7 @@
     place-items: center;
     overflow: hidden;
     border: 1px solid color-mix(in srgb, var(--border) 72%, transparent);
-    border-radius: 22%;
+    border-radius: var(--chat-participant-avatar-radius, 22%);
     background: color-mix(in srgb, var(--foreground) 10%, var(--card));
     color: var(--foreground);
     font-size: var(--profile-avatar-font-size);

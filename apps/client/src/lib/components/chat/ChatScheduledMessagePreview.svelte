@@ -75,19 +75,19 @@
   .avatar-cell :global(.profile-avatar) { display:grid; }
   .message-body { min-width:0; }
   header { display:flex; min-height:1.3rem; align-items:baseline; gap:0.4rem; }
-  header strong { font-size:0.82rem; }
-  header time { color:var(--muted-foreground); font-size:0.65rem; }
-  .message-copy { white-space:pre-wrap; overflow-wrap:anywhere; color:var(--foreground); font-size:0.84rem; line-height:1.42rem; }
+  header strong { font-size: calc(0.875rem * var(--type-scale)); }
+  header time { color:var(--muted-foreground); font-size: calc(0.75rem * var(--type-scale)); }
+  .message-copy { white-space:pre-wrap; overflow-wrap:anywhere; color:var(--foreground); font-size: calc(1rem * var(--type-scale)); line-height: calc(1.5rem * var(--type-scale)); }
   .message-context { display:flex; flex-wrap:wrap; gap:0.3rem; margin-top:0.35rem; }
-  .message-context span { border-radius:999px; background:var(--accent); padding:0.15rem 0.4rem; color:var(--muted-foreground); font-size:0.65rem; }
+  .message-context span { border-radius:999px; background:var(--accent); padding:0.15rem 0.4rem; color:var(--muted-foreground); font-size: calc(0.65rem * var(--type-scale)); }
   .delivery-row { display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:0.4rem; margin-top:0.55rem; }
-  .delivery-row > span { color:var(--muted-foreground); font-size:0.68rem; }
+  .delivery-row > span { color:var(--muted-foreground); font-size: calc(0.68rem * var(--type-scale)); }
   .delivery-row > span.failed,.delivery-error { color:var(--destructive); }
   .message-actions { display:flex; flex-wrap:wrap; align-items:center; gap:0.2rem; }
-  .message-actions button { display:flex; min-height:1.8rem; align-items:center; gap:0.3rem; border-radius:0.4rem; padding:0.25rem 0.45rem; color:var(--foreground); font-size:0.68rem; font-weight:500; }
+  .message-actions button { display:flex; min-height:1.8rem; align-items:center; gap:0.3rem; border-radius:0.4rem; padding:0.25rem 0.45rem; color:var(--foreground); font-size: calc(0.68rem * var(--type-scale)); font-weight:500; }
   .message-actions button:hover:not(:disabled) { background:var(--accent); }
   .message-actions button:disabled { opacity:0.45; }
   .message-actions .cancel-action { color:var(--muted-foreground); }
   .message-actions .cancel-action:hover:not(:disabled) { color:var(--destructive); }
-  .delivery-error { margin-top:0.35rem; white-space:pre-wrap; overflow-wrap:anywhere; font-size:0.66rem; line-height:1rem; }
+  .delivery-error { margin-top:0.35rem; white-space:pre-wrap; overflow-wrap:anywhere; font-size: calc(0.66rem * var(--type-scale)); line-height: calc(1rem * var(--type-scale)); }
 </style>

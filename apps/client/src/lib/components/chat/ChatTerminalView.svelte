@@ -15,6 +15,7 @@
   } from "$lib/chat/terminal-model";
   import { getLocalization } from "$lib/i18n/translator.svelte";
   import { getChat } from "$lib/stores/chat.svelte";
+  import { getPreferences } from "$lib/stores/preferences.svelte";
   import "@xterm/xterm/css/xterm.css";
 
   let {
@@ -27,6 +28,7 @@
 
   const { t } = getLocalization();
   const chat = getChat();
+  const preferences = getPreferences();
   const terminalIdentity = untrack(() => ({
     id: terminalRead.id,
     threadId: terminalRead.threadId,
@@ -35,11 +37,13 @@
   const notifyState = untrack(() => onState);
   let host: HTMLDivElement | undefined = $state();
   let xterm: import("@xterm/xterm").Terminal | null = null;
+  let refitTerminal: (() => void) | null = null;
   let outputState = { generation: 0, lastSequence: 0 };
   let error = $state<string | null>(null);
   const resizeOwnerId = Symbol("terminal-resize-owner");
   const TERMINAL_FONT_FAMILY = '"SF Mono", "SFMono-Regular", "JetBrains Mono", "Cascadia Code", Consolas, "Liberation Mono", Menlo, monospace';
-  const TERMINAL_FONT_SIZE = 12;
+  const TERMINAL_BASE_FONT_SIZE = 13;
+  const terminalFontSize = $derived(TERMINAL_BASE_FONT_SIZE * preferences.fontScale);
 
   onMount(() => {
     let disposed = false;
@@ -70,7 +74,7 @@
         disableStdin: !snapshot.terminal.running,
         scrollback: chat.settings?.configuration.behavior.terminalScrollbackLines ?? 10_000,
         fontFamily: TERMINAL_FONT_FAMILY,
-        fontSize: TERMINAL_FONT_SIZE,
+        fontSize: terminalFontSize,
         fontWeight: "400",
         fontWeightBold: "600",
         letterSpacing: 0,
@@ -119,6 +123,7 @@
         if (resizeTimer !== null) window.clearTimeout(resizeTimer);
         resizeTimer = window.setTimeout(resizeTerminal, delay);
       };
+      refitTerminal = () => scheduleResize(0);
       const claimResize = () => {
         terminalResizeOwners.set(terminalIdentity.id, resizeOwnerId);
         scheduleResize(0);
@@ -168,6 +173,7 @@
       releaseResize();
       if (resizeTimer !== null) window.clearTimeout(resizeTimer);
       resizeObserver?.disconnect();
+      refitTerminal = null;
       for (const dispose of disposers) dispose();
       xterm?.dispose();
       xterm = null;
@@ -218,6 +224,13 @@
 
   $effect(() => {
     if (xterm) xterm.options.disableStdin = !(terminalRead?.running ?? false);
+  });
+
+  $effect(() => {
+    const fontSize = terminalFontSize;
+    if (!xterm) return;
+    xterm.options.fontSize = fontSize;
+    refitTerminal?.();
   });
 </script>
 

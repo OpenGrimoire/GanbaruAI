@@ -164,15 +164,15 @@
 </div>
 
 <style>
-  .filter-pill { display: inline-flex; height: 1.75rem; align-items: center; gap: 0.3rem; border: 1px solid color-mix(in srgb, var(--border) 75%, transparent); border-radius: 999px; background: color-mix(in srgb, var(--card) 78%, transparent); padding-inline: 0.6rem; color: var(--muted-foreground); font-size: 0.65rem; white-space: nowrap; }
+  .filter-pill { display: inline-flex; height: 1.75rem; align-items: center; gap: 0.3rem; border: 1px solid color-mix(in srgb, var(--border) 75%, transparent); border-radius: 999px; background: color-mix(in srgb, var(--card) 78%, transparent); padding-inline: 0.6rem; color: var(--muted-foreground); font-size: calc(0.65rem * var(--type-scale)); white-space: nowrap; }
   .filter-pill:hover, .filter-pill.active { border-color: color-mix(in srgb, var(--primary) 35%, var(--border)); color: var(--foreground); }
   .filter-pill.active { background: color-mix(in srgb, var(--primary) 9%, var(--card)); }
-  .filter-count { min-width: 1rem; border-radius: 999px; background: var(--secondary); padding-inline: 0.25rem; text-align: center; font-size: 0.55rem; line-height: 1rem; }
+  .filter-count { min-width: 1rem; border-radius: 999px; background: var(--secondary); padding-inline: 0.25rem; text-align: center; font-size: calc(0.55rem * var(--type-scale)); line-height: calc(1rem * var(--type-scale)); }
   .clear-button { display: grid; height: 1.75rem; width: 1.75rem; place-items: center; border-radius: 999px; color: var(--muted-foreground); }
   .clear-button:hover, .clear-button:focus-visible { background: var(--accent); color: var(--accent-foreground); outline: none; }
   .filter-menu { position: fixed; top: var(--filter-menu-top); left: var(--filter-menu-left); z-index: 70; min-width: 10.5rem; max-height: min(20rem, 65vh); overflow-y: auto; border: 1px solid color-mix(in srgb, var(--border) 85%, transparent); border-radius: 0.7rem; background: var(--popover); padding: 0.3rem; box-shadow: 0 12px 32px color-mix(in srgb, black 20%, transparent); }
   .filter-menu-wide { width: min(13rem, calc(100vw - 0.5rem)); }
-  .filter-menu button { display: flex; width: 100%; min-height: 1.8rem; align-items: center; justify-content: space-between; gap: 0.75rem; border-radius: 0.45rem; padding-inline: 0.55rem; color: var(--popover-foreground); font-size: 0.68rem; text-align: left; }
+  .filter-menu button { display: flex; width: 100%; min-height: 1.8rem; align-items: center; justify-content: space-between; gap: 0.75rem; border-radius: 0.45rem; padding-inline: 0.55rem; color: var(--popover-foreground); font-size: calc(0.68rem * var(--type-scale)); text-align: left; }
   .filter-menu button:hover, .filter-menu button:focus-visible { background: var(--accent); outline: none; }
-  .menu-heading { margin: 0.25rem 0.35rem 0.15rem; color: var(--muted-foreground); font-size: 0.58rem; font-weight: 600; }
+  .menu-heading { margin: 0.25rem 0.35rem 0.15rem; color: var(--muted-foreground); font-size: calc(0.58rem * var(--type-scale)); font-weight: 600; }
 </style>

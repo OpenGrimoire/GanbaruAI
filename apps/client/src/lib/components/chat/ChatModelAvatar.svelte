@@ -35,7 +35,7 @@
     flex: 0 0 auto;
     place-items: center;
     overflow: hidden;
-    border-radius: 22%;
+    border-radius: var(--chat-participant-avatar-radius, 22%);
     background: #ffffff;
   }
 

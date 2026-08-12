@@ -107,7 +107,7 @@
   .file-tree-row.ignored { opacity: 0.58; }
   .tree-disclosure { display: inline-grid; width: 1.4rem; height: 1.4rem; flex: 0 0 auto; place-items: center; border-radius: 0.25rem; color: var(--muted-foreground); }
   button.tree-disclosure:hover { background: color-mix(in srgb, var(--background) 72%, transparent); color: var(--foreground); }
-  .tree-label { display: flex; min-width: 0; height: 100%; flex: 1; align-items: center; gap: 0.35rem; padding-right: 0.35rem; text-align: left; font-size: 0.733333rem; }
+  .tree-label { display: flex; min-width: 0; height: 100%; flex: 1; align-items: center; gap: 0.35rem; padding-right: 0.35rem; text-align: left; font-size: calc(0.733333rem * var(--type-scale)); }
   .tree-label :global(.folder-icon) { flex: 0 0 auto; color: color-mix(in srgb, var(--muted-foreground) 72%, var(--status-tentative)); }
   .changed-dot { width: 0.38rem; height: 0.38rem; flex: 0 0 auto; border-radius: 9999px; background: var(--primary); }
 </style>

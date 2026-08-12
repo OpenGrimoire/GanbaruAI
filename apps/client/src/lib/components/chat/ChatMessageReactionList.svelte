@@ -54,7 +54,7 @@
 
 <style>
   .message-reaction-list { display:flex; max-width:100%; flex-wrap:wrap; gap:0.25rem; margin-top:var(--chat-message-reaction-margin-top,0.4rem); }
-  .message-reaction-chip { display:inline-flex; min-width:2.35rem; height:1.5rem; align-items:center; justify-content:center; gap:0.3rem; border:1px solid transparent; border-radius:0.4rem; background:color-mix(in srgb,var(--accent) 76%,transparent); padding-inline:0.35rem; color:var(--muted-foreground); font-size:0.7rem; font-variant-numeric:tabular-nums; }
+  .message-reaction-chip { display:inline-flex; min-width:2.35rem; height:1.5rem; align-items:center; justify-content:center; gap:0.3rem; border:1px solid transparent; border-radius:0.4rem; background:color-mix(in srgb,var(--accent) 76%,transparent); padding-inline:0.35rem; color:var(--muted-foreground); font-size: calc(0.7rem * var(--type-scale)); font-variant-numeric:tabular-nums; }
   .message-reaction-chip:hover,.message-reaction-chip:focus-visible { border-color:var(--border); background:var(--accent); color:var(--foreground); }
   .message-reaction-chip.selected { border-color:color-mix(in srgb,var(--primary) 60%,var(--border)); background:color-mix(in srgb,var(--primary) 13%,transparent); color:var(--primary); }
 </style>

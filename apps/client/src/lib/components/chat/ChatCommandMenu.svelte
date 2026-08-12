@@ -80,6 +80,6 @@
 </div>
 
 <style>
-  .chat-command { display: flex; width: 100%; min-height: 2.25rem; align-items: center; gap: 0.5rem; border-radius: 0.375rem; padding: 0.375rem 0.5rem; font-size: 0.8rem; }
+  .chat-command { display: flex; width: 100%; min-height: 2.25rem; align-items: center; gap: 0.5rem; border-radius: 0.375rem; padding: 0.375rem 0.5rem; font-size: calc(0.8rem * var(--type-scale)); }
   .chat-command:hover { background: var(--accent); }
 </style>

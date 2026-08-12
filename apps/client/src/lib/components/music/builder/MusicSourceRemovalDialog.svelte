@@ -52,12 +52,12 @@
   .removal-choice { display: flex; width: 100%; align-items: center; gap: 0.65rem; border: 1px solid color-mix(in srgb, var(--border) 65%, transparent); border-radius: 0.75rem; padding: 0.65rem; text-align: left; }
   .removal-choice > span:first-child { display: grid; height: 2rem; width: 2rem; flex: none; place-items: center; border-radius: 0.6rem; background: var(--secondary); color: var(--muted-foreground); }
   .removal-choice strong, .removal-choice small { display: block; }
-  .removal-choice strong { font-size: 0.7rem; }
-  .removal-choice small { margin-top: 0.15rem; color: var(--muted-foreground); font-size: 0.61rem; }
+  .removal-choice strong { font-size: calc(0.7rem * var(--type-scale)); }
+  .removal-choice small { margin-top: 0.15rem; color: var(--muted-foreground); font-size: calc(0.61rem * var(--type-scale)); }
   .removal-choice i { height: 0.8rem; width: 0.8rem; flex: none; border: 1px solid var(--border); border-radius: 999px; }
   .removal-choice.selected { border-color: color-mix(in srgb, var(--primary) 42%, var(--border)); background: color-mix(in srgb, var(--primary) 7%, var(--card)); }
   .removal-choice.selected i { border: 3px solid var(--primary); }
   .impact { display: flex; min-width: 0; flex-direction: column; border-radius: 0.65rem; background: var(--secondary); padding: 0.55rem; }
-  .impact strong { font-size: 0.8rem; }
-  .impact span { color: var(--muted-foreground); font-size: 0.6rem; }
+  .impact strong { font-size: calc(0.8rem * var(--type-scale)); }
+  .impact span { color: var(--muted-foreground); font-size: calc(0.6rem * var(--type-scale)); }
 </style>

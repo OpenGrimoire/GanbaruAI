@@ -123,11 +123,11 @@
   .source-choice { display: flex; min-height: 10rem; flex-direction: column; align-items: flex-start; gap: 0.5rem; border: 1px solid color-mix(in srgb, var(--border) 68%, transparent); border-radius: 0.9rem; background: color-mix(in srgb, var(--card) 65%, transparent); padding: 0.8rem; text-align: left; transition: border-color 130ms ease, transform 130ms ease, background-color 130ms ease; }
   .source-choice:hover { border-color: color-mix(in srgb, var(--primary) 35%, var(--border)); background: color-mix(in srgb, var(--primary) 5%, var(--card)); transform: translateY(-1px); }
   .source-choice > span { display: grid; height: 2.5rem; width: 2.5rem; place-items: center; border-radius: 0.75rem; background: var(--secondary); color: var(--muted-foreground); }
-  .source-choice strong { font-size: 0.75rem; }
-  .source-choice small { color: var(--muted-foreground); font-size: 0.65rem; line-height: 1.45; }
-  .source-input { height: 2.1rem; width: 100%; border: 1px solid color-mix(in srgb, var(--border) 80%, transparent); border-radius: 0.6rem; background: color-mix(in srgb, var(--background) 65%, transparent); padding-inline: 0.65rem; color: var(--foreground); font-size: 0.72rem; outline: none; }
+  .source-choice strong { font-size: calc(0.75rem * var(--type-scale)); }
+  .source-choice small { color: var(--muted-foreground); font-size: calc(0.65rem * var(--type-scale)); line-height: 1.45; }
+  .source-input { height: 2.1rem; width: 100%; border: 1px solid color-mix(in srgb, var(--border) 80%, transparent); border-radius: 0.6rem; background: color-mix(in srgb, var(--background) 65%, transparent); padding-inline: 0.65rem; color: var(--foreground); font-size: calc(0.72rem * var(--type-scale)); outline: none; }
   .source-input:focus { border-color: color-mix(in srgb, var(--ring) 65%, transparent); box-shadow: 0 0 0 2px color-mix(in srgb, var(--ring) 18%, transparent); }
-  .source-action, .source-save, .source-cancel { display: inline-flex; height: 2.1rem; align-items: center; justify-content: center; gap: 0.35rem; border-radius: 0.6rem; padding-inline: 0.8rem; font-size: 0.68rem; font-weight: 600; white-space: nowrap; }
+  .source-action, .source-save, .source-cancel { display: inline-flex; height: 2.1rem; align-items: center; justify-content: center; gap: 0.35rem; border-radius: 0.6rem; padding-inline: 0.8rem; font-size: calc(0.68rem * var(--type-scale)); font-weight: 600; white-space: nowrap; }
   .source-action, .source-save { background: var(--primary); color: var(--primary-foreground); }
   .source-cancel { background: var(--secondary); color: var(--secondary-foreground); }
   .source-action:disabled, .source-save:disabled { opacity: 0.45; }

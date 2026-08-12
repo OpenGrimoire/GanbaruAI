@@ -34,6 +34,7 @@
   } from "$lib/chat/checkpoint-restoration";
   import { getLocalization } from "$lib/i18n/translator.svelte";
   import { getChat } from "$lib/stores/chat.svelte";
+  import { getPreferences } from "$lib/stores/preferences.svelte";
   import { getProjects } from "$lib/stores/projects.svelte";
   import { getSettingsLauncher } from "$lib/stores/settingsLauncher.svelte";
   import ChatWorkspaceHeader from "./ChatWorkspaceHeader.svelte";
@@ -51,6 +52,7 @@
   const localization = getLocalization();
   const { t } = localization;
   const chat = getChat();
+  const preferences = getPreferences();
   const projects = getProjects();
   const settings = getSettingsLauncher();
   const DEFAULT_INSPECTOR_WIDTH = 520;
@@ -97,7 +99,7 @@
   let shellRight = $state(INITIAL_SHELL_WIDTH);
   let shellBottom = $state(INITIAL_SHELL_HEIGHT);
   let displayPixelRatio = $state(1);
-  let fontScale = $state(INITIAL_FONT_SCALE);
+  const fontScale = $derived(Math.max(INITIAL_FONT_SCALE, preferences.fontScale));
   let layout = $state<ChatLayoutDecision>(chatLayoutDecision({
     containerWidth: INITIAL_SHELL_WIDTH,
     containerHeight: INITIAL_SHELL_HEIGHT,
@@ -178,8 +180,6 @@
       shellHeight = entry.contentRect.height;
       refreshWorkspacePixelGeometry();
       refreshHeaderActionInset();
-      const rootSize = rootElement ? Number.parseFloat(getComputedStyle(rootElement).fontSize) : 15;
-      fontScale = Number.isFinite(rootSize) ? Math.max(1, rootSize / 15) : 1;
     });
     if (rootElement) observer.observe(rootElement);
     const headerGeometryObserver = new ResizeObserver(refreshHeaderActionInset);
@@ -934,14 +934,18 @@
     --chat-icon-stroke-width: var(--icon-stroke-width);
     --chat-compact-icon-stroke-width: var(--icon-stroke-width-compact);
     --chat-small-simple-icon-stroke-width: var(--icon-stroke-width-small-simple);
-    --chat-conversation-font-size: 0.933333rem;
-    --chat-conversation-line-height: 1.4rem;
+    --chat-conversation-font-size: calc(0.9375rem * var(--type-scale));
+    --chat-conversation-line-height: calc(1.375rem * var(--type-scale));
+    --chat-process-font-size: calc(0.8125rem * var(--type-scale));
+    --chat-process-line-height: calc(1.1875rem * var(--type-scale));
     --chat-conversation-tight-space: 0.125rem;
     --chat-conversation-flow-space: 0.5rem;
     --chat-conversation-block-space: 0.65rem;
-    --chat-organizational-font-size: 0.84rem;
-    --chat-organizational-line-height: 1.42rem;
-    --chat-organizational-time-font-size: 0.65rem;
+    --chat-organizational-font-size: var(--chat-conversation-font-size);
+    --chat-organizational-line-height: var(--chat-conversation-line-height);
+    --chat-organizational-time-font-size: calc(0.6875rem * var(--type-scale));
+    --chat-conversation-max-width: 60rem;
+    --chat-conversation-gutter: 1rem;
     --chat-conversation-entry-space: 0.45rem;
     --chat-rail-column-width: 2.75rem;
     --chat-reply-thread-column-width: 0px;

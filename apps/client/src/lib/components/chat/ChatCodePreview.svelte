@@ -123,5 +123,5 @@
   .code-editor { min-width: 0; min-height: 0; flex: 1; overflow: hidden; }
   .code-editor.hidden { display: none; }
   .code-editor :global(.cm-editor) { height: 100%; }
-  .plain-editor { min-width: 0; min-height: 0; flex: 1; resize: none; border: 0; outline: 0; background: var(--chat-syntax-background); padding: 0.3rem 0.5rem; color: var(--chat-syntax-foreground); font-family: "SF Mono", "SFMono-Regular", "JetBrains Mono", "Cascadia Code", Consolas, "Liberation Mono", Menlo, monospace; font-size: 0.733333rem; line-height: 21px; tab-size: 4; white-space: pre; }
+  .plain-editor { min-width: 0; min-height: 0; flex: 1; resize: none; border: 0; outline: 0; background: var(--chat-syntax-background); padding: 0.3rem 0.5rem; color: var(--chat-syntax-foreground); font-family: "SF Mono", "SFMono-Regular", "JetBrains Mono", "Cascadia Code", Consolas, "Liberation Mono", Menlo, monospace; font-size: calc(0.733333rem * var(--type-scale)); line-height: 21px; tab-size: 4; white-space: pre; }
 </style>

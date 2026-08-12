@@ -91,11 +91,11 @@
 </div>
 
 <style>
-  .context-row { display: flex; height: 2rem; width: 100%; min-width: 0; align-items: center; gap: 0.45rem; border-radius: 0.55rem; padding-inline: 0.45rem; color: var(--foreground); font-size: 0.68rem; text-align: left; }
+  .context-row { display: flex; height: 2rem; width: 100%; min-width: 0; align-items: center; gap: 0.45rem; border-radius: 0.55rem; padding-inline: 0.45rem; color: var(--foreground); font-size: calc(0.68rem * var(--type-scale)); text-align: left; }
   .context-row:hover { background: color-mix(in srgb, var(--accent) 48%, transparent); }
   .active-row { background: color-mix(in srgb, var(--primary) 10%, transparent); }
   .context-icon { display: grid; height: 1.5rem; width: 1.5rem; flex: none; place-items: center; color: var(--muted-foreground); }
-  .context-count { flex: none; color: var(--muted-foreground); font-size: 0.58rem; font-variant-numeric: tabular-nums; }
+  .context-count { flex: none; color: var(--muted-foreground); font-size: calc(0.58rem * var(--type-scale)); font-variant-numeric: tabular-nums; }
   .health-dot { position: absolute; right: 0.05rem; top: 0.05rem; height: 0.35rem; width: 0.35rem; border-radius: 999px; background: var(--primary); }
   .warning-dot { background: var(--destructive); }
 </style>

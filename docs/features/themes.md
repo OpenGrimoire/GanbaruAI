@@ -338,7 +338,7 @@ Clones inherit their source's stamp verbatim (a clone of a built-in stamps at th
 Font family, font size, and UI density are user preferences, not part of the Theme model. They live in the app's settings and apply globally regardless of the active theme.
 
 - **Font family:** picked from a curated list of system fallbacks (plus "system default"). No font file loading and no remote fetches, so the typography layer stays privacy-safe and offline.
-- **Font scale:** a multiplier clamped to a safe range (roughly 0.85 to 1.3) so layout cannot break. Applied as a CSS custom property on the root.
+- **Font scale:** a multiplier clamped to a safe range (roughly 0.85 to 1.3). Ordinary reading text is 16 CSS pixels at 100%, secondary UI text is 14 pixels, and standard metadata is 12 pixels. The multiplier is applied through typography tokens and explicit component font sizes. The root rem stays fixed at 15 pixels so font preferences do not also enlarge panel widths, spacing, padding, radii, and other layout measurements.
 - **Density:** compact, comfortable, or spacious. Controls padding and row heights through a small token set.
 
 Themes may ship a recommended font or density as a suggestion the user can accept when switching, but the active values stay under user control. Typography and density are kept orthogonal to themes on purpose: users commonly want any theme paired with any density or font scale, and font or spacing changes are far more likely to break layout than color changes. The Theme contract stays narrow today and can widen later if a strong reason appears; widening is safe, narrowing would break existing themes.

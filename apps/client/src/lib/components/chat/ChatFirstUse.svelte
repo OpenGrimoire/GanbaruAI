@@ -77,21 +77,21 @@
   .first-use-content { display: flex; width: 100%; max-width: 42rem; flex-direction: column; align-items: center; text-align: center; }
   .first-use-shell.new-thread { align-items: stretch; }
   .first-use-content.new-thread { max-width: none; justify-content: flex-end; padding-bottom: clamp(0.25rem, 2vh, 1.5rem); }
-  .hero-composer-shell { width: min(100%, 54rem); text-align: left; }
+  .hero-composer-shell { width:min(100%,var(--chat-conversation-max-width,60rem)); text-align: left; }
   .first-use-shell.pending-send { padding: 0; }
   .first-use-content.pending-send { height: 100%; align-items: stretch; padding-bottom: 0; }
   .hero-composer-shell.pending-send { position: relative; display: flex; width: 100%; max-width: none; min-height: 0; flex: 1; flex-direction: column; overflow: hidden; }
   .pending-composer-dock { pointer-events: none; position: absolute; inset-inline: 0; bottom: 0; z-index: 2; padding: 0.5rem 0.75rem 0.75rem; }
   .pending-composer-dock::before { position: absolute; inset: -1.5rem 0 -2rem; z-index: -1; background: linear-gradient(to bottom, transparent, color-mix(in srgb, var(--cal-bg) 72%, transparent) 35%, var(--cal-bg) 74%); content: ""; -webkit-mask-image: linear-gradient(to bottom, transparent, black 35%); mask-image: linear-gradient(to bottom, transparent, black 35%); }
   .pending-composer-dock :global(.chat-composer) { pointer-events: auto; }
-  .working-folder-context { display: flex; min-width: 0; min-height: 3.15rem; align-items: center; gap: 1.2rem; margin-inline: 1.35rem; border-radius: 1.2rem 1.2rem 0 0; background: color-mix(in srgb, var(--muted) 72%, transparent); padding: 0.45rem 1.1rem 0.7rem; color: var(--foreground); font-size: 0.8rem; }
+  .working-folder-context { display: flex; min-width: 0; min-height: 3.15rem; align-items: center; gap: 1.2rem; margin-inline: 1.35rem; border-radius: 1.2rem 1.2rem 0 0; background: color-mix(in srgb, var(--muted) 72%, transparent); padding: 0.45rem 1.1rem 0.7rem; color: var(--foreground); font-size: calc(0.8rem * var(--type-scale)); }
   .working-folder-context > button, .working-folder-context > span { display: flex; min-width: 0; align-items: center; gap: 0.45rem; }
   .working-folder-context > button { max-width: 45%; border-radius: 0.4rem; }
   .working-folder-context > button:hover { color: var(--primary); }
   .working-folder-context span span, .working-folder-context button span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .working-folder-context :global(svg) { flex: 0 0 auto; }
   .hero-composer-shell :global(.chat-composer.hero) { margin-top: -0.45rem; }
-  :global(.chat-primary-button), :global(.chat-secondary-button) { display: inline-flex; min-height: 2.25rem; align-items: center; justify-content: center; gap: 0.4rem; border-radius: 0.375rem; padding: 0.4rem 0.8rem; font-size: 0.8rem; font-weight: 600; }
+  :global(.chat-primary-button), :global(.chat-secondary-button) { display: inline-flex; min-height: 2.25rem; align-items: center; justify-content: center; gap: 0.4rem; border-radius: 0.375rem; padding: 0.4rem 0.8rem; font-size: calc(0.8rem * var(--type-scale)); font-weight: 600; }
   :global(.chat-primary-button) { background: var(--primary); color: var(--primary-foreground); }
   :global(.chat-secondary-button) { border: 1px solid var(--border); background: var(--background); color: var(--foreground); }
   @container chat-shell (max-width: 560px) { .working-folder-context { gap: 0.75rem; margin-inline: 0.65rem; } .working-folder-context > button { max-width: 55%; } .working-folder-context > span:nth-child(2) { display: none; } }

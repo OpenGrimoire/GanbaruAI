@@ -51,7 +51,7 @@
   }}
 >
   <div class="avatar-cell">
-    {#if !grouped}<ChatParticipantAvatar participant={message.author} size={32} />{/if}
+    {#if !grouped}<ChatParticipantAvatar participant={message.author} size={34} />{/if}
   </div>
   <div class="message-body">
     {#if !grouped}
@@ -70,7 +70,7 @@
     {#if showReplyStrip && message.replyThread}
       <button type="button" class="reply-strip" data-reply-thread-id={message.replyThread.id} onclick={(event) => onOpenThread(event.currentTarget)}>
         <span class="reply-avatars">
-          {#each message.replyThread.participants.slice(0, 3) as participant (participant.id)}<ChatParticipantAvatar {participant} size={20} />{/each}
+          {#each message.replyThread.participants.slice(0, 3) as participant (participant.id)}<ChatParticipantAvatar {participant} size={20} shape="compact" />{/each}
         </span>
         <MessageCircle size={13} />
         <span>{t("chat.organization.replies", message.replyThread.replyCount)}</span>
@@ -87,18 +87,19 @@
 </article>
 
 <style>
-  .message-row { display:grid; grid-template-columns:2.25rem minmax(0,1fr); gap:0.65rem; padding:var(--chat-conversation-entry-space,0.45rem) 1rem; outline:none; }
+  .message-row { display:grid; grid-template-columns:34px minmax(0,1fr); gap:0.65rem; padding:var(--chat-conversation-entry-space,0.45rem) var(--chat-message-row-padding-inline,1rem); outline:none; }
   .message-row:focus-visible { border-radius:0.45rem; box-shadow:inset 0 0 0 2px var(--ring); }
   .message-row.grouped { padding-top:0.08rem; }
   .avatar-cell { min-height:1px; }
-  .message-body { --chat-message-action-anchor-bottom:1.3rem; --chat-message-reaction-margin-top:0.35rem; position:relative; min-width:0; max-width:54rem; }
+  .message-body { --chat-message-action-anchor-bottom:1.3rem; --chat-message-reaction-margin-top:0.35rem; position:relative; min-width:0; }
+  .message-row:not(.grouped) .message-body { transform:translateY(-2px); }
   header { display:flex; min-height:1.3rem; align-items:baseline; gap:0.4rem; }
-  header strong { font-size:var(--chat-organizational-font-size,0.84rem); } header time { color:var(--muted-foreground); font-size:var(--chat-organizational-time-font-size,0.65rem); }
-  .message-copy { white-space:pre-wrap; overflow-wrap:anywhere; color:var(--foreground); font-size:var(--chat-organizational-font-size,0.84rem); line-height:var(--chat-organizational-line-height,1.42rem); }
+  header strong { font-size:var(--chat-organizational-font-size,calc(0.9375rem * var(--type-scale))); } header time { color:var(--muted-foreground); font-size:var(--chat-organizational-time-font-size,calc(0.6875rem * var(--type-scale))); }
+  .message-copy { white-space:pre-wrap; overflow-wrap:anywhere; color:var(--foreground); font-size:var(--chat-organizational-font-size,calc(0.9375rem * var(--type-scale))); line-height:var(--chat-organizational-line-height,calc(1.375rem * var(--type-scale))); }
   .message-context { display:flex; flex-wrap:wrap; gap:0.3rem; margin-top:0.3rem; }
-  .message-context span { border-radius:999px; background:var(--accent); padding:0.15rem 0.4rem; color:var(--muted-foreground); font-size:0.65rem; }
-  .reply-strip { display:flex; width:min(100%,46rem); min-height:2rem; align-items:center; gap:0.4rem; margin-top:0.35rem; border-radius:0.4rem; color:color-mix(in srgb,var(--primary) 70%,var(--foreground)); font-size:0.68rem; text-align:left; }
+  .message-context span { border-radius:999px; background:var(--accent); padding:0.15rem 0.4rem; color:var(--muted-foreground); font-size: calc(0.65rem * var(--type-scale)); }
+  .reply-strip { display:flex; width:100%; min-height:2rem; align-items:center; gap:0.4rem; margin-top:0.35rem; border-radius:0.4rem; color:color-mix(in srgb,var(--primary) 70%,var(--foreground)); font-size: calc(0.68rem * var(--type-scale)); text-align:left; }
   .reply-strip:hover,.reply-strip:focus-visible { background:color-mix(in srgb,var(--accent) 45%,transparent); }
-  .reply-avatars { display:flex; padding-left:0.2rem; }.reply-avatars :global(.participant-avatar + .participant-avatar) { margin-left:-0.35rem; }
+  .reply-avatars { display:flex; align-items:center; gap:0.25rem; padding-left:0.2rem; }
   .unread-dot { width:0.42rem; height:0.42rem; flex:0 0 auto; border-radius:999px; background:var(--primary); }
 </style>

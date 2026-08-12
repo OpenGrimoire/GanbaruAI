@@ -64,6 +64,9 @@
 }
 
 :root {
+  --default-type-scale: 1.066667;
+  --font-scale: 1;
+  --type-scale: calc(var(--default-type-scale) * var(--font-scale));
   --radius: 0.5rem;
   --icon-stroke-width: 1.6;
   --icon-stroke-width-compact: 1.5;
@@ -212,6 +215,20 @@ svg.lucide[stroke-width="1.5"]:not(.app-title-bar *) {
 }
 
 @theme inline {
+  --text-xs: calc(0.75rem * var(--type-scale));
+  --text-xs--line-height: calc(1rem * var(--type-scale));
+  --text-sm: calc(0.875rem * var(--type-scale));
+  --text-sm--line-height: calc(1.25rem * var(--type-scale));
+  --text-base: calc(1rem * var(--type-scale));
+  --text-base--line-height: calc(1.5rem * var(--type-scale));
+  --text-lg: calc(1.125rem * var(--type-scale));
+  --text-lg--line-height: calc(1.75rem * var(--type-scale));
+  --text-xl: calc(1.25rem * var(--type-scale));
+  --text-xl--line-height: calc(1.75rem * var(--type-scale));
+  --text-2xl: calc(1.5rem * var(--type-scale));
+  --text-2xl--line-height: calc(2rem * var(--type-scale));
+  --text-3xl: calc(1.875rem * var(--type-scale));
+  --text-3xl--line-height: calc(2.25rem * var(--type-scale));
   --radius-sm: calc(var(--radius) - 4px);
   --radius-md: calc(var(--radius) - 2px);
   --radius-lg: var(--radius);
@@ -260,7 +277,7 @@ svg.lucide[stroke-width="1.5"]:not(.app-title-bar *) {
 
 @layer base {
   html {
-    font-size: calc(15px * var(--font-scale, 1));
+    font-size: 15px;
     font-family: var(
       --font-family,
       "Inter Variable",
@@ -339,6 +356,8 @@ svg.lucide[stroke-width="1.5"]:not(.app-title-bar *) {
   }
   body {
     @apply text-foreground;
+    font-size: calc(1rem * var(--type-scale));
+    line-height: 1.5;
   }
   ::selection {
     color: inherit;
@@ -354,6 +373,53 @@ svg.lucide[stroke-width="1.5"]:not(.app-title-bar *) {
   html[data-theme-switching="true"] *::after {
     transition: none !important;
   }
+}
+
+@layer utilities {
+  /*
+   * Existing components use exact rem sizes for their relative hierarchy.
+   * These aliases apply the font preference without resizing rem-based layout.
+   */
+  [class~="text-[0.52rem]"] { font-size: calc(0.52rem * var(--type-scale)); }
+  [class~="text-[0.533333rem]"] { font-size: calc(0.533333rem * var(--type-scale)); }
+  [class~="text-[0.58rem]"] { font-size: calc(0.58rem * var(--type-scale)); }
+  [class~="text-[0.583333rem]"] { font-size: calc(0.583333rem * var(--type-scale)); }
+  [class~="text-[0.6rem]"] { font-size: calc(0.6rem * var(--type-scale)); }
+  [class~="text-[0.61rem]"] { font-size: calc(0.61rem * var(--type-scale)); }
+  [class~="text-[0.62rem]"] { font-size: calc(0.62rem * var(--type-scale)); }
+  [class~="text-[0.63rem]"] { font-size: calc(0.63rem * var(--type-scale)); }
+  [class~="text-[0.633333rem]"] { font-size: calc(0.633333rem * var(--type-scale)); }
+  [class~="text-[0.64rem]"] { font-size: calc(0.64rem * var(--type-scale)); }
+  [class~="text-[0.65rem]"] { font-size: calc(0.65rem * var(--type-scale)); }
+  [class~="text-[0.66rem]"] { font-size: calc(0.66rem * var(--type-scale)); }
+  [class~="text-[0.666667rem]"] { font-size: calc(0.666667rem * var(--type-scale)); }
+  [class~="text-[0.67rem]"] { font-size: calc(0.67rem * var(--type-scale)); }
+  [class~="text-[0.68rem]"] { font-size: calc(0.68rem * var(--type-scale)); }
+  [class~="text-[0.7rem]"] { font-size: calc(0.7rem * var(--type-scale)); }
+  [class~="text-[0.72rem]"] { font-size: calc(0.72rem * var(--type-scale)); }
+  [class~="text-[0.733333rem]"] { font-size: calc(0.733333rem * var(--type-scale)); }
+  [class~="text-[0.75rem]"] { font-size: calc(0.75rem * var(--type-scale)); }
+  [class~="text-[0.766667rem]"] { font-size: calc(0.766667rem * var(--type-scale)); }
+  [class~="text-[0.78rem]"] { font-size: calc(0.78rem * var(--type-scale)); }
+  [class~="text-[0.8rem]"] { font-size: calc(0.8rem * var(--type-scale)); }
+  [class~="text-[0.82rem]"] { font-size: calc(0.82rem * var(--type-scale)); }
+  [class~="text-[0.833333rem]"] { font-size: calc(0.833333rem * var(--type-scale)); }
+  [class~="text-[0.85rem]"] { font-size: calc(0.85rem * var(--type-scale)); }
+  [class~="text-[0.866667rem]"] { font-size: calc(0.866667rem * var(--type-scale)); }
+  [class~="text-[0.9rem]"] { font-size: calc(0.9rem * var(--type-scale)); }
+  [class~="text-[0.92rem]"] { font-size: calc(0.92rem * var(--type-scale)); }
+  [class~="text-[0.933333rem]"] { font-size: calc(0.933333rem * var(--type-scale)); }
+  [class~="text-[1rem]"] { font-size: calc(1rem * var(--type-scale)); }
+  [class~="text-[1.05rem]"] { font-size: calc(1.05rem * var(--type-scale)); }
+  [class~="text-[1.066667rem]"] { font-size: calc(1.066667rem * var(--type-scale)); }
+  [class~="text-[1.1rem]"] { font-size: calc(1.1rem * var(--type-scale)); }
+  [class~="text-[1.125rem]"] { font-size: calc(1.125rem * var(--type-scale)); }
+  [class~="text-[1.2rem]"] { font-size: calc(1.2rem * var(--type-scale)); }
+  [class~="text-[1.25rem]"] { font-size: calc(1.25rem * var(--type-scale)); }
+  [class~="text-[1.5rem]"] { font-size: calc(1.5rem * var(--type-scale)); }
+  [class~="text-[1.6rem]"] { font-size: calc(1.6rem * var(--type-scale)); }
+  [class~="text-[1.875rem]"] { font-size: calc(1.875rem * var(--type-scale)); }
+  [class~="text-[2.5rem]"] { font-size: calc(2.5rem * var(--type-scale)); }
 }
 
 .app-shell {

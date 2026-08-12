@@ -320,17 +320,17 @@
   .thread-tab { display:flex; min-width:0; flex:1 1 auto; align-items:center; gap:0.4rem; overflow:hidden; padding:0.3rem 0.2rem 0.3rem 0.65rem; text-align:left; user-select:none; }
   :global(html[data-focus-intent="keyboard"]) .thread-tab:focus { outline:none; }
   :global(html[data-focus-intent="keyboard"]) .thread-tab-shell:has(.thread-tab:focus) { box-shadow:inset 0 0 0 2px var(--ring); }
-  .thread-tab :global(svg) { flex:0 0 auto; }.thread-tab strong { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:0.733333rem; font-weight:500; user-select:none; }
+  .thread-tab :global(svg) { flex:0 0 auto; }.thread-tab strong { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size: calc(0.733333rem * var(--type-scale)); font-weight:500; user-select:none; }
   .tab-close { display:grid; width:1.5rem; flex:0 0 auto; place-items:center; border-radius:0.3rem; opacity:0; }
   .thread-tab-shell:hover .tab-close, .tab-close:focus-visible { opacity:1; }
   .tab-close:hover { background:var(--accent); }
   .thread-header > span { flex:1; }
   .thread-scroll { min-height:0; flex:1; overflow-y:auto; overscroll-behavior:contain; padding-block:0.4rem; }
-  .date-divider { display:flex; align-items:center; gap:0.5rem; margin:0.75rem; color:var(--muted-foreground); font-size:0.65rem; }
+  .date-divider { display:flex; align-items:center; gap:0.5rem; margin:0.75rem; color:var(--muted-foreground); font-size: calc(0.65rem * var(--type-scale)); }
   .date-divider::before,.date-divider::after { height:1px; flex:1; background:var(--border); content:""; }
   .thread-request { flex:0 0 auto; border-top:1px solid var(--border); padding:0.5rem; }
   .thread-composer { display:flex; flex:0 0 auto; justify-content:center; padding:0.5rem 0.5rem 0.75rem; }
-  .thread-error,.thread-loading { padding:0.6rem; color:var(--destructive); font-size:0.7rem; }.thread-loading { color:var(--muted-foreground); }
-  .load-older { display:block; margin:0.3rem auto 0.6rem; border-radius:0.4rem; padding:0.3rem 0.5rem; color:var(--muted-foreground); font-size:0.68rem; }.load-older:hover { background:var(--accent); }
+  .thread-error,.thread-loading { padding:0.6rem; color:var(--destructive); font-size: calc(0.7rem * var(--type-scale)); }.thread-loading { color:var(--muted-foreground); }
+  .load-older { display:block; margin:0.3rem auto 0.6rem; border-radius:0.4rem; padding:0.3rem 0.5rem; color:var(--muted-foreground); font-size: calc(0.68rem * var(--type-scale)); }.load-older:hover { background:var(--accent); }
   @media (hover:none) { .tab-close { opacity:1; } }
 </style>

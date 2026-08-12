@@ -64,6 +64,6 @@
 </section>
 
 <style>
-  .playlist-menu-item { display: flex; width: 100%; height: 2rem; align-items: center; gap: 0.5rem; border-radius: 0.4rem; padding-inline: 0.55rem; font-size: 0.7rem; text-align: left; }
+  .playlist-menu-item { display: flex; width: 100%; height: 2rem; align-items: center; gap: 0.5rem; border-radius: 0.4rem; padding-inline: 0.55rem; font-size: calc(0.7rem * var(--type-scale)); text-align: left; }
   .playlist-menu-item:hover { background: var(--accent); color: var(--accent-foreground); }
 </style>

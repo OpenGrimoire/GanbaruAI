@@ -663,7 +663,7 @@
   .review-classify { min-height: 14rem; flex: 1 1 0; }
   .review-play { display: grid; height: 2.5rem; width: 2.5rem; place-items: center; border-radius: 9999px; background: var(--primary); color: var(--primary-foreground); }
   .review-play:disabled { opacity: 0.4; }
-  .review-action { display: inline-flex; min-height: 2.25rem; align-items: center; justify-content: center; gap: 0.375rem; border-radius: 0.5rem; padding: 0 0.5rem; font-size: 0.72rem; font-weight: 600; }
+  .review-action { display: inline-flex; min-height: 2.25rem; align-items: center; justify-content: center; gap: 0.375rem; border-radius: 0.5rem; padding: 0 0.5rem; font-size: calc(0.72rem * var(--type-scale)); font-weight: 600; }
   .review-action:disabled { cursor: not-allowed; }
   .review-action:disabled:not(.review-save) { opacity: 0.4; }
   @container (width < 620px) {

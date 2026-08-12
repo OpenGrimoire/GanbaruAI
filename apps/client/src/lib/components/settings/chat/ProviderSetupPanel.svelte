@@ -477,13 +477,13 @@
 </div>
 
 <style>
-  :global(.setup-field) { display: flex; flex-direction: column; gap: 0.375rem; font-size: 0.8rem; font-weight: 500; }
+  :global(.setup-field) { display: flex; flex-direction: column; gap: 0.375rem; font-size: calc(0.8rem * var(--type-scale)); font-weight: 500; }
   :global(.setup-field input), :global(.setup-field select), :global(.setup-field textarea) { min-height: 2.25rem; border-radius: 0.375rem; border: 1px solid var(--border); background: var(--background); padding: 0.375rem 0.625rem; color: var(--foreground); outline: none; }
   :global(.setup-field input:focus), :global(.setup-field select:focus) { border-color: var(--ring); box-shadow: 0 0 0 1px var(--ring); }
-  :global(.setup-field small) { color: var(--destructive); font-size: 0.733333rem; font-weight: 400; }
+  :global(.setup-field small) { color: var(--destructive); font-size: calc(0.733333rem * var(--type-scale)); font-weight: 400; }
   :global(.setup-icon-button) { display: inline-flex; width: 2.25rem; height: 2.25rem; flex: 0 0 auto; align-items: center; justify-content: center; border-radius: 0.375rem; color: var(--muted-foreground); }
   :global(.setup-icon-button:hover) { background: var(--accent); color: var(--foreground); }
-  :global(.setup-add-button), :global(.setup-secondary-button), :global(.setup-primary-button) { display: inline-flex; min-height: 2.25rem; align-items: center; justify-content: center; gap: 0.375rem; border-radius: 0.375rem; padding: 0.375rem 0.75rem; font-size: 0.8rem; font-weight: 600; }
+  :global(.setup-add-button), :global(.setup-secondary-button), :global(.setup-primary-button) { display: inline-flex; min-height: 2.25rem; align-items: center; justify-content: center; gap: 0.375rem; border-radius: 0.375rem; padding: 0.375rem 0.75rem; font-size: calc(0.8rem * var(--type-scale)); font-weight: 600; }
   :global(.setup-add-button), :global(.setup-secondary-button) { border: 1px solid var(--border); background: var(--background); }
   :global(.setup-primary-button) { background: var(--primary); color: var(--primary-foreground); }
   :global(.setup-add-button:hover), :global(.setup-secondary-button:hover) { background: var(--accent); }

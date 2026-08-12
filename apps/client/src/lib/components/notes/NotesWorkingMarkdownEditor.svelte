@@ -249,7 +249,7 @@
     gap: 0.25rem;
     border-radius: 0.375rem;
     padding-inline: 0.5rem;
-    font-size: 0.75rem;
+    font-size: calc(0.75rem * var(--type-scale));
     color: var(--muted-foreground);
   }
 

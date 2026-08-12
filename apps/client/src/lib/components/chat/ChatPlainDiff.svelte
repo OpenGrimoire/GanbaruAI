@@ -135,7 +135,7 @@
 </div>
 
 <style>
-  .plain-diff { min-width: 0; min-height: 0; flex: 1; overflow: auto; background: var(--cal-bg); color: var(--foreground); font-family: "SF Mono", "SFMono-Regular", "JetBrains Mono", "Cascadia Code", Consolas, monospace; font-size: 0.7rem; line-height: 20px; }
+  .plain-diff { min-width: 0; min-height: 0; flex: 1; overflow: auto; background: var(--cal-bg); color: var(--foreground); font-family: "SF Mono", "SFMono-Regular", "JetBrains Mono", "Cascadia Code", Consolas, monospace; font-size: calc(0.7rem * var(--type-scale)); line-height: 20px; }
   .plain-diff-space { position: relative; min-width: max-content; }
   .plain-diff-window { position: absolute; inset: 0 auto auto 0; width: 100%; }
   .plain-file-header { position: sticky; left: 0; display: block; width: 100%; height: 20px; overflow: hidden; border-block: 1px solid var(--border); background: var(--background); padding-inline: 0.65rem; color: var(--foreground); text-align: left; text-overflow: ellipsis; white-space: nowrap; }

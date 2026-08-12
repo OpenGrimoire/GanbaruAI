@@ -650,73 +650,73 @@
   header { display: flex; align-items: center; gap: 0.5rem; border-bottom: 1px solid var(--border); padding: 0.55rem 0.7rem; }
   .branch-summary { display: flex; min-width: 0; flex: 1; align-items: center; gap: 0.45rem; }
   .branch-summary strong, .branch-summary small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .branch-summary strong { font-size: 0.78rem; }
-  .branch-summary small { color: var(--muted-foreground); font-size: 0.66rem; }
-  .branch-summary span { display: inline-flex; align-items: center; gap: 0.1rem; color: var(--muted-foreground); font-size: 0.66rem; }
+  .branch-summary strong { font-size: calc(0.78rem * var(--type-scale)); }
+  .branch-summary small { color: var(--muted-foreground); font-size: calc(0.66rem * var(--type-scale)); }
+  .branch-summary span { display: inline-flex; align-items: center; gap: 0.1rem; color: var(--muted-foreground); font-size: calc(0.66rem * var(--type-scale)); }
   .network-actions { display: grid; grid-template-columns: repeat(3, 1fr); gap: 0.35rem; border-bottom: 1px solid var(--border); padding: 0.5rem 0.7rem; }
-  .network-actions button { border: 1px solid var(--border); border-radius: 0.45rem; padding: 0.35rem; font-size: 0.7rem; }
+  .network-actions button { border: 1px solid var(--border); border-radius: 0.45rem; padding: 0.35rem; font-size: calc(0.7rem * var(--type-scale)); }
   .network-actions button:hover:not(:disabled) { background: var(--accent); }
   .environments { border-bottom: 1px solid var(--border); padding: 0.45rem 0.7rem; }
   .section-heading { display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; }
-  .section-heading strong { font-size: 0.7rem; }
-  .section-heading button { display: inline-flex; align-items: center; gap: 0.2rem; border-radius: 0.35rem; padding: 0.25rem 0.35rem; color: var(--muted-foreground); font-size: 0.66rem; }
+  .section-heading strong { font-size: calc(0.7rem * var(--type-scale)); }
+  .section-heading button { display: inline-flex; align-items: center; gap: 0.2rem; border-radius: 0.35rem; padding: 0.25rem 0.35rem; color: var(--muted-foreground); font-size: calc(0.66rem * var(--type-scale)); }
   .section-heading button:hover:not(:disabled) { background: var(--accent); color: var(--foreground); }
   .environment-list { display: grid; gap: 0.15rem; margin-top: 0.35rem; }
   .environment-list > label { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 0.4rem; border-radius: 0.35rem; padding: 0.25rem; }
   .environment-list > label:hover { background: color-mix(in srgb, var(--accent) 55%, transparent); }
   .environment-list > label.unavailable { opacity: 0.55; }
   .environment-list span { display: flex; min-width: 0; justify-content: space-between; gap: 0.4rem; }
-  .environment-list span strong, .environment-list span small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 0.66rem; }
+  .environment-list span strong, .environment-list span small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: calc(0.66rem * var(--type-scale)); }
   .environment-list span small { color: var(--muted-foreground); }
   .worktree-form { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0.35rem; margin-top: 0.45rem; }
-  .worktree-form > input { min-width: 0; border: 1px solid var(--border); border-radius: 0.35rem; background: var(--background); padding: 0.35rem; font-size: 0.68rem; }
-  .worktree-form > label { display: flex; align-items: center; gap: 0.3rem; color: var(--muted-foreground); font-size: 0.66rem; }
+  .worktree-form > input { min-width: 0; border: 1px solid var(--border); border-radius: 0.35rem; background: var(--background); padding: 0.35rem; font-size: calc(0.68rem * var(--type-scale)); }
+  .worktree-form > label { display: flex; align-items: center; gap: 0.3rem; color: var(--muted-foreground); font-size: calc(0.66rem * var(--type-scale)); }
   .worktree-form > button { grid-column: -2 / -1; }
   .hosted-providers { display: grid; gap: 0.35rem; border-bottom: 1px solid var(--border); padding: 0.45rem 0.7rem; }
   .provider-list { display: flex; min-width: 0; flex-wrap: wrap; gap: 0.3rem; }
-  .provider-list > button { display: inline-flex; max-width: 100%; align-items: center; gap: 0.25rem; border: 1px solid var(--border); border-radius: 999px; padding: 0.2rem 0.4rem; color: var(--muted-foreground); font-size: 0.64rem; }
+  .provider-list > button { display: inline-flex; max-width: 100%; align-items: center; gap: 0.25rem; border: 1px solid var(--border); border-radius: 999px; padding: 0.2rem 0.4rem; color: var(--muted-foreground); font-size: calc(0.64rem * var(--type-scale)); }
   .provider-list > button.detected { color: var(--foreground); }
   .provider-list > button.selected { border-color: var(--primary); }
   .hosted-providers i { width: 0.4rem; height: 0.4rem; flex: 0 0 auto; border-radius: 999px; background: var(--destructive); }
   .hosted-providers i.available { background: var(--status-confirmed); }
   .hosted-providers small { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted-foreground); }
   .credential-actions { display: flex; flex-wrap: wrap; gap: 0.3rem; }
-  .credential-actions button { display: inline-flex; align-items: center; gap: 0.25rem; border-radius: 0.35rem; padding: 0.25rem 0.35rem; color: var(--muted-foreground); font-size: 0.66rem; }
+  .credential-actions button { display: inline-flex; align-items: center; gap: 0.25rem; border-radius: 0.35rem; padding: 0.25rem 0.35rem; color: var(--muted-foreground); font-size: calc(0.66rem * var(--type-scale)); }
   .credential-actions button:hover:not(:disabled) { background: var(--accent); color: var(--foreground); }
   .credential-form { display: grid; gap: 0.35rem; border-top: 1px solid var(--border); padding-top: 0.45rem; }
-  .credential-form input { min-width: 0; border: 1px solid var(--border); border-radius: 0.35rem; background: var(--background); padding: 0.35rem; font-size: 0.68rem; }
-  .credential-form p { color: var(--muted-foreground); font-size: 0.62rem; }
+  .credential-form input { min-width: 0; border: 1px solid var(--border); border-radius: 0.35rem; background: var(--background); padding: 0.35rem; font-size: calc(0.68rem * var(--type-scale)); }
+  .credential-form p { color: var(--muted-foreground); font-size: calc(0.62rem * var(--type-scale)); }
   .change-request-form { display: grid; gap: 0.35rem; border-top: 1px solid var(--border); padding-top: 0.45rem; }
-  .change-request-form > input, .change-request-form textarea, .change-request-form div input { min-width: 0; border: 1px solid var(--border); border-radius: 0.35rem; background: var(--background); padding: 0.35rem; font-size: 0.68rem; }
+  .change-request-form > input, .change-request-form textarea, .change-request-form div input { min-width: 0; border: 1px solid var(--border); border-radius: 0.35rem; background: var(--background); padding: 0.35rem; font-size: calc(0.68rem * var(--type-scale)); }
   .change-request-form > div { display: grid; grid-template-columns: 1fr 1fr; gap: 0.35rem; }
-  .change-request-form > label { display: flex; align-items: center; gap: 0.3rem; color: var(--muted-foreground); font-size: 0.66rem; }
+  .change-request-form > label { display: flex; align-items: center; gap: 0.3rem; color: var(--muted-foreground); font-size: calc(0.66rem * var(--type-scale)); }
   .change-request-list { display: grid; max-height: 11rem; gap: 0.15rem; overflow: auto; }
   .change-request-list article { display: grid; grid-template-columns: auto minmax(0, 1fr) auto auto; align-items: center; gap: 0.25rem; border-radius: 0.35rem; padding: 0.25rem; }
   .change-request-list article:hover { background: color-mix(in srgb, var(--accent) 55%, transparent); }
   .change-request-title { display: grid; min-width: 0; text-align: left; }
-  .change-request-title strong, .change-request-title small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 0.66rem; }
+  .change-request-title strong, .change-request-title small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: calc(0.66rem * var(--type-scale)); }
   .change-request-title small { color: var(--muted-foreground); }
   .changes { min-height: 0; flex: 1; overflow: auto; padding: 0.35rem; }
   .repository-setup { display: grid; gap: 0.35rem; border-bottom: 1px solid var(--border); padding: 0.55rem 0.7rem; }
-  .repository-setup > button { justify-self: start; border-radius: 0.35rem; color: var(--muted-foreground); font-size: 0.68rem; }
+  .repository-setup > button { justify-self: start; border-radius: 0.35rem; color: var(--muted-foreground); font-size: calc(0.68rem * var(--type-scale)); }
   .repository-setup form { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 0.35rem; }
-  .repository-setup input { min-width: 0; border: 1px solid var(--border); border-radius: 0.35rem; background: var(--background); padding: 0.35rem; font-size: 0.68rem; }
-  .repository-setup p { color: var(--muted-foreground); font-size: 0.62rem; }
+  .repository-setup input { min-width: 0; border: 1px solid var(--border); border-radius: 0.35rem; background: var(--background); padding: 0.35rem; font-size: calc(0.68rem * var(--type-scale)); }
+  .repository-setup p { color: var(--muted-foreground); font-size: calc(0.62rem * var(--type-scale)); }
   .changes section { margin-bottom: 0.4rem; }
-  h3 { display: flex; align-items: center; gap: 0.35rem; padding: 0.4rem; font-size: 0.72rem; font-weight: 600; }
+  h3 { display: flex; align-items: center; gap: 0.35rem; padding: 0.4rem; font-size: calc(0.72rem * var(--type-scale)); font-weight: 600; }
   h3 small { color: var(--muted-foreground); font-weight: 400; }
   .file-row { display: grid; grid-template-columns: 1.2rem minmax(0, 1fr) auto; align-items: center; gap: 0.35rem; border-radius: 0.4rem; padding: 0.2rem 0.35rem; }
   .file-row:hover { background: color-mix(in srgb, var(--accent) 55%, transparent); }
-  .file-row code { color: var(--primary); font-size: 0.68rem; }
-  .file-row > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: "SF Mono", "SFMono-Regular", Consolas, monospace; font-size: 0.68rem; }
-  .file-link { min-width: 0; overflow: hidden; border-radius: 0.25rem; padding: 0.15rem 0.2rem; text-align: left; text-overflow: ellipsis; white-space: nowrap; font-family: "SF Mono", "SFMono-Regular", Consolas, monospace; font-size: 0.68rem; }
+  .file-row code { color: var(--primary); font-size: calc(0.68rem * var(--type-scale)); }
+  .file-row > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: "SF Mono", "SFMono-Regular", Consolas, monospace; font-size: calc(0.68rem * var(--type-scale)); }
+  .file-link { min-width: 0; overflow: hidden; border-radius: 0.25rem; padding: 0.15rem 0.2rem; text-align: left; text-overflow: ellipsis; white-space: nowrap; font-family: "SF Mono", "SFMono-Regular", Consolas, monospace; font-size: calc(0.68rem * var(--type-scale)); }
   .file-link:hover, .file-link:focus-visible { background: var(--accent); color: var(--accent-foreground); }
   .file-row > .file-actions { display: flex; overflow: visible; font-family: inherit; }
   .commit { display: grid; gap: 0.4rem; border-top: 1px solid var(--border); padding: 0.6rem 0.7rem; }
-  .commit label { font-size: 0.68rem; font-weight: 600; }
-  .commit textarea { min-height: 3.8rem; resize: vertical; border: 1px solid var(--border); border-radius: 0.45rem; background: var(--background); padding: 0.45rem; font-size: 0.72rem; }
+  .commit label { font-size: calc(0.68rem * var(--type-scale)); font-weight: 600; }
+  .commit textarea { min-height: 3.8rem; resize: vertical; border: 1px solid var(--border); border-radius: 0.45rem; background: var(--background); padding: 0.45rem; font-size: calc(0.72rem * var(--type-scale)); }
   .commit button { display: inline-flex; align-items: center; justify-content: center; gap: 0.3rem; }
-  .empty { padding: 1rem; text-align: center; color: var(--muted-foreground); font-size: 0.72rem; }
+  .empty { padding: 1rem; text-align: center; color: var(--muted-foreground); font-size: calc(0.72rem * var(--type-scale)); }
   .empty.compact { padding: 0.4rem; }
-  .error { border-bottom: 1px solid color-mix(in srgb, var(--destructive) 35%, transparent); padding: 0.5rem 0.7rem; color: var(--destructive); font-size: 0.7rem; }
+  .error { border-bottom: 1px solid color-mix(in srgb, var(--destructive) 35%, transparent); padding: 0.5rem 0.7rem; color: var(--destructive); font-size: calc(0.7rem * var(--type-scale)); }
 </style>

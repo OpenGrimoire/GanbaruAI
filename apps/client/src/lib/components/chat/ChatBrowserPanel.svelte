@@ -365,7 +365,7 @@
 <style>
   .browser-panel { display: flex; height: 100%; min-height: 0; flex-direction: column; overflow: hidden; background: var(--background); }
   .browser-tabs { display: flex; min-width: 0; align-items: center; gap: 0.15rem; overflow-x: auto; border-bottom: 1px solid var(--border); padding: 0.2rem 0.35rem; }
-  .browser-tab { display: flex; max-width: 12rem; min-width: 0; flex: 0 1 9rem; align-items: center; border-radius: 0.35rem; color: var(--muted-foreground); font-size: 0.64rem; }
+  .browser-tab { display: flex; max-width: 12rem; min-width: 0; flex: 0 1 9rem; align-items: center; border-radius: 0.35rem; color: var(--muted-foreground); font-size: calc(0.64rem * var(--type-scale)); }
   .browser-tab.active { background: var(--accent); color: var(--foreground); }
   .browser-tab > button:first-child { min-width: 0; flex: 1; padding: 0.25rem 0.1rem 0.25rem 0.35rem; }
   .browser-tab > button:first-child span { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: left; }
@@ -373,15 +373,15 @@
   .browser-tab .close-tab:hover { background: color-mix(in srgb, var(--foreground) 10%, transparent); }
   .browser-tabs > button.new-tab { flex: 0 0 auto; justify-content: center; }
   .browser-toolbar { display: flex; align-items: center; gap: 0.2rem; border-bottom: 1px solid var(--border); padding: 0.35rem 0.45rem; }
-  .browser-toolbar input { min-width: 0; flex: 1; border: 1px solid var(--border); border-radius: 0.45rem; background: var(--background); padding: 0.35rem 0.5rem; font-size: 0.72rem; }
+  .browser-toolbar input { min-width: 0; flex: 1; border: 1px solid var(--border); border-radius: 0.45rem; background: var(--background); padding: 0.35rem 0.5rem; font-size: calc(0.72rem * var(--type-scale)); }
   .server-list { display: flex; gap: 0.25rem; overflow-x: auto; border-bottom: 1px solid var(--border); padding: 0.3rem 0.45rem; }
-  .server-list button { flex: 0 0 auto; border-radius: 0.35rem; background: var(--accent); padding: 0.2rem 0.4rem; color: var(--muted-foreground); font-size: 0.64rem; }
+  .server-list button { flex: 0 0 auto; border-radius: 0.35rem; background: var(--accent); padding: 0.2rem 0.4rem; color: var(--muted-foreground); font-size: calc(0.64rem * var(--type-scale)); }
   .viewport-toolbar { display: flex; align-items: center; gap: 0.2rem; border-bottom: 1px solid var(--border); padding: 0.28rem 0.45rem; }
-  .viewport-toolbar button { display: inline-flex; min-height: 1.6rem; align-items: center; justify-content: center; border-radius: 0.35rem; padding: 0.2rem 0.4rem; color: var(--foreground); font-size: 0.66rem; }
+  .viewport-toolbar button { display: inline-flex; min-height: 1.6rem; align-items: center; justify-content: center; border-radius: 0.35rem; padding: 0.2rem 0.4rem; color: var(--foreground); font-size: calc(0.66rem * var(--type-scale)); }
   .viewport-toolbar button:hover, .viewport-toolbar button.active { background: var(--accent); }
-  .viewport-toolbar span { margin-left: auto; color: var(--muted-foreground); font-size: 0.62rem; }
+  .viewport-toolbar span { margin-left: auto; color: var(--muted-foreground); font-size: calc(0.62rem * var(--type-scale)); }
   .browser-viewport { position: relative; min-height: 0; flex: 1; overflow: hidden; background: color-mix(in srgb, var(--muted) 28%, var(--background)); }
-  .empty { display: grid; height: 100%; place-items: center; align-content: center; gap: 0.55rem; padding: 1rem; color: var(--muted-foreground); text-align: center; font-size: 0.72rem; }
-  .error { border-bottom: 1px solid color-mix(in srgb, var(--destructive) 35%, transparent); padding: 0.45rem 0.65rem; color: var(--destructive); font-size: 0.68rem; }
-  .artifact-status { border-bottom: 1px solid var(--border); padding: 0.35rem 0.65rem; color: var(--muted-foreground); font-size: 0.66rem; }
+  .empty { display: grid; height: 100%; place-items: center; align-content: center; gap: 0.55rem; padding: 1rem; color: var(--muted-foreground); text-align: center; font-size: calc(0.72rem * var(--type-scale)); }
+  .error { border-bottom: 1px solid color-mix(in srgb, var(--destructive) 35%, transparent); padding: 0.45rem 0.65rem; color: var(--destructive); font-size: calc(0.68rem * var(--type-scale)); }
+  .artifact-status { border-bottom: 1px solid var(--border); padding: 0.35rem 0.65rem; color: var(--muted-foreground); font-size: calc(0.66rem * var(--type-scale)); }
 </style>

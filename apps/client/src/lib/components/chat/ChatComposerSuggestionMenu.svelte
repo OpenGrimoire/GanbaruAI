@@ -108,18 +108,18 @@
 
 <style>
   .composer-menu { position: absolute; inset-inline: 0; bottom: calc(100% + 0.35rem); z-index: 25; max-height: min(20rem, 55vh); overflow: auto; overscroll-behavior: contain; scrollbar-gutter: stable; border: 1px solid var(--border); border-radius: 0.5rem; background: var(--popover); padding: 0.35rem; }
-  .composer-menu > label, .composer-menu > p { display: flex; align-items: center; gap: 0.35rem; padding: 0.35rem; color: var(--muted-foreground); font-size: 0.7rem; }
+  .composer-menu > label, .composer-menu > p { display: flex; align-items: center; gap: 0.35rem; padding: 0.35rem; color: var(--muted-foreground); font-size: calc(0.7rem * var(--type-scale)); }
   .composer-menu > button { display: block; width: 100%; border-radius: 0.35rem; padding: 0.45rem 0.5rem; text-align: left; }
   .composer-menu > button:hover, .composer-menu > button.selected { background: var(--accent); }
   .composer-menu strong, .composer-menu small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .composer-menu strong { font-size: 0.733333rem; }
-  .composer-menu small { color: var(--muted-foreground); font-size: 0.666667rem; }
+  .composer-menu strong { font-size: calc(0.733333rem * var(--type-scale)); }
+  .composer-menu small { color: var(--muted-foreground); font-size: calc(0.666667rem * var(--type-scale)); }
   .composer-menu > .prompt-option { display: flex; min-height: 2.35rem; align-items: center; gap: 0.65rem; padding: 0.45rem 0.6rem; }
   .prompt-option > :global(svg) { flex: 0 0 auto; color: var(--muted-foreground); }
   .prompt-option-copy { display: flex; min-width: 0; flex: 1; align-items: baseline; gap: 0.45rem; }
   .prompt-option-copy strong, .prompt-option-copy small { display: block; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .prompt-option-copy strong { flex: 0 0 auto; color: var(--foreground); font-size: 0.8rem; font-weight: 500; }
-  .prompt-option-copy small { flex: 1; color: var(--muted-foreground); font-size: 0.733333rem; }
+  .prompt-option-copy strong { flex: 0 0 auto; color: var(--foreground); font-size: calc(0.8rem * var(--type-scale)); font-weight: 500; }
+  .prompt-option-copy small { flex: 1; color: var(--muted-foreground); font-size: calc(0.733333rem * var(--type-scale)); }
   .prompt-option-copy .stale-command { flex: 0 1 auto; color: var(--status-tentative); }
   @container chat-composer (max-width: 390px) { .prompt-option-copy small { display: none; } }
 </style>

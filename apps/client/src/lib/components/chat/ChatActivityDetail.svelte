@@ -92,7 +92,7 @@
 {/if}
 
 <style>
-  .command-card { overflow: hidden; border: 1px solid var(--border); border-radius: 0.75rem; background: color-mix(in srgb, var(--muted) 42%, var(--background)); font-family: "SF Mono", "SFMono-Regular", Consolas, monospace; font-size: 0.75rem; }
+  .command-card { overflow: hidden; border: 1px solid var(--border); border-radius: 0.75rem; background: color-mix(in srgb, var(--muted) 42%, var(--background)); font-family: "SF Mono", "SFMono-Regular", Consolas, monospace; font-size: calc(0.75rem * var(--type-scale)); }
   .command-card header { display: flex; min-width: 0; align-items: center; gap: 0.6rem; border-bottom: 1px solid var(--border); padding: 0.45rem 0.7rem; font-family: inherit; color: var(--muted-foreground); }
   .command-card header strong { color: var(--foreground); font-family: inherit; font-weight: 500; }
   .command-card header span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

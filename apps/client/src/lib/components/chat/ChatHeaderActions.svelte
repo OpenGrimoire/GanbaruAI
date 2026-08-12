@@ -79,7 +79,7 @@
   .chat-header-icon-button { display: flex; height: 1.75rem; width: 1.75rem; flex: 0 0 auto; align-items: center; justify-content: center; border-radius: 0.375rem; color: var(--foreground); transition: background-color 120ms ease; }
   .chat-header-icon-button:hover { background: var(--accent); }
   .chat-actions-menu { position: absolute; z-index: 90; display: grid; min-width: 11rem; overflow: hidden; border: 1px solid var(--border); border-radius: 0.5rem; background: var(--popover); padding: 0.25rem; color: var(--popover-foreground); box-shadow: 0 12px 30px rgb(0 0 0 / 0.2); }
-  .chat-actions-menu button { display: flex; min-height: 2rem; align-items: center; gap: 0.5rem; border-radius: 0.375rem; padding-inline: 0.5rem; text-align: left; font-size: 0.733333rem; }
+  .chat-actions-menu button { display: flex; min-height: 2rem; align-items: center; gap: 0.5rem; border-radius: 0.375rem; padding-inline: 0.5rem; text-align: left; font-size: calc(0.733333rem * var(--type-scale)); }
   .chat-actions-menu button:hover { background: var(--accent); color: var(--accent-foreground); }
   @media (prefers-reduced-motion: reduce) { .chat-header-icon-button { transition: none; } }
 </style>
