@@ -422,6 +422,14 @@ svg.lucide[stroke-width="1.5"]:not(.app-title-bar *) {
   [class~="text-[1.6rem]"] { font-size: calc(1.6rem * var(--type-scale)); }
   [class~="text-[1.875rem]"] { font-size: calc(1.875rem * var(--type-scale)); }
   [class~="text-[2.5rem]"] { font-size: calc(2.5rem * var(--type-scale)); }
+
+  .notes-editor-body-text {
+    font-size: calc(1rem * var(--font-scale));
+  }
+
+  .notes-editor-page-title {
+    font-size: calc(2.5rem * var(--font-scale));
+  }
 }
 
 .app-shell {

@@ -1186,7 +1186,7 @@
 
           <input
             bind:this={titleInput}
-            class="block w-full min-w-0 bg-transparent text-[2.5rem] font-bold leading-[1.2] text-foreground outline-none placeholder:text-muted-foreground"
+            class="notes-editor-page-title block w-full min-w-0 bg-transparent font-bold leading-[1.2] text-foreground outline-none placeholder:text-muted-foreground"
             aria-label={t("notes.titleInput")}
             bind:value={titleDraft}
             placeholder={t("notes.titlePlaceholder")}
