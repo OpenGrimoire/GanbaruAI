@@ -934,8 +934,8 @@
     --chat-icon-stroke-width: var(--icon-stroke-width);
     --chat-compact-icon-stroke-width: var(--icon-stroke-width-compact);
     --chat-small-simple-icon-stroke-width: var(--icon-stroke-width-small-simple);
-    --chat-conversation-font-size: calc(0.9375rem * var(--type-scale));
-    --chat-conversation-line-height: calc(1.375rem * var(--type-scale));
+    --chat-conversation-font-size: calc(0.875rem * var(--type-scale));
+    --chat-conversation-line-height: calc(1.3125rem * var(--type-scale));
     --chat-process-font-size: calc(0.8125rem * var(--type-scale));
     --chat-process-line-height: calc(1.1875rem * var(--type-scale));
     --chat-conversation-tight-space: 0.125rem;

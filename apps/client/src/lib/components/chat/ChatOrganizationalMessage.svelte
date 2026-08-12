@@ -94,8 +94,8 @@
   .message-body { --chat-message-action-anchor-bottom:1.3rem; --chat-message-reaction-margin-top:0.35rem; position:relative; min-width:0; }
   .message-row:not(.grouped) .message-body { transform:translateY(-2px); }
   header { display:flex; min-height:1.3rem; align-items:baseline; gap:0.4rem; }
-  header strong { font-size:var(--chat-organizational-font-size,calc(0.9375rem * var(--type-scale))); } header time { color:var(--muted-foreground); font-size:var(--chat-organizational-time-font-size,calc(0.6875rem * var(--type-scale))); }
-  .message-copy { white-space:pre-wrap; overflow-wrap:anywhere; color:var(--foreground); font-size:var(--chat-organizational-font-size,calc(0.9375rem * var(--type-scale))); line-height:var(--chat-organizational-line-height,calc(1.375rem * var(--type-scale))); }
+  header strong { font-size:var(--chat-organizational-font-size,calc(0.875rem * var(--type-scale))); } header time { color:var(--muted-foreground); font-size:var(--chat-organizational-time-font-size,calc(0.6875rem * var(--type-scale))); }
+  .message-copy { white-space:pre-wrap; overflow-wrap:anywhere; color:var(--foreground); font-size:var(--chat-organizational-font-size,calc(0.875rem * var(--type-scale))); line-height:var(--chat-organizational-line-height,calc(1.3125rem * var(--type-scale))); }
   .message-context { display:flex; flex-wrap:wrap; gap:0.3rem; margin-top:0.3rem; }
   .message-context span { border-radius:999px; background:var(--accent); padding:0.15rem 0.4rem; color:var(--muted-foreground); font-size: calc(0.65rem * var(--type-scale)); }
   .reply-strip { display:flex; width:100%; min-height:2rem; align-items:center; gap:0.4rem; margin-top:0.35rem; border-radius:0.4rem; color:color-mix(in srgb,var(--primary) 70%,var(--foreground)); font-size: calc(0.68rem * var(--type-scale)); text-align:left; }

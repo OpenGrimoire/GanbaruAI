@@ -152,7 +152,7 @@
 <div bind:this={headerElement} class="chat-workspace-header flex min-w-0 items-center gap-1 overflow-x-auto pl-3" style={`height:var(--cal-header-row-h);background-color:var(--cal-header-bg);border-bottom:1px solid var(--sidebar);padding-right:var(--chat-header-action-inset, ${reserveGlobalActions ? "6.5rem" : "0.75rem"})`} onscroll={refreshNavigatorGeometry} data-chat-workspace-header>
   {#if showRailButton}<button type="button" class="chat-toolbar-icon-button" aria-label={t("chat.openRail")} onclick={onOpenRail}><Menu size={14} /></button>{/if}
   <div bind:this={identityElement} class="relative min-w-36 shrink-0 min-[760px]:max-w-3xl">
-    <div class="flex h-7 min-w-0 max-w-full items-center gap-0.5 text-sm">
+    <div class="flex h-7 min-w-0 max-w-full items-center gap-0.5 text-identity">
       {#if selectedProject && selectedGroup}
         <button bind:this={groupTriggerElement} type="button" class={cn("chat-context-segment", navigatorOpen && navigatorMode === "groups" && "bg-accent")} aria-expanded={navigatorOpen && navigatorMode === "groups"} data-chat-group-trigger onpointerenter={() => openNavigator("groups")} onclick={() => toggleNavigator("groups")}><ProjectIcon name={selectedGroup.icon} size={identityIconSize} strokeWidth={identityIconStrokeWidth} emojiScale={identityEmojiScale} /><span class="truncate font-semibold">{selectedGroup.name}</span></button>
         <span class="chat-context-divider">/</span>

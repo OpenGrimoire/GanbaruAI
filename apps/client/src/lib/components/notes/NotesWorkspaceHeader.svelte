@@ -293,7 +293,7 @@
   data-notes-workspace-header
 >
   <div bind:this={notesIdentityElement} class="relative min-w-36 shrink-0 min-[760px]:max-w-xl">
-    <div class="flex h-7 min-w-0 max-w-full items-center gap-0.5 text-sm">
+    <div class="flex h-7 min-w-0 max-w-full items-center gap-0.5 text-identity">
       {#if selectedProject && selectedGroup}
         <button
           bind:this={groupTriggerElement}

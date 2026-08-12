@@ -942,9 +942,9 @@
   .chat-composer > :not(.editor-shell) { margin-inline: 0.75rem; }
   .editor-shell { position: relative; }
   .composer-editor-frame { padding: 1rem 1.25rem 0; }
-  .composer-editor { position: relative; display: block; box-sizing: border-box; width: 100%; min-height: 2lh; max-height: 6lh; overflow-y: auto; background: transparent; padding: 0; color: var(--foreground); caret-color: var(--foreground); font-size: var(--chat-conversation-font-size, calc(0.9375rem * var(--type-scale))); line-height: var(--chat-conversation-line-height, calc(1.375rem * var(--type-scale))); outline: none; overflow-wrap: anywhere; white-space: pre-wrap; }
+  .composer-editor { position: relative; display: block; box-sizing: border-box; width: 100%; min-height: 2lh; max-height: 6lh; overflow-y: auto; background: transparent; padding: 0; color: var(--foreground); caret-color: var(--foreground); font-size: var(--chat-conversation-font-size, calc(0.875rem * var(--type-scale))); line-height: var(--chat-conversation-line-height, calc(1.3125rem * var(--type-scale))); outline: none; overflow-wrap: anywhere; white-space: pre-wrap; }
   .composer-editor:global([data-empty="true"])::before { position: absolute; color: color-mix(in srgb, var(--muted-foreground) 52%, transparent); content: attr(data-placeholder); pointer-events: none; }
-  .composer-editor :global([data-chat-composer-line]) { display: block; min-height: var(--chat-conversation-line-height, calc(1.375rem * var(--type-scale))); line-height: inherit; }
+  .composer-editor :global([data-chat-composer-line]) { display: block; min-height: var(--chat-conversation-line-height, calc(1.3125rem * var(--type-scale))); line-height: inherit; }
   .composer-toolbar { display: grid; min-height: 2.6rem; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 0.5rem; padding: 0 0.75rem 0.5rem; }
   .toolbar-left, .toolbar-right { display: flex; min-width: 0; align-items: center; gap: 0.3rem; }
   .toolbar-left { overflow: hidden; }

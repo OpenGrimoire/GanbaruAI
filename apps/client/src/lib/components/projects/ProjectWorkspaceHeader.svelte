@@ -287,7 +287,7 @@
   onscroll={refreshProjectNavigatorPanelGeometry}
 >
   <div bind:this={projectIdentityElement} class="relative min-w-36 shrink-0 min-[760px]:max-w-md">
-    <div class="flex h-7 min-w-0 max-w-full items-center gap-0.5 text-sm">
+    <div class="flex h-7 min-w-0 max-w-full items-center gap-0.5 text-identity">
       <button
         bind:this={projectGroupTriggerElement}
         type="button"

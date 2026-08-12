@@ -970,7 +970,7 @@
 </div>
 
 <style>
-  .chat-execution-timeline.embedded { --chat-conversation-font-size:var(--chat-organizational-font-size,calc(0.9375rem * var(--type-scale))); --chat-conversation-line-height:var(--chat-organizational-line-height,calc(1.375rem * var(--type-scale))); min-height:0; flex:none; overflow:visible; }
+  .chat-execution-timeline.embedded { --chat-conversation-font-size:var(--chat-organizational-font-size,calc(0.875rem * var(--type-scale))); --chat-conversation-line-height:var(--chat-organizational-line-height,calc(1.3125rem * var(--type-scale))); min-height:0; flex:none; overflow:visible; }
   .chat-execution-timeline.embedded .chat-timeline-scroller { height:auto; overflow:visible; }
   .chat-execution-timeline.embedded .chat-timeline-content { width:100%; min-height:0; justify-content:flex-start; }
   .chat-execution-timeline.embedded .chat-timeline-row { --chat-participant-gap:0.65rem; margin:0; padding:0 1rem; }
@@ -993,11 +993,11 @@
   .chat-participant-content { --chat-message-action-anchor-bottom:1.25rem; position:relative; min-width:0; }
   .chat-participant-followup { min-width: 0; margin-left: calc(36px + var(--chat-participant-gap)); }
   .chat-participant-header { display: flex; min-height: 1.25rem; min-width: 0; align-items: baseline; gap: 0.45rem; margin-bottom: 0.12rem; line-height: calc(1.25rem * var(--type-scale)); }
-  .chat-participant-header strong { min-width: 0; overflow: hidden; color: var(--foreground); font-size: var(--chat-conversation-font-size, calc(0.9375rem * var(--type-scale))); font-weight: 650; text-overflow: ellipsis; white-space: nowrap; }
+  .chat-participant-header strong { min-width: 0; overflow: hidden; color: var(--foreground); font-size: var(--chat-conversation-font-size, calc(0.875rem * var(--type-scale))); font-weight: 650; text-overflow: ellipsis; white-space: nowrap; }
   .chat-participant-header span { flex: 0 0 auto; color: var(--muted-foreground); font-size: calc(0.6875rem * var(--type-scale)); font-weight: 400; }
   .chat-timeline-banner { display: flex; min-height: 2.25rem; align-items: center; justify-content: center; gap: 0.5rem; border-bottom: 1px solid var(--border); background: var(--background); padding: 0.4rem 0.75rem; font-size: calc(0.733333rem * var(--type-scale)); }
   .chat-timeline-banner button { display: inline-flex; align-items: center; gap: 0.25rem; border-radius: 0.25rem; border: 1px solid var(--border); padding: 0.2rem 0.45rem; }
-  .chat-user-message, .chat-assistant-message { width:100%; min-width:0; color:var(--foreground); font-size:var(--chat-conversation-font-size, calc(0.9375rem * var(--type-scale))); line-height:var(--chat-conversation-line-height, calc(1.375rem * var(--type-scale))); }
+  .chat-user-message, .chat-assistant-message { width:100%; min-width:0; color:var(--foreground); font-size:var(--chat-conversation-font-size, calc(0.875rem * var(--type-scale))); line-height:var(--chat-conversation-line-height, calc(1.3125rem * var(--type-scale))); }
   .chat-message-secondary-actions { display:flex; flex-wrap:wrap; align-items:center; gap:0.75rem; margin-top:0.4rem; font-size: calc(0.7rem * var(--type-scale)); }
   .chat-user-context { display: flex; flex-wrap: wrap; gap: 0.3rem; margin-top: 0.55rem; }
   .chat-user-context button { display: inline-flex; max-width: 100%; align-items: center; gap: 0.3rem; border: 1px solid var(--border); border-radius: 999px; padding: 0.18rem 0.45rem; color: var(--muted-foreground); font-size: calc(0.666667rem * var(--type-scale)); }
@@ -1049,7 +1049,7 @@
   .chat-disclosure-inner { min-height: 0; overflow: hidden; transform: translateY(-0.3rem); transition: transform 360ms cubic-bezier(0.22, 1, 0.36, 1); }
   .chat-disclosure-region.expanded > .chat-disclosure-inner { transform: translateY(0); }
   .chat-step-detail { box-sizing: border-box; width: calc(100% - 1.45rem); min-width: 0; max-width: calc(100% - 1.45rem); margin-top: 0.35rem; margin-left: 1.45rem; }
-  .chat-plan { color: var(--foreground); font-size: var(--chat-conversation-font-size, calc(0.9375rem * var(--type-scale))); line-height: var(--chat-conversation-line-height, calc(1.375rem * var(--type-scale))); }
+  .chat-plan { color: var(--foreground); font-size: var(--chat-conversation-font-size, calc(0.875rem * var(--type-scale))); line-height: var(--chat-conversation-line-height, calc(1.3125rem * var(--type-scale))); }
   .chat-plan h3 { display: flex; align-items: center; gap: 0.4rem; margin-bottom: 0.35rem; font-weight: 650; }
   .chat-plan ol { display: grid; gap: 0.2rem; margin-top: 0.55rem; }
   .chat-plan li { display: flex; align-items: baseline; gap: 0.5rem; }
