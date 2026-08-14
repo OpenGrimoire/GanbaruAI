@@ -10,6 +10,7 @@ const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
 const CLIENT_ROOT = path.resolve(SCRIPT_DIR, "..");
 const DEV_CONFIG = path.join("src-tauri", "tauri.dev.conf.json");
 const TAURI_CLI_ENTRY = require.resolve("@tauri-apps/cli/tauri.js");
+const PRESERVE_GDK_BACKEND_ENV = "GANBARU_AI_DEV_PRESERVE_GDK_BACKEND";
 
 /**
  * Finds the boundary between Tauri CLI options and application arguments.
@@ -59,10 +60,42 @@ function withDevConfig(args) {
   ];
 }
 
+/**
+ * Builds the environment for the Tauri child process.
+ *
+ * Development terminals can inherit an X11 override while the desktop session
+ * itself uses Wayland. Letting GTK select the native backend keeps development
+ * rendering on the same path as an installed Ganbaru AI build.
+ *
+ * @param {string[]} args CLI arguments.
+ * @param {NodeJS.ProcessEnv} environment Parent process environment.
+ * @returns {NodeJS.ProcessEnv} Environment to pass to the Tauri CLI.
+ */
+function tauriChildEnvironment(args, environment) {
+  if (args[0] !== "dev") {
+    return environment;
+  }
+
+  const childEnvironment = { ...environment };
+  if (childEnvironment.CARGO_BUILD_JOBS === undefined) {
+    childEnvironment.CARGO_BUILD_JOBS = "1";
+  }
+
+  const usesWaylandSession =
+    childEnvironment.XDG_SESSION_TYPE?.trim().toLowerCase() === "wayland" &&
+    Boolean(childEnvironment.WAYLAND_DISPLAY?.trim());
+  const forcesX11 = childEnvironment.GDK_BACKEND?.trim().toLowerCase() === "x11";
+  const preservesGdkBackend = childEnvironment[PRESERVE_GDK_BACKEND_ENV]?.trim() === "1";
+
+  if (usesWaylandSession && forcesX11 && !preservesGdkBackend) {
+    delete childEnvironment.GDK_BACKEND;
+  }
+
+  return childEnvironment;
+}
+
 const args = process.argv.slice(2);
-const childEnv = args[0] === "dev" && process.env.CARGO_BUILD_JOBS === undefined
-  ? { ...process.env, CARGO_BUILD_JOBS: "1" }
-  : process.env;
+const childEnv = tauriChildEnvironment(args, process.env);
 
 const child = spawn(process.execPath, [TAURI_CLI_ENTRY, ...withDevConfig(args)], {
   cwd: CLIENT_ROOT,
