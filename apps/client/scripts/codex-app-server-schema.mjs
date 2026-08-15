@@ -16,7 +16,18 @@ const schemaNames = [
   "codex_app_server_protocol.schemas.json",
   "codex_app_server_protocol.v2.schemas.json",
 ];
-const checkOnly = process.argv.includes("--check");
+const argumentsSet = new Set(process.argv.slice(2));
+const supportedArguments = new Set(["--check", "--check-installed"]);
+for (const argument of argumentsSet) {
+  if (!supportedArguments.has(argument)) {
+    throw new Error(`Unsupported argument: ${argument}`);
+  }
+}
+if (argumentsSet.size > 1) {
+  throw new Error("Choose either --check or --check-installed");
+}
+const checkOnly = argumentsSet.has("--check");
+const checkInstalled = argumentsSet.has("--check-installed");
 
 function sha256(bytes) {
   return createHash("sha256").update(bytes).digest("hex");
@@ -76,23 +87,28 @@ function generateSchemas() {
 
 if (checkOnly) {
   const manifest = verifyCommittedArtifacts();
+  process.stdout.write(
+    `Committed Codex app-server schema checksums are valid (${manifest.cliVersion}).\n`,
+  );
+} else if (checkInstalled) {
+  const manifest = verifyCommittedArtifacts();
   const installedVersion = codexVersion();
   if (installedVersion === null) {
-    process.stdout.write("Codex is unavailable. Committed schema checksums are valid.\n");
-    process.exit(0);
+    throw new Error("Codex CLI is required to compare installed schemas");
   }
-  if (installedVersion !== manifest.cliVersion) {
-    throw new Error(
-      `Codex schema drift: committed ${manifest.cliVersion}, installed ${installedVersion}`,
-    );
-  }
+  const driftedSchemas = [];
   for (const generated of generateSchemas()) {
     const committed = readFileSync(join(outputDirectory, generated.name));
     if (!committed.equals(generated.bytes)) {
-      throw new Error(`Codex app-server schema drift detected: ${generated.name}`);
+      driftedSchemas.push(generated.name);
     }
   }
-  process.stdout.write(`Codex app-server schemas match ${installedVersion}.\n`);
+  if (driftedSchemas.length > 0) {
+    throw new Error(
+      `Codex app-server schema drift between ${manifest.cliVersion} and ${installedVersion}: ${driftedSchemas.join(", ")}`,
+    );
+  }
+  process.stdout.write(`Installed Codex app-server schemas match ${manifest.cliVersion}.\n`);
 } else {
   const installedVersion = codexVersion();
   if (installedVersion === null) throw new Error("Codex CLI is required to update schemas");

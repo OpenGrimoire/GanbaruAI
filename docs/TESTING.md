@@ -39,6 +39,8 @@ Static checks are part of validation even though they are not runtime tests:
 - Clippy rejects Rust warnings.
 - Tailwind diagnostics enforce supported and canonical utilities.
 
+Routine provider protocol checks validate committed compatibility artifacts without depending on globally installed tools, which keeps local and CI validation reproducible. The Codex manifest records the CLI version that produced the snapshot as provenance, not as an installation requirement. Provider maintenance can run `pnpm --dir apps/client run check:codex-protocol-installed` to regenerate the locally installed Codex app-server schemas in a temporary directory and compare them with the committed snapshot. `generate:codex-protocol` deliberately updates that snapshot after a protocol change is reviewed.
+
 ### Production bundle contracts
 
 The production bundle contract performs a real Vite build and inspects emitted module metadata. It protects route and first-use loading boundaries, source-module ceilings, and forbidden eager imports. Unit tests do not replace this gate because only a production transform exposes the final chunk graph.

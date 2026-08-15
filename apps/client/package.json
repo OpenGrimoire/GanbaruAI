@@ -11,6 +11,7 @@
     "preview": "vite preview",
     "check": "pnpm run check:codex-protocol && pnpm run check:opencode-protocol && node --max-old-space-size=1536 ./node_modules/svelte-check/bin/svelte-check --tsconfig ./tsconfig.json && tsc -p tsconfig.node.json",
     "check:codex-protocol": "node scripts/codex-app-server-schema.mjs --check",
+    "check:codex-protocol-installed": "node scripts/codex-app-server-schema.mjs --check-installed",
     "check:opencode-protocol": "node scripts/opencode-openapi-contract.mjs --check",
     "editor-check": "node scripts/check-tailwind-diagnostics.mjs",
     "generate:chat-file-icons": "node scripts/generate-chat-file-icons.mjs",
