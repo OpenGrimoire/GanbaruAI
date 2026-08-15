@@ -113,20 +113,15 @@ pub(super) fn validate_display_name(value: &str) -> ChatResult<String> {
     Ok(value.to_string())
 }
 
-pub(super) fn validate_handle(value: &str) -> ChatResult<String> {
-    let value = value.trim().trim_start_matches('@').to_lowercase();
-    if value.is_empty()
-        || value.chars().count() > 80
-        || value.chars().any(|character| {
-            !character.is_ascii_alphanumeric() && !matches!(character, '.' | '_' | '-')
-        })
-    {
+pub(super) fn validate_teammate_role(value: &str) -> ChatResult<String> {
+    let value = value.trim();
+    if value.is_empty() || value.chars().count() > 1_000 || value.chars().any(char::is_control) {
         return Err(ChatError::validation(
-            "handle",
-            "Teammate handle can use lowercase letters, numbers, periods, underscores, and hyphens",
+            "role",
+            "Teammate role must contain 1 to 1000 characters",
         ));
     }
-    Ok(value)
+    Ok(value.to_string())
 }
 
 pub(super) fn validate_profile_text(value: &str, maximum: usize, field: &str) -> ChatResult<()> {
@@ -137,6 +132,17 @@ pub(super) fn validate_profile_text(value: &str, maximum: usize, field: &str) ->
         ));
     }
     Ok(())
+}
+
+pub(super) fn map_teammate_write_error(error: sqlx::Error) -> ChatError {
+    let detail = error.to_string();
+    if detail.contains("idx_chat_ai_teammate_display_name")
+        || detail.contains("chat_participants.display_name")
+    {
+        ChatError::validation("displayName", "Name already in use")
+    } else {
+        persistence_error(error)
+    }
 }
 
 pub(super) fn json_object(value: &VersionedJson, field: &str) -> ChatResult<String> {
@@ -320,15 +326,6 @@ pub(super) fn serialization_error<E>(_error: E) -> ChatError {
         "Chat JSON data is invalid",
         false,
     )
-}
-
-pub(super) fn map_teammate_write_error(error: sqlx::Error) -> ChatError {
-    let detail = error.to_string();
-    if detail.contains("chat_participants.normalized_handle") {
-        ChatError::validation("handle", "This teammate handle is already in use")
-    } else {
-        persistence_error(error)
-    }
 }
 
 pub(super) fn map_command_receipt_error(error: sqlx::Error) -> ChatError {

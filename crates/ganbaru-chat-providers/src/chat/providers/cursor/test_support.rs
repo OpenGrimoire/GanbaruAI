@@ -84,7 +84,6 @@ pub fn configuration(home: &Path, endpoint: Option<&str>) -> ProviderInstanceCon
         "instanceId": "cursor-instance-1",
         "familyId": "cursor",
         "label": "Cursor",
-        "accentColor": null,
         "enabled": true,
         "executable": "cursor-agent",
         "providerHome": home,

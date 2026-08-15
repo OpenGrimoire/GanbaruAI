@@ -191,8 +191,15 @@
       void restoreMessageCheckpoint(event.detail.threadId, event.detail.checkpointId);
     };
     const openWorkspaceTool = (event: Event) => { openInspectorWorkspaceForEvent(event); };
-    const openTeammates = () => {
-      settings.open("chat", { chatSubsection: "teammates" });
+    const openTeammates = (event: Event) => {
+      const participantId = event instanceof CustomEvent
+        && typeof event.detail === "object"
+        && event.detail !== null
+        && "participantId" in event.detail
+        && typeof event.detail.participantId === "string"
+        ? event.detail.participantId
+        : undefined;
+      settings.open("chat", { chatSubsection: "teammates", chatTeammateId: participantId });
     };
     window.addEventListener("ganbaru-ai:chat-revert-message", revertMessage);
     window.addEventListener("ganbaru-ai:chat-open-review", openWorkspaceTool);
@@ -268,7 +275,7 @@
   }
 
   $effect(() => {
-    if (!chat.loading || chat.settings) {
+    if (!chat.loading) {
       initialLoadingVisible = false;
       if (initialLoadingTimer !== null) window.clearTimeout(initialLoadingTimer);
       initialLoadingTimer = null;
@@ -277,7 +284,7 @@
     if (initialLoadingTimer !== null) return;
     initialLoadingTimer = window.setTimeout(() => {
       initialLoadingTimer = null;
-      if (chat.loading && !chat.settings) initialLoadingVisible = true;
+      if (chat.loading) initialLoadingVisible = true;
     }, 140);
   });
 

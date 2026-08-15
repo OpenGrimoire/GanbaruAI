@@ -1,5 +1,5 @@
 <script lang="ts">
-  import type { ChatParticipantRead } from "$lib/chat/contracts";
+  import type { ChatAiTeammateRead, ChatParticipantRead } from "$lib/chat/contracts";
   import { chatParticipantDisplayName } from "$lib/chat/participant-display";
   import { chatTeammateModelParticipant } from "$lib/chat/teammate-identity";
   import { getLocalization } from "$lib/i18n/translator.svelte";
@@ -10,10 +10,12 @@
 
   let {
     participant,
+    teammate = null,
     size = 32,
     shape = "default",
   }: {
     participant: ChatParticipantRead;
+    teammate?: ChatAiTeammateRead | null;
     size?: number;
     shape?: "default" | "compact";
   } = $props();
@@ -26,7 +28,11 @@
     t("chat.timeline.you"),
   ));
   const teammateIdentity = $derived(participant.kind === "ai_teammate"
-    ? chatTeammateModelParticipant(participant.id, chat.teammates, chat.settings)
+    ? chatTeammateModelParticipant(
+      participant.id,
+      teammate ? [teammate, ...chat.teammateIdentities] : chat.teammateIdentities,
+      chat.settings,
+    )
     : null);
 </script>
 

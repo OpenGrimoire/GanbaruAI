@@ -1,11 +1,14 @@
 <script lang="ts">
   import MessageCircle from "@lucide/svelte/icons/message-circle";
-  import type { ChatMessageRead } from "$lib/chat/contracts";
+  import type { ChatMessageRead, ChatParticipantMentionRead, ChatParticipantRead } from "$lib/chat/contracts";
   import { organizationalMessageActionTarget } from "$lib/chat/message-action-target";
   import { chatParticipantDisplayName } from "$lib/chat/participant-display";
+  import { participantMentionTextSegments } from "$lib/chat/participant-mentions";
   import { formatDateTime } from "$lib/i18n/formatters";
   import { getLocalization } from "$lib/i18n/translator.svelte";
+  import { getChat } from "$lib/stores/chat.svelte";
   import { getPreferences } from "$lib/stores/preferences.svelte";
+  import ChatIdentityButton from "./ChatIdentityButton.svelte";
   import ChatMessageActionToolbar from "./ChatMessageActionToolbar.svelte";
   import ChatMessageReactionList from "./ChatMessageReactionList.svelte";
   import ChatParticipantAvatar from "./ChatParticipantAvatar.svelte";
@@ -24,6 +27,7 @@
 
   const localization = getLocalization();
   const { t } = localization;
+  const chat = getChat();
   const preferences = getPreferences();
   let actionToolbarVisible = $state(false);
   const authorDisplayName = $derived(chatParticipantDisplayName(
@@ -32,6 +36,24 @@
     t("chat.timeline.you"),
   ));
   const actionTarget = $derived(organizationalMessageActionTarget(message));
+  const messageSegments = $derived(participantMentionTextSegments(message.normalizedMarkdown, message.mentions));
+
+  function participantForMention(mention: ChatParticipantMentionRead): ChatParticipantRead {
+    const current = [
+      ...(chat.selectedChannel?.memberships ?? []).map((membership) => membership.participant),
+      ...chat.teammateIdentities.map((teammate) => teammate.participant),
+      ...(message.replyThread?.participants ?? []),
+      message.author,
+    ].find((participant) => participant.id === mention.participantId);
+    return current ?? {
+      id: mention.participantId,
+      kind: mention.participantKind,
+      displayName: mention.labelSnapshot,
+      avatar: { schemaVersion: 1, value: {} },
+      revision: 0,
+      archivedAt: null,
+    };
+  }
 
 </script>
 
@@ -51,16 +73,16 @@
   }}
 >
   <div class="avatar-cell">
-    {#if !grouped}<ChatParticipantAvatar participant={message.author} size={34} />{/if}
+    {#if !grouped}<ChatIdentityButton participant={message.author} presentation="avatar" size={34} />{/if}
   </div>
   <div class="message-body">
     {#if !grouped}
       <header>
-        <strong>{authorDisplayName}</strong>
+        <strong><ChatIdentityButton participant={message.author} presentation="name" triggerLabel={authorDisplayName} /></strong>
         <time datetime={message.createdAt}>{formatDateTime(localization.locale, Date.parse(message.createdAt), { timeStyle: "short" })}</time>
       </header>
     {/if}
-    <div class="message-copy">{message.normalizedMarkdown}</div>
+    <div class="message-copy">{#each messageSegments as segment, index (`${segment.kind}:${index}`)}{#if segment.kind === "mention"}<ChatIdentityButton participant={participantForMention(segment.mention)} presentation="mention" triggerLabel={segment.text} />{:else}{segment.text}{/if}{/each}</div>
     {#if message.resourceReferences.length > 0 || message.attachmentIds.length > 0}
       <div class="message-context">
         {#each message.resourceReferences as reference (`${reference.kind}:${reference.relativePath}`)}<span>{reference.kind === "folder" ? "▣" : "▤"} {reference.displayLabel}</span>{/each}
@@ -88,7 +110,7 @@
 
 <style>
   .message-row { display:grid; grid-template-columns:34px minmax(0,1fr); gap:0.65rem; padding:var(--chat-conversation-entry-space,0.45rem) var(--chat-message-row-padding-inline,1rem); outline:none; }
-  .message-row:focus-visible { border-radius:0.45rem; box-shadow:inset 0 0 0 2px var(--ring); }
+  .message-row:focus-visible { border-radius:0.45rem; outline:2px solid var(--ring); outline-offset:-2px; }
   .message-row.grouped { padding-top:0.08rem; }
   .avatar-cell { min-height:1px; }
   .message-body { --chat-message-action-anchor-bottom:1.3rem; --chat-message-reaction-margin-top:0.35rem; position:relative; min-width:0; }

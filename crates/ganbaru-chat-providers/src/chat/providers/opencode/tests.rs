@@ -851,7 +851,6 @@ pub(super) fn configuration(provider_config: serde_json::Value) -> ProviderInsta
         instance_id: ProviderInstanceId::new("opencode-instance").unwrap(),
         family_id: ProviderFamilyId::new("opencode").unwrap(),
         label: "OpenCode".to_string(),
-        accent_color: None,
         enabled: true,
         executable: "opencode".to_string(),
         provider_home: None,

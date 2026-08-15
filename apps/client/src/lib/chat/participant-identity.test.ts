@@ -14,7 +14,17 @@ const catalog: ProviderModelCatalog = {
     contextLimit: null,
     availability: "available",
     capabilities: [],
-    options: [],
+    options: [{
+      kind: "choice",
+      key: "reasoning_effort",
+      label: "Reasoning effort",
+      description: null,
+      defaultValue: "low",
+      options: [
+        { value: "low", label: "Low", description: null },
+        { value: "medium", label: "Medium", description: null },
+      ],
+    }],
     custom: false,
   }],
 };
@@ -29,6 +39,7 @@ describe("Chat participant identity", () => {
     expect(participant.displayName).toBe("Claude Sonnet 5");
     expect(participant.company.id).toBe("anthropic");
     expect(participant.company.iconFamilyId).toBe("claude");
+    expect(participant.defaultReasoning).toBe("Medium");
   });
 
   it("infers a company from a historical model ID after catalog removal", () => {

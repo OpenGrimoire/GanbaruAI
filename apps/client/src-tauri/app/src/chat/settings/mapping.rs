@@ -32,7 +32,6 @@ pub(crate) fn provider_instance_read(
             instance_id: portable.instance_id.clone(),
             family_id: portable.family_id.clone(),
             label: portable.label.clone(),
-            accent_color: portable.accent_color.clone(),
             enabled: portable.enabled,
             executable: device
                 .and_then(|entry| entry.executable_path.clone())
@@ -63,7 +62,6 @@ pub(crate) fn portable_configuration(
         instance_id: config.instance_id.clone(),
         family_id: config.family_id.clone(),
         label: config.label.clone(),
-        accent_color: config.accent_color.clone(),
         enabled: config.enabled,
         launch_arguments: config.launch_arguments.clone(),
         environment: config.environment.clone(),

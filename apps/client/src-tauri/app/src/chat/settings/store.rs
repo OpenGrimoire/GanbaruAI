@@ -43,15 +43,17 @@ pub(crate) fn mutate_chat_config(
             true,
         )
     })?;
-    let raw = vault::vault_read_config(app.clone()).map_err(config_io_error)?;
-    let mut root: Value = serde_json::from_str(&raw).map_err(|_| config_shape_error())?;
-    let mut config = parse_chat_config_branch(&root)?;
-    mutate(&mut config)?;
-    config.validate()?;
-    replace_chat_config_branch(&mut root, config.clone())?;
-    let serialized = serde_json::to_string_pretty(&root).map_err(|_| config_shape_error())?;
-    vault::vault_write_config(app.clone(), serialized).map_err(config_io_error)?;
-    Ok(config)
+    vault::mutate_active_vault_config(
+        app,
+        |root| {
+            let mut config = parse_chat_config_branch(root)?;
+            mutate(&mut config)?;
+            config.validate()?;
+            replace_chat_config_branch(root, config.clone())?;
+            Ok(config)
+        },
+        config_io_error,
+    )
 }
 
 pub(crate) fn read_chat_config(app: &tauri::AppHandle) -> ChatResult<ChatVaultConfig> {

@@ -564,7 +564,6 @@ async fn read_scheduled_message(
         .map(|mention| ChatParticipantMentionRead {
             participant_id: mention.participant_id,
             participant_kind: mention.participant_kind,
-            handle_snapshot: mention.handle_snapshot,
             label_snapshot: mention.label_snapshot,
             start_offset: mention.start_offset,
             end_offset: mention.end_offset,

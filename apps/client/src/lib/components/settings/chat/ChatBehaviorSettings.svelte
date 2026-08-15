@@ -24,6 +24,22 @@
     { value: "enter", label: t("settings.chat.behavior.enter") },
     { value: "mod_enter", label: t("settings.chat.behavior.modEnter") },
   ]);
+  const scrollbackOptions = $derived([1_000, 5_000, 10_000, 25_000, 50_000, 100_000].map((value) => ({
+    value: String(value),
+    label: formatNumber(localization.locale, value),
+  })));
+  const idleTimeoutOptions = $derived([
+    { value: "60", label: t("settings.chat.behavior.oneMinute") },
+    { value: "300", label: t("settings.chat.behavior.fiveMinutes") },
+    { value: "900", label: t("settings.chat.behavior.fifteenMinutes") },
+    { value: "1800", label: t("settings.chat.behavior.thirtyMinutes") },
+    { value: "3600", label: t("settings.chat.behavior.oneHour") },
+    { value: "7200", label: t("settings.chat.behavior.twoHours") },
+  ]);
+  const retentionOptions = $derived([1, 3, 7, 14, 30].map((value) => ({
+    value: String(value),
+    label: t("settings.chat.behavior.retentionValue", formatNumber(localization.locale, value)),
+  })));
 
   async function update(patch: Partial<NonNullable<typeof behavior>>): Promise<void> {
     if (!behavior || saving) return;
@@ -126,25 +142,19 @@
         onChange={(value) => void update({ sendKey: value === "mod_enter" ? "mod_enter" : "enter" })}
         disabled={saving}
       />
-      <label class="number-setting">
-        <span class="min-w-0 flex-1"><span class="block text-[0.866667rem] text-foreground">{t("settings.chat.behavior.terminalScrollback")}</span><span class="mt-0.5 block text-[0.8rem] text-muted-foreground">{t("settings.chat.behavior.terminalScrollbackDescription")}</span></span>
-        <input type="number" min="1000" max="100000" step="1000" value={behavior.terminalScrollbackLines} disabled={saving} onchange={(event) => void update({ terminalScrollbackLines: event.currentTarget.valueAsNumber })} />
-      </label>
-      <label class="number-setting">
-        <span class="min-w-0 flex-1"><span class="block text-[0.866667rem] text-foreground">{t("settings.chat.behavior.idleTimeout")}</span><span class="mt-0.5 block text-[0.8rem] text-muted-foreground">{t("settings.chat.behavior.idleTimeoutDescription")}</span></span>
-        <input type="number" min="60" max="7200" step="60" value={behavior.idleSessionTimeoutSeconds} disabled={saving} onchange={(event) => void update({ idleSessionTimeoutSeconds: event.currentTarget.valueAsNumber })} />
-      </label>
+      <CustomSelect label={t("settings.chat.behavior.terminalScrollback")} description={t("settings.chat.behavior.terminalScrollbackDescription")} value={String(behavior.terminalScrollbackLines)} options={scrollbackOptions} onChange={(value) => void update({ terminalScrollbackLines: Number(value) })} disabled={saving} />
+      <CustomSelect label={t("settings.chat.behavior.idleTimeout")} description={t("settings.chat.behavior.idleTimeoutDescription")} value={String(behavior.idleSessionTimeoutSeconds)} options={idleTimeoutOptions} onChange={(value) => void update({ idleSessionTimeoutSeconds: Number(value) })} disabled={saving} />
     </div>
     <div class="h-px shrink-0 scale-y-50 bg-border" aria-hidden="true"></div>
     <div class="flex flex-col gap-3">
-      <ToggleSetting label={t("settings.chat.behavior.restoreThread")} checked={behavior.restoreLastSelectedThread} disabled={saving} onChange={(value) => void update({ restoreLastSelectedThread: value })} />
-      <ToggleSetting label={t("settings.chat.behavior.reasoning")} checked={behavior.showReasoningSummaries} disabled={saving} onChange={(value) => void update({ showReasoningSummaries: value })} />
-      <ToggleSetting label={t("settings.chat.behavior.foldWork")} checked={behavior.automaticallyFoldSettledWork} disabled={saving} onChange={(value) => void update({ automaticallyFoldSettledWork: value })} />
-      <ToggleSetting label={t("settings.chat.behavior.confirmPaste")} checked={behavior.confirmMultilineTerminalPaste} disabled={saving} onChange={(value) => void update({ confirmMultilineTerminalPaste: value })} />
+      <ToggleSetting label={t("settings.chat.behavior.restoreThread")} description={t("settings.chat.behavior.restoreThreadDescription")} checked={behavior.restoreLastSelectedThread} disabled={saving} onChange={(value) => void update({ restoreLastSelectedThread: value })} />
+      <ToggleSetting label={t("settings.chat.behavior.reasoning")} description={t("settings.chat.behavior.reasoningDescription")} checked={behavior.showReasoningSummaries} disabled={saving} onChange={(value) => void update({ showReasoningSummaries: value })} />
+      <ToggleSetting label={t("settings.chat.behavior.foldWork")} description={t("settings.chat.behavior.foldWorkDescription")} checked={behavior.automaticallyFoldSettledWork} disabled={saving} onChange={(value) => void update({ automaticallyFoldSettledWork: value })} />
+      <ToggleSetting label={t("settings.chat.behavior.confirmPaste")} description={t("settings.chat.behavior.confirmPasteDescription")} checked={behavior.confirmMultilineTerminalPaste} disabled={saving} onChange={(value) => void update({ confirmMultilineTerminalPaste: value })} />
     </div>
   {/if}
   {#if diagnostics}
-    <div class="rounded-lg border border-border bg-card/30">
+    <div class="border-y border-border">
       <button
         type="button"
         class="flex w-full items-center gap-2 px-3 py-2.5 text-left text-[0.8rem] font-medium text-foreground hover:bg-accent/40"
@@ -155,8 +165,8 @@
         <span>{t("settings.chat.behavior.advanced")}</span>
       </button>
       {#if advancedOpen}
-      <div class="flex flex-col gap-3 border-t border-border p-3">
-    <div class="grid gap-3 rounded-lg border border-border bg-background/50 p-3 sm:grid-cols-2">
+      <div class="flex flex-col gap-4 border-t border-border p-3">
+    <div class="diagnostic-grid">
       <div><div class="text-xs text-muted-foreground">{t("settings.chat.behavior.credentialStore")}</div><div class="mt-1 text-sm font-medium">{diagnostics.credentialStoreAvailable ? t("settings.chat.behavior.credentialAvailable") : t("settings.chat.behavior.credentialUnavailable")}</div></div>
       <div><div class="text-xs text-muted-foreground">{t("settings.chat.behavior.projectionHealth")}</div><div class="mt-1 text-sm font-medium">{diagnostics.projectionHealthy ? t("settings.chat.behavior.projectionHealthy") : t("settings.chat.behavior.projectionUnhealthy", formatNumber(localization.locale, diagnostics.inconsistentProjectionCount))}</div></div>
       <div><div class="text-xs text-muted-foreground">{t("settings.chat.behavior.processes")}</div><div class="mt-1 text-sm">{t("settings.chat.behavior.processCounts", formatNumber(localization.locale, diagnostics.liveProviderProcesses), formatNumber(localization.locale, diagnostics.activeTurns), formatNumber(localization.locale, diagnostics.liveTerminals))}</div></div>
@@ -166,9 +176,9 @@
       <div class="sm:col-span-2"><div class="text-xs text-muted-foreground">{t("settings.chat.behavior.checkpoints")}</div><div class="mt-1 text-sm">{t("settings.chat.behavior.checkpointCounts", formatNumber(localization.locale, diagnostics.counts.checkpointFailures), formatNumber(localization.locale, diagnostics.counts.pendingCheckpointCleanup), formatNumber(localization.locale, diagnostics.counts.failedCheckpointCleanup))}</div></div>
     </div>
 
-    <div class="space-y-3 rounded-lg border border-border p-4">
+    <div class="space-y-3 border-t border-border pt-4">
       <ToggleSetting label={t("settings.chat.behavior.captureDiagnostics")} checked={diagnostics.preferences.captureEnabled} disabled={saving} onChange={(captureEnabled) => void run(() => updateDiagnosticPreferences({ captureEnabled }))} />
-      <label class="setup-field"><span>{t("settings.chat.behavior.retentionDays")}</span><input type="number" min="1" max="30" value={diagnostics.preferences.retentionDays} onchange={(event) => void run(() => updateDiagnosticPreferences({ retentionDays: event.currentTarget.valueAsNumber }))} /></label>
+      <CustomSelect label={t("settings.chat.behavior.retentionDays")} value={String(diagnostics.preferences.retentionDays)} options={retentionOptions} onChange={(value) => void run(() => updateDiagnosticPreferences({ retentionDays: Number(value) }))} disabled={saving} />
       <p class="text-xs text-muted-foreground">{t("settings.chat.behavior.captureFields", diagnostics.capturedFields.map(diagnosticFieldLabel).join(", "))}</p>
       <p class="text-xs text-muted-foreground">{t("settings.chat.behavior.excludeFields", diagnostics.excludedFields.map(diagnosticFieldLabel).join(", "))}</p>
       <p class="text-xs text-muted-foreground">{t("settings.chat.behavior.diagnosticStorage", diagnosticStorageLabel(diagnostics.storageLocation))}</p>
@@ -176,12 +186,12 @@
       <div class="flex flex-wrap gap-2"><button type="button" class="chat-settings-action" disabled={saving} onclick={() => void run(async () => { await chatApi.exportRedactedChatDiagnostics(t("settings.chat.behavior.exportDiagnostics")); return t("settings.chat.behavior.exportComplete"); })}>{t("settings.chat.behavior.exportDiagnostics")}</button><button type="button" class="chat-settings-action" disabled={saving} onclick={() => void run(async () => { const count = await chatApi.deleteChatDiagnostics(); return t("settings.chat.behavior.deletedDiagnostics", formatNumber(localization.locale, count)); })}>{t("settings.chat.behavior.deleteDiagnostics")}</button></div>
     </div>
 
-    <div class="space-y-3 rounded-lg border border-border p-4">
+    <div class="space-y-3 border-t border-border pt-4">
       <h3 class="text-sm font-medium">{t("settings.chat.behavior.maintenance")}</h3>
       <p class="text-xs text-muted-foreground">{t("settings.chat.behavior.maintenanceDescription")}</p>
       <div class="flex flex-wrap gap-2"><button type="button" class="chat-settings-action" disabled={saving} onclick={() => openMaintenance("stop")}>{t("settings.chat.behavior.stopAll")}</button><button type="button" class="chat-settings-action" disabled={saving} onclick={() => openMaintenance("rebuild")}>{t("settings.chat.behavior.rebuild")}</button><button type="button" class="chat-settings-action" disabled={saving} onclick={() => void run(async () => { const count = await chatApi.retryChatCheckpointCleanup(); return t("settings.chat.behavior.cleanupRetried", formatNumber(localization.locale, count)); })}>{t("settings.chat.behavior.retryCleanup")}</button></div>
       {#if maintenance}
-        <div class="space-y-2 rounded-md border border-status-tentative/60 p-3">
+        <div class="space-y-2 border-l-2 border-status-tentative pl-3">
           <p class="text-xs">{maintenance === "stop" ? t("settings.chat.behavior.stopImpact") : t("settings.chat.behavior.rebuildImpact")}</p>
           <label class="setup-field"><span>{t("settings.chat.behavior.typeConfirmation", expectedConfirmation())}</span><input bind:value={confirmation} autocomplete="off" spellcheck="false" /></label>
           <div class="flex gap-2"><button type="button" class="chat-settings-action" disabled={saving || confirmation !== expectedConfirmation()} onclick={() => void run(async () => { if (maintenance === "stop") { const result = await chatApi.stopAllChatProcesses(confirmation); cancelMaintenance(); return t("settings.chat.behavior.stopped", formatNumber(localization.locale, result.providerProcessesStopped), formatNumber(localization.locale, result.terminalsStopped)); } const result = await chatApi.rebuildChatProjections(confirmation); cancelMaintenance(); return t("settings.chat.behavior.rebuilt", formatNumber(localization.locale, result.rebuiltThreads)); })}>{t("settings.chat.behavior.confirm")}</button><button type="button" class="chat-settings-action" disabled={saving} onclick={cancelMaintenance}>{t("common.cancel")}</button></div>
@@ -199,9 +209,6 @@
 <style>
   .chat-settings-action { border: 1px solid var(--border); border-radius: 0.375rem; padding: 0.35rem 0.65rem; font-size: calc(0.733333rem * var(--type-scale)); }
   .chat-settings-action:disabled { cursor: not-allowed; opacity: 0.5; }
-  .number-setting { display: flex; align-items: center; justify-content: space-between; gap: 1rem; padding: 0.25rem; }
-  .number-setting input { width: 7rem; min-height: 1.75rem; border-radius: 0.375rem; border: 1px solid var(--border); background: var(--card); padding-inline: 0.5rem; color: var(--foreground); font-size: calc(0.8rem * var(--type-scale)); outline: none; }
-  .number-setting input:focus { border-color: var(--ring); box-shadow: 0 0 0 1px var(--ring); }
-  .number-setting input:disabled { cursor: not-allowed; opacity: 0.5; }
-  @media (max-width: 480px) { .number-setting { align-items: flex-start; flex-direction: column; } }
+  .diagnostic-grid { display:grid; gap:1rem; padding-inline:0.25rem; }
+  @media (min-width:640px) { .diagnostic-grid { grid-template-columns:repeat(2,minmax(0,1fr)); } }
 </style>

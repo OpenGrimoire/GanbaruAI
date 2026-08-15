@@ -59,7 +59,6 @@ pub struct ChatPortableProviderConfig {
     pub instance_id: ProviderInstanceId,
     pub family_id: ProviderFamilyId,
     pub label: String,
-    pub accent_color: Option<String>,
     #[serde(default = "default_true")]
     pub enabled: bool,
     #[serde(default)]

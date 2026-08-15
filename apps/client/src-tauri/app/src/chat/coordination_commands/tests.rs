@@ -1,4 +1,7 @@
-use super::common::{has_thread_eligible_mention, normalized_fts_query, validate_message_request};
+use super::common::{
+    has_thread_eligible_mention, map_teammate_write_error, normalized_fts_query,
+    validate_message_request, validate_teammate_role,
+};
 use super::scheduling::{claim_scheduled_message_for_immediate_send, validate_scheduled_for};
 use super::*;
 use serde_json::json;
@@ -21,6 +24,81 @@ async fn migrated_pool() -> SqlitePool {
     pool
 }
 
+async fn seed_unused_teammate(pool: &SqlitePool, teammate_id: &str, policy_id: &str) {
+    sqlx::query(
+        "INSERT INTO chat_participants
+            (id, participant_kind, display_name, created_at, updated_at)
+         VALUES (?, 'ai_teammate', 'Unused teammate', ?, ?)",
+    )
+    .bind(teammate_id)
+    .bind("2026-08-14T17:30:00.000Z")
+    .bind("2026-08-14T17:30:00.000Z")
+    .execute(pool)
+    .await
+    .unwrap();
+    sqlx::query(
+        "INSERT INTO chat_ai_teammates
+            (participant_id, role, instructions, latest_policy_revision, created_at, updated_at)
+         VALUES (?, 'General support', '', 1, ?, ?)",
+    )
+    .bind(teammate_id)
+    .bind("2026-08-14T17:30:00.000Z")
+    .bind("2026-08-14T17:30:00.000Z")
+    .execute(pool)
+    .await
+    .unwrap();
+    sqlx::query(
+        "INSERT INTO chat_teammate_policy_revisions
+            (id, teammate_id, revision, provider_instance_id,
+             model_selection_data, created_at)
+         VALUES (?, ?, 1, 'provider:test',
+                 '{\"providerManagedModel\":true,\"modelId\":null,\"modelOptions\":[]}', ?)",
+    )
+    .bind(policy_id)
+    .bind(teammate_id)
+    .bind("2026-08-14T17:30:00.000Z")
+    .execute(pool)
+    .await
+    .unwrap();
+}
+
+#[test]
+fn archived_ai_teammate_names_remain_reserved_case_insensitively() {
+    tauri::async_runtime::block_on(async {
+        let pool = migrated_pool().await;
+        sqlx::query(
+            "INSERT INTO chat_participants
+                (id, participant_kind, display_name, archived_at, created_at, updated_at)
+             VALUES (?, 'ai_teammate', ?, ?, ?, ?)",
+        )
+        .bind("participant:archived-reviewer")
+        .bind("Review Lead")
+        .bind("2026-08-14T17:30:00.000Z")
+        .bind("2026-08-14T17:30:00.000Z")
+        .bind("2026-08-14T17:30:00.000Z")
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        let error = sqlx::query(
+            "INSERT INTO chat_participants
+                (id, participant_kind, display_name, created_at, updated_at)
+             VALUES (?, 'ai_teammate', ?, ?, ?)",
+        )
+        .bind("participant:active-reviewer")
+        .bind(" review lead ")
+        .bind("2026-08-14T17:31:00.000Z")
+        .bind("2026-08-14T17:31:00.000Z")
+        .execute(&pool)
+        .await
+        .unwrap_err();
+
+        let mapped = map_teammate_write_error(error);
+        assert_eq!(mapped.code, ChatErrorCode::Validation);
+        assert_eq!(mapped.field.as_deref(), Some("displayName"));
+    });
+}
+
 fn message(markdown: &str) -> PostChatMessageCommand {
     PostChatMessageCommand {
         client_command_id: ChatCommandId::new("command:test").unwrap(),
@@ -38,6 +116,17 @@ fn message(markdown: &str) -> PostChatMessageCommand {
     }
 }
 
+#[test]
+fn teammate_role_is_required_and_trimmed() {
+    let error = validate_teammate_role("   ").unwrap_err();
+    assert_eq!(error.code, ChatErrorCode::Validation);
+    assert_eq!(error.field.as_deref(), Some("role"));
+    assert_eq!(
+        validate_teammate_role("  Frontend lead  ").unwrap(),
+        "Frontend lead"
+    );
+}
+
 async fn seed_review_assignment_with_stranded_replies(pool: &SqlitePool) {
     sqlx::raw_sql(
         "INSERT INTO project_groups (id, name) VALUES ('group:review', 'Review');
@@ -51,13 +140,13 @@ async fn seed_review_assignment_with_stranded_replies(pool: &SqlitePool) {
          UPDATE chat_channels SET id = 'channel:review'
          WHERE project_id = 'project:review' AND is_default = 1;
          INSERT INTO chat_participants
-             (id, participant_kind, display_name, normalized_handle, created_at, updated_at)
+             (id, participant_kind, display_name, created_at, updated_at)
          VALUES (
-             'participant:review-agent', 'ai_teammate', 'Ganbaru', 'ganbaru',
+             'participant:review-agent', 'ai_teammate', 'Ganbaru',
              '2026-08-04T17:00:00.000Z', '2026-08-04T17:00:00.000Z'
          );
          INSERT INTO chat_ai_teammates
-             (participant_id, purpose, instructions, created_at, updated_at)
+             (participant_id, role, instructions, created_at, updated_at)
          VALUES (
              'participant:review-agent', 'Test', 'Test',
              '2026-08-04T17:00:00.000Z', '2026-08-04T17:00:00.000Z'
@@ -162,6 +251,137 @@ async fn seed_review_assignment_with_stranded_replies(pool: &SqlitePool) {
     .execute(pool)
     .await
     .unwrap();
+}
+
+#[test]
+fn unused_archived_teammates_can_be_restored_or_permanently_deleted() {
+    tauri::async_runtime::block_on(async {
+        let pool = migrated_pool().await;
+        let teammate_id = ChatParticipantId::new("participant:unused-agent").unwrap();
+        seed_unused_teammate(&pool, teammate_id.as_str(), "policy:unused-agent").await;
+
+        let archived =
+            super::teammate_lifecycle::set_teammate_archived(&pool, &teammate_id, 1, true)
+                .await
+                .unwrap();
+        assert!(archived.participant.archived_at.is_some());
+        assert_eq!(archived.active_assignment_count, 0);
+        assert!(!archived.has_durable_history);
+
+        let restored = super::teammate_lifecycle::set_teammate_archived(
+            &pool,
+            &teammate_id,
+            archived.participant.revision,
+            false,
+        )
+        .await
+        .unwrap();
+        assert!(restored.participant.archived_at.is_none());
+
+        let archived_again = super::teammate_lifecycle::set_teammate_archived(
+            &pool,
+            &teammate_id,
+            restored.participant.revision,
+            true,
+        )
+        .await
+        .unwrap();
+        super::teammate_lifecycle::delete_unused_teammate(
+            &pool,
+            &teammate_id,
+            archived_again.participant.revision,
+        )
+        .await
+        .unwrap();
+
+        let participant_count: i64 =
+            sqlx::query_scalar("SELECT count(*) FROM chat_participants WHERE id = ?")
+                .bind(teammate_id.as_str())
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        let policy_count: i64 = sqlx::query_scalar(
+            "SELECT count(*) FROM chat_teammate_policy_revisions WHERE teammate_id = ?",
+        )
+        .bind(teammate_id.as_str())
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(participant_count, 0);
+        assert_eq!(policy_count, 0);
+    });
+}
+
+#[test]
+fn active_work_blocks_teammate_archiving() {
+    tauri::async_runtime::block_on(async {
+        let pool = migrated_pool().await;
+        seed_review_assignment_with_stranded_replies(&pool).await;
+        let teammate_id = ChatParticipantId::new("participant:review-agent").unwrap();
+
+        let error = super::teammate_lifecycle::set_teammate_archived(&pool, &teammate_id, 1, true)
+            .await
+            .unwrap_err();
+        assert_eq!(error.code, ChatErrorCode::Conflict);
+        let archived_at: Option<String> =
+            sqlx::query_scalar("SELECT archived_at FROM chat_participants WHERE id = ?")
+                .bind(teammate_id.as_str())
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        assert!(archived_at.is_none());
+    });
+}
+
+#[test]
+fn durable_history_blocks_permanent_teammate_deletion() {
+    tauri::async_runtime::block_on(async {
+        let pool = migrated_pool().await;
+        seed_review_assignment_with_stranded_replies(&pool).await;
+        sqlx::query(
+            "UPDATE chat_work_assignments SET state = 'completed' WHERE id = 'assignment:review'",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        let teammate_id = ChatParticipantId::new("participant:review-agent").unwrap();
+        let archived =
+            super::teammate_lifecycle::set_teammate_archived(&pool, &teammate_id, 1, true)
+                .await
+                .unwrap();
+        assert!(archived.has_durable_history);
+        let conversation_id = ChatConversationId::new("conversation:review").unwrap();
+        let membership = super::reads::read_membership(&pool, &conversation_id, &teammate_id)
+            .await
+            .unwrap();
+        assert!(!membership.addressable);
+        let stored_addressable: i64 = sqlx::query_scalar(
+            "SELECT addressable FROM chat_conversation_memberships
+             WHERE conversation_id = ? AND participant_id = ?",
+        )
+        .bind(conversation_id.as_str())
+        .bind(teammate_id.as_str())
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(stored_addressable, 1);
+
+        let error = super::teammate_lifecycle::delete_unused_teammate(
+            &pool,
+            &teammate_id,
+            archived.participant.revision,
+        )
+        .await
+        .unwrap_err();
+        assert_eq!(error.code, ChatErrorCode::Conflict);
+        let participant_count: i64 =
+            sqlx::query_scalar("SELECT count(*) FROM chat_participants WHERE id = ?")
+                .bind(teammate_id.as_str())
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        assert_eq!(participant_count, 1);
+    });
 }
 
 #[test]
@@ -371,11 +591,10 @@ fn only_structured_participant_mentions_make_top_level_messages_thread_eligible(
     let mut request = message("Ordinary channel message");
     assert!(!has_thread_eligible_mention(&request));
 
-    request.normalized_markdown = "@ganbaru Please review this.".to_string();
+    request.normalized_markdown = "@Ganbaru Please review this.".to_string();
     request.participant_mentions = vec![ChatParticipantMentionInput {
         participant_id: ChatParticipantId::new("participant:ganbaru").unwrap(),
         participant_kind: ChatParticipantKind::AiTeammate,
-        handle_snapshot: Some("ganbaru".to_string()),
         label_snapshot: "Ganbaru".to_string(),
         start_offset: 0,
         end_offset: 8,
@@ -547,11 +766,9 @@ fn channel_unread_count_excludes_local_messages() {
                  '2026-08-04T19:01:00.000Z'
              );
              INSERT INTO chat_participants
-                 (id, participant_kind, display_name, normalized_handle,
-                  created_at, updated_at)
+                 (id, participant_kind, display_name, created_at, updated_at)
              VALUES (
                  'participant:collaborator', 'human', 'Collaborator',
-                 'collaborator',
                  '2026-08-04T19:00:00.000Z', '2026-08-04T19:00:00.000Z'
              );
              INSERT INTO chat_conversation_items
@@ -603,12 +820,10 @@ fn reply_thread_unread_excludes_local_messages_and_tracks_item_ordinals() {
                  '2026-08-04T19:03:00.000Z'
              );
              INSERT INTO chat_participants
-                 (id, participant_kind, display_name, normalized_handle,
-                  created_at, updated_at)
+                 (id, participant_kind, display_name, created_at, updated_at)
              VALUES (
                  'participant:thread-collaborator', 'human', 'Collaborator',
-                 'thread-collaborator', '2026-08-04T19:00:00.000Z',
-                 '2026-08-04T19:00:00.000Z'
+                 '2026-08-04T19:00:00.000Z', '2026-08-04T19:00:00.000Z'
              );
              INSERT INTO chat_conversation_items
                  (id, conversation_id, item_kind, ordinal, created_at)
@@ -762,13 +977,11 @@ fn two_structured_ai_mentions_are_rejected_before_dispatch() {
         for index in 1..=2 {
             sqlx::query(
                 "INSERT INTO chat_participants
-                    (id, participant_kind, display_name, normalized_handle,
-                     created_at, updated_at)
-                 VALUES (?, 'ai_teammate', ?, ?, ?, ?)",
+                    (id, participant_kind, display_name, created_at, updated_at)
+                 VALUES (?, 'ai_teammate', ?, ?, ?)",
             )
             .bind(format!("participant:agent-{index}"))
             .bind(format!("Agent {index}"))
-            .bind(format!("agent-{index}"))
             .bind("2026-08-01T00:00:00.000Z")
             .bind("2026-08-01T00:00:00.000Z")
             .execute(&pool)
@@ -780,7 +993,6 @@ fn two_structured_ai_mentions_are_rejected_before_dispatch() {
                 participant_id: ChatParticipantId::new(format!("participant:agent-{index}"))
                     .unwrap(),
                 participant_kind: ChatParticipantKind::AiTeammate,
-                handle_snapshot: Some(format!("agent-{index}")),
                 label_snapshot: format!("Agent {index}"),
                 start_offset: u64::try_from((index - 1) * 9).unwrap(),
                 end_offset: u64::try_from(index * 9 - 1).unwrap(),
@@ -801,11 +1013,10 @@ fn two_structured_ai_mentions_are_rejected_before_dispatch() {
 
 #[test]
 fn message_validation_rejects_duplicate_atomic_mention_ranges() {
-    let mut request = message("@ganbaru");
+    let mut request = message("@Ganbaru");
     let mention = ChatParticipantMentionInput {
         participant_id: ChatParticipantId::new("participant:ganbaru").unwrap(),
         participant_kind: ChatParticipantKind::AiTeammate,
-        handle_snapshot: Some("ganbaru".to_string()),
         label_snapshot: "Ganbaru".to_string(),
         start_offset: 0,
         end_offset: 8,

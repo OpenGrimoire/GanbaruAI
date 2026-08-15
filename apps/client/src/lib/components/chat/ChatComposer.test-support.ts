@@ -275,7 +275,6 @@ export function modelSettings(): ChatSettingsRead {
         instanceId: "codex-local",
         familyId: "codex",
         label: "OpenAI",
-        accentColor: null,
         enabled: true,
         executable: "codex",
         providerHome: null,

@@ -19,7 +19,6 @@ export interface ProviderInstanceConfig {
   instanceId: ProviderInstanceId;
   familyId: ProviderFamilyId;
   label: string;
-  accentColor: string | null;
   enabled: boolean;
   executable: string;
   providerHome: string | null;

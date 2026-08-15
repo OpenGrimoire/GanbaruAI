@@ -283,14 +283,13 @@ pub(super) async fn insert_communication_message(
         sqlx::query(
             "INSERT INTO chat_participant_mentions
                 (id, message_revision_id, participant_id, participant_kind,
-                 handle_snapshot, label_snapshot, start_offset, end_offset)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                 label_snapshot, start_offset, end_offset)
+             VALUES (?, ?, ?, ?, ?, ?, ?)",
         )
         .bind(format!("mention:{}:{index}", write.revision_id.as_str()))
         .bind(write.revision_id.as_str())
         .bind(mention.participant_id.as_str())
         .bind(wire_participant_kind(mention.participant_kind))
-        .bind(mention.handle_snapshot.as_deref())
         .bind(&mention.label_snapshot)
         .bind(i64_value(mention.start_offset)?)
         .bind(i64_value(mention.end_offset)?)
@@ -703,8 +702,8 @@ pub(super) async fn read_mentions(
     revision_id: &ChatMessageRevisionId,
 ) -> ChatResult<Vec<ChatParticipantMentionRead>> {
     let rows = sqlx::query(
-        "SELECT participant_id, participant_kind, handle_snapshot,
-                label_snapshot, start_offset, end_offset
+        "SELECT participant_id, participant_kind, label_snapshot,
+                start_offset, end_offset
          FROM chat_participant_mentions WHERE message_revision_id = ?
          ORDER BY start_offset",
     )
@@ -724,7 +723,6 @@ pub(super) async fn read_mentions(
                     &row.try_get::<String, _>("participant_kind")
                         .map_err(persistence_error)?,
                 )?,
-                handle_snapshot: row.try_get("handle_snapshot").map_err(persistence_error)?,
                 label_snapshot: row.try_get("label_snapshot").map_err(persistence_error)?,
                 start_offset: u64_value(row.try_get("start_offset").map_err(persistence_error)?)?,
                 end_offset: u64_value(row.try_get("end_offset").map_err(persistence_error)?)?,

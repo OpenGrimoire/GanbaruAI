@@ -17,6 +17,7 @@ import type { ChatSettingsSubsection, DoomscrollingSettingsTab, SectionId } from
 interface SettingsLaunchOptions {
   doomscrollingTab?: DoomscrollingSettingsTab;
   chatSubsection?: ChatSettingsSubsection;
+  chatTeammateId?: string;
 }
 
 class SettingsLauncherStore {
@@ -24,6 +25,7 @@ class SettingsLauncherStore {
   targetSection = $state<SectionId | undefined>(undefined);
   targetDoomscrollingTab = $state<DoomscrollingSettingsTab | undefined>(undefined);
   targetChatSubsection = $state<ChatSettingsSubsection | undefined>(undefined);
+  targetChatTeammateId = $state<string | undefined>(undefined);
 
   /**
    * Request that the Settings modal open. Pass `section` to land on a
@@ -36,6 +38,7 @@ class SettingsLauncherStore {
       ? options.doomscrollingTab
       : undefined;
     this.targetChatSubsection = section === "chat" ? options.chatSubsection : undefined;
+    this.targetChatTeammateId = section === "chat" ? options.chatTeammateId : undefined;
     this.isOpen = true;
   }
 
@@ -44,6 +47,7 @@ class SettingsLauncherStore {
     this.targetSection = undefined;
     this.targetDoomscrollingTab = undefined;
     this.targetChatSubsection = undefined;
+    this.targetChatTeammateId = undefined;
   }
 }
 

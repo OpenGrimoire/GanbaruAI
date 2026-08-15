@@ -20,7 +20,6 @@ const localParticipant: ChatParticipantRead = {
   id: "participant:local-owner",
   kind: "local_user",
   displayName: "You",
-  handle: null,
   avatar: { schemaVersion: 1, value: {} },
   revision: 1,
   archivedAt: null,
@@ -30,7 +29,6 @@ const agentParticipant: ChatParticipantRead = {
   id: "participant:ganbaru",
   kind: "ai_teammate",
   displayName: "Ganbaru",
-  handle: "ganbaru",
   avatar: { schemaVersion: 1, value: {} },
   revision: 1,
   archivedAt: null,
@@ -45,6 +43,7 @@ describe("ChatParticipantAvatar", () => {
   const originalImagePath = preferences.profileImagePath;
   const originalSettings = chat.settings;
   const originalTeammates = chat.teammates;
+  const originalArchivedTeammates = chat.archivedTeammates;
 
   afterEach(async () => {
     if (component) await unmount(component);
@@ -55,6 +54,7 @@ describe("ChatParticipantAvatar", () => {
     preferences.setProfileImagePath(originalImagePath);
     chat.settings = originalSettings;
     chat.teammates = originalTeammates;
+    chat.archivedTeammates = originalArchivedTeammates;
     profileImage.load.mockClear();
   });
 
@@ -85,7 +85,7 @@ describe("ChatParticipantAvatar", () => {
     chat.settings = modelSettings();
     chat.teammates = [{
       participant: agentParticipant,
-      purpose: "Coding",
+      role: "Coding",
       instructions: "",
       configurationState: "healthy",
       latestPolicy: {
@@ -102,6 +102,8 @@ describe("ChatParticipantAvatar", () => {
         createdAt: "2026-08-04T12:00:00.000Z",
       },
       channelCount: 1,
+      activeAssignmentCount: 0,
+      hasDurableHistory: false,
     } satisfies ChatAiTeammateRead];
     target = document.createElement("div");
     document.body.append(target);
@@ -112,6 +114,46 @@ describe("ChatParticipantAvatar", () => {
 
     expect(target.querySelector('.model-avatar[aria-label="OpenAI"]')).not.toBeNull();
     expect(target.querySelector(".provider-icon svg")).not.toBeNull();
+    expect(target.querySelector(".agent-fallback")).toBeNull();
+  });
+
+  it("uses an explicitly provided archived teammate identity", () => {
+    chat.settings = modelSettings();
+    chat.teammates = [];
+    const archivedTeammate = {
+      participant: { ...agentParticipant, archivedAt: "2026-08-14T12:00:00.000Z" },
+      role: "Coding",
+      instructions: "",
+      configurationState: "healthy",
+      latestPolicy: {
+        id: "policy:ganbaru:1",
+        teammateId: agentParticipant.id,
+        revision: 1,
+        providerInstanceId: "codex-local",
+        providerManagedModel: false,
+        modelId: "gpt-5.6-sol",
+        modelOptions: [],
+        effort: "medium",
+        speed: null,
+        providerOptions: { schemaVersion: 1, value: {} },
+        createdAt: "2026-08-04T12:00:00.000Z",
+      },
+      channelCount: 1,
+      activeAssignmentCount: 0,
+      hasDurableHistory: true,
+    } satisfies ChatAiTeammateRead;
+    chat.archivedTeammates = [archivedTeammate];
+    target = document.createElement("div");
+    document.body.append(target);
+    component = mount(ChatParticipantAvatar, {
+      target,
+      props: {
+        participant: archivedTeammate.participant,
+        size: 32,
+      },
+    });
+
+    expect(target.querySelector('.model-avatar[aria-label="OpenAI"]')).not.toBeNull();
     expect(target.querySelector(".agent-fallback")).toBeNull();
   });
 });

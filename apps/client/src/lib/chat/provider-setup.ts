@@ -5,15 +5,6 @@ import type {
   VersionedJson,
 } from "./contracts";
 
-export const PROVIDER_ACCENT_COLORS = [
-  "#2563eb",
-  "#7c3aed",
-  "#0f766e",
-  "#b45309",
-  "#be123c",
-] as const;
-
-export type ProviderSetupStep = "provider" | "identity" | "connection";
 export type ProviderEnvironmentValueType = "text" | "secret" | "inherit";
 
 export interface ProviderEnvironmentDraft {
@@ -25,11 +16,9 @@ export interface ProviderEnvironmentDraft {
 }
 
 export interface ProviderSetupDraft {
-  step: ProviderSetupStep;
   familyId: string;
   label: string;
   instanceId: string;
-  accentColor: string;
   executable: string;
   providerHome: string;
   launchArguments: string[];
@@ -54,11 +43,9 @@ const DEDICATED_HOME_VARIABLES: Readonly<Record<string, string>> = {
 
 export function createProviderSetupDraft(): ProviderSetupDraft {
   return {
-    step: "provider",
     familyId: "",
     label: "",
     instanceId: "",
-    accentColor: PROVIDER_ACCENT_COLORS[0],
     executable: "",
     providerHome: "",
     launchArguments: [],
@@ -90,9 +77,6 @@ export function validateProviderSetup(
     fields.instanceId = "Use lowercase letters, numbers, dots, underscores, or hyphens.";
   } else if (existingInstanceIds.has(draft.instanceId) && draft.instanceId !== editingInstanceId) {
     fields.instanceId = "This provider instance ID is already in use.";
-  }
-  if (!PROVIDER_ACCENT_COLORS.includes(draft.accentColor as (typeof PROVIDER_ACCENT_COLORS)[number])) {
-    fields.accentColor = "Choose an available accent color.";
   }
   if (!draft.executable.trim()) fields.executable = "Enter or select the provider executable.";
   if (draft.launchArguments.length > MAX_ARGUMENTS) {
@@ -131,7 +115,10 @@ export function validateProviderSetup(
   return { fields, valid: Object.keys(fields).length === 0 };
 }
 
-export function providerConfigurationFromDraft(draft: ProviderSetupDraft): ProviderInstanceConfig {
+export function providerConfigurationFromDraft(
+  draft: ProviderSetupDraft,
+  current?: ProviderInstanceConfig,
+): ProviderInstanceConfig {
   const environment: Record<string, string> = {};
   const credentialReferences: Record<string, string> = {};
   for (const row of draft.environment) {
@@ -144,15 +131,14 @@ export function providerConfigurationFromDraft(draft: ProviderSetupDraft): Provi
     instanceId: draft.instanceId as ProviderInstanceId,
     familyId: draft.familyId as ProviderFamilyId,
     label: draft.label.trim(),
-    accentColor: draft.accentColor,
-    enabled: true,
+    enabled: current?.enabled ?? true,
     executable: draft.executable.trim(),
     providerHome: draft.providerHome.trim() || null,
     launchArguments: [...draft.launchArguments],
     environment,
     credentialReferences,
-    visibleModelIds: [],
-    favoriteModelIds: [],
+    visibleModelIds: [...(current?.visibleModelIds ?? [])],
+    favoriteModelIds: [...(current?.favoriteModelIds ?? [])],
     providerConfig: draft.providerConfig,
   };
 }

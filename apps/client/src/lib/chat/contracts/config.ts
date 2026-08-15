@@ -20,7 +20,6 @@ export interface ChatPortableProviderConfig {
   instanceId: ProviderInstanceId;
   familyId: ProviderFamilyId;
   label: string;
-  accentColor: string | null;
   enabled: boolean;
   launchArguments: string[];
   environment: Record<string, string>;

@@ -47,7 +47,6 @@ function provider(state: ProviderInstanceRead["lastProbe"] extends infer _Probe 
       instanceId: "codex",
       familyId: "codex",
       label: "Codex",
-      accentColor: "#2563eb",
       enabled: true,
       executable: "codex",
       providerHome: null,

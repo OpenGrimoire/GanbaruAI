@@ -11,7 +11,6 @@ fn configuration(family_id: &str) -> ProviderInstanceConfig {
         "instanceId": "provider-instance-1",
         "familyId": family_id,
         "label": "Local provider",
-        "accentColor": null,
         "enabled": true,
         "executable": family_id,
         "providerHome": null,

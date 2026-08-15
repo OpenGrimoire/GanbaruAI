@@ -4,13 +4,6 @@ CREATE TABLE chat_participants (
         participant_kind IN ('local_user', 'ai_teammate', 'human')
     ),
     display_name TEXT NOT NULL CHECK (length(trim(display_name)) BETWEEN 1 AND 160),
-    normalized_handle TEXT CHECK (
-        normalized_handle IS NULL OR (
-            normalized_handle = lower(normalized_handle)
-            AND length(normalized_handle) BETWEEN 1 AND 80
-            AND normalized_handle NOT GLOB '*[^a-z0-9._-]*'
-        )
-    ),
     avatar_schema_version INTEGER NOT NULL DEFAULT 1 CHECK (avatar_schema_version >= 1),
     avatar_data TEXT NOT NULL DEFAULT '{"kind":"initials"}' CHECK (
         json_valid(avatar_data) AND json_type(avatar_data) = 'object'
@@ -18,28 +11,23 @@ CREATE TABLE chat_participants (
     revision INTEGER NOT NULL DEFAULT 1 CHECK (revision >= 1),
     archived_at TEXT CHECK (archived_at IS NULL OR length(archived_at) >= 20),
     created_at TEXT NOT NULL CHECK (length(created_at) >= 20),
-    updated_at TEXT NOT NULL CHECK (length(updated_at) >= 20),
-    CHECK (
-        (participant_kind = 'local_user' AND normalized_handle IS NULL)
-        OR (participant_kind != 'local_user' AND normalized_handle IS NOT NULL)
-    )
+    updated_at TEXT NOT NULL CHECK (length(updated_at) >= 20)
 ) STRICT;
-
-CREATE UNIQUE INDEX idx_chat_participants_handle
-ON chat_participants(normalized_handle)
-WHERE normalized_handle IS NOT NULL;
 
 CREATE UNIQUE INDEX idx_chat_participants_local_user
 ON chat_participants(participant_kind)
 WHERE participant_kind = 'local_user';
 
+CREATE UNIQUE INDEX idx_chat_ai_teammate_display_name
+ON chat_participants(lower(trim(display_name)))
+WHERE participant_kind = 'ai_teammate';
+
 INSERT INTO chat_participants (
-    id, participant_kind, display_name, normalized_handle, created_at, updated_at
+    id, participant_kind, display_name, created_at, updated_at
 ) VALUES (
     'participant:local-owner',
     'local_user',
     'You',
-    NULL,
     strftime('%Y-%m-%dT%H:%M:%fZ', 'now'),
     strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
 );
@@ -47,7 +35,7 @@ INSERT INTO chat_participants (
 CREATE TABLE chat_ai_teammates (
     participant_id TEXT PRIMARY KEY NOT NULL REFERENCES chat_participants(id)
         ON UPDATE CASCADE ON DELETE RESTRICT,
-    purpose TEXT NOT NULL DEFAULT '' CHECK (length(purpose) <= 1000),
+    role TEXT NOT NULL CHECK (length(trim(role)) BETWEEN 1 AND 1000),
     instructions TEXT NOT NULL DEFAULT '' CHECK (length(instructions) <= 65536),
     latest_policy_revision INTEGER NOT NULL DEFAULT 0 CHECK (latest_policy_revision >= 0),
     configuration_state TEXT NOT NULL DEFAULT 'needs_setup' CHECK (
@@ -104,6 +92,28 @@ END;
 
 CREATE TRIGGER chat_teammate_policy_immutable_delete
 BEFORE DELETE ON chat_teammate_policy_revisions
+WHEN NOT EXISTS (
+    SELECT 1
+    FROM chat_participants participant
+    WHERE participant.id = OLD.teammate_id
+      AND participant.participant_kind = 'ai_teammate'
+      AND participant.archived_at IS NOT NULL
+)
+OR EXISTS (
+    SELECT 1
+    FROM chat_communication_messages message
+    WHERE message.author_participant_id = OLD.teammate_id
+)
+OR EXISTS (
+    SELECT 1
+    FROM chat_participant_mentions mention
+    WHERE mention.participant_id = OLD.teammate_id
+)
+OR EXISTS (
+    SELECT 1
+    FROM chat_work_assignments assignment
+    WHERE assignment.teammate_id = OLD.teammate_id
+)
 BEGIN
     SELECT RAISE(ABORT, 'Teammate policy revisions are immutable');
 END;
@@ -370,7 +380,6 @@ CREATE TABLE chat_participant_mentions (
     participant_kind TEXT NOT NULL CHECK (
         participant_kind IN ('local_user', 'ai_teammate', 'human')
     ),
-    handle_snapshot TEXT CHECK (handle_snapshot IS NULL OR length(handle_snapshot) <= 80),
     label_snapshot TEXT NOT NULL CHECK (length(label_snapshot) BETWEEN 1 AND 160),
     start_offset INTEGER NOT NULL CHECK (start_offset >= 0),
     end_offset INTEGER NOT NULL CHECK (end_offset > start_offset),

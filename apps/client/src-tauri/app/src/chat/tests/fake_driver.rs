@@ -105,7 +105,6 @@ pub fn fake_driver(control: Arc<FakeDriverControl>) -> Box<dyn ProviderDriver> {
             "instanceId": "fake-instance",
             "familyId": "fake",
             "label": "Fake provider",
-            "accentColor": null,
             "enabled": true,
             "executable": "/fake/provider",
             "providerHome": null,

@@ -94,7 +94,6 @@ function parsePortableProvider(value: unknown, label: string): ChatPortableProvi
     instanceId: readIdentifier(record.instanceId, `${label}.instanceId`),
     familyId: readIdentifier(record.familyId, `${label}.familyId`),
     label: readBoundedString(record.label, MAX_LABEL_BYTES, `${label}.label`, true),
-    accentColor: readNullable(record.accentColor, `${label}.accentColor`, readString),
     enabled: record.enabled === undefined ? true : readBoolean(record.enabled, `${label}.enabled`),
     launchArguments,
     environment,

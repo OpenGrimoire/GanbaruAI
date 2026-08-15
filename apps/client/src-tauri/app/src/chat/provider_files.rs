@@ -511,7 +511,6 @@ mod tests {
             instance_id: ProviderInstanceId::new(format!("{family}-test")).unwrap(),
             family_id: ProviderFamilyId::new(family).unwrap(),
             label: family.to_string(),
-            accent_color: None,
             enabled: true,
             executable: family.to_string(),
             provider_home: Some(home.to_string_lossy().into_owned()),

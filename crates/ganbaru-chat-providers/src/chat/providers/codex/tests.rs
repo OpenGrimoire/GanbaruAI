@@ -98,7 +98,6 @@ fn configuration(shared_home: &Path, shadow_home: Option<&Path>) -> ProviderInst
         "instanceId": "codex-instance-1",
         "familyId": "codex",
         "label": "Codex",
-        "accentColor": null,
         "enabled": true,
         "executable": "codex",
         "providerHome": shared_home,

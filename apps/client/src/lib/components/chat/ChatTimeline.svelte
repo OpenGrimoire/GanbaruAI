@@ -20,8 +20,9 @@
   import RotateCcw from "@lucide/svelte/icons/rotate-ccw";
   import { executionMessageActionTarget } from "$lib/chat/message-action-target";
   import { chatScrollBehavior } from "$lib/chat/responsive-layout";
-  import type { ChatThreadShellRead, ChatTimelinePageRead, ChatTurnId } from "$lib/chat/contracts";
+  import type { ChatParticipantRead, ChatThreadShellRead, ChatTimelinePageRead, ChatTurnId } from "$lib/chat/contracts";
   import { activityFilePath, fileChangePresentation, fileReadActivityPresentation, fileSearchActivityPresentation, isFileReadActivity, isFileSearchActivity, isImageViewActivity, summarizeActivityKinds, transientActivitySummary, type ActivitySummaryCount } from "$lib/chat/activity-presentation";
+  import { LOCAL_CHAT_PARTICIPANT_ID } from "$lib/chat/participant-display";
   import { chatModelParticipant, type ChatModelParticipant } from "$lib/chat/participant-identity";
   import { buildTimelineDisplayRows, includeOptimisticTimelineMessage, projectTimelineReadModel, timelineActivityShowsLiveStatus, timelineActivitySupportsDisclosure, timelineModelGroupStartIds, timelineRowsForTurn, type TimelineActivityGroupRow, type TimelineActivityRow, type TimelineDisplayRow, type TimelineMessageRow, type TimelinePlanRow, type TimelineTurnFoldRow } from "$lib/chat/timeline-model";
   import { computeTimelineVirtualWindow, nextTimelineUnreadCount, scrollTopForPreservedAnchor, timelineMinimapRows, timelineScrollbarThumbGeometry, timelineScrollIntent, type TimelineScrollbarThumbGeometry, type TimelineScrollIntent } from "$lib/chat/timeline-virtualization";
@@ -37,8 +38,12 @@
   import ChatImageGallery from "./ChatImageGallery.svelte";
   import ChatMessageActionToolbar from "./ChatMessageActionToolbar.svelte";
   import ChatMessageReactionList from "./ChatMessageReactionList.svelte";
-  import ChatModelAvatar from "./ChatModelAvatar.svelte";
-  import ProfileAvatar from "$lib/components/profile/ProfileAvatar.svelte";
+  import ChatIdentityButton from "./ChatIdentityButton.svelte";
+
+  interface TimelineModelIdentity {
+    model: ChatModelParticipant;
+    providerLabel: string | null;
+  }
 
   const {
     bottomInsetPx = 0,
@@ -142,6 +147,14 @@
     ? chat.workingFolders.find((entry) => entry.workingFolder.id === executionThread.workingFolderId) ?? null
     : chat.selectedWorkingFolder);
   const selectedProvider = $derived(chat.settings?.providerInstances.find((provider) => provider.configuration.instanceId === selectedThread?.providerInstanceId) ?? null);
+  const localParticipant = $derived<ChatParticipantRead>({
+    id: LOCAL_CHAT_PARTICIPANT_ID,
+    kind: "local_user",
+    displayName: preferences.profileDisplayName || t("chat.timeline.you"),
+    avatar: { schemaVersion: 1, value: {} },
+    revision: 0,
+    archivedAt: null,
+  });
   const minimapRows = $derived(timelineMinimapRows(displayRows));
   const showMinimap = $derived(!embedded && displayRows.length >= 80 && viewportWidth >= 900 && minimapRows.length > 0);
   const latestTimelinePage = $derived(timelinePages.at(-1));
@@ -693,7 +706,7 @@
     return row.turnId !== null && !(row.kind === "message" && row.role === "user");
   }
 
-  function participantForRow(row: TimelineDisplayRow): ChatModelParticipant {
+  function modelIdentityForRow(row: TimelineDisplayRow): TimelineModelIdentity {
     const sourceThreadId = row.kind === "activity_group"
       ? row.latest.sourceThreadId
       : row.kind === "turn_fold"
@@ -713,7 +726,10 @@
     const familyId = sourceThread?.providerFamilyId
       ?? sourceProvider?.configuration.familyId
       ?? "opencode";
-    return chatModelParticipant(familyId, modelId, sourceProvider?.modelCatalog ?? null);
+    return {
+      model: chatModelParticipant(familyId, modelId, sourceProvider?.modelCatalog ?? null),
+      providerLabel: sourceProvider?.configuration.label ?? null,
+    };
   }
 
   async function retryTimeline(): Promise<void> {
@@ -893,9 +909,9 @@
             {#if message.role === "user"}
               {@const userDisplayName = preferences.profileDisplayName || t("chat.timeline.you")}
               <div class="chat-participant-row">
-                <ProfileAvatar displayName={userDisplayName} imagePath={preferences.profileImagePath} size={36} />
+                <ChatIdentityButton participant={localParticipant} presentation="avatar" size={36} />
                 <div class="chat-participant-content">
-                  <div class="chat-participant-header"><strong>{userDisplayName}</strong><span title={t("chat.timeline.timestamp")}>{timestampLabel(message.createdAt)}</span></div>
+                  <div class="chat-participant-header"><strong><ChatIdentityButton participant={localParticipant} presentation="name" triggerLabel={userDisplayName} /></strong><span title={t("chat.timeline.timestamp")}>{timestampLabel(message.createdAt)}</span></div>
                   <article class="chat-user-message">
                     <div use:measureExpandableHeight class="chat-message-expandable" class:collapsed={message.markdown.length > 1200 && !messageExpanded} class:expanded={messageExpanded}><div><p class="wrap-break-word whitespace-pre-wrap">{message.markdown}</p></div></div>
                     {#if messageImages(message).length > 0}<ChatImageGallery images={messageImages(message)} />{/if}
@@ -916,22 +932,22 @@
                 </div>
               </div>
             {:else if modelGroupStartIds.has(row.id)}
-              {@const participant = participantForRow(row)}
+              {@const identity = modelIdentityForRow(row)}
               {@const actionMessage = row.turnId ? assistantActionMessages.get(row.turnId) : undefined}
               <div class="chat-participant-row">
-                <ChatModelAvatar familyId={participant.company.iconFamilyId} label={participant.company.name} size={embedded ? 32 : 36} />
-                <div class="chat-participant-content"><div class="chat-participant-header"><strong>{teammateName ?? participant.displayName}</strong><span>{timestampLabel(row.createdAt)}</span></div>{#if actionMessage}<ChatMessageActionToolbar target={executionMessageActionTarget(actionMessage)} visible={hoveredActionTurnId === row.turnId} onError={reportError} />{/if}{@render modelRowContent(row)}</div>
+                <ChatIdentityButton model={identity.model} presentation="avatar" size={embedded ? 32 : 36} {teammateName} providerLabel={identity.providerLabel} />
+                <div class="chat-participant-content"><div class="chat-participant-header"><strong><ChatIdentityButton model={identity.model} presentation="name" triggerLabel={teammateName ?? identity.model.displayName} {teammateName} providerLabel={identity.providerLabel} /></strong><span>{timestampLabel(row.createdAt)}</span></div>{#if actionMessage}<ChatMessageActionToolbar target={executionMessageActionTarget(actionMessage)} visible={hoveredActionTurnId === row.turnId} onError={reportError} />{/if}{@render modelRowContent(row)}</div>
               </div>
             {:else}
               <div class="chat-participant-followup">{@render modelRowContent(row)}</div>
             {/if}
           {:else if isModelOwnedRow(row)}
             {#if modelGroupStartIds.has(row.id)}
-              {@const participant = participantForRow(row)}
+              {@const identity = modelIdentityForRow(row)}
               {@const actionMessage = row.turnId ? assistantActionMessages.get(row.turnId) : undefined}
               <div class="chat-participant-row">
-                <ChatModelAvatar familyId={participant.company.iconFamilyId} label={participant.company.name} size={embedded ? 32 : 36} />
-                <div class="chat-participant-content"><div class="chat-participant-header"><strong>{teammateName ?? participant.displayName}</strong><span>{timestampLabel(row.createdAt)}</span></div>{#if actionMessage}<ChatMessageActionToolbar target={executionMessageActionTarget(actionMessage)} visible={hoveredActionTurnId === row.turnId} onError={reportError} />{/if}{@render modelRowContent(row)}</div>
+                <ChatIdentityButton model={identity.model} presentation="avatar" size={embedded ? 32 : 36} {teammateName} providerLabel={identity.providerLabel} />
+                <div class="chat-participant-content"><div class="chat-participant-header"><strong><ChatIdentityButton model={identity.model} presentation="name" triggerLabel={teammateName ?? identity.model.displayName} {teammateName} providerLabel={identity.providerLabel} /></strong><span>{timestampLabel(row.createdAt)}</span></div>{#if actionMessage}<ChatMessageActionToolbar target={executionMessageActionTarget(actionMessage)} visible={hoveredActionTurnId === row.turnId} onError={reportError} />{/if}{@render modelRowContent(row)}</div>
               </div>
             {:else}
               <div class="chat-participant-followup">{@render modelRowContent(row)}</div>

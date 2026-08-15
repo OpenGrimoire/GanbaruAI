@@ -7,7 +7,7 @@ import type {
 
 export interface ParticipantMentionCandidate {
   participant: ChatParticipantRead;
-  purpose: string;
+  role: string;
   configurationState: string | null;
 }
 
@@ -22,27 +22,34 @@ export interface ParticipantMentionClipboardSlice {
   mentions: ChatParticipantMentionInput[];
 }
 
+export type ParticipantMentionTextSegment =
+  | { kind: "text"; text: string }
+  | { kind: "mention"; text: string; mention: ChatParticipantMentionInput };
+
 /** Lists current addressable channel members matching a mention query. */
 export function participantMentionCandidates(
   memberships: readonly ChatConversationMembershipRead[],
-  purposes: ReadonlyMap<string, { purpose: string; configurationState: string }>,
+  roles: ReadonlyMap<string, { role: string; configurationState: string }>,
   query: string,
 ): ParticipantMentionCandidate[] {
   const normalized = query.trim().toLocaleLowerCase();
   return memberships
-    .filter((membership) => membership.removedAt === null && membership.addressable)
+    .filter((membership) => (
+      membership.removedAt === null
+        && membership.addressable
+        && membership.participant.archivedAt === null
+    ))
     .map((membership) => {
-      const teammate = purposes.get(membership.participant.id);
+      const teammate = roles.get(membership.participant.id);
       return {
         participant: membership.participant,
-        purpose: teammate?.purpose ?? "",
+        role: teammate?.role ?? "",
         configurationState: teammate?.configurationState ?? null,
       };
     })
     .filter((candidate) => !normalized || [
       candidate.participant.displayName,
-      candidate.participant.handle ?? "",
-      candidate.purpose,
+      candidate.role,
     ].some((value) => value.toLocaleLowerCase().includes(normalized)))
     .sort((left, right) => (
       Number(right.participant.kind === "ai_teammate") - Number(left.participant.kind === "ai_teammate")
@@ -53,7 +60,7 @@ export function participantMentionCandidates(
 /** Finds an incomplete mention immediately before a text caret. */
 export function mentionQueryAtCaret(text: string, caret: number): { start: number; query: string } | null {
   const before = text.slice(0, caret);
-  const match = /(?:^|\s)@([\p{L}\p{N}_.-]*)$/u.exec(before);
+  const match = /(?:^|\s)@([\p{L}\p{N}_. -]*)$/u.exec(before);
   if (!match) return null;
   return { start: caret - match[1].length - 1, query: match[1] };
 }
@@ -66,18 +73,19 @@ export function insertParticipantMention(
   replaceEnd: number,
   participant: ChatParticipantRead,
 ): MentionInsertionResult {
-  const handle = participant.handle?.trim();
-  if (!handle) throw new Error("The participant does not have an addressable handle");
-  const token = `@${handle}`;
-  const withSpace = replaceEnd < text.length && !/^\s/u.test(text.slice(replaceEnd)) ? `${token} ` : token;
+  const label = participant.displayName.trim();
+  if (!label) throw new Error("The participant does not have an addressable name");
+  const token = `@${label}`;
+  const withSpace = replaceEnd === text.length || !/^\s/u.test(text.slice(replaceEnd))
+    ? `${token} `
+    : token;
   const nextText = `${text.slice(0, replaceStart)}${withSpace}${text.slice(replaceEnd)}`;
   const rebased = rebaseParticipantMentions(text, nextText, mentions, replaceStart, replaceEnd);
   const tokenEnd = replaceStart + token.length;
   const inserted: ChatParticipantMentionInput = {
     participantId: participant.id,
     participantKind: participant.kind,
-    handleSnapshot: handle,
-    labelSnapshot: participant.displayName,
+    labelSnapshot: label,
     startOffset: utf8Offset(nextText, replaceStart),
     endOffset: utf8Offset(nextText, tokenEnd),
   };
@@ -86,6 +94,26 @@ export function insertParticipantMention(
     mentions: [...rebased, inserted].sort((left, right) => left.startOffset - right.startOffset),
     selection: replaceStart + withSpace.length,
   };
+}
+
+/** Splits message text around validated structured participant mentions. */
+export function participantMentionTextSegments(
+  text: string,
+  mentions: readonly ChatParticipantMentionInput[],
+): ParticipantMentionTextSegment[] {
+  const segments: ParticipantMentionTextSegment[] = [];
+  let cursor = 0;
+  for (const mention of [...mentions].sort((left, right) => left.startOffset - right.startOffset)) {
+    const start = jsOffsetFromUtf8(text, mention.startOffset);
+    const end = jsOffsetFromUtf8(text, mention.endOffset);
+    const expected = `@${mention.labelSnapshot}`;
+    if (start < cursor || end <= start || end > text.length || text.slice(start, end) !== expected) continue;
+    if (start > cursor) segments.push({ kind: "text", text: text.slice(cursor, start) });
+    segments.push({ kind: "mention", text: text.slice(start, end), mention: { ...mention } });
+    cursor = end;
+  }
+  if (cursor < text.length) segments.push({ kind: "text", text: text.slice(cursor) });
+  return segments;
 }
 
 /** Rebases ranges after an edit and drops any mention touched by that edit. */
@@ -104,7 +132,7 @@ export function rebaseParticipantMentions(
     const mentionFollowsEdit = start >= editEnd;
     const nextStart = mentionFollowsEdit ? start + delta : start;
     const nextEnd = mentionFollowsEdit ? end + delta : end;
-    const expected = mention.handleSnapshot ? `@${mention.handleSnapshot}` : previousText.slice(start, end);
+    const expected = `@${mention.labelSnapshot}`;
     if (nextText.slice(nextStart, nextEnd) !== expected) return [];
     return [{
       ...mention,
@@ -227,8 +255,8 @@ export function pasteParticipantMentionSlice(
     if (mention.startOffset >= mention.endOffset) return [];
     const relativeStart = jsOffsetFromUtf8(slice.text, mention.startOffset);
     const relativeEnd = jsOffsetFromUtf8(slice.text, mention.endOffset);
-    const expected = mention.handleSnapshot ? `@${mention.handleSnapshot}` : "";
-    if (!expected || slice.text.slice(relativeStart, relativeEnd) !== expected) return [];
+    const expected = `@${mention.labelSnapshot}`;
+    if (slice.text.slice(relativeStart, relativeEnd) !== expected) return [];
     return [{
       ...mention,
       startOffset: insertedByteStart + mention.startOffset,
@@ -259,7 +287,6 @@ export function participantMentionRichContent(
       attrs: {
         participantId: mention.participantId,
         participantKind: mention.participantKind,
-        handle: mention.handleSnapshot,
         labelSnapshot: mention.labelSnapshot,
       },
     });

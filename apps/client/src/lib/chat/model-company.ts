@@ -95,6 +95,22 @@ export function integrationCompany(familyId: string): ModelCompanyIdentity {
 }
 
 /**
+ * Reports whether the catalog ID adds information beyond the display name.
+ *
+ * Case and ordinary word separators are presentation differences, not distinct
+ * identities. Provider prefixes, aliases, dated versions, and other additional
+ * tokens keep the exact ID visible.
+ *
+ * @param model - Catalog model whose visible identity is being composed.
+ * @returns Whether the exact model ID should appear beside the display name.
+ */
+export function modelIdAddsInformation(
+  model: Pick<ProviderModel, "id" | "displayName">,
+): boolean {
+  return normalizeVisibleModelIdentity(model.id) !== normalizeVisibleModelIdentity(model.displayName);
+}
+
+/**
  * Compares models in the capability order people expect within a company catalog.
  *
  * Provider catalogs do not consistently arrive newest-first, and alphabetical order
@@ -136,6 +152,10 @@ export function compareCompanyModels(
 
 function modelIdentity(model: ProviderModel): string {
   return `${model.displayName} ${model.id}`.toLowerCase();
+}
+
+function normalizeVisibleModelIdentity(value: string): string {
+  return value.trim().toLowerCase().replace(/[\s._-]+/g, " ");
 }
 
 function anthropicFamilyRank(identity: string): number {

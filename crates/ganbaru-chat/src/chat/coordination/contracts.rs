@@ -33,10 +33,9 @@ pub struct ChatTeammateMembershipInput {
 pub struct CreateChatTeammateCommand {
     pub teammate_id: ChatParticipantId,
     pub display_name: String,
-    pub handle: String,
     pub avatar: VersionedJson,
     #[serde(default)]
-    pub purpose: String,
+    pub role: String,
     #[serde(default)]
     pub instructions: String,
     pub policy: ChatTeammatePolicyInput,
@@ -49,10 +48,9 @@ pub struct CreateChatTeammateCommand {
 pub struct UpdateChatTeammateProfileCommand {
     pub teammate_id: ChatParticipantId,
     pub display_name: String,
-    pub handle: String,
     pub avatar: VersionedJson,
     #[serde(default)]
-    pub purpose: String,
+    pub role: String,
     #[serde(default)]
     pub instructions: String,
     pub expected_revision: u64,
@@ -78,7 +76,6 @@ pub struct UpsertChatTeammateMembershipCommand {
 pub struct ChatParticipantMentionInput {
     pub participant_id: ChatParticipantId,
     pub participant_kind: ChatParticipantKind,
-    pub handle_snapshot: Option<String>,
     pub label_snapshot: String,
     pub start_offset: u64,
     pub end_offset: u64,

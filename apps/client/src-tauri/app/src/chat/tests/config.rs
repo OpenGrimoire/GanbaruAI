@@ -15,7 +15,6 @@ fn valid_config() -> serde_json::Value {
             "instanceId": "codex-personal",
             "familyId": "codex",
             "label": "Personal Codex",
-            "accentColor": "#3874ff",
             "enabled": true,
             "launchArguments": [],
             "environment": { "RUST_LOG": "warn" },

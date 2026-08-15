@@ -1,6 +1,13 @@
 import { describe, expect, it } from "vitest";
 import type { ProviderModel } from "$lib/chat/contracts";
-import { compareCompanyModels, integrationCompany, modelCompany, modelCompanyForIdentity, type ModelCompanyId } from "./model-company";
+import {
+  compareCompanyModels,
+  integrationCompany,
+  modelCompany,
+  modelCompanyForIdentity,
+  modelIdAddsInformation,
+  type ModelCompanyId,
+} from "./model-company";
 
 function model(id: string, displayName = id): ProviderModel {
   return {
@@ -35,6 +42,17 @@ describe("Chat model companies", () => {
     expect(modelCompany("opencode", model("google/gemini-2.5-pro")).name).toBe("Google");
     expect(modelCompany("opencode", model("qwen3-coder")).name).toBe("Alibaba");
     expect(modelCompany("cursor", model("composer-2")).name).toBe("Cursor");
+  });
+
+  it("hides exact IDs that only repeat the formatted display name", () => {
+    expect(modelIdAddsInformation(model("gpt-5.6-sol", "GPT-5.6-Sol"))).toBe(false);
+    expect(modelIdAddsInformation(model("claude_4_5_sonnet", "Claude 4.5 Sonnet"))).toBe(false);
+  });
+
+  it("keeps exact IDs with provider, alias, or version information", () => {
+    expect(modelIdAddsInformation(model("anthropic/claude-sonnet-4-5", "Claude Sonnet 4.5"))).toBe(true);
+    expect(modelIdAddsInformation(model("claude-sonnet-4-5-20250929", "Claude Sonnet 4.5"))).toBe(true);
+    expect(modelIdAddsInformation(model("default", "Claude Opus 4.8"))).toBe(true);
   });
 
   it("orders OpenAI models newest-first and strongest-first within a generation", () => {

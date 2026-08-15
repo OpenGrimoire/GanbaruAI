@@ -22,7 +22,7 @@ export const SETTINGS_SECTION_IDS = [
 export type SectionId = (typeof SETTINGS_SECTION_IDS)[number];
 
 export type DoomscrollingSettingsTab = "limits" | "browser" | "mobile" | "desktop";
-export type ChatSettingsSubsection = "teammates" | "providers" | "models" | "permissions" | "behavior";
+export type ChatSettingsSubsection = "teammates" | "providers" | "permissions" | "behavior";
 
 export type DoomscrollingLimitEditorTarget =
   | { mode: "create" }
@@ -38,7 +38,7 @@ export const NOTES_TRANSFER_OPERATIONS = [
 export type NotesTransferOperation = (typeof NOTES_TRANSFER_OPERATIONS)[number];
 
 export type ChatProviderSetupTarget =
-  | { mode: "create" }
+  | { mode: "create"; familyId: string }
   | { mode: "edit"; instanceId: string };
 
 export const SETTINGS_DETAIL_KINDS = ["doomscrolling-limit", "notes-transfer", "chat-provider"] as const;

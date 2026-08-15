@@ -56,7 +56,6 @@ export interface ChatParticipantRead {
   id: ChatParticipantId;
   kind: ChatParticipantKind;
   displayName: string;
-  handle: string | null;
   avatar: VersionedJson;
   revision: number;
   archivedAt: UtcTimestamp | null;
@@ -78,11 +77,13 @@ export interface ChatTeammatePolicyRead {
 
 export interface ChatAiTeammateRead {
   participant: ChatParticipantRead;
-  purpose: string;
+  role: string;
   instructions: string;
   configurationState: ChatTeammateConfigurationState;
   latestPolicy: ChatTeammatePolicyRead | null;
   channelCount: number;
+  activeAssignmentCount: number;
+  hasDurableHistory: boolean;
 }
 
 export interface ChatWorkingFolderGrantRead {
@@ -110,7 +111,6 @@ export interface ChatProjectPrimaryWorkingFolderRead {
 export interface ChatParticipantMentionRead {
   participantId: ChatParticipantId;
   participantKind: ChatParticipantKind;
-  handleSnapshot: string | null;
   labelSnapshot: string;
   startOffset: number;
   endOffset: number;
@@ -236,9 +236,8 @@ export interface ChatTeammateMembershipInput {
 export interface CreateChatTeammateRequest {
   teammateId: ChatParticipantId;
   displayName: string;
-  handle: string;
   avatar: VersionedJson;
-  purpose: string;
+  role: string;
   instructions: string;
   policy: ChatTeammatePolicyInput;
   memberships: ChatTeammateMembershipInput[];
@@ -247,9 +246,8 @@ export interface CreateChatTeammateRequest {
 export interface UpdateChatTeammateProfileRequest {
   teammateId: ChatParticipantId;
   displayName: string;
-  handle: string;
   avatar: VersionedJson;
-  purpose: string;
+  role: string;
   instructions: string;
   expectedRevision: number;
 }

@@ -42,7 +42,6 @@ function provider(
       instanceId,
       familyId,
       label: instanceId,
-      accentColor: null,
       enabled: true,
       executable: instanceId,
       providerHome: null,

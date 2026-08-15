@@ -78,7 +78,6 @@ function message(
     author: {
       id: authorId,
       kind: "ai_teammate",
-      handle: "ganbaru",
       displayName: "Ganbaru",
       avatar: { schemaVersion: 1, value: {} },
       revision: 1,

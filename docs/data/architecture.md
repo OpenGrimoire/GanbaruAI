@@ -36,6 +36,8 @@ Folder setup errors are blocking and remain visible until the user starts anothe
 
 Profile settings are folder-local preferences in `config.json`. `profile.displayName` is the short local name shown where a compact profile label is needed and is capped at 25 characters. `profile.fullName` stores the optional full name for future profile surfaces and is capped at 50 characters. `profile.imagePath` stores an optional managed PNG, JPEG, or WebP path under `assets/profile/`. Empty values are valid, and surfaces that require a visible self label fall back to contextual copy such as `You`. Surfaces without a profile image derive at most two initials from the display name.
 
+Root `config.json` writes are serialized by Rust and remain atomic on disk. Frontend preference updates cross the command boundary as bounded key-level patches applied to the latest file, while native domains such as Chat mutate their branch under the same lock. A cached frontend snapshot must never replace the entire shared file because startup discovery and another feature may have committed newer branches since that snapshot was read.
+
 ```
 Ganbaru AI/
   vault.json                         # internal Ganbaru AI folder marker, id, display name, schema version

@@ -68,6 +68,30 @@ describe("provider setup", () => {
     expect(configuration.credentialReferences.TOKEN).toBe("provider:codex:TOKEN");
   });
 
+  it("preserves enabled and model preferences while editing a connection", () => {
+    const draft = createProviderSetupDraft();
+    Object.assign(draft, {
+      familyId: "codex",
+      label: "Work Codex",
+      instanceId: "codex-work",
+      executable: "/usr/bin/codex",
+    });
+    const current = {
+      ...providerConfigurationFromDraft(draft),
+      enabled: false,
+      visibleModelIds: ["gpt-5.6-sol"],
+      favoriteModelIds: ["gpt-5.6-sol"],
+    };
+
+    draft.executable = "/opt/codex/bin/codex";
+    const updated = providerConfigurationFromDraft(draft, current);
+
+    expect(updated.executable).toBe("/opt/codex/bin/codex");
+    expect(updated.enabled).toBe(false);
+    expect(updated.visibleModelIds).toEqual(["gpt-5.6-sol"]);
+    expect(updated.favoriteModelIds).toEqual(["gpt-5.6-sol"]);
+  });
+
   it("requires workspace consent for external OpenCode servers", () => {
     const draft = createProviderSetupDraft();
     Object.assign(draft, {

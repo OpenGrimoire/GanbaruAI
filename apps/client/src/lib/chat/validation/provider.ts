@@ -78,7 +78,6 @@ export function parseProviderInstanceConfig(value: unknown, label = "provider in
     instanceId: readIdentifier(record.instanceId, `${label}.instanceId`),
     familyId: readIdentifier(record.familyId, `${label}.familyId`),
     label: readString(record.label, `${label}.label`),
-    accentColor: readNullable(record.accentColor, `${label}.accentColor`, readString),
     enabled: readBoolean(record.enabled, `${label}.enabled`),
     executable: readString(record.executable, `${label}.executable`),
     providerHome: readNullable(record.providerHome, `${label}.providerHome`, readString),

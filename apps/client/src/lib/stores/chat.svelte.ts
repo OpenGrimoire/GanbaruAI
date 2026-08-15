@@ -83,6 +83,8 @@ class ChatStore {
   private readonly timelineController: ChatTimelineController;
   selectedChannelId = $state<ChatChannelId | null>(null);
   teammates = $state<ChatAiTeammateRead[]>([]);
+  archivedTeammates = $state<ChatAiTeammateRead[]>([]);
+  teammateIdentities = $derived([...this.teammates, ...this.archivedTeammates]);
   openReplyThreadId = $state<ChatReplyThreadId | null>(null);
   selectedExecutionRunId = $state<string | null>(null);
   messageAnchorId = $state<string | null>(null);
@@ -353,6 +355,7 @@ class ChatStore {
     this.configurationController.reset();
     this.selectedChannelId = null;
     this.teammates = [];
+    this.archivedTeammates = [];
     this.openReplyThreadId = null;
     this.selectedExecutionRunId = null;
     this.messageAnchorId = null;
@@ -370,20 +373,26 @@ class ChatStore {
     this.error = null;
     try {
       await chatApi.recoverInterruptedChatTurns();
-      const [settings, workingFolders, navigationChannels, teammates] = await Promise.all([
+      const [settings, workingFolders, navigationChannels, teammates, archivedTeammates] = await Promise.all([
         chatApi.readChatSettings(),
         workingFolderApi.listCachedProjectWorkingFolders(),
         chatApi.listChatNavigationChannels(),
         chatApi.listChatTeammates(false),
+        chatApi.listChatTeammates(true),
       ]);
       if (request !== this.loadRequest || vaultGeneration !== this.vaultGeneration) return;
       this.configurationController.hydrate(settings, workingFolders);
       this.teammates = teammates;
+      this.archivedTeammates = archivedTeammates;
       this.channelNavigationController.hydrateNavigation(navigationChannels);
       this.threadCollectionController.resetWindow();
-      void this.configurationController.discoverProviders().catch((error: unknown) => {
+      try {
+        await this.configurationController.discoverProviders();
+      } catch (error: unknown) {
         console.error("Automatic Chat provider discovery failed", error);
-      });
+        await this.configurationController.refreshSettings();
+      }
+      if (request !== this.loadRequest || vaultGeneration !== this.vaultGeneration) return;
       void chatApi.recoverChatAssignmentDispatchJobs().catch((error: unknown) => {
         console.error("Chat assignment recovery failed", error);
       });
@@ -398,10 +407,10 @@ class ChatStore {
           ?? this.activeChannels[0]
           ?? null;
         if (initial) await this.selectChannel(initial.id);
-        else await this.restoreSelection(settings);
+        else await this.restoreSelection(this.settings ?? settings);
       } else {
         this.channelsLoading = false;
-        await this.restoreSelection(settings);
+        await this.restoreSelection(this.settings ?? settings);
       }
       const workingFolderId = this.selectedWorkingFolderId;
       if (workingFolderId && !this.selectedChannel) await this.composerRuntimeController.bind(
@@ -570,7 +579,12 @@ class ChatStore {
   }
 
   async refreshTeammates(): Promise<void> {
-    this.teammates = await chatApi.listChatTeammates(false);
+    const [teammates, archivedTeammates] = await Promise.all([
+      chatApi.listChatTeammates(false),
+      chatApi.listChatTeammates(true),
+    ]);
+    this.teammates = teammates;
+    this.archivedTeammates = archivedTeammates;
     if (this.selectedChannelId) {
       this.channelNavigationController.upsert(await chatApi.readChatChannel(this.selectedChannelId));
     }

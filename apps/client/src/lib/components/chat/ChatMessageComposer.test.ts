@@ -15,7 +15,6 @@ const teammate: ChatParticipantRead = {
   id: "participant:ganbaru",
   kind: "ai_teammate",
   displayName: "Ganbaru",
-  handle: "ganbaru",
   avatar: { schemaVersion: 1, value: {} },
   revision: 1,
   archivedAt: null,

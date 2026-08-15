@@ -47,7 +47,6 @@ export function parseChatParticipant(value: unknown, label = "Chat participant")
     id: readIdentifier(record.id, `${label}.id`),
     kind: readEnum(record.kind, CHAT_PARTICIPANT_KINDS, `${label}.kind`),
     displayName: readString(record.displayName, `${label}.displayName`),
-    handle: readNullable(record.handle, `${label}.handle`, readString),
     avatar: readVersionedJson(record.avatar, `${label}.avatar`),
     revision: readNonNegativeSafeInteger(record.revision, `${label}.revision`),
     archivedAt: readNullable(record.archivedAt, `${label}.archivedAt`, readUtcTimestamp),
@@ -75,7 +74,7 @@ export function parseChatAiTeammate(value: unknown, label = "Chat AI teammate"):
   const record = readRecord(value, label);
   return {
     participant: parseChatParticipant(record.participant, `${label}.participant`),
-    purpose: readString(record.purpose, `${label}.purpose`),
+    role: readString(record.role, `${label}.role`),
     instructions: readString(record.instructions, `${label}.instructions`),
     configurationState: readEnum(
       record.configurationState,
@@ -84,6 +83,11 @@ export function parseChatAiTeammate(value: unknown, label = "Chat AI teammate"):
     ),
     latestPolicy: readNullable(record.latestPolicy, `${label}.latestPolicy`, parseChatTeammatePolicy),
     channelCount: readNonNegativeSafeInteger(record.channelCount, `${label}.channelCount`),
+    activeAssignmentCount: readNonNegativeSafeInteger(
+      record.activeAssignmentCount,
+      `${label}.activeAssignmentCount`,
+    ),
+    hasDurableHistory: readBoolean(record.hasDurableHistory, `${label}.hasDurableHistory`),
   };
 }
 
@@ -144,7 +148,6 @@ function parseParticipantMention(value: unknown, label: string): ChatParticipant
   return {
     participantId: readIdentifier(record.participantId, `${label}.participantId`),
     participantKind: readEnum(record.participantKind, CHAT_PARTICIPANT_KINDS, `${label}.participantKind`),
-    handleSnapshot: readNullable(record.handleSnapshot, `${label}.handleSnapshot`, readString),
     labelSnapshot: readString(record.labelSnapshot, `${label}.labelSnapshot`),
     startOffset: readNonNegativeSafeInteger(record.startOffset, `${label}.startOffset`),
     endOffset: readNonNegativeSafeInteger(record.endOffset, `${label}.endOffset`),

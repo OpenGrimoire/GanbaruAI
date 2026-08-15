@@ -1,14 +1,11 @@
 <script lang="ts">
-  import FileCog from "@lucide/svelte/icons/file-cog";
-  import FileText from "@lucide/svelte/icons/file-text";
   import RefreshCw from "@lucide/svelte/icons/refresh-cw";
   import Save from "@lucide/svelte/icons/save";
   import type { ProviderFileRead, ProviderInstanceId } from "$lib/chat/contracts";
   import { readChatProviderFiles, saveChatProviderFile } from "$lib/api/chat";
   import { getLocalization } from "$lib/i18n/translator.svelte";
   import { getChat } from "$lib/stores/chat.svelte";
-  import ChatModelAvatar from "$lib/components/chat/ChatModelAvatar.svelte";
-  import { cn } from "$lib/utils";
+  import CustomSelect from "../CustomSelect.svelte";
 
   const { t } = getLocalization();
   const chat = getChat();
@@ -27,6 +24,15 @@
   );
   const selectedFile = $derived(files.find((file) => file.fileId === selectedFileId) ?? null);
   const dirty = $derived(selectedFile !== null && draft !== selectedFile.contents);
+  const providerOptions = $derived(providers.map((provider) => ({
+    value: provider.configuration.instanceId,
+    label: provider.configuration.label,
+  })));
+  const fileOptions = $derived(files.map((file) => ({
+    value: file.fileId,
+    label: fileLabel(file),
+    summary: file.format.toUpperCase(),
+  })));
 
   $effect(() => {
     if (providers.length === 0) {
@@ -131,24 +137,14 @@
       {t("settings.chat.permissions.empty")}
     </p>
   {:else}
-    <div class="flex flex-wrap gap-2" role="tablist" aria-label={t("settings.chat.permissions.providerLabel")}>
-      {#each providers as provider (provider.configuration.instanceId)}
-        {@const active = provider.configuration.instanceId === selectedInstanceId}
-        <button
-          type="button"
-          role="tab"
-          aria-selected={active}
-          class={cn(
-            "flex min-h-9 items-center gap-2 rounded-md border px-3 text-[0.8rem] font-medium transition-colors",
-            active ? "border-foreground/20 bg-accent text-foreground" : "border-border bg-background text-muted-foreground hover:bg-accent/50 hover:text-foreground",
-          )}
-          onclick={() => chooseProvider(provider.configuration.instanceId)}
-        >
-          <ChatModelAvatar familyId={provider.configuration.familyId} label={provider.configuration.label} size={22} />
-          <span>{provider.configuration.label}</span>
-        </button>
-      {/each}
-    </div>
+    <CustomSelect
+      label={t("settings.chat.permissions.providerLabel")}
+      description={t("settings.chat.permissions.providerDescription")}
+      value={selectedInstanceId ?? ""}
+      options={providerOptions}
+      onChange={(value) => chooseProvider(value)}
+      ariaLabel={t("settings.chat.permissions.providerLabel")}
+    />
 
     {#if error}
       <p role="alert" class="rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2 text-[0.733333rem] text-destructive">{error}</p>
@@ -157,25 +153,17 @@
     {#if loading}
       <div class="rounded-lg border border-border p-8 text-center text-sm text-muted-foreground">{t("common.loading")}</div>
     {:else if selectedProvider && files.length > 0}
-      <div class="flex min-h-0 flex-col overflow-hidden rounded-lg border border-border bg-card/30">
-        <div class="flex flex-wrap items-center justify-between gap-2 border-b border-border px-3 py-2.5">
-          <div class="flex flex-wrap gap-1" role="tablist" aria-label={t("settings.chat.permissions.fileLabel")}>
-            {#each files as file (file.fileId)}
-              {@const Icon = file.kind === "configuration" ? FileCog : FileText}
-              <button
-                type="button"
-                role="tab"
-                aria-selected={file.fileId === selectedFileId}
-                class={cn(
-                  "flex min-h-8 items-center gap-1.5 rounded-md px-2.5 text-[0.766667rem] font-medium text-muted-foreground hover:bg-accent/60 hover:text-foreground",
-                  file.fileId === selectedFileId && "bg-accent text-foreground",
-                )}
-                onclick={() => chooseFile(file)}
-              >
-                <Icon size={14} strokeWidth={1.75} />
-                {fileLabel(file)}
-              </button>
-            {/each}
+      <div class="flex min-h-0 flex-col gap-3">
+        <div class="flex flex-wrap items-end justify-between gap-3 px-1">
+          <div class="min-w-48 flex-1">
+            <CustomSelect
+              inline
+              class="w-full"
+              value={selectedFileId ?? ""}
+              options={fileOptions}
+              onChange={(value) => { const file = files.find((entry) => entry.fileId === value); if (file) chooseFile(file); }}
+              ariaLabel={t("settings.chat.permissions.fileLabel")}
+            />
           </div>
           <div class="flex gap-2">
             <button type="button" class="chat-settings-button" disabled={loading || saving} onclick={reload}>
@@ -190,7 +178,7 @@
         </div>
 
         {#if selectedFile}
-          <div class="border-b border-border bg-muted/20 px-3 py-2">
+          <div class="px-1">
             <p class="break-all font-mono text-[0.7rem] text-muted-foreground">{selectedFile.path}</p>
             <p class="mt-1 text-[0.666667rem] text-muted-foreground">
               {selectedFile.exists
@@ -198,20 +186,22 @@
                 : t("settings.chat.permissions.newFile", selectedFile.format.toUpperCase())}
             </p>
           </div>
-          <textarea
-            class="h-[min(26rem,48vh)] min-h-48 w-full resize-y bg-background/70 p-3 font-mono text-[0.766667rem] leading-5 text-foreground outline-none placeholder:text-muted-foreground focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring"
-            value={draft}
-            aria-label={fileLabel(selectedFile)}
-            placeholder={selectedFile.kind === "instructions"
-              ? t("settings.chat.permissions.instructionsPlaceholder")
-              : t("settings.chat.permissions.configurationPlaceholder")}
-            spellcheck="false"
-            autocapitalize="off"
-            oninput={(event) => { draft = event.currentTarget.value; error = null; }}
-          ></textarea>
-          <div class="flex flex-wrap items-center justify-between gap-2 border-t border-border px-3 py-2 text-[0.666667rem] text-muted-foreground">
-            <span>{t("settings.chat.permissions.fileLimit")}</span>
-            {#if dirty}<span class="font-medium text-status-tentative">{t("settings.chat.permissions.unsaved")}</span>{/if}
+          <div class="overflow-hidden rounded-md border border-border">
+            <textarea
+              class="h-[min(26rem,48vh)] min-h-48 w-full resize-y bg-background p-3 font-mono text-[0.766667rem] leading-5 text-foreground outline-none placeholder:text-muted-foreground focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring"
+              value={draft}
+              aria-label={fileLabel(selectedFile)}
+              placeholder={selectedFile.kind === "instructions"
+                ? t("settings.chat.permissions.instructionsPlaceholder")
+                : t("settings.chat.permissions.configurationPlaceholder")}
+              spellcheck="false"
+              autocapitalize="off"
+              oninput={(event) => { draft = event.currentTarget.value; error = null; }}
+            ></textarea>
+            <div class="flex flex-wrap items-center justify-between gap-2 border-t border-border px-3 py-2 text-[0.666667rem] text-muted-foreground">
+              <span>{t("settings.chat.permissions.fileLimit")}</span>
+              {#if dirty}<span class="font-medium text-status-tentative">{t("settings.chat.permissions.unsaved")}</span>{/if}
+            </div>
           </div>
         {/if}
       </div>

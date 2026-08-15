@@ -22,13 +22,14 @@ mod context;
 mod dispatch;
 mod reads;
 mod scheduling;
+mod teammate_lifecycle;
 mod workflow;
 
 use common::{
     conversation_item_id, has_thread_eligible_mention, json_object, map_command_receipt_error,
     map_teammate_write_error, message_revision_id, normalized_fts_query, parse_cursor,
     parse_participant_kind, reply_thread_id, serialization_error, validate_display_name,
-    validate_handle, validate_message_request, validate_policy, validate_profile_text,
+    validate_message_request, validate_policy, validate_profile_text, validate_teammate_role,
 };
 use dispatch::{deliver_assignment_input, dispatch_assignment_job};
 pub(crate) use reads::read_memberships_for_conversation;
@@ -36,6 +37,7 @@ use reads::{
     read_active_or_latest_assignment, read_assignment, read_membership, read_message, read_policy,
     read_reply_thread_page, read_teammate,
 };
+use teammate_lifecycle::{delete_unused_teammate, set_teammate_archived};
 use workflow::{
     insert_channel_copy, insert_communication_message, insert_policy_revision, next_item_ordinal,
     persist_assignment_routing, read_post_receipt, require_reply_thread, resolve_invoked_teammate,
@@ -99,8 +101,7 @@ pub async fn chat_create_teammate(
     request: CreateChatTeammateCommand,
 ) -> ChatResult<ChatAiTeammateRead> {
     let display_name = validate_display_name(&request.display_name)?;
-    let handle = validate_handle(&request.handle)?;
-    validate_profile_text(&request.purpose, 1_000, "purpose")?;
+    let role = validate_teammate_role(&request.role)?;
     validate_profile_text(&request.instructions, 65_536, "instructions")?;
     validate_policy(&app, &request.policy)?;
     let avatar_data = json_object(&request.avatar, "avatar")?;
@@ -109,13 +110,12 @@ pub async fn chat_create_teammate(
     let mut transaction = pool.begin().await.map_err(persistence_error)?;
     sqlx::query(
         "INSERT INTO chat_participants
-            (id, participant_kind, display_name, normalized_handle,
-             avatar_schema_version, avatar_data, created_at, updated_at)
-         VALUES (?, 'ai_teammate', ?, ?, ?, ?, ?, ?)",
+            (id, participant_kind, display_name, avatar_schema_version,
+             avatar_data, created_at, updated_at)
+         VALUES (?, 'ai_teammate', ?, ?, ?, ?, ?)",
     )
     .bind(request.teammate_id.as_str())
     .bind(display_name)
-    .bind(handle)
     .bind(i64::from(request.avatar.schema_version))
     .bind(avatar_data)
     .bind(now.as_str())
@@ -125,11 +125,11 @@ pub async fn chat_create_teammate(
     .map_err(map_teammate_write_error)?;
     sqlx::query(
         "INSERT INTO chat_ai_teammates
-            (participant_id, purpose, instructions, configuration_state, created_at, updated_at)
+            (participant_id, role, instructions, configuration_state, created_at, updated_at)
          VALUES (?, ?, ?, 'healthy', ?, ?)",
     )
     .bind(request.teammate_id.as_str())
-    .bind(request.purpose.trim())
+    .bind(role)
     .bind(request.instructions.trim())
     .bind(now.as_str())
     .bind(now.as_str())
@@ -165,8 +165,7 @@ pub async fn chat_update_teammate_profile(
     request: UpdateChatTeammateProfileCommand,
 ) -> ChatResult<ChatAiTeammateRead> {
     let display_name = validate_display_name(&request.display_name)?;
-    let handle = validate_handle(&request.handle)?;
-    validate_profile_text(&request.purpose, 1_000, "purpose")?;
+    let role = validate_teammate_role(&request.role)?;
     validate_profile_text(&request.instructions, 65_536, "instructions")?;
     let avatar_data = json_object(&request.avatar, "avatar")?;
     let pool = chat_pool(app, db_url).await?;
@@ -174,12 +173,11 @@ pub async fn chat_update_teammate_profile(
     let mut transaction = pool.begin().await.map_err(persistence_error)?;
     let updated = sqlx::query(
         "UPDATE chat_participants
-         SET display_name = ?, normalized_handle = ?, avatar_schema_version = ?,
-             avatar_data = ?, revision = revision + 1, updated_at = ?
+         SET display_name = ?, avatar_schema_version = ?, avatar_data = ?,
+             revision = revision + 1, updated_at = ?
          WHERE id = ? AND participant_kind = 'ai_teammate' AND revision = ?",
     )
     .bind(display_name)
-    .bind(handle)
     .bind(i64::from(request.avatar.schema_version))
     .bind(avatar_data)
     .bind(now.as_str())
@@ -196,10 +194,10 @@ pub async fn chat_update_teammate_profile(
         ));
     }
     sqlx::query(
-        "UPDATE chat_ai_teammates SET purpose = ?, instructions = ?, updated_at = ?
+        "UPDATE chat_ai_teammates SET role = ?, instructions = ?, updated_at = ?
          WHERE participant_id = ?",
     )
-    .bind(request.purpose.trim())
+    .bind(role)
     .bind(request.instructions.trim())
     .bind(now.as_str())
     .bind(request.teammate_id.as_str())
@@ -219,28 +217,18 @@ pub async fn chat_archive_teammate(
     archived: bool,
 ) -> ChatResult<ChatAiTeammateRead> {
     let pool = chat_pool(app, db_url).await?;
-    let now = now_timestamp()?;
-    let archived_at = archived.then(|| now.as_str());
-    let updated = sqlx::query(
-        "UPDATE chat_participants
-         SET archived_at = ?, revision = revision + 1, updated_at = ?
-         WHERE id = ? AND participant_kind = 'ai_teammate' AND revision = ?",
-    )
-    .bind(archived_at)
-    .bind(now.as_str())
-    .bind(teammate_id.as_str())
-    .bind(i64_value(expected_revision)?)
-    .execute(&pool)
-    .await
-    .map_err(persistence_error)?;
-    if updated.rows_affected() != 1 {
-        return Err(ChatError::new(
-            ChatErrorCode::StaleRevision,
-            "The teammate changed before the update",
-            true,
-        ));
-    }
-    read_teammate(&pool, &teammate_id).await
+    set_teammate_archived(&pool, &teammate_id, expected_revision, archived).await
+}
+
+#[tauri::command]
+pub async fn chat_delete_unused_teammate(
+    app: tauri::AppHandle,
+    db_url: String,
+    teammate_id: ChatParticipantId,
+    expected_revision: u64,
+) -> ChatResult<()> {
+    let pool = chat_pool(app, db_url).await?;
+    delete_unused_teammate(&pool, &teammate_id, expected_revision).await
 }
 
 #[tauri::command]

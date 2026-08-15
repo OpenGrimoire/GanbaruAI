@@ -87,7 +87,6 @@ pub struct ChatParticipantRead {
     pub id: ChatParticipantId,
     pub kind: ChatParticipantKind,
     pub display_name: String,
-    pub handle: Option<String>,
     pub avatar: VersionedJson,
     pub revision: u64,
     pub archived_at: Option<UtcTimestamp>,
@@ -113,11 +112,13 @@ pub struct ChatTeammatePolicyRead {
 #[serde(rename_all = "camelCase")]
 pub struct ChatAiTeammateRead {
     pub participant: ChatParticipantRead,
-    pub purpose: String,
+    pub role: String,
     pub instructions: String,
     pub configuration_state: ChatTeammateConfigurationState,
     pub latest_policy: Option<ChatTeammatePolicyRead>,
     pub channel_count: u64,
+    pub active_assignment_count: u64,
+    pub has_durable_history: bool,
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
@@ -153,7 +154,6 @@ pub struct ChatProjectPrimaryWorkingFolderRead {
 pub struct ChatParticipantMentionRead {
     pub participant_id: ChatParticipantId,
     pub participant_kind: ChatParticipantKind,
-    pub handle_snapshot: Option<String>,
     pub label_snapshot: String,
     pub start_offset: u64,
     pub end_offset: u64,

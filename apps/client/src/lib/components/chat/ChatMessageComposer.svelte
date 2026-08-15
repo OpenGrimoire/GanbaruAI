@@ -33,6 +33,7 @@
     mentionQueryAtCaret,
     participantMentionRichContent,
     participantMentionCandidates,
+    participantMentionTextSegments,
     pasteParticipantMentionSlice,
     rebaseMentionsAfterInput,
     type ParticipantMentionClipboardSlice,
@@ -40,12 +41,16 @@
   import { getLocalization } from "$lib/i18n/translator.svelte";
   import { formatShortcut } from "$lib/keyboard-shortcuts";
   import { getChat, type ChatOrganizationalDraft } from "$lib/stores/chat.svelte";
+  import { getPreferences } from "$lib/stores/preferences.svelte";
   import { portal } from "$lib/utils/portal";
   import ChatParticipantAvatar from "./ChatParticipantAvatar.svelte";
 
   type ScheduleMenuComponent = typeof import("./ChatMessageScheduleMenu.svelte").default;
 
   const PARTICIPANT_MENTION_CLIPBOARD_TYPE = "application/x-ganbaru-participant-mentions";
+  const MENTION_PICKER_WIDTH_PX = 320;
+  const MENTION_PICKER_VIEWPORT_INSET_PX = 8;
+  const MENTION_PICKER_GAP_PX = 6;
   const STOPPABLE_ASSIGNMENT_STATES = new Set<ChatWorkAssignmentState>([
     "queued",
     "working",
@@ -66,6 +71,7 @@
   } = $props();
 
   const chat = getChat();
+  const preferences = getPreferences();
   const localization = getLocalization();
   const { t } = localization;
   const initialDraft = untrack(() => chat.organizationalDraft(destination));
@@ -81,6 +87,9 @@
   let mentionQuery = $state("");
   let mentionIndex = $state(0);
   let mentionStyle = $state("");
+  let mentionPicker = $state<HTMLDivElement | null>(null);
+  let textareaScrollLeft = $state(0);
+  let textareaScrollTop = $state(0);
   let addMenuOpen = $state(false);
   let addMenuAnchor = $state<HTMLDivElement | null>(null);
   let scheduleMenuOpen = $state(false);
@@ -101,13 +110,14 @@
   let error = $state<string | null>(null);
   const teammateDetails = $derived(new Map(chat.teammates.map((teammate) => [
     teammate.participant.id,
-    { purpose: teammate.purpose, configurationState: teammate.configurationState },
+    { role: teammate.role, configurationState: teammate.configurationState },
   ])));
   const candidates = $derived(participantMentionCandidates(
     chat.selectedChannel?.memberships ?? [],
     teammateDetails,
     mentionQuery,
   ));
+  const mentionSegments = $derived(participantMentionTextSegments(text, mentions));
   const invokedAiCount = $derived(new Set(mentions
     .filter((mention) => mention.participantKind === "ai_teammate")
     .map((mention) => mention.participantId)).size);
@@ -176,6 +186,13 @@
     const layout = composerTextareaLayout(contentHeight, lineHeight);
     textarea.style.height = `${layout.height}px`;
     textarea.style.overflowY = layout.overflowing ? "auto" : "hidden";
+  }
+
+  function syncTextareaScroll(): void {
+    if (!textarea) return;
+    textareaScrollLeft = textarea.scrollLeft;
+    textareaScrollTop = textarea.scrollTop;
+    refreshMentionGeometry();
   }
 
   onMount(() => {
@@ -302,7 +319,6 @@
       if (
         typeof mention.participantId !== "string"
         || !["local_user", "ai_teammate", "human"].includes(String(mention.participantKind))
-        || (mention.handleSnapshot !== null && typeof mention.handleSnapshot !== "string")
         || typeof mention.labelSnapshot !== "string"
         || !Number.isSafeInteger(mention.startOffset)
         || !Number.isSafeInteger(mention.endOffset)
@@ -310,7 +326,6 @@
       return [{
         participantId: mention.participantId,
         participantKind: mention.participantKind as "local_user" | "ai_teammate" | "human",
-        handleSnapshot: mention.handleSnapshot as string | null,
         labelSnapshot: mention.labelSnapshot,
         startOffset: Number(mention.startOffset),
         endOffset: Number(mention.endOffset),
@@ -357,6 +372,20 @@
     void tick().then(() => {
       textarea?.focus();
       textarea?.setSelectionRange(result.selection, result.selection);
+      if (textarea) revealTextareaComposerCaret(textarea, result.selection);
+    });
+  }
+
+  function insertMentionTrigger(): void {
+    const start = selectionStart;
+    replaceRange(start, selectionEnd, "@");
+    mentionStart = start;
+    mentionQuery = "";
+    mentionIndex = 0;
+    mentionOpen = true;
+    void tick().then(() => {
+      textarea?.focus();
+      refreshMentionGeometry();
     });
   }
 
@@ -379,19 +408,84 @@
 
   function refreshMentionGeometry(): void {
     if (!textarea || !mentionOpen) return;
-    const bounds = textarea.getBoundingClientRect();
     const style = getComputedStyle(textarea);
     const lineHeight = Number.parseFloat(style.lineHeight) || 22;
-    const charactersPerLine = Math.max(12, Math.floor(bounds.width / 8));
-    const before = text.slice(0, selectionEnd);
-    const visualRows = before.split("\n").reduce((rows, line) => rows + Math.max(1, Math.ceil(line.length / charactersPerLine)), 0);
-    const estimatedTop = bounds.top + Math.min(bounds.height - lineHeight, visualRows * lineHeight);
-    const menuHeight = Math.min(280, Math.max(80, candidates.length * 58));
-    const top = estimatedTop + lineHeight + menuHeight > window.innerHeight
-      ? Math.max(8, estimatedTop - menuHeight)
-      : estimatedTop + lineHeight;
-    const left = Math.min(Math.max(8, bounds.left), Math.max(8, window.innerWidth - 328));
+    const caret = textareaCaretViewportPoint(textarea, selectionEnd);
+    const menuHeight = mentionPicker?.getBoundingClientRect().height
+      ?? Math.min(280, Math.max(80, candidates.length * 58));
+    const topAbove = caret.top - menuHeight - MENTION_PICKER_GAP_PX;
+    const topBelow = caret.top + lineHeight + MENTION_PICKER_GAP_PX;
+    const spaceAbove = caret.top - MENTION_PICKER_GAP_PX - MENTION_PICKER_VIEWPORT_INSET_PX;
+    const spaceBelow = window.innerHeight - topBelow - MENTION_PICKER_VIEWPORT_INSET_PX;
+    const top = spaceAbove >= menuHeight
+      ? topAbove
+      : spaceBelow >= menuHeight
+        ? topBelow
+        : spaceAbove >= spaceBelow
+          ? Math.max(MENTION_PICKER_VIEWPORT_INSET_PX, topAbove)
+          : Math.min(
+            topBelow,
+            Math.max(
+              MENTION_PICKER_VIEWPORT_INSET_PX,
+              window.innerHeight - menuHeight - MENTION_PICKER_VIEWPORT_INSET_PX,
+            ),
+          );
+    const left = Math.min(
+      Math.max(MENTION_PICKER_VIEWPORT_INSET_PX, caret.left),
+      Math.max(
+        MENTION_PICKER_VIEWPORT_INSET_PX,
+        window.innerWidth - MENTION_PICKER_WIDTH_PX - MENTION_PICKER_VIEWPORT_INSET_PX,
+      ),
+    );
     mentionStyle = `position:fixed;left:${Math.round(left)}px;top:${Math.round(top)}px;width:min(20rem,calc(100vw - 1rem))`;
+  }
+
+  function textareaCaretViewportPoint(
+    element: HTMLTextAreaElement,
+    caret: number,
+  ): { left: number; top: number } {
+    const style = getComputedStyle(element);
+    const mirror = document.createElement("div");
+    const marker = document.createElement("span");
+    Object.assign(mirror.style, {
+      position: "fixed",
+      left: "-10000px",
+      top: "0",
+      boxSizing: style.boxSizing,
+      width: `${element.clientWidth}px`,
+      borderTop: style.borderTop,
+      borderRight: style.borderRight,
+      borderBottom: style.borderBottom,
+      borderLeft: style.borderLeft,
+      padding: style.padding,
+      font: style.font,
+      letterSpacing: style.letterSpacing,
+      lineHeight: style.lineHeight,
+      textAlign: style.textAlign,
+      textIndent: style.textIndent,
+      textTransform: style.textTransform,
+      whiteSpace: "pre-wrap",
+      overflowWrap: "break-word",
+      visibility: "hidden",
+    });
+    mirror.textContent = text.slice(0, caret);
+    marker.textContent = "\u200b";
+    mirror.append(marker);
+    document.body.append(mirror);
+    const mirrorBounds = mirror.getBoundingClientRect();
+    const markerBounds = marker.getBoundingClientRect();
+    const elementBounds = element.getBoundingClientRect();
+    const point = {
+      left: elementBounds.left + markerBounds.left - mirrorBounds.left - element.scrollLeft,
+      top: elementBounds.top + markerBounds.top - mirrorBounds.top - element.scrollTop,
+    };
+    mirror.remove();
+    return point;
+  }
+
+  function candidateDisplayName(participant: ChatParticipantRead): string {
+    if (participant.kind !== "local_user") return participant.displayName;
+    return preferences.profileDisplayName || t("chat.timeline.you");
   }
 
   async function pickImages(): Promise<void> {
@@ -487,13 +581,14 @@
   }
 
   $effect(() => {
-    if (!addMenuOpen && !scheduleMenuOpen && !scheduledMessagesOpen) return;
+    if (!addMenuOpen && !scheduleMenuOpen && !scheduledMessagesOpen && !mentionOpen) return;
     const closeMenusFromOutside = (event: PointerEvent) => {
       const target = event.target;
       if (!(target instanceof Node)) return;
       if (addMenuOpen && !addMenuAnchor?.contains(target)) addMenuOpen = false;
       if (scheduleMenuOpen && !scheduleMenuAnchor?.contains(target)) scheduleMenuOpen = false;
       if (scheduledMessagesOpen && !scheduledMessagesAnchor?.contains(target)) scheduledMessagesOpen = false;
+      if (mentionOpen && !textarea?.contains(target) && !mentionPicker?.contains(target)) mentionOpen = false;
     };
     window.addEventListener("pointerdown", closeMenusFromOutside, true);
     return () => window.removeEventListener("pointerdown", closeMenusFromOutside, true);
@@ -630,41 +725,61 @@
   {/if}
   <div class="organizational-composer" data-organizational-composer>
   <div class="textarea-frame">
-    <textarea
-      bind:this={textarea}
-      value={text}
-      rows="2"
-      maxlength="131072"
-      {placeholder}
-      aria-label={placeholder}
-      data-chat-composer
-      oninput={handleInput}
-      onbeforeinput={handleBeforeInput}
-      onselect={updateSelection}
-      onkeyup={updateSelection}
-      onclick={updateSelection}
-      onkeydown={handleKeydown}
-      oncopy={handleCopy}
-      onpaste={handlePaste}
-      oncompositionstart={handleCompositionStart}
-      oncompositionend={updateSelection}
-    ></textarea>
+    <div class="textarea-surface">
+      {#if text}
+        <div
+          class="textarea-highlights"
+          style={`transform:translate(${-textareaScrollLeft}px,${-textareaScrollTop}px)`}
+          aria-hidden="true"
+        >{#each mentionSegments as segment, index (`${segment.kind}:${index}`)}{#if segment.kind === "mention"}<mark>{segment.text}</mark>{:else}{segment.text}{/if}{/each}{#if text.endsWith("\n")}<br />{/if}</div>
+      {/if}
+      <textarea
+        bind:this={textarea}
+        class:has-highlights={Boolean(text)}
+        value={text}
+        rows="2"
+        maxlength="131072"
+        {placeholder}
+        aria-label={placeholder}
+        aria-autocomplete="list"
+        aria-haspopup="listbox"
+        aria-controls={mentionOpen ? "chat-participant-mention-picker" : undefined}
+        aria-activedescendant={mentionOpen && candidates[mentionIndex] ? `chat-participant-mention-${candidates[mentionIndex].participant.id}` : undefined}
+        data-chat-composer
+        oninput={handleInput}
+        onbeforeinput={handleBeforeInput}
+        onselect={updateSelection}
+        onkeyup={updateSelection}
+        onclick={updateSelection}
+        onkeydown={handleKeydown}
+        onscroll={syncTextareaScroll}
+        oncopy={handleCopy}
+        onpaste={handlePaste}
+        oncompositionstart={handleCompositionStart}
+        oncompositionend={updateSelection}
+      ></textarea>
+    </div>
   </div>
 
   {#if mentionOpen}
-    <div use:portal class="mention-picker" style={mentionStyle} role="listbox" aria-label={t("chat.organization.mentionTeammate")}>
+    <div bind:this={mentionPicker} use:portal id="chat-participant-mention-picker" class="mention-picker" style={mentionStyle} role="listbox" aria-label={t("chat.organization.mentionTeammate")}>
       {#if candidates.length === 0}
         <p>{t("chat.organization.noMentionResults")}</p>
       {:else}
         {#each candidates as candidate, index (candidate.participant.id)}
-          <div class="candidate-row" class:active={index === mentionIndex} role="option" aria-selected={index === mentionIndex}>
-            <button type="button" class="candidate-select" onclick={() => chooseMention(candidate.participant)}>
-            <ChatParticipantAvatar participant={candidate.participant} size={29} />
-            <span class="candidate-copy"><strong>{candidate.participant.displayName}</strong><small>{candidate.purpose || `@${candidate.participant.handle ?? ""}`}</small></span>
+          <div class="candidate-row" class:active={index === mentionIndex}>
+            <button id={`chat-participant-mention-${candidate.participant.id}`} type="button" class="candidate-select" role="option" aria-selected={index === mentionIndex} tabindex="-1" onpointerenter={() => { mentionIndex = index; }} onpointerdown={(event) => event.preventDefault()} onclick={() => chooseMention(candidate.participant)}>
+            <ChatParticipantAvatar participant={candidate.participant} size={31} />
+            <span class="candidate-copy">
+              <span class="candidate-identity"><strong>{candidateDisplayName(candidate.participant)}</strong></span>
+              {#if candidate.role}<small>{candidate.role}</small>
+              {:else if candidate.participant.kind !== "ai_teammate"}<small>{t("chat.organization.yourProfile")}</small>{/if}
+            </span>
             </button>
             {#if candidate.configurationState && candidate.configurationState !== "healthy"}
-              <span class="needs-setup">{t("chat.organization.needsSetup")}</span>
-              <button type="button" class="configure" onclick={() => configureTeammate(candidate.participant.id)}><Settings size={12} />{t("chat.organization.configure")}</button>
+              <button type="button" class="configure" onpointerdown={(event) => event.preventDefault()} onclick={() => configureTeammate(candidate.participant.id)}><Settings size={12} />{t("chat.organization.configure")}</button>
+            {:else}
+              <span class="candidate-kind"><i></i>{t("chat.organization.availableParticipant")}</span>
             {/if}
           </div>
         {/each}
@@ -696,7 +811,7 @@
       </div>
       <button type="button" class="tool-button" aria-label={t("chat.organization.bold")} onclick={() => wrapSelection("**")}><Bold size={15} /></button>
       <button type="button" class="tool-button" aria-label={t("chat.organization.italic")} onclick={() => wrapSelection("_")}><Italic size={15} /></button>
-      <button type="button" class="tool-button" aria-label={t("chat.organization.mentionTeammate")} onclick={() => { replaceRange(selectionStart, selectionEnd, "@"); }}><AtSign size={15} /></button>
+      <button type="button" class="tool-button" aria-label={t("chat.organization.mentionTeammate")} onpointerdown={(event) => event.preventDefault()} onclick={insertMentionTrigger}><AtSign size={15} /></button>
       <div bind:this={scheduleMenuAnchor} class="menu-anchor">
         <button
           type="button"
@@ -770,7 +885,12 @@
   .scheduled-summary-anchor > button { min-height:1.5rem; border-radius:0.4rem; padding:0.2rem 0.45rem; color:var(--foreground); font-size: calc(0.68rem * var(--type-scale)); font-weight:500; }
   .scheduled-summary-anchor > button:hover,.scheduled-summary-anchor > button[aria-expanded="true"] { background:color-mix(in srgb,var(--background) 70%,transparent); }
   .textarea-frame { padding:1rem 1.25rem 0; }
-  textarea { display:block; box-sizing:border-box; width:100%; min-height:2lh; max-height:6lh; resize:none; overflow-y:hidden; border:0; background:transparent; padding:0; color:var(--foreground); font:inherit; font-size:var(--chat-conversation-font-size,calc(0.875rem * var(--type-scale))); line-height:var(--chat-conversation-line-height,calc(1.3125rem * var(--type-scale))); outline:none; }
+  .textarea-surface { position:relative; overflow:hidden; }
+  textarea,.textarea-highlights { box-sizing:border-box; width:100%; min-height:2lh; border:0; padding:0; font:inherit; font-size:var(--chat-conversation-font-size,calc(0.875rem * var(--type-scale))); line-height:var(--chat-conversation-line-height,calc(1.3125rem * var(--type-scale))); overflow-wrap:break-word; white-space:pre-wrap; }
+  textarea { position:relative; display:block; max-height:6lh; resize:none; overflow-y:hidden; background:transparent; color:var(--foreground); outline:none; }
+  textarea.has-highlights { color:transparent; caret-color:var(--foreground); -webkit-text-fill-color:transparent; }
+  .textarea-highlights { pointer-events:none; position:absolute; inset:0; color:var(--foreground); transform-origin:top left; }
+  .textarea-highlights mark { border-radius:0.2rem; background:color-mix(in srgb,var(--primary) 15%,transparent); color:color-mix(in srgb,var(--primary) 76%,var(--foreground)); }
   textarea::placeholder { color:color-mix(in srgb,var(--muted-foreground) 52%,transparent); }
   .composer-footer { display:flex; min-height:2.6rem; align-items:center; justify-content:space-between; gap:0.5rem; padding:0 0.75rem 0.5rem; }
   .composer-tools { display:flex; align-items:center; gap:0.3rem; }
@@ -795,16 +915,20 @@
   .context-chips { display:flex; flex-wrap:wrap; gap:0.3rem; padding:0 0.75rem 0.35rem; }
   .context-chips button { display:flex; max-width:14rem; align-items:center; gap:0.25rem; border-radius:999px; background:var(--accent); padding:0.22rem 0.45rem; font-size: calc(0.68rem * var(--type-scale)); }
   .context-chips button span { color:var(--muted-foreground); }
-  .mention-picker { z-index:100; max-height:min(20rem,60vh); overflow-y:auto; border:1px solid var(--border); border-radius:0.6rem; background:var(--popover); padding:0.3rem; box-shadow:0 14px 38px rgb(0 0 0 / 0.2); }
+  .mention-picker { z-index:100; max-height:min(20rem,60vh); overflow-y:auto; border:1px solid color-mix(in srgb,var(--border) 92%,var(--foreground)); border-radius:0.7rem; background:var(--popover); padding:0.35rem; }
   .mention-picker :global(svg.lucide) { stroke-width:var(--icon-stroke-width); }
-  .candidate-row { display:flex; width:100%; min-height:3rem; align-items:center; gap:0.3rem; border-radius:0.4rem; padding:0.2rem; }.candidate-row:is(:hover,.active) { background:var(--accent); }
-  .candidate-select { display:flex; min-width:0; flex:1; align-items:center; gap:0.5rem; padding:0.2rem; text-align:left; }
+  .candidate-row { display:flex; width:100%; min-height:3.35rem; align-items:flex-start; gap:0.35rem; border-radius:0.45rem; padding:0.3rem 0.4rem; }.candidate-row:is(:hover,.active) { background:var(--accent); }
+  .candidate-select { display:flex; min-width:0; flex:1; align-items:center; gap:0.6rem; text-align:left; }
   .mention-picker > p { padding:0.65rem; color:var(--muted-foreground); font-size: calc(0.75rem * var(--type-scale)); }
   .candidate-copy { display:grid; min-width:0; flex:1; }
   .candidate-copy strong,.candidate-copy small { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
   .candidate-copy strong { font-size: calc(0.76rem * var(--type-scale)); }.candidate-copy small { color:var(--muted-foreground); font-size: calc(0.67rem * var(--type-scale)); }
-  .needs-setup { flex:0 0 auto; border:1px solid var(--border); border-radius:999px; padding:0.1rem 0.35rem; color:var(--muted-foreground); font-size: calc(0.6rem * var(--type-scale)); }
-  .needs-setup { color:var(--destructive); }.configure { display:flex; align-items:center; gap:0.2rem; font-size: calc(0.65rem * var(--type-scale)); }
+  .candidate-identity { display:flex; min-width:0; align-items:baseline; gap:0.4rem; }
+  .candidate-identity strong { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .candidate-kind { display:flex; flex:0 0 auto; align-items:center; gap:0.3rem; margin-top:0.18rem; color:var(--muted-foreground); font-size:calc(0.6rem * var(--type-scale)); }
+  .candidate-kind i { width:0.38rem; height:0.38rem; border-radius:999px; background:var(--action-confirm); }
+  .configure { display:flex; flex:0 0 auto; align-items:center; gap:0.25rem; margin-top:0.02rem; border-radius:0.35rem; padding:0.25rem 0.35rem; color:var(--destructive); font-size:calc(0.65rem * var(--type-scale)); }
+  .configure:hover,.configure:focus-visible { background:color-mix(in srgb,var(--destructive) 9%,transparent); }
   .composer-error { padding:0 0.75rem 0.5rem; color:var(--destructive); font-size: calc(0.7rem * var(--type-scale)); }
   @media (forced-colors:active) { .organizational-composer,.composer-menu,.mention-picker { border:1px solid CanvasText; } }
 </style>

@@ -19,8 +19,6 @@ use crate::vault;
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
-const DEFAULT_PROVIDER_ACCENT_COLOR: &str = "#2563eb";
-
 pub(crate) fn provider_family_is_discoverable(metadata: &ProviderFamilyMetadataRead) -> bool {
     metadata.implementation_status == ProviderImplementationStatus::Available
         && metadata
@@ -72,7 +70,6 @@ pub(crate) fn default_provider_configuration(
         instance_id,
         family_id: metadata.family_id.clone(),
         label: metadata.display_name.clone(),
-        accent_color: Some(DEFAULT_PROVIDER_ACCENT_COLOR.to_string()),
         enabled: true,
         executable,
         provider_home: None,

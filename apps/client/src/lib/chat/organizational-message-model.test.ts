@@ -22,7 +22,6 @@ function message(itemId: string, kind: ChatParticipantKind): ChatMessageRead {
       id: `participant:${itemId}`,
       kind,
       displayName: itemId,
-      handle: null,
       avatar: { schemaVersion: 1, value: {} },
       revision: 1,
       archivedAt: null,

@@ -69,11 +69,13 @@
     initialSection,
     initialDoomscrollingTab,
     initialChatSubsection,
+    initialChatTeammateId,
   }: {
     onClose: () => void;
     initialSection?: SectionId;
     initialDoomscrollingTab?: DoomscrollingSettingsTab;
     initialChatSubsection?: ChatSettingsSubsection;
+    initialChatTeammateId?: string;
   } = $props();
 
   const themeEditor = getThemeEditor();
@@ -89,7 +91,9 @@
   const SECTIONS = SETTINGS_SECTIONS;
 
   const initialActiveSection = untrack(() => initialSection ?? "appearance");
+  const initialActiveChatSubsection = untrack(() => initialChatSubsection ?? "teammates");
   let activeSection = $state<SectionId>(initialActiveSection);
+  let activeChatSubsection = $state<ChatSettingsSubsection>(initialActiveChatSubsection);
   let detailView = $state<SettingsDetailView | null>(null);
   let detailLoadState = $state<LazyComponentLoadState<
     SettingsDetailKind,
@@ -108,6 +112,9 @@
   const useIconRail = $derived(!useTopNav && viewport.below("regular"));
   const settingsScrollbarInset = $derived(useTopNav ? 12 : useIconRail ? 16 : 24);
   const settingsContentPaddingClass = $derived(useTopNav ? "px-3 py-4" : useIconRail ? "px-5 py-5" : "p-8");
+  const chatTeammatesUsesInternalScroll = $derived(
+    activeSection === "chat" && activeChatSubsection === "teammates",
+  );
   function requestSettingsDetail(kind: SettingsDetailKind, retry = false): void {
     if (!retry && detailLoadState?.key === kind) return;
     const loadingState = beginLazyComponentLoad(detailLoadState, kind);
@@ -214,6 +221,7 @@
 
   function openChatProviderSetup(target: ChatProviderSetupTarget): void {
     activeSection = "chat";
+    activeChatSubsection = "providers";
     detailView = { kind: "chat-provider", target };
     detailScrollEl = undefined;
     detailScrollbarInsetTop = 0;
@@ -403,7 +411,7 @@
         data-settings-content
         class={cn(
           "h-full min-h-0 bg-background/40 dark:bg-black/20",
-          detailView || activeSection === "shortcuts"
+          detailView || activeSection === "shortcuts" || chatTeammatesUsesInternalScroll
             ? "overflow-hidden"
             : "hide-scrollbar overflow-y-auto",
           detailView ? "p-0" : settingsContentPaddingClass,
@@ -491,8 +499,13 @@
             />
         {:else if activeSection === "chat"}
             <ChatSection
-              initialSubsection={initialChatSubsection}
+              initialSubsection={activeChatSubsection}
+              {initialChatTeammateId}
               onOpenProviderSetup={openChatProviderSetup}
+              onSubsectionChange={(subsection) => {
+                activeChatSubsection = subsection;
+                scrollSettingsToTop();
+              }}
             />
         {:else}
           {@const SectionComponent = activeSectionComponent}
@@ -506,7 +519,7 @@
           stickyBottom={detailScrollbarInsetBottom}
           wheelPassthrough
         />
-      {:else if activeSection !== "shortcuts"}
+      {:else if activeSection !== "shortcuts" && !chatTeammatesUsesInternalScroll}
         <CalendarScrollbar
           scrollContainer={settingsScrollEl}
           stickyTop={settingsScrollbarInset}

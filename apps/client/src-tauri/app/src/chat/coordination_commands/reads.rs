@@ -92,13 +92,15 @@ pub(super) async fn read_membership(
         })
     })
     .collect::<ChatResult<Vec<_>>>()?;
+    let participant = read_participant(pool, participant_id).await?;
+    let stored_addressable = row
+        .try_get::<i64, _>("addressable")
+        .map_err(persistence_error)?
+        != 0;
     Ok(ChatConversationMembershipRead {
         conversation_id: conversation_id.clone(),
-        participant: read_participant(pool, participant_id).await?,
-        addressable: row
-            .try_get::<i64, _>("addressable")
-            .map_err(persistence_error)?
-            != 0,
+        addressable: stored_addressable && participant.archived_at.is_none(),
+        participant,
         approval_policy: parse_approval_policy(
             &row.try_get::<String, _>("approval_policy")
                 .map_err(persistence_error)?,
@@ -114,8 +116,8 @@ pub(super) async fn read_participant(
     participant_id: &ChatParticipantId,
 ) -> ChatResult<ChatParticipantRead> {
     let row = sqlx::query(
-        "SELECT participant_kind, display_name, normalized_handle,
-                avatar_schema_version, avatar_data, revision, archived_at
+        "SELECT participant_kind, display_name, avatar_schema_version,
+                avatar_data, revision, archived_at
          FROM chat_participants WHERE id = ?",
     )
     .bind(participant_id.as_str())
@@ -136,9 +138,6 @@ pub(super) async fn read_participant(
                 .map_err(persistence_error)?,
         )?,
         display_name: row.try_get("display_name").map_err(persistence_error)?,
-        handle: row
-            .try_get("normalized_handle")
-            .map_err(persistence_error)?,
         avatar: VersionedJson {
             schema_version: u32_value(
                 row.try_get("avatar_schema_version")
@@ -155,8 +154,9 @@ pub(super) async fn read_teammate(
     pool: &SqlitePool,
     teammate_id: &ChatParticipantId,
 ) -> ChatResult<ChatAiTeammateRead> {
+    let lifecycle = super::teammate_lifecycle::read_teammate_lifecycle(pool, teammate_id).await?;
     let row = sqlx::query(
-        "SELECT purpose, instructions, latest_policy_revision, configuration_state,
+        "SELECT role, instructions, latest_policy_revision, configuration_state,
                 (SELECT count(*) FROM chat_conversation_memberships membership
                  WHERE membership.participant_id = teammate.participant_id
                    AND membership.removed_at IS NULL) AS channel_count
@@ -173,7 +173,7 @@ pub(super) async fn read_teammate(
     )?;
     Ok(ChatAiTeammateRead {
         participant: read_participant(pool, teammate_id).await?,
-        purpose: row.try_get("purpose").map_err(persistence_error)?,
+        role: row.try_get("role").map_err(persistence_error)?,
         instructions: row.try_get("instructions").map_err(persistence_error)?,
         configuration_state: parse_configuration_state(
             &row.try_get::<String, _>("configuration_state")
@@ -185,6 +185,8 @@ pub(super) async fn read_teammate(
             Some(read_policy(pool, teammate_id, latest_revision).await?)
         },
         channel_count: u64_value(row.try_get("channel_count").map_err(persistence_error)?)?,
+        active_assignment_count: lifecycle.active_assignment_count,
+        has_durable_history: lifecycle.has_durable_history,
     })
 }
 

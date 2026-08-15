@@ -150,7 +150,6 @@ pub(super) fn configuration(home: &Path) -> ProviderInstanceConfig {
         "instanceId": "claude-instance-1",
         "familyId": "claude",
         "label": "Claude",
-        "accentColor": null,
         "enabled": true,
         "executable": "claude",
         "providerHome": home,

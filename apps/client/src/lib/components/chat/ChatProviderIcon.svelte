@@ -2,7 +2,6 @@
   let {
     familyId,
     label,
-    accentColor = null,
     monochromeColor = null,
     colorOverride = null,
     monochrome = false,
@@ -10,7 +9,6 @@
   }: {
     familyId: string;
     label: string;
-    accentColor?: string | null;
     monochromeColor?: string | null;
     colorOverride?: string | null;
     monochrome?: boolean;
@@ -32,7 +30,6 @@
   class:monochrome
   style:width={`${size}px`}
   style:height={`${size}px`}
-  style:--provider-accent={accentColor ?? "currentColor"}
   style:--provider-monochrome={monochromeColor ?? "var(--foreground)"}
   style:color={colorOverride ?? undefined}
   aria-hidden="true"
@@ -88,5 +85,5 @@
   .provider-icon.alibaba:not(.monochrome) { color: #ff6a00; }
   .provider-icon.minimax:not(.monochrome) { color: #f05252; }
   .provider-icon svg { display: block; width: 100%; height: 100%; fill: currentColor; }
-  .provider-initials { color: var(--provider-accent); font-size: 0.6em; font-weight: 700; line-height: 1; }
+  .provider-initials { color: currentColor; font-size: 0.6em; font-weight: 700; line-height: 1; }
 </style>

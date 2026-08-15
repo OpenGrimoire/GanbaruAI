@@ -21,7 +21,6 @@ pub struct ProviderInstanceConfig {
     pub instance_id: ProviderInstanceId,
     pub family_id: ProviderFamilyId,
     pub label: String,
-    pub accent_color: Option<String>,
     pub enabled: bool,
     pub executable: String,
     pub provider_home: Option<String>,

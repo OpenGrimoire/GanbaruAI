@@ -12,6 +12,15 @@ export function chatErrorMessage(error: unknown, fallback = FALLBACK_CHAT_ERROR)
   return stringValue(nested?.message) ?? stringValue(nested?.detail) ?? fallback;
 }
 
+/** Extracts the field associated with a structured Chat validation failure. */
+export function chatErrorField(error: unknown): string | null {
+  const record = objectRecord(error);
+  if (!record) return null;
+  const direct = stringValue(record.field);
+  if (direct) return direct;
+  return stringValue(objectRecord(record.error)?.field);
+}
+
 function objectRecord(value: unknown): Record<string, unknown> | null {
   return typeof value === "object" && value !== null && !Array.isArray(value)
     ? value as Record<string, unknown>
