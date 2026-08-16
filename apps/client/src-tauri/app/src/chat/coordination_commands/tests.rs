@@ -1,6 +1,6 @@
 use super::common::{
     has_thread_eligible_mention, map_teammate_write_error, normalized_fts_query,
-    validate_message_request, validate_teammate_role,
+    valid_teammate_effort, validate_message_request, validate_teammate_role,
 };
 use super::scheduling::{claim_scheduled_message_for_immediate_send, validate_scheduled_for};
 use super::*;
@@ -9,6 +9,16 @@ use sqlx::{Row, SqlitePool};
 
 const REMOVE_EMPTY_UNMENTIONED_CHAT_THREADS: &str =
     include_str!("../../../../migrations/20260805014734_remove_empty_unmentioned_chat_threads.sql");
+
+#[test]
+fn teammate_effort_accepts_every_catalog_reasoning_level() {
+    for effort in [
+        "none", "minimal", "low", "medium", "high", "xhigh", "max", "ultra",
+    ] {
+        assert!(valid_teammate_effort(effort), "rejected {effort}");
+    }
+    assert!(!valid_teammate_effort("automatic"));
+}
 
 async fn migrated_pool() -> SqlitePool {
     let pool = sqlx::sqlite::SqlitePoolOptions::new()

@@ -234,7 +234,8 @@ fn native_model_metadata_resolves_names_and_supported_effort_levels() {
         "displayName": "Default (recommended)",
         "description": "Use the default model (currently Opus 4.8)",
         "supportsEffort": true,
-        "supportedEffortLevels": ["low", "medium", "high", "xhigh", "max"]
+        "supportedEffortLevels": ["low", "medium", "high", "xhigh", "max"],
+        "supportsFastMode": true
     }, {
         "value": "sonnet",
         "resolvedModel": "claude-sonnet-5",
@@ -283,6 +284,20 @@ fn native_model_metadata_resolves_names_and_supported_effort_levels() {
     ));
     assert_eq!(models[1].options.len(), 1);
     assert!(models[2].options.is_empty());
+}
+
+#[test]
+fn custom_model_names_do_not_infer_fast_mode_support() {
+    let models =
+        provider_models(Vec::new(), &["claude-opus-9".to_string()], &BTreeMap::new()).unwrap();
+
+    assert_eq!(models.len(), 1);
+    assert!(models[0].options.iter().all(|definition| {
+        !matches!(
+            definition,
+            ModelOptionDefinition::Boolean { key, .. } if key == "fastMode"
+        )
+    }));
 }
 
 #[test]

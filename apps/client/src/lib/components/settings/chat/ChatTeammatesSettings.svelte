@@ -11,7 +11,6 @@
   import {
     copyModelOptionSelections,
     copyVersionedJson,
-    defaultModelOptions,
     resolveDefaultProviderModel,
   } from "$lib/chat/composer-model";
   import type {
@@ -19,13 +18,11 @@
     ChatApprovalPolicy,
     ChatConversationMembershipRead,
     ModelOptionSelection,
-    ProviderInstanceRead,
-    ProviderModel,
   } from "$lib/chat/contracts";
-  import { recommendedProviderModel } from "$lib/chat/composer-model";
   import { chatErrorField, chatErrorMessage } from "$lib/chat/error-presentation";
   import { modelCompany } from "$lib/chat/model-company";
   import {
+    teammateExecutionSummary,
     teammateMembershipDraftSnapshot,
     teammateProfileDraftSnapshot,
   } from "$lib/chat/teammate-draft";
@@ -35,6 +32,7 @@
   import CustomSelect from "$lib/components/settings/CustomSelect.svelte";
   import ConfirmDialog from "$lib/components/ui/ConfirmDialog.svelte";
   import ChatModelAvatar from "$lib/components/chat/ChatModelAvatar.svelte";
+  import ChatModelControls from "$lib/components/chat/ChatModelControls.svelte";
   import ChatParticipantAvatar from "$lib/components/chat/ChatParticipantAvatar.svelte";
 
   let { initialTeammateId }: { initialTeammateId?: string } = $props();
@@ -55,8 +53,10 @@
   let instructions = $state("");
   let providerId = $state("");
   let modelId = $state("");
+  let providerManagedModel = $state(false);
   let modelOptions = $state<ModelOptionSelection[]>([]);
-  let effort = $state("medium");
+  let effort = $state<string | null>(null);
+  let speed = $state<string | null>(null);
   let approvalPolicy = $state<ChatApprovalPolicy>("ask_for_approval");
   let channelId = $state("");
   let folderIds = $state<string[]>([]);
@@ -92,26 +92,19 @@
   const projectFolders = $derived(chat.workingFolders.filter((entry) => (
     entry.workingFolder.projectId === channel?.projectId && entry.workingFolder.archivedAt === null
   )));
-  const providerOptions = $derived(providers.map((provider) => ({
-    value: provider.configuration.instanceId,
-    label: provider.configuration.label,
-    description: provider.lastProbe?.state === "healthy"
-      ? t("settings.chat.providers.healthy")
-      : t("settings.chat.providers.unavailable"),
-  })));
-  const modelSelectOptions = $derived(models.map((model) => ({ value: model.id, label: model.displayName })));
   const channelOptions = $derived(chat.activeChannels.map((entry) => ({ value: entry.id, label: `#${entry.name}` })));
   const folderOptions = $derived(projectFolders.map((entry) => ({
     value: entry.workingFolder.id,
     label: entry.workingFolder.displayName,
   })));
-  const effortOptions = $derived(modelEffortOptions(selectedModel));
   const draftCompany = $derived(selectedProvider
     ? modelCompany(selectedProvider.configuration.familyId, selectedModel)
     : null);
+  const modelSelectionValid = $derived(providerManagedModel !== Boolean(modelId));
   const draftConfigurationState = $derived(
     selectedProvider?.configuration.enabled
       && selectedProvider.lastProbe?.state === "healthy"
+      && modelSelectionValid
       && Boolean(defaultFolderId)
       ? "healthy"
       : "needs_setup",
@@ -137,6 +130,7 @@
       && role.trim()
       && !nameTaken
       && providerId
+      && modelSelectionValid
       && channelId
       && defaultFolderId
       && dirty
@@ -150,8 +144,10 @@
       instructions,
       providerId,
       modelId,
+      providerManagedModel,
       modelOptions,
       effort,
+      speed,
     });
   }
 
@@ -219,8 +215,11 @@
     instructions = teammate.instructions;
     providerId = teammate.latestPolicy?.providerInstanceId ?? "";
     modelId = teammate.latestPolicy?.modelId ?? "";
+    providerManagedModel = teammate.latestPolicy?.providerManagedModel ?? false;
     modelOptions = copyModelOptionSelections(teammate.latestPolicy?.modelOptions ?? []);
-    effort = teammate.latestPolicy?.effort ?? selectedEffort(modelOptions) ?? "medium";
+    const summary = teammateExecutionSummary(modelOptions, selectedModel);
+    effort = summary.effort ?? teammate.latestPolicy?.effort ?? null;
+    speed = summary.speed ?? teammate.latestPolicy?.speed ?? null;
     channelId = chat.selectedChannelId ?? chat.activeChannels[0]?.id ?? "";
     profileBaselineSnapshot = currentProfileSnapshot();
     void loadMembership(teammate, channelId);
@@ -242,8 +241,11 @@
     const resolved = resolveDefaultProviderModel(providers);
     providerId = resolved?.provider.configuration.instanceId ?? "";
     modelId = resolved?.model?.id ?? "";
+    providerManagedModel = resolved?.providerManaged ?? false;
     modelOptions = copyModelOptionSelections(resolved?.options ?? []);
-    effort = selectedEffort(modelOptions) ?? "medium";
+    const summary = teammateExecutionSummary(modelOptions, resolved?.model ?? null);
+    effort = summary.effort;
+    speed = summary.speed;
     const managed = projectFolders.find((entry) => entry.workingFolder.kind === "managed") ?? projectFolders[0];
     defaultFolderId = managed?.workingFolder.id ?? "";
     folderIds = defaultFolderId ? [defaultFolderId] : [];
@@ -327,30 +329,21 @@
     membershipRevision = membership?.revision ?? null;
   }
 
-  function selectProvider(value: string): void {
-    providerId = value;
-    const provider = providers.find((entry) => entry.configuration.instanceId === value) ?? null;
-    const resolved = provider ? strongestModel(provider) : null;
-    modelId = resolved?.id ?? "";
-    modelOptions = resolved ? defaultModelOptions(resolved.options) : [];
-    effort = selectedEffort(modelOptions) ?? "medium";
-  }
-
-  function selectModel(value: string): void {
-    modelId = value;
-    const model = models.find((entry) => entry.id === value) ?? null;
-    modelOptions = model ? defaultModelOptions(model.options) : [];
-    effort = selectedEffort(modelOptions) ?? "medium";
-  }
-
-  function selectEffort(value: string): void {
-    effort = value;
-    const key = effortOptionKey(selectedModel);
-    if (!key) return;
-    modelOptions = [
-      ...modelOptions.filter((option) => option.key !== key),
-      { key, value: { kind: "choice", value } },
-    ];
+  function selectExecution(selection: {
+    providerInstanceId: string | null;
+    modelId: string | null;
+    providerManaged: boolean;
+    options: ModelOptionSelection[];
+  }): void {
+    providerId = selection.providerInstanceId ?? "";
+    modelId = selection.modelId ?? "";
+    providerManagedModel = selection.providerManaged;
+    modelOptions = copyModelOptionSelections(selection.options);
+    const provider = providers.find((entry) => entry.configuration.instanceId === providerId) ?? null;
+    const model = provider?.modelCatalog?.models.find((entry) => entry.id === modelId) ?? null;
+    const summary = teammateExecutionSummary(modelOptions, model);
+    effort = summary.effort;
+    speed = summary.speed;
   }
 
   function toggleFolder(folderId: string): void {
@@ -371,11 +364,11 @@
     try {
       const policy = {
         providerInstanceId: providerId,
-        providerManagedModel: !modelId,
+        providerManagedModel,
         modelId: modelId || null,
         modelOptions: copyModelOptionSelections(modelOptions),
-        effort: effort || null,
-        speed: null,
+        effort,
+        speed,
         providerOptions: { schemaVersion: 1, value: {} },
       };
       const membership = {
@@ -527,28 +520,6 @@
     return labels[policy];
   }
 
-  function strongestModel(provider: ProviderInstanceRead): ProviderModel | null {
-    return recommendedProviderModel(provider);
-  }
-
-  function effortOptionKey(model: ProviderModel | null): string | null {
-    const definition = model?.options.find((option) => (
-      option.kind === "choice" && /effort|reasoning/iu.test(`${option.key} ${option.label}`)
-    ));
-    return definition?.key ?? null;
-  }
-
-  function modelEffortOptions(model: ProviderModel | null): Array<{ value: string; label: string }> {
-    const key = effortOptionKey(model);
-    const definition = model?.options.find((option) => option.key === key);
-    if (definition?.kind !== "choice") return [{ value: "medium", label: "Medium" }];
-    return definition.options.map((option) => ({ value: option.value, label: option.label }));
-  }
-
-  function selectedEffort(options: readonly ModelOptionSelection[]): string | null {
-    const selection = options.find((option) => /effort|reasoning/iu.test(option.key));
-    return selection?.value.kind === "choice" ? selection.value.value : null;
-  }
 </script>
 
 <section class="teammate-settings" data-chat-settings-subsection="teammates">
@@ -665,9 +636,7 @@
       <section class="editor-section">
         <div class="section-heading"><h4>{t("settings.chat.teammates.executionSection")}</h4></div>
         <div class="field-grid">
-          <div class="field"><span>{t("settings.chat.teammates.provider")}<i class="required-marker" aria-hidden="true">*</i></span><CustomSelect inline class="w-full" value={providerId} options={providerOptions} ariaLabel={t("settings.chat.teammates.provider")} disabled={archivedMode} onChange={selectProvider} /></div>
-          <div class="field"><span>{t("settings.chat.teammates.model")}</span><CustomSelect inline class="w-full" value={modelId} options={modelSelectOptions} ariaLabel={t("settings.chat.teammates.model")} disabled={archivedMode} onChange={selectModel} /></div>
-          <div class="field"><span>{t("settings.chat.teammates.effort")}</span><CustomSelect inline class="w-full" value={effort} options={effortOptions} ariaLabel={t("settings.chat.teammates.effort")} disabled={archivedMode} onChange={selectEffort} /></div>
+          <div class="field full execution-model-field"><span>{t("settings.chat.teammates.model")}<i class="required-marker" aria-hidden="true">*</i></span><ChatModelControls value={{ providerInstanceId: providerId || null, modelId: modelId || null, providerManaged: providerManagedModel, options: modelOptions }} disabled={archivedMode} onChange={selectExecution} /></div>
           <div class="field"><span>{t("settings.chat.teammates.approval")}</span><CustomSelect inline class="w-full" value={approvalPolicy} options={(["ask_for_approval", "approve_for_me", "full_access", "custom"] as const).map((value) => ({ value, label: approvalLabel(value) }))} ariaLabel={t("settings.chat.teammates.approval")} disabled={archivedMode} onChange={(value) => { approvalPolicy = value as ChatApprovalPolicy; }} /></div>
         </div>
       </section>
@@ -775,11 +744,11 @@
   .settings-primary-button { background:var(--primary); color:var(--primary-foreground); padding-inline:0.75rem; font-size:calc(0.8rem * var(--type-scale)); }
   .settings-primary-button:hover:not(:disabled) { background:color-mix(in srgb,var(--primary) 90%,transparent); }
   .settings-button:disabled,.settings-primary-button:disabled { cursor:not-allowed; opacity:0.5; }
-  .directory-layout { display:grid; min-height:0; grid-template-columns:minmax(12.5rem,0.62fr) minmax(0,1.6fr); }
-  .directory-panel { position:relative; min-width:0; min-height:0; }
+  .directory-layout { display:grid; min-height:0; isolation:isolate; grid-template-columns:minmax(12.5rem,0.62fr) minmax(0,1.6fr); }
+  .directory-panel { position:relative; z-index:1; min-width:0; min-height:0; }
   .directory-list-frame { position:relative; height:100%; min-height:0; }
   .directory-scroll { height:100%; min-height:0; overflow-y:auto; overscroll-behavior:contain; padding-right:0.75rem; }
-  .detail-panel { min-width:0; min-height:0; border-left:1px solid var(--border); padding-left:1rem; }
+  .detail-panel { position:relative; z-index:2; min-width:0; min-height:0; border-left:1px solid var(--border); padding-left:1rem; }
   .teammate-directory { display:grid; align-content:start; padding-block:0.15rem; }
   .teammate-directory > button { --teammate-row-surface:var(--background); display:grid; width:auto; grid-template-columns:auto minmax(0,1fr); align-items:center; gap:0.6rem; margin-inline:0.2rem; border-radius:0.5rem; padding:0.6rem; text-align:left; }
   .teammate-directory > button:hover { --teammate-row-surface:color-mix(in srgb,var(--accent) 45%,var(--background)); background:color-mix(in srgb,var(--accent) 45%,transparent); }
@@ -817,6 +786,8 @@
   .field-grid .field { display:grid; min-width:0; align-content:start; gap:0.3rem; color:var(--muted-foreground); font-size:calc(0.7rem * var(--type-scale)); font-weight:500; }
   .required-marker { margin-left:0.15rem; color:var(--destructive); font-style:normal; }
   .field-grid .field.full { grid-column:1/-1; }
+  .execution-model-field :global(.model-control) { z-index:2; max-width:100%; justify-self:start; }
+  .execution-model-field :global(.model-trigger) { min-width:12rem; background:color-mix(in srgb,var(--muted) 72%,transparent); }
   .field-grid input,.field-grid textarea { box-sizing:border-box; width:100%; min-width:0; appearance:none; border:1px solid var(--border); border-radius:0.375rem; background:var(--background); background-clip:padding-box; padding:0.45rem 0.55rem; color:var(--foreground); outline:none; font-weight:400; }
   .field-grid input:disabled,.field-grid textarea:disabled { cursor:not-allowed; background:color-mix(in srgb,var(--muted) 35%,var(--background)); color:var(--muted-foreground); }
   .field-grid input:focus,.field-grid textarea:focus { border-color:var(--ring); }

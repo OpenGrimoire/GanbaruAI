@@ -113,6 +113,8 @@ pub struct ClaudeModel {
     pub supports_effort: bool,
     #[serde(default)]
     pub supported_effort_levels: Vec<String>,
+    #[serde(default)]
+    pub supports_fast_mode: bool,
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -531,7 +533,7 @@ pub fn provider_models(
         let options = claude_model_options(
             model.supports_effort,
             &model.supported_effort_levels,
-            claude_model_supports_fast_mode(&model),
+            model.supports_fast_mode,
         );
         output.push(ProviderModel {
             id: ModelId::new(model.value.clone()).map_err(|_| protocol_error("model ID"))?,
@@ -554,9 +556,6 @@ pub fn provider_models(
         }
         validate_model_id(id)?;
         let display_name = custom_labels.get(id).cloned().unwrap_or_else(|| id.clone());
-        let supports_fast_mode = [id.as_str(), display_name.as_str()]
-            .into_iter()
-            .any(claude_identity_supports_fast_mode);
         output.push(ProviderModel {
             id: ModelId::new(id.clone()).map_err(|_| protocol_error("custom model ID"))?,
             display_name,
@@ -567,7 +566,7 @@ pub fn provider_models(
             options: claude_model_options(
                 true,
                 &["low", "medium", "high", "xhigh", "max"].map(str::to_string),
-                supports_fast_mode,
+                false,
             ),
             custom: true,
         });
@@ -704,37 +703,6 @@ fn claude_model_options(
         });
     }
     definitions
-}
-
-fn claude_model_supports_fast_mode(model: &ClaudeModel) -> bool {
-    [
-        Some(model.value.as_str()),
-        model.resolved_model.as_deref(),
-        Some(model.display_name.as_str()),
-        model.description.as_deref(),
-    ]
-    .into_iter()
-    .flatten()
-    .any(claude_identity_supports_fast_mode)
-}
-
-fn claude_identity_supports_fast_mode(identity: &str) -> bool {
-    let normalized = identity.trim().to_ascii_lowercase();
-    if matches!(normalized.as_str(), "default" | "opus") {
-        return true;
-    }
-    let Some(opus_index) = normalized.find("opus") else {
-        return false;
-    };
-    let mut version_parts = normalized[opus_index + "opus".len()..]
-        .split(|character: char| !character.is_ascii_digit())
-        .filter(|part| !part.is_empty())
-        .filter_map(|part| part.parse::<u64>().ok());
-    let Some(major) = version_parts.next() else {
-        return false;
-    };
-    let minor = version_parts.next().unwrap_or_default();
-    (major, minor) >= (4, 6)
 }
 
 pub fn selected_effort(options: &[ModelOptionSelection]) -> ChatResult<Option<String>> {

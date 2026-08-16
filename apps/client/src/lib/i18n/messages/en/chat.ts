@@ -310,6 +310,7 @@ export const chat = {
     enableFast: "Enable Fast mode",
     fastEnabled: "Fast mode enabled",
     providerRequiredForModelOptions: "Connect a provider to use model options",
+    effortUnavailableForModel: "This model does not provide effort levels",
     useStandardSpeed: "Use Standard speed",
     useFastSpeed: "Use Fast speed",
     enabled: "Enabled",

@@ -110,32 +110,38 @@ describe("ChatComposer model controls", () => {
     expect(trigger?.textContent).toContain("Light");
     expect(target.querySelectorAll<HTMLButtonElement>(".effort-options button")[0]?.getAttribute("aria-pressed")).toBe("true");
     expect(effortKnob?.style.left).toContain("0% + 0.875rem");
-    const modelButton = target.querySelector<HTMLButtonElement>(".model-picker-toggle");
-    expect(modelButton?.textContent).toContain("Model");
-    expect(target.querySelector(".advanced-toggle")).toBeNull();
-    expect(target.querySelector(".advanced-list")).toBeNull();
-    expect(modelButton?.closest(".effort-footer")?.nextElementSibling).toBe(effortLadder);
-    modelButton?.dispatchEvent(new MouseEvent("pointerenter"));
+    const advanced = target.querySelector<HTMLButtonElement>(".advanced-toggle");
+    expect(advanced?.textContent).toContain("Advanced");
+    advanced?.click();
     await tick();
-    expect(target.querySelector(".model-flyout.positioned")).not.toBeNull();
-    const modelSearch = target.querySelector<HTMLInputElement>(".model-search input");
-    modelButton?.click();
+    expect(target.querySelector(".advanced-view.active")).not.toBeNull();
+    expect(target.querySelector<HTMLElement>(".overview-view")?.inert).toBe(true);
+    const advancedRows = [...target.querySelectorAll<HTMLButtonElement>(".advanced-list button")];
+    expect(advancedRows.some((button) => button.textContent?.includes("EffortLight"))).toBe(true);
+    expect(advancedRows.some((button) => button.textContent?.includes("SpeedStandard"))).toBe(true);
+    const speedRow = advancedRows.find((button) => button.textContent?.includes("SpeedStandard"));
+    speedRow?.dispatchEvent(new MouseEvent("pointerenter"));
     await tick();
-    expect(document.activeElement).not.toBe(modelSearch);
-    expect(target.querySelector(".provider-rail")).toBeNull();
-    expect(target.querySelector('[data-model-company="openai"] .model-company-heading svg')).not.toBeNull();
-    expect(target.querySelector('[data-model-company="openai"] .model-company-heading')?.textContent).toContain("OpenAI");
-    expect(target.querySelector('[data-model-company="anthropic"] .model-company-heading')?.textContent).toContain("Anthropic");
-    const openAiHeading = target.querySelector<HTMLButtonElement>('[data-model-company="openai"] .model-company-heading');
+    expect(document.querySelector(".model-flyout")?.textContent).toContain("Standard");
+    expect(document.querySelector(".model-flyout")?.textContent).toContain("Fast");
+    const modelRow = advancedRows.find((button) => button.textContent?.startsWith("Model"));
+    modelRow?.dispatchEvent(new MouseEvent("pointerenter"));
+    await tick();
+    expect(document.querySelector(".model-flyout.positioned")).not.toBeNull();
+    expect(document.querySelector(".provider-rail")).toBeNull();
+    expect(document.querySelector('[data-model-company="openai"] .model-company-heading svg')).not.toBeNull();
+    expect(document.querySelector('[data-model-company="openai"] .model-company-heading')?.textContent).toContain("OpenAI");
+    expect(document.querySelector('[data-model-company="anthropic"] .model-company-heading')?.textContent).toContain("Anthropic");
+    const openAiHeading = document.querySelector<HTMLButtonElement>('[data-model-company="openai"] .model-company-heading');
     openAiHeading?.click();
     await tick();
     expect(openAiHeading?.getAttribute("aria-expanded")).toBe("false");
-    expect(target.querySelector<HTMLElement>('[data-model-company="openai"] .model-company-content')?.inert).toBe(true);
+    expect(document.querySelector<HTMLElement>('[data-model-company="openai"] .model-company-content')?.inert).toBe(true);
     openAiHeading?.click();
     await tick();
     expect(openAiHeading?.getAttribute("aria-expanded")).toBe("true");
-    expect(target.querySelector(".model-picker-provider")).toBeNull();
-    const modelList = target.querySelector<HTMLElement>(".model-list");
+    expect(document.querySelector(".model-picker-provider")).toBeNull();
+    const modelList = document.querySelector<HTMLElement>(".model-list");
     if (!modelList) throw new Error("Model list did not render");
     expect(modelList.querySelector(".model-search-row")).not.toBeNull();
     Object.defineProperties(modelList, {
@@ -154,23 +160,23 @@ describe("ChatComposer model controls", () => {
     modelList.dispatchEvent(new Event("scroll"));
     await tick();
     expect(modelList.classList.contains("model-list-scroll-top")).toBe(true);
-    expect(target.querySelector<HTMLInputElement>(".model-search input")?.placeholder).toBe("Search models...");
-    expect(target.querySelector(".model-flyout")?.textContent).not.toContain("gpt-5.6-sol");
-    expect(target.querySelector(".model-flyout")?.textContent).not.toContain("GPT-5.4 Deprecated");
-    expect(target.querySelector(".favorite-company-section .model-company-heading")?.textContent).toContain("Favorites");
-    expect(target.querySelector(".favorite-company-section .model-company-content-inner > p")?.textContent).toBe("No favorites yet.");
-    const setupAction = target.querySelector<HTMLElement>('[data-model-company="anthropic"] .company-setup');
+    expect(document.querySelector<HTMLInputElement>(".model-search input")?.placeholder).toBe("Search models...");
+    expect(document.querySelector(".model-flyout")?.textContent).not.toContain("gpt-5.6-sol");
+    expect(document.querySelector(".model-flyout")?.textContent).not.toContain("GPT-5.4 Deprecated");
+    expect(document.querySelector(".favorite-company-section .model-company-heading")?.textContent).toContain("Favorites");
+    expect(document.querySelector(".favorite-company-section .model-company-content-inner > p")?.textContent).toBe("No favorites yet.");
+    const setupAction = document.querySelector<HTMLElement>('[data-model-company="anthropic"] .company-setup');
     expect(setupAction?.textContent).toBe("Configure Anthropic");
     expect(setupAction?.querySelector("small")).toBeNull();
-    expect(target.querySelector(".model-flyout")?.textContent).not.toContain("ProviderCodex");
+    expect(document.querySelector(".model-flyout")?.textContent).not.toContain("ProviderCodex");
     expect(target.querySelector('[data-chat-field="interaction"]')).toBeNull();
     trigger?.click();
     await tick();
     expect(target.querySelector(".model-popover")).toBeNull();
     trigger?.click();
     await tick();
-    expect(target.querySelector(".model-picker-toggle")?.textContent).toContain("Model");
-    expect(target.querySelector(".model-flyout")).toBeNull();
+    expect(target.querySelector(".advanced-view.active")).not.toBeNull();
+    expect(document.querySelector(".model-flyout")).toBeNull();
   });
 
   it("hides Fast when the provider catalog does not support speed selection", async () => {
@@ -197,11 +203,15 @@ describe("ChatComposer model controls", () => {
     target.querySelector<HTMLButtonElement>("[data-chat-model-trigger]")?.click();
     await tick();
 
-    expect(target.querySelector(".model-picker-toggle")?.textContent).toContain("Model");
+    expect(target.querySelector(".advanced-toggle")?.textContent).toContain("Advanced");
     expect(target.querySelector(".fast-button")).toBeNull();
+    target.querySelector<HTMLButtonElement>(".advanced-toggle")?.click();
+    await tick();
+    expect([...target.querySelectorAll<HTMLButtonElement>(".advanced-list button")]
+      .some((button) => button.textContent?.startsWith("Speed"))).toBe(false);
   });
 
-  it("keeps the model picker open only while the pointer aims toward it", async () => {
+  it("keeps an option flyout open after selecting a value", async () => {
     const chat = getChat();
     chat.settings = modelSettings();
     chat.composer = {
@@ -211,47 +221,28 @@ describe("ChatComposer model controls", () => {
       safetyMode: "ask_for_approval",
       interactionMode: "build",
     };
+    vi.spyOn(chat, "setComposerModel").mockImplementation((modelSelection) => {
+      chat.composer = { ...chat.composer, modelSelection };
+    });
 
     const { target } = setup(false);
     target.querySelector<HTMLButtonElement>("[data-chat-model-trigger]")?.click();
     await tick();
-    const modelButton = target.querySelector<HTMLButtonElement>(".model-picker-toggle");
-    if (!modelButton) throw new Error("Model button did not render");
-    vi.spyOn(modelButton, "getBoundingClientRect").mockReturnValue(new DOMRect(400, 100, 120, 32));
-    modelButton.dispatchEvent(pointerEvent("pointerenter", 410, 116));
+    target.querySelector<HTMLButtonElement>(".advanced-toggle")?.click();
     await tick();
-    const flyout = target.querySelector<HTMLElement>(".model-flyout");
-    if (!flyout) throw new Error("Model flyout did not render");
-    vi.spyOn(flyout, "getBoundingClientRect").mockReturnValue(new DOMRect(120, 80, 260, 300));
-    window.dispatchEvent(new Event("resize"));
-
-    modelButton.dispatchEvent(pointerEvent("pointerleave", 400, 116));
-    window.dispatchEvent(pointerEvent("pointermove", 390, 130));
-    await new Promise((resolve) => setTimeout(resolve, 50));
-    expect(target.querySelector(".model-flyout")).not.toBeNull();
-
-    flyout.dispatchEvent(pointerEvent("pointerenter", 379, 130));
-    await new Promise((resolve) => setTimeout(resolve, 260));
-    expect(target.querySelector(".model-flyout")).not.toBeNull();
-
-    flyout.dispatchEvent(pointerEvent("pointerleave", 120, 400));
+    const speedRow = [...target.querySelectorAll<HTMLButtonElement>(".advanced-list button")]
+      .find((button) => button.textContent?.startsWith("Speed"));
+    speedRow?.click();
     await tick();
-    expect(target.querySelector(".model-flyout")).not.toBeNull();
-    await new Promise((resolve) => setTimeout(resolve, 130));
-    expect(target.querySelector(".model-flyout")).toBeNull();
-    expect(target.querySelector(".model-popover")).not.toBeNull();
-
-    modelButton.dispatchEvent(pointerEvent("pointerenter", 410, 116));
+    const fastChoice = [...document.querySelectorAll<HTMLButtonElement>(".option-list > button")]
+      .find((button) => button.textContent?.startsWith("Fast"));
+    fastChoice?.click();
     await tick();
-    const reopenedFlyout = target.querySelector<HTMLElement>(".model-flyout");
-    if (!reopenedFlyout) throw new Error("Model flyout did not reopen");
-    vi.spyOn(reopenedFlyout, "getBoundingClientRect").mockReturnValue(new DOMRect(120, 80, 260, 300));
-    window.dispatchEvent(new Event("resize"));
-    modelButton.dispatchEvent(pointerEvent("pointerleave", 400, 116));
-    window.dispatchEvent(pointerEvent("pointermove", 410, 170));
-    await tick();
-    expect(target.querySelector(".model-flyout")).toBeNull();
-    expect(target.querySelector(".model-popover")).not.toBeNull();
+    expect(document.querySelector(".model-flyout")).not.toBeNull();
+    expect(readComposerModelSelection(chat.composer.modelSelection).options).toContainEqual({
+      key: "service_tier",
+      value: { kind: "choice", value: "fast" },
+    });
   });
 
   it("switches provider and model together from the model picker", async () => {
@@ -274,18 +265,21 @@ describe("ChatComposer model controls", () => {
     const { target } = setup(false);
     target.querySelector<HTMLButtonElement>("[data-chat-model-trigger]")?.click();
     await tick();
-    target.querySelector<HTMLButtonElement>(".model-picker-toggle")?.click();
+    target.querySelector<HTMLButtonElement>(".advanced-toggle")?.click();
     await tick();
-    expect(target.querySelector('[data-model-company="openai"]')).not.toBeNull();
-    expect(target.querySelector('[data-model-company="anthropic"]')).not.toBeNull();
-    const claudeModel = [...target.querySelectorAll<HTMLButtonElement>('[data-model-company="anthropic"] .model-choice')]
+    [...target.querySelectorAll<HTMLButtonElement>(".advanced-list button")]
+      .find((button) => button.textContent?.startsWith("Model"))?.click();
+    await tick();
+    expect(document.querySelector('[data-model-company="openai"]')).not.toBeNull();
+    expect(document.querySelector('[data-model-company="anthropic"]')).not.toBeNull();
+    const claudeModel = [...document.querySelectorAll<HTMLButtonElement>('[data-model-company="anthropic"] .model-choice')]
       .find((button) => button.textContent?.includes("Opus 4.8"));
     claudeModel?.click();
     await tick();
 
     expect(chat.composer.providerInstanceId).toBe("claude");
     expect(readComposerModelSelection(chat.composer.modelSelection).modelId).toBe("default");
-    expect(target.querySelector(".model-flyout")).toBeNull();
+    expect(document.querySelector(".model-flyout")).not.toBeNull();
     expect(target.querySelector(".model-popover")).not.toBeNull();
   });
 
@@ -310,21 +304,24 @@ describe("ChatComposer model controls", () => {
     const { target } = setup(false);
     target.querySelector<HTMLButtonElement>("[data-chat-model-trigger]")?.click();
     await tick();
-    target.querySelector<HTMLButtonElement>(".model-picker-toggle")?.click();
+    target.querySelector<HTMLButtonElement>(".advanced-toggle")?.click();
+    await tick();
+    [...target.querySelectorAll<HTMLButtonElement>(".advanced-list button")]
+      .find((button) => button.textContent?.startsWith("Model"))?.click();
     await tick();
 
-    const providerModelRow = [...target.querySelectorAll<HTMLElement>('[data-model-company="openai"] .model-row')]
+    const providerModelRow = [...document.querySelectorAll<HTMLElement>('[data-model-company="openai"] .model-row')]
       .find((row) => row.textContent?.includes("5.6 Sol"));
     expect(providerModelRow?.querySelector(".model-provider-caption")).toBeNull();
-    const favoriteText = target.querySelector(".favorite-company-section")?.textContent ?? "";
+    const favoriteText = document.querySelector(".favorite-company-section")?.textContent ?? "";
     expect(favoriteText).toContain("5.6 Sol");
     expect(favoriteText).toContain("Opus 4.8");
     expect(favoriteText).not.toContain("gpt-5.6-sol");
-    expect(target.querySelectorAll(".model-provider-caption")).toHaveLength(0);
-    expect(target.querySelectorAll(".favorite-source-section")).toHaveLength(0);
-    expect(target.querySelectorAll(".favorite-model-label")).toHaveLength(2);
+    expect(document.querySelectorAll(".model-provider-caption")).toHaveLength(0);
+    expect(document.querySelectorAll(".favorite-source-section")).toHaveLength(0);
+    expect(document.querySelectorAll(".favorite-model-label")).toHaveLength(2);
 
-    target.querySelector<HTMLButtonElement>('.favorite-company-section .model-favorite[aria-label="Favorite: 5.6 Sol"]')?.click();
+    document.querySelector<HTMLButtonElement>('.favorite-company-section .model-favorite[aria-label="Favorite: 5.6 Sol"]')?.click();
     await tick();
     expect(updateModels).toHaveBeenCalledWith("codex-local", [], []);
   });
@@ -387,6 +384,42 @@ describe("ChatComposer model controls", () => {
     expect(fastButton?.getAttribute("aria-pressed")).toBe("true");
   });
 
+  it("keeps a neutral five-stop track for models without effort levels", async () => {
+    const chat = getChat();
+    const settings = claudeModelSettings();
+    const provider = settings.providerInstances[0];
+    if (!provider?.modelCatalog) throw new Error("Claude model settings require a discovered catalog");
+    provider.modelCatalog.models = [{
+      id: "haiku",
+      displayName: "Haiku 4.5",
+      description: "Fastest for quick answers",
+      contextLimit: null,
+      availability: "available",
+      capabilities: [],
+      custom: false,
+      options: [],
+    }];
+    chat.settings = settings;
+    chat.composer = {
+      ...composer(),
+      providerInstanceId: "claude",
+      modelSelection: composerModelSelection("haiku", false, []),
+      safetyMode: "ask_for_approval",
+      interactionMode: "build",
+    };
+
+    const { target } = setup(false);
+    target.querySelector<HTMLButtonElement>("[data-chat-model-trigger]")?.click();
+    await tick();
+
+    const dummyLadder = target.querySelector<HTMLElement>(".effort-ladder.dummy");
+    expect(dummyLadder?.getAttribute("aria-disabled")).toBe("true");
+    expect(dummyLadder?.getAttribute("aria-label")).toBe("This model does not provide effort levels");
+    expect(dummyLadder?.querySelectorAll(".effort-stop")).toHaveLength(5);
+    expect(dummyLadder?.querySelector(".effort-fill")).toBeNull();
+    expect(dummyLadder?.querySelector(".effort-knob")).toBeNull();
+  });
+
   it("selects the strongest model from the first healthy provider and defaults permissions", async () => {
     const chat = getChat();
     const settings = modelSettings();
@@ -438,11 +471,18 @@ describe("ChatComposer model controls", () => {
     await tick();
     await tick();
 
-    expect(target.querySelector(".model-picker-toggle")?.textContent).toContain("Model");
-    expect(target.querySelector(".model-flyout.positioned")).not.toBeNull();
+    expect(target.querySelector(".advanced-view.active")).not.toBeNull();
+    expect(target.querySelector(".advanced-list")?.textContent).toContain("Model");
+    const rows = [...target.querySelectorAll<HTMLButtonElement>(".advanced-list button")];
+    expect(rows[0]?.disabled).toBe(false);
+    expect(rows[1]?.disabled).toBe(true);
+    expect(rows[2]?.disabled).toBe(true);
+    target.querySelector<HTMLButtonElement>(".advanced-heading")?.click();
+    await tick();
     const dummyLadder = target.querySelector<HTMLElement>(".effort-ladder.dummy");
     expect(dummyLadder?.getAttribute("aria-disabled")).toBe("true");
-    expect(dummyLadder?.querySelectorAll("button:disabled")).toHaveLength(6);
+    expect(dummyLadder?.querySelectorAll(".effort-stop")).toHaveLength(5);
+    expect(dummyLadder?.querySelector(".effort-knob")).toBeNull();
     expect(target.querySelector<HTMLButtonElement>(".fast-button.dummy")?.disabled).toBe(true);
   });
 });

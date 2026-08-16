@@ -26,10 +26,7 @@ pub(super) fn validate_policy(
         ));
     }
     if let Some(effort) = policy.effort.as_deref() {
-        if !matches!(
-            effort,
-            "none" | "minimal" | "low" | "medium" | "high" | "xhigh"
-        ) {
+        if !valid_teammate_effort(effort) {
             return Err(ChatError::validation(
                 "effort",
                 "Teammate effort is invalid",
@@ -43,6 +40,13 @@ pub(super) fn validate_policy(
     }
     super::super::settings_commands::read_provider(app, &policy.provider_instance_id)?;
     Ok(())
+}
+
+pub(super) fn valid_teammate_effort(effort: &str) -> bool {
+    matches!(
+        effort,
+        "none" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max" | "ultra"
+    )
 }
 
 pub(super) fn validate_message_request(request: &PostChatMessageCommand) -> ChatResult<()> {
