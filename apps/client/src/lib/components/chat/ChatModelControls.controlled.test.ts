@@ -74,7 +74,7 @@ describe("ChatModelControls controlled mode", () => {
 
     target.querySelector<HTMLButtonElement>("[data-chat-model-trigger]")?.click();
     await tick();
-    target.querySelector<HTMLButtonElement>(".fast-button")?.click();
+    document.querySelector<HTMLButtonElement>(".model-popover .fast-button")?.click();
     await tick();
 
     expect(changes).toHaveLength(1);
@@ -106,7 +106,47 @@ describe("ChatModelControls controlled mode", () => {
     expect(trigger?.disabled).toBe(true);
     trigger?.click();
     await tick();
-    expect(target.querySelector(".model-popover")).toBeNull();
+    expect(document.querySelector(".model-popover")).toBeNull();
+  });
+
+  it("ports the main picker and opens it below when the upper boundary is too close", async () => {
+    const target = document.createElement("div");
+    document.body.append(target);
+    const component = mount(ChatModelControls, {
+      target,
+      props: {
+        value: {
+          providerInstanceId: "codex-local",
+          modelId: "gpt-5.6-sol",
+          providerManaged: false,
+          options: [],
+        },
+      },
+    });
+    mounted.push({ component, target });
+    const trigger = target.querySelector<HTMLButtonElement>("[data-chat-model-trigger]");
+
+    trigger?.click();
+    await tick();
+    const picker = document.querySelector<HTMLElement>(".model-popover");
+    expect(picker?.parentElement).toBe(document.body);
+    if (!trigger || !picker) throw new Error("Main model picker did not render");
+    const triggerRect = vi.spyOn(trigger, "getBoundingClientRect").mockReturnValue(domRect(400, 20, 120, 32));
+    vi.spyOn(picker, "getBoundingClientRect").mockReturnValue(domRect(0, 0, 296, 180));
+    vi.stubGlobal("innerWidth", 1024);
+    vi.stubGlobal("innerHeight", 768);
+
+    window.dispatchEvent(new Event("resize"));
+    await tick();
+
+    expect(picker.style.left).toBe("400px");
+    expect(picker.style.top).toBe("59px");
+
+    triggerRect.mockReturnValue(domRect(400, 20, 220, 32));
+    window.dispatchEvent(new Event("resize"));
+    await tick();
+
+    expect(picker.style.left).toBe("400px");
   });
 
   it("ports advanced flyouts above scroll containers and prefers the right side", async () => {
@@ -127,15 +167,16 @@ describe("ChatModelControls controlled mode", () => {
 
     target.querySelector<HTMLButtonElement>("[data-chat-model-trigger]")?.click();
     await tick();
-    target.querySelector<HTMLButtonElement>(".advanced-toggle")?.click();
+    document.querySelector<HTMLButtonElement>(".model-popover .advanced-toggle")?.click();
     await tick();
-    const modelRow = [...target.querySelectorAll<HTMLButtonElement>(".advanced-list button")]
+    const modelRow = [...document.querySelectorAll<HTMLButtonElement>(".model-popover .advanced-list button")]
       .find((button) => button.textContent?.startsWith("Model"));
     modelRow?.dispatchEvent(new MouseEvent("pointerenter"));
     await tick();
 
-    const picker = target.querySelector<HTMLElement>(".model-popover");
+    const picker = document.querySelector<HTMLElement>(".model-popover");
     const flyout = document.querySelector<HTMLElement>(".model-flyout");
+    expect(picker?.parentElement).toBe(document.body);
     expect(flyout?.parentElement).toBe(document.body);
     if (!picker || !modelRow || !flyout) throw new Error("Advanced model flyout did not render");
     vi.spyOn(picker, "getBoundingClientRect").mockReturnValue(domRect(400, 80, 300, 220));

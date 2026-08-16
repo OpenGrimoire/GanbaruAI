@@ -52,6 +52,12 @@
     left: number;
     top: number;
   }
+  interface PickerRect {
+    top: number;
+    right: number;
+    bottom: number;
+    left: number;
+  }
   interface ChatModelControlSelection {
     providerInstanceId: string | null;
     modelId: string | null;
@@ -88,6 +94,9 @@
   let flyoutPanel: HTMLDivElement | undefined = $state();
   let pickerStageHeight = $state<number | null>(null);
   let modelControlWidth = $state<number | null>(null);
+  let pickerPosition = $state<FlyoutPosition | null>(null);
+  let pickerLayoutReady = $state(false);
+  let pickerPlacement = $state<"above" | "below">("above");
   let effortPressing = $state(false);
   let effortDragging = $state(false);
   let effortHandleHovered = $state(false);
@@ -117,11 +126,14 @@
   let suppressEffortPointerClick = false;
   const flyoutGapPx = 6;
   const flyoutViewportInsetPx = 8;
+  const pickerGapPx = 7;
+  const pickerBoundaryInsetPx = 8;
   const modelControlResizeMs = 280;
   const effortDragThresholdPx = 5;
   const effortTrackHeightRem = 1.75;
   const effortEndpointInsetRem = effortTrackHeightRem / 2;
   const dummyEffortStops = [0, 1, 2, 3, 4] as const;
+  const controlled = $derived(value !== undefined);
   const providers = $derived(chat.settings?.providerInstances ?? []);
   const providerInstanceId = $derived(value === undefined
     ? chat.composer.providerInstanceId
@@ -215,6 +227,28 @@
   });
 
   $effect(() => {
+    if (!controlled || !pickerOpen || !pickerLayoutReady || !pickerPanel || !pickerTrigger) return;
+    const reposition = () => positionPicker();
+    reposition();
+    window.addEventListener("resize", reposition);
+    window.addEventListener("scroll", reposition, true);
+    if (typeof ResizeObserver === "undefined") {
+      return () => {
+        window.removeEventListener("resize", reposition);
+        window.removeEventListener("scroll", reposition, true);
+      };
+    }
+    const observer = new ResizeObserver(reposition);
+    observer.observe(pickerPanel);
+    observer.observe(pickerTrigger);
+    return () => {
+      observer.disconnect();
+      window.removeEventListener("resize", reposition);
+      window.removeEventListener("scroll", reposition, true);
+    };
+  });
+
+  $effect(() => {
     const element = modelListElement;
     if (!element) return;
     const resizeObserver = new ResizeObserver(requestModelListScrollStateRefresh);
@@ -234,7 +268,7 @@
     if (!pickerOpen) return;
     const closeOnOutsidePointer = (event: PointerEvent) => {
       if (!(event.target instanceof Node)) return;
-      if (pickerRoot?.contains(event.target) || flyoutPanel?.contains(event.target) || providerForkDialog?.contains(event.target)) return;
+      if (pickerRoot?.contains(event.target) || pickerPanel?.contains(event.target) || flyoutPanel?.contains(event.target) || providerForkDialog?.contains(event.target)) return;
       closePicker();
     };
     window.addEventListener("pointerdown", closeOnOutsidePointer, true);
@@ -284,6 +318,8 @@
 
   function closePicker(): void {
     pickerOpen = false;
+    pickerPosition = null;
+    pickerLayoutReady = false;
     modelQuery = "";
     modelPickerError = null;
     collapsedModelSections = new Set();
@@ -354,12 +390,16 @@
     const measuredWidth = pickerRoot?.getBoundingClientRect().width ?? 0;
     const currentWidth = measuredWidth > 0 ? measuredWidth : compactModelControlWidth();
     modelControlWidth = Math.ceil(currentWidth);
+    pickerPosition = null;
+    pickerLayoutReady = false;
     pickerOpen = true;
     void tick().then(() => {
       const compactWidth = compactModelControlWidth();
       const panelWidth = pickerPanel?.getBoundingClientRect().width ?? compactWidth;
       pickerRoot?.getBoundingClientRect();
       modelControlWidth = Math.ceil(Math.max(compactWidth, panelWidth));
+      pickerLayoutReady = true;
+      positionPicker();
     });
   }
 
@@ -370,6 +410,57 @@
       modelControlResetTimer = null;
       if (!pickerOpen) modelControlWidth = null;
     }, modelControlResizeMs);
+  }
+
+  function clamp(value: number, minimum: number, maximum: number): number {
+    if (maximum < minimum) return minimum;
+    return Math.min(Math.max(value, minimum), maximum);
+  }
+
+  function pickerBoundaryRect(): PickerRect {
+    if (!pickerTrigger) {
+      return { top: 0, right: window.innerWidth, bottom: window.innerHeight, left: 0 };
+    }
+    const boundaryElement = pickerTrigger.closest<HTMLElement>("[data-settings-content]")
+      ?? pickerTrigger.closest<HTMLElement>("[data-settings-modal-panel]");
+    if (!boundaryElement) {
+      return { top: 0, right: window.innerWidth, bottom: window.innerHeight, left: 0 };
+    }
+    const boundary = boundaryElement.getBoundingClientRect();
+    return {
+      top: Math.max(0, boundary.top),
+      right: Math.min(window.innerWidth, boundary.right),
+      bottom: Math.min(window.innerHeight, boundary.bottom),
+      left: Math.max(0, boundary.left),
+    };
+  }
+
+  function positionPicker(): void {
+    if (!controlled || !pickerTrigger || !pickerPanel) return;
+    const trigger = pickerTrigger.getBoundingClientRect();
+    const panel = pickerPanel.getBoundingClientRect();
+    const boundary = pickerBoundaryRect();
+    const topBound = boundary.top + pickerBoundaryInsetPx;
+    const rightBound = boundary.right - pickerBoundaryInsetPx;
+    const bottomBound = boundary.bottom - pickerBoundaryInsetPx;
+    const leftBound = boundary.left + pickerBoundaryInsetPx;
+    const aboveTop = trigger.top - pickerGapPx - panel.height;
+    const belowTop = trigger.bottom + pickerGapPx;
+    const aboveFits = aboveTop >= topBound;
+    const belowFits = belowTop + panel.height <= bottomBound;
+    const availableAbove = Math.max(0, trigger.top - pickerGapPx - topBound);
+    const availableBelow = Math.max(0, bottomBound - belowTop);
+    const preferredTop = aboveFits || (!belowFits && availableAbove >= availableBelow)
+      ? aboveTop
+      : belowTop;
+    const maximumTop = Math.max(topBound, bottomBound - panel.height);
+    const targetControlWidth = Math.max(modelControlWidth ?? 0, trigger.width, panel.width);
+    const maximumLeft = Math.max(leftBound, rightBound - panel.width);
+    pickerPlacement = preferredTop === belowTop ? "below" : "above";
+    pickerPosition = {
+      left: clamp(trigger.left + targetControlWidth - panel.width, leftBound, maximumLeft),
+      top: clamp(preferredTop, topBound, maximumTop),
+    };
   }
 
   function setPickerView(nextView: PickerView): void {
@@ -799,7 +890,21 @@
   </button>
 
   {#if pickerOpen}
-    <div bind:this={pickerPanel} class="model-popover" role="dialog" aria-label={t("chat.hero.model")} tabindex="-1" onkeydown={handlePickerKeydown}>
+    <div
+      bind:this={pickerPanel}
+      use:portal={controlled ? "body" : pickerRoot ?? "body"}
+      class="model-popover"
+      class:portaled={controlled}
+      class:below={controlled && pickerPlacement === "below"}
+      class:positioned={!controlled || pickerPosition !== null}
+      style:left={controlled && pickerPosition !== null ? `${pickerPosition.left}px` : undefined}
+      style:top={controlled && pickerPosition !== null ? `${pickerPosition.top}px` : undefined}
+      role="dialog"
+      aria-label={t("chat.hero.model")}
+      tabindex="-1"
+      data-app-floating-surface
+      onkeydown={handlePickerKeydown}
+    >
       <div class="picker-stage" style:height={pickerStageHeight === null ? undefined : `${pickerStageHeight}px`}>
         <div bind:this={overviewPanel} class="picker-view overview-view" class:active={view === "overview"} inert={view !== "overview"} aria-hidden={view !== "overview"}>
         {#if quickEffortChoices.length > 0}
@@ -974,6 +1079,10 @@
   .effort-name { flex: 0 0 auto; color: var(--primary); transition: color 260ms ease; }
   .effort-name.ultra { color: #7c3aed; }
   .model-popover { position: absolute; right: 0; bottom: calc(100% + 0.45rem); z-index: 45; width: min(18.5rem, calc(100vw - 1rem)); overflow: visible; border: 1px solid var(--border); border-radius: 0.8rem; background: var(--popover); padding: 0.65rem 0.6rem 0.5rem; color: var(--popover-foreground); font-size: calc(0.875rem * var(--type-scale)); box-shadow: 0 2px 6px rgb(0 0 0 / 0.06); }
+  .model-popover.portaled { position: fixed; right: auto; bottom: auto; z-index: 80; }
+  .model-popover.portaled:not(.positioned) { visibility: hidden; }
+  .model-popover.portaled.positioned { animation: model-popover-enter 180ms cubic-bezier(0.22, 0.75, 0.18, 1); }
+  .model-popover.portaled.below { --model-popover-enter-y: -0.25rem; }
   .picker-stage { position: relative; overflow-x: visible; overflow-y: clip; transition: height 320ms cubic-bezier(0.22, 0.75, 0.18, 1); }
   .picker-view { width: 100%; opacity: 0; pointer-events: none; transition: opacity 190ms ease, transform 300ms cubic-bezier(0.22, 0.75, 0.18, 1); will-change: opacity, transform; }
   .picker-view:not(.active) { position: absolute; inset: 0 0 auto; }
@@ -1091,7 +1200,8 @@
   @keyframes ultra-color-flow { from { background-position: 0 0; } to { background-position: 100% 0; } }
   @keyframes galaxy-drift { from { background-position: 0 0, 0 0, 0 0, 0 0, 0 0, 0 0, 0 0, 0 0; } to { background-position: -83px 0, -107px 0, -131px 0, -157px 0, -191px 0, -223px 0, -269px 0, -311px 0; } }
   @keyframes galaxy-stream { from { background-position: 0 0, 0 0, 0 0, 0 0, 0 0, 0 0, 0 0, 0 0; } to { background-position: -83px 0, -107px 0, -131px 0, -157px 0, -191px 0, -223px 0, -269px 0, -311px 0; } }
+  @keyframes model-popover-enter { from { opacity: 0; transform: translateY(var(--model-popover-enter-y, 0.25rem)); } to { opacity: 1; transform: translateY(0); } }
   @container chat-composer (max-width: 460px) { .model-trigger { max-width: 11rem; } .effort-name { display: none; } }
   @container chat-composer (max-width: 330px) { .model-trigger { max-width: 7.5rem; padding-inline: 0.45rem; } }
-  @media (prefers-reduced-motion: reduce) { .model-control, .picker-stage, .picker-view, .quick-actions, .effort-guidance, .model-company-content, .model-list { transition-duration: 0.01ms; } .effort-fill::before, .effort-particles { animation: none; background-position: 50% 0; } }
+  @media (prefers-reduced-motion: reduce) { .model-control, .picker-stage, .picker-view, .quick-actions, .effort-guidance, .model-company-content, .model-list { transition-duration: 0.01ms; } .model-popover.portaled.positioned { animation: none; } .effort-fill::before, .effort-particles { animation: none; background-position: 50% 0; } }
 </style>

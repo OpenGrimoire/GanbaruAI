@@ -31,6 +31,7 @@
   import CalendarScrollbar from "$lib/components/calendar/CalendarScrollbar.svelte";
   import CustomSelect from "$lib/components/settings/CustomSelect.svelte";
   import ConfirmDialog from "$lib/components/ui/ConfirmDialog.svelte";
+  import ChatAccessControl from "$lib/components/chat/ChatAccessControl.svelte";
   import ChatModelAvatar from "$lib/components/chat/ChatModelAvatar.svelte";
   import ChatModelControls from "$lib/components/chat/ChatModelControls.svelte";
   import ChatParticipantAvatar from "$lib/components/chat/ChatParticipantAvatar.svelte";
@@ -510,16 +511,6 @@
     }
   }
 
-  function approvalLabel(policy: ChatApprovalPolicy): string {
-    const labels: Record<ChatApprovalPolicy, string> = {
-      ask_for_approval: t("settings.chat.teammates.askApproval"),
-      approve_for_me: t("settings.chat.teammates.approveForMe"),
-      full_access: t("settings.chat.teammates.fullAccess"),
-      custom: t("settings.chat.teammates.customApproval"),
-    };
-    return labels[policy];
-  }
-
 </script>
 
 <section class="teammate-settings" data-chat-settings-subsection="teammates">
@@ -637,7 +628,7 @@
         <div class="section-heading"><h4>{t("settings.chat.teammates.executionSection")}</h4></div>
         <div class="field-grid">
           <div class="field full execution-model-field"><span>{t("settings.chat.teammates.model")}<i class="required-marker" aria-hidden="true">*</i></span><ChatModelControls value={{ providerInstanceId: providerId || null, modelId: modelId || null, providerManaged: providerManagedModel, options: modelOptions }} disabled={archivedMode} onChange={selectExecution} /></div>
-          <div class="field"><span>{t("settings.chat.teammates.approval")}</span><CustomSelect inline class="w-full" value={approvalPolicy} options={(["ask_for_approval", "approve_for_me", "full_access", "custom"] as const).map((value) => ({ value, label: approvalLabel(value) }))} ariaLabel={t("settings.chat.teammates.approval")} disabled={archivedMode} onChange={(value) => { approvalPolicy = value as ChatApprovalPolicy; }} /></div>
+          <div class="field execution-approval-field"><span>{t("settings.chat.teammates.approval")}</span><ChatAccessControl value={approvalPolicy} providerInstanceId={providerId || null} workingFolderId={defaultFolderId || null} disabled={archivedMode} onChange={(value) => { approvalPolicy = value; }} /></div>
         </div>
       </section>
 
@@ -787,7 +778,9 @@
   .required-marker { margin-left:0.15rem; color:var(--destructive); font-style:normal; }
   .field-grid .field.full { grid-column:1/-1; }
   .execution-model-field :global(.model-control) { z-index:2; max-width:100%; justify-self:start; }
-  .execution-model-field :global(.model-trigger) { min-width:12rem; background:color-mix(in srgb,var(--muted) 72%,transparent); }
+  .execution-model-field :global(.model-trigger) { min-width:12rem; }
+  .execution-approval-field :global(.access-control) { justify-self:start; }
+  .execution-approval-field :global(.control-trigger) { max-width:100%; }
   .field-grid input,.field-grid textarea { box-sizing:border-box; width:100%; min-width:0; appearance:none; border:1px solid var(--border); border-radius:0.375rem; background:var(--background); background-clip:padding-box; padding:0.45rem 0.55rem; color:var(--foreground); outline:none; font-weight:400; }
   .field-grid input:disabled,.field-grid textarea:disabled { cursor:not-allowed; background:color-mix(in srgb,var(--muted) 35%,var(--background)); color:var(--muted-foreground); }
   .field-grid input:focus,.field-grid textarea:focus { border-color:var(--ring); }

@@ -10,16 +10,38 @@
 
   const { t } = getLocalization();
   const chat = getChat();
+  let {
+    value,
+    providerInstanceId,
+    workingFolderId,
+    disabled = false,
+    onChange,
+  }: {
+    value?: SafetyMode | null;
+    providerInstanceId?: string | null;
+    workingFolderId?: string | null;
+    disabled?: boolean;
+    onChange?: (value: SafetyMode) => void;
+  } = $props();
   let confirmationReturnFocus: HTMLElement | null = null;
   let fullAccessDialogOpen = $state(false);
   let fullAccessTrusted = $state(false);
   let pendingTrustedMode = $state<SafetyMode | null>(null);
   let trustKey = $state("");
   let error = $state<string | null>(null);
-  const provider = $derived(chat.settings?.providerInstances.find((entry) => entry.configuration.instanceId === chat.composer.providerInstanceId) ?? null);
+  const controlled = $derived(value !== undefined);
+  const selectedProviderInstanceId = $derived(controlled
+    ? providerInstanceId ?? null
+    : chat.composer.providerInstanceId);
+  const selectedWorkingFolderId = $derived(controlled
+    ? workingFolderId ?? null
+    : chat.composer.workingFolderId);
+  const provider = $derived(chat.settings?.providerInstances.find((entry) => entry.configuration.instanceId === selectedProviderInstanceId) ?? null);
   const providerFamilyId = $derived(provider?.configuration.familyId ?? null);
   const permissionFileName = $derived(providerPermissionFileName(providerFamilyId));
-  const selectedSafetyMode = $derived(chat.composer.safetyMode ?? "ask_for_approval");
+  const selectedSafetyMode = $derived(controlled
+    ? value ?? "ask_for_approval"
+    : chat.composer.safetyMode ?? "ask_for_approval");
   const trustTitle = $derived(pendingTrustedMode === "custom" ? t("chat.composer.customPermissionsTitle") : t("chat.composer.fullAccessTitle"));
   const trustDescription = $derived(pendingTrustedMode === "custom"
     ? t("chat.composer.customPermissionsTrustDescription", permissionFileName)
@@ -32,43 +54,54 @@
   ]);
 
   $effect(() => {
-    const workingFolderId = chat.composer.workingFolderId;
-    const providerId = chat.composer.providerInstanceId;
-    const key = workingFolderId && providerId ? `${workingFolderId}:${providerId}` : "";
+    const folderId = selectedWorkingFolderId;
+    const providerId = selectedProviderInstanceId;
+    const key = folderId && providerId ? `${folderId}:${providerId}` : "";
     if (key === trustKey) return;
     trustKey = key;
     fullAccessTrusted = false;
-    if (workingFolderId && providerId) {
-      void chatApi.hasChatFullAccessTrust(providerId, workingFolderId).then((trusted) => {
+    if (folderId && providerId) {
+      void chatApi.hasChatFullAccessTrust(providerId, folderId).then((trusted) => {
         if (trustKey === key) fullAccessTrusted = trusted;
       }).catch(() => undefined);
     }
   });
 
   $effect(() => {
-    const mode = chat.composer.safetyMode;
+    const mode = selectedSafetyMode;
     if (mode && providerFamilyId && !providerSupportsPermissionMode(providerFamilyId, mode)) {
-      chat.setComposerModes("ask_for_approval", chat.composer.interactionMode);
+      setSafetyMode("ask_for_approval");
     }
   });
 
+  function setSafetyMode(mode: SafetyMode): void {
+    if (controlled) {
+      onChange?.(mode);
+      return;
+    }
+    chat.setComposerModes(mode, chat.composer.interactionMode);
+  }
+
   function chooseSafety(value: SafetyMode | ""): void {
-    if ((value === "full_access" || value === "custom") && !fullAccessTrusted) {
-      pendingTrustedMode = value;
+    const mode = value || "ask_for_approval";
+    if ((mode === "full_access" || mode === "custom") && !fullAccessTrusted) {
+      pendingTrustedMode = mode;
       confirmationReturnFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
       fullAccessDialogOpen = true;
       return;
     }
-    chat.setComposerModes(value || null, chat.composer.interactionMode);
+    setSafetyMode(mode);
   }
 
   async function confirmFullAccess(): Promise<void> {
-    if (!chat.composer.workingFolderId || !chat.composer.providerInstanceId) return;
+    const folderId = selectedWorkingFolderId;
+    const providerId = selectedProviderInstanceId;
+    if (!folderId || !providerId) return;
     error = null;
     try {
-      await chatApi.setChatFullAccessTrust(chat.composer.providerInstanceId, chat.composer.workingFolderId, true);
+      await chatApi.setChatFullAccessTrust(providerId, folderId, true);
       fullAccessTrusted = true;
-      chat.setComposerModes(pendingTrustedMode ?? "full_access", chat.composer.interactionMode);
+      setSafetyMode(pendingTrustedMode ?? "full_access");
       closeDialog();
     } catch (cause: unknown) {
       error = cause instanceof Error ? cause.message : String(cause);
@@ -86,7 +119,7 @@
 </script>
 
 <div class:full-access={selectedSafetyMode === "full_access"} class="access-control">
-  <ChatControlMenu value={selectedSafetyMode} options={safetyOptions} ariaLabel={t("chat.hero.safety")} dataField="safety" onChange={(value) => chooseSafety(value as SafetyMode | "")} compact minimal showTooltip={false} />
+  <ChatControlMenu value={selectedSafetyMode} options={safetyOptions} ariaLabel={t("chat.hero.safety")} dataField="safety" onChange={(value) => chooseSafety(value as SafetyMode | "")} compact minimal {disabled} showTooltip={false} />
 </div>
 
 {#if fullAccessDialogOpen}
