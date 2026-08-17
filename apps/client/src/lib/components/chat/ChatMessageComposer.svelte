@@ -898,7 +898,7 @@
   .tool-button { display:grid; width:1.9rem; height:1.9rem; place-items:center; border-radius:0.5rem; color:var(--muted-foreground); }
   .tool-button:hover { background:var(--accent); color:var(--foreground); }
   .tool-button.active { background:var(--accent); color:var(--foreground); }
-  .send-button { display:grid; width:2.1rem; height:2.1rem; flex:0 0 auto; place-items:center; border-radius:999px; background:color-mix(in srgb,var(--primary) 92%,transparent); color:var(--primary-foreground); box-shadow:0 2px 7px color-mix(in srgb,var(--primary) 22%,transparent); transition:transform 120ms ease,filter 120ms ease; }
+  .send-button { display:grid; width:2rem; height:2rem; flex:0 0 auto; place-items:center; border-radius:999px; background:color-mix(in srgb,var(--primary) 92%,transparent); color:var(--primary-foreground); box-shadow:0 2px 7px color-mix(in srgb,var(--primary) 22%,transparent); transition:transform 120ms ease,filter 120ms ease; }
   .send-button:hover:not(:disabled) { filter:brightness(1.04); transform:scale(1.04); }
   .send-button:disabled { opacity:0.45; }
   .composer-menu { position:absolute; z-index:70; min-width:14rem; border:1px solid var(--border); border-radius:0.5rem; background:var(--popover); padding:0.3rem; box-shadow:0 10px 30px rgb(0 0 0 / 0.16); }

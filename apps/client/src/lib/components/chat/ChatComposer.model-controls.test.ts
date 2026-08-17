@@ -55,8 +55,9 @@ describe("ChatComposer model controls", () => {
     expect(trigger?.textContent).toContain("Medium");
     trigger?.click();
     await tick();
-    expect(target.querySelector(".model-control.measured")).not.toBeNull();
-    expect(trigger?.querySelector(".model-chevron")?.classList.contains("open")).toBe(false);
+    expect(target.querySelector(".model-popover")).not.toBeNull();
+    expect(target.querySelector<HTMLElement>(".model-control")?.style.width).toBe("");
+    expect(trigger?.querySelector(".model-chevron")?.classList.contains("open")).toBe(true);
     const effortChoices = [...target.querySelectorAll<HTMLButtonElement>(".effort-options button")];
     expect(effortChoices).toHaveLength(7);
     expect(effortChoices[0]?.getAttribute("aria-label")).toBe("5.6 Terra Light");

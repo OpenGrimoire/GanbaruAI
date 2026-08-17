@@ -976,7 +976,7 @@
   .context-tooltip span { font-size: calc(0.733333rem * var(--type-scale)); }
   .context-tooltip small { max-width: 15rem; color: var(--muted-foreground); font-size: calc(0.633333rem * var(--type-scale)); line-height: calc(0.9rem * var(--type-scale)); }
   .toolbar-right small { max-width: 18rem; color: var(--muted-foreground); font-size: calc(0.666667rem * var(--type-scale)); }
-  .primary-action { display: inline-flex; width: 2.1rem; height: 2.1rem; flex: 0 0 auto; align-items: center; justify-content: center; border-radius: 999px; background: color-mix(in srgb, var(--primary) 92%, transparent); color: var(--primary-foreground); box-shadow: 0 2px 7px color-mix(in srgb, var(--primary) 22%, transparent); transition: transform 120ms ease, filter 120ms ease; }
+  .primary-action { display: inline-flex; width: 2rem; height: 2rem; flex: 0 0 auto; align-items: center; justify-content: center; border-radius: 999px; background: color-mix(in srgb, var(--primary) 92%, transparent); color: var(--primary-foreground); box-shadow: 0 2px 7px color-mix(in srgb, var(--primary) 22%, transparent); transition: transform 120ms ease, filter 120ms ease; }
   .primary-action:hover:not(:disabled) { filter: brightness(1.04); transform: scale(1.04); }
   .primary-action:disabled { opacity: 0.5; }
   .force-stop { color: var(--destructive); }
