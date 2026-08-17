@@ -1116,7 +1116,7 @@
       title={t("focusDialog.resumeTitle")}
       message={t("focusDialog.awayMessage", formatAwayDuration(suspendInfo.awaySeconds))}
       confirmLabel={t("focusDialog.resume")}
-      cancelLabel={t("focusDialog.stopSessionShortcut")}
+      cancelLabel={t("focusDialog.stopSessionCancel")}
       danger={false}
       onConfirm={() => { void pomodoro.dismissSuspend(true); }}
       onCancel={() => { pomodoro.dismissedBlockId = pomodoro.activeBlockId; void pomodoro.dismissSuspend(false); }}

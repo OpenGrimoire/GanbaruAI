@@ -26,21 +26,21 @@ export const pageActions = {
   deleteFolderConfirmTitle: (name: string) => `¿Eliminar ${name}?`,
   deleteFolderConfirmMessage:
     "Las notas y subcarpetas que contiene se moverán al nivel actual de esta carpeta. No se eliminará ninguna nota.",
-  deleteFolderConfirm: "Eliminar carpeta (Enter)",
+  deleteFolderConfirm: "Eliminar carpeta",
   folderActionFailed: (message: string) => `No se pudo actualizar la carpeta: ${message}`,
   pageCreationFailed: (message: string) => `No se pudo guardar esta nota nueva: ${message}`,
   archivePage: "Archivar",
   archiveConfirmTitle: (title: string) => `¿Archivar ${title}?`,
   archiveConfirmMessage:
     "Esto quita la nota sin eliminarla. Puedes restaurarla desde el archivo.",
-  archiveConfirm: "Archivar (Enter)",
+  archiveConfirm: "Archivar",
   unarchive: "Desarchivar",
   unarchivePage: (title: string) => `Desarchivar ${title}`,
   moveToTrash: "Mover a la papelera",
   trashConfirmTitle: (title: string) => `¿Mover ${title} a la papelera?`,
   trashConfirmMessage:
     "Esto quita la nota sin eliminarla. Se eliminará permanentemente después de 7 días, pero puedes restaurarla desde la papelera antes de eso.",
-  trashConfirm: "Mover a la papelera (Enter)",
+  trashConfirm: "Mover a la papelera",
   restorePage: (title: string) => `Restaurar ${title}`,
   restoreMovesToWorkspace:
     "Se restaurará en el espacio porque su nota principal está en la papelera.",
@@ -49,7 +49,7 @@ export const pageActions = {
   permanentDeleteConfirmTitle: (title: string) => `¿Eliminar ${title} para siempre?`,
   permanentDeleteConfirmMessage:
     "Esto elimina permanentemente la nota, sus notas anidadas y sus bloques. No se puede deshacer.",
-  permanentDeleteConfirm: "Eliminar para siempre (Enter)",
+  permanentDeleteConfirm: "Eliminar para siempre",
   todoChecked: "Tarea marcada",
   codeLanguage: "Lenguaje de código",
   codeLanguagePlainText: "Texto plano",

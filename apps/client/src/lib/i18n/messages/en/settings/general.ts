@@ -142,7 +142,7 @@ export const general = {
     deleteMessage: (name: string, count: number) =>
       `Delete "${name}" and ${count === 1 ? "its 1 event" : `all ${count} events`
       }? This cannot be undone`,
-    deleteShortcut: "Delete (Enter)",
+    deleteConfirm: "Delete",
   },
   updates: {
     notificationsHeading: "Notifications",

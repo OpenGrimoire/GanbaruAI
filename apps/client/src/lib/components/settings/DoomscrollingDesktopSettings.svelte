@@ -221,12 +221,12 @@
   function pendingActionConfirmLabel(action: PendingAction): string {
     if (action.target === "desktopConfiguration") {
       return action.action.toggle === "enabled"
-        ? t("settings.doomscrolling.shared.turnOffShortcut")
-        : t("settings.doomscrolling.shared.allowShortcut");
+        ? t("settings.doomscrolling.shared.turnOffAction")
+        : t("settings.doomscrolling.shared.allowAction");
     }
     return action.action.type === "disable"
-      ? t("settings.doomscrolling.shared.allowShortcut")
-      : t("settings.doomscrolling.shared.removeShortcut");
+      ? t("settings.doomscrolling.shared.allowAction")
+      : t("settings.doomscrolling.shared.removeAction");
   }
 </script>
 
@@ -294,7 +294,7 @@
     title={pendingActionTitle(pendingAction)}
     message={pendingActionMessage(pendingAction)}
     confirmLabel={pendingActionConfirmLabel(pendingAction)}
-    cancelLabel={t("settings.doomscrolling.shared.cancelShortcut")}
+    cancelLabel={t("settings.doomscrolling.shared.cancelAction")}
     onConfirm={confirmPendingAction}
     onCancel={cancelPendingAction}
   />

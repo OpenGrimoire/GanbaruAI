@@ -75,6 +75,8 @@ Storage and interoperability stay canonical:
 
 Normal app chrome and main feature UI should use catalog keys directly or feature-local localization helpers. This includes settings, title bar controls, calendar panels, Pomodoro overlays, Music, doomscrolling, theme editor labels, diagnostics, and benchmark overlays.
 
+Shared confirmation dialogs append their standard keyboard hints at the render boundary. The cancel action shows the localized Escape key label and the confirm action shows the localized Enter key label. Feature catalogs provide only the action text, without embedding shortcut suffixes, so every shared confirmation stays consistent and translations do not duplicate interaction behavior. A specialized confirmation surface that cannot use the shared dialog must render the same localized hints and implement the matching keys.
+
 Internal ids, CSS tokens, config keys, SQL columns, benchmark result identity fields, generated benchmark markdown, and tests can remain English when they are not rendered as user-facing text. If an internal English value is rendered, localize at the render boundary instead of changing the stored identity unless the identity itself is obsolete.
 
 ## Adding a locale

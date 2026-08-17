@@ -7,10 +7,11 @@
   let {
     title,
     message,
-    confirmLabel = t("common.yesShortcut"),
-    cancelLabel = t("common.noShortcut"),
+    confirmLabel = t("common.yes"),
+    cancelLabel = t("common.no"),
     danger = true,
     extraConfirmShortcut,
+    element = $bindable(),
     onConfirm,
     onCancel,
   }: {
@@ -20,11 +21,11 @@
     cancelLabel?: string;
     danger?: boolean;
     extraConfirmShortcut?: (e: KeyboardEvent) => boolean;
+    element?: HTMLDivElement;
     onConfirm: () => void;
     onCancel: () => void;
   } = $props();
 
-  let dialogEl: HTMLDivElement | undefined = $state();
   const displayMessage = $derived(message.replace(/\.\s*$/u, ""));
 
   function handleKeydown(e: KeyboardEvent) {
@@ -51,7 +52,7 @@
 
   onMount(() => {
     void tick().then(() => {
-      dialogEl?.focus();
+      element?.focus();
     });
     window.addEventListener("keydown", handleKeydown, true);
     return () => window.removeEventListener("keydown", handleKeydown, true);
@@ -67,7 +68,7 @@
   <div class="absolute inset-0 bg-black/50"></div>
   <!-- svelte-ignore a11y_no_static_element_interactions -->
   <div
-    bind:this={dialogEl}
+    bind:this={element}
     class="confirm-dialog relative z-10 rounded-md border border-black/20 bg-card text-card-foreground px-8 py-5 outline-none dark:border-white/10 dark:bg-sidebar dark:text-sidebar-foreground"
     style="--foreground: var(--card-foreground);"
     role="dialog"
@@ -89,13 +90,13 @@
         onclick={onCancel}
         class="rounded-md border border-border bg-card px-3.5 py-2 text-[0.866667rem] font-medium text-foreground transition-colors hover:bg-accent"
       >
-        {cancelLabel}
+        {cancelLabel} ({t("common.escapeKey")})
       </button>
       <button
         onclick={onConfirm}
         class="rounded-md border border-border bg-primary px-3.5 py-2 text-[0.866667rem] font-medium text-primary-foreground transition-colors hover:bg-primary/90"
       >
-        {confirmLabel}
+        {confirmLabel} ({t("common.enterKey")})
       </button>
     </div>
   </div>

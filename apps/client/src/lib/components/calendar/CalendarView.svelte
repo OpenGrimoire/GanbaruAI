@@ -90,8 +90,8 @@
   const { t } = getLocalization();
   const toasts = createCalendarViewToastController();
   const confirm = createCalendarViewConfirmationController({
-    defaultYesLabel: () => t("common.yesShortcut"),
-    defaultNoLabel: () => t("common.noShortcut"),
+    defaultYesLabel: () => t("common.yes"),
+    defaultNoLabel: () => t("common.no"),
   });
   const requestConfirm = confirm.requestConfirm;
   type CalendarCreateDefaultsInput = {
@@ -419,7 +419,7 @@
       requestConfirm(t("calendar.view.changesLost"), action, {
         title: t("calendar.view.discardUnsavedTitle"),
         yesLabel: t("calendar.view.discard"),
-        noLabel: t("common.cancelShortcut"),
+        noLabel: t("common.cancel"),
       });
     },
     getTemplate: calendarStore.getTemplate,
@@ -794,7 +794,7 @@
         {
           title: t("calendar.view.discardUnsavedTitle"),
           yesLabel: t("calendar.view.discard"),
-          noLabel: t("common.cancelShortcut"),
+          noLabel: t("common.cancel"),
         },
       );
       return;
@@ -863,7 +863,7 @@
         {
           title: t("calendar.view.discardUnsavedTitle"),
           yesLabel: t("calendar.view.discard"),
-          noLabel: t("common.cancelShortcut"),
+          noLabel: t("common.cancel"),
         },
       );
       return;
@@ -931,7 +931,7 @@
         {
           title: t("calendar.view.discardUnsavedTitle"),
           yesLabel: t("calendar.view.discard"),
-          noLabel: t("common.cancelShortcut"),
+          noLabel: t("common.cancel"),
         },
       );
       return;

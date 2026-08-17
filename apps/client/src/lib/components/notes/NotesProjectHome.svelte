@@ -1269,7 +1269,7 @@
         title={t("notes.archiveConfirmTitle", notesPageTitle(pendingArchivePage, t("notes.untitled")))}
         message={t("notes.archiveConfirmMessage")}
         confirmLabel={t("notes.archiveConfirm")}
-        cancelLabel={t("common.cancelShortcut")}
+        cancelLabel={t("common.cancel")}
         onConfirm={confirmArchivePage}
         onCancel={() => {
           pendingArchivePage = null;
@@ -1280,7 +1280,7 @@
         title={t("notes.trashConfirmTitle", notesPageTitle(pendingTrashPage, t("notes.untitled")))}
         message={t("notes.trashConfirmMessage")}
         confirmLabel={t("notes.trashConfirm")}
-        cancelLabel={t("common.cancelShortcut")}
+        cancelLabel={t("common.cancel")}
         onConfirm={confirmTrashPage}
         onCancel={() => {
           pendingTrashPage = null;
@@ -1291,7 +1291,7 @@
         title={t("notes.deleteFolderConfirmTitle", pendingDeleteFolder.name)}
         message={t("notes.deleteFolderConfirmMessage")}
         confirmLabel={t("notes.deleteFolderConfirm")}
-        cancelLabel={t("common.cancelShortcut")}
+        cancelLabel={t("common.cancel")}
         onConfirm={() => {
           void confirmDeleteFolder();
         }}

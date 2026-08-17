@@ -4,7 +4,7 @@ import type { MessageShape } from "../types";
 export const benchmark = {
   runBenchmarkTitle: "¿Ejecutar benchmark?",
   runSuiteTitle: (suite: string) => `¿Ejecutar ${suite}?`,
-  confirmRun: "Ejecutar (Enter)",
+  confirmRun: "Ejecutar",
   suiteIntro: (count: number) =>
     `Ejecuta ${count} benchmarks en secuencia contra bases de datos aisladas`,
   singleIntro: "Reinicia la app varias veces contra una base de datos aislada",

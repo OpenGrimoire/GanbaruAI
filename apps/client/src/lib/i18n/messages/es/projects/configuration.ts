@@ -83,7 +83,7 @@ export const configuration = {
     deleteTagTitle: (tag: string) => `¿Eliminar ${tag}?`,
     deleteTagMessage: (tag: string) =>
       `Esto quita ${tag} de todas las tareas de este proyecto. Las tareas y su historial se conservan.`,
-    deleteTagConfirm: "Eliminar tag (Enter)",
+    deleteTagConfirm: "Eliminar tag",
     taskStatuses: "Estados de tarea",
     statusColor: "Color del estado",
     selectStatusColor: (status: string) => `Seleccionar color para ${status}`,
@@ -101,7 +101,7 @@ export const configuration = {
     deleteStatusTitle: (status: string) => `¿Eliminar ${status}?`,
     deleteStatusMessage: (status: string) =>
       `Esto quita ${status} de los estados de tarea de este proyecto.`,
-    deleteStatusConfirm: "Eliminar estado (Enter)",
+    deleteStatusConfirm: "Eliminar estado",
     taskPriorities: "Prioridades de tarea",
     priorityColor: "Color de la prioridad",
     selectPriorityColor: (priority: string) => `Seleccionar color para ${priority}`,
@@ -119,7 +119,7 @@ export const configuration = {
     deletePriorityTitle: (priority: string) => `¿Eliminar ${priority}?`,
     deletePriorityMessage: (priority: string) =>
       `Esto quita ${priority} de las prioridades de tarea de este proyecto.`,
-    deletePriorityConfirm: "Eliminar prioridad (Enter)",
+    deletePriorityConfirm: "Eliminar prioridad",
     nameRequired: "El nombre del proyecto es obligatorio.",
     groupRequired: "Selecciona un grupo.",
     invalidDuration: "Elige una duración predeterminada de 1 minuto a 24 horas.",

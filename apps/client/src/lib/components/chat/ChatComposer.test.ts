@@ -637,7 +637,7 @@ describe("ChatComposer", () => {
     expect(dialog?.textContent).not.toContain("Example");
 
     [...dialog?.querySelectorAll<HTMLButtonElement>("button") ?? []]
-      .find((button) => button.textContent?.trim() === "Cancel")?.click();
+      .find((button) => button.textContent?.trim() === "Cancel (Esc)")?.click();
     await tick();
     target.querySelector<HTMLButtonElement>('[data-chat-field="safety"]')?.click();
     await tick();

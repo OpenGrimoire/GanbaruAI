@@ -507,7 +507,7 @@
         title={t("calendar.view.discardUnsavedTitle")}
         message={t("calendar.view.changesLost")}
         confirmLabel={t("calendar.view.discard")}
-        cancelLabel={t("common.cancelShortcut")}
+        cancelLabel={t("common.cancel")}
         onConfirm={confirmDiscardProjectSettings}
         onCancel={cancelDiscardProjectSettings}
       />

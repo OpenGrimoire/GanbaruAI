@@ -1,7 +1,7 @@
 export const benchmark = {
   runBenchmarkTitle: "Run benchmark?",
   runSuiteTitle: (suite: string) => `Run ${suite}?`,
-  confirmRun: "Run (Enter)",
+  confirmRun: "Run",
   suiteIntro: (count: number) =>
     `Runs ${count} benchmarks sequentially against isolated databases`,
   singleIntro: "Restarts the app a few times against an isolated database",

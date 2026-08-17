@@ -50,4 +50,17 @@ describe("Music dialog focus containment", () => {
     expect(onEscape).toHaveBeenCalledOnce();
     action.destroy();
   });
+
+  it("routes Enter only when a confirmation action is enabled", () => {
+    const { dialog } = dialogFixture();
+    const onEscape = vi.fn();
+    const onEnter = vi.fn();
+    const action = containMusicDialogFocus(dialog, { onEscape, onEnter, enterDisabled: true });
+    dialog.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+    expect(onEnter).not.toHaveBeenCalled();
+    action.update({ onEscape, onEnter, enterDisabled: false });
+    dialog.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+    expect(onEnter).toHaveBeenCalledOnce();
+    action.destroy();
+  });
 });

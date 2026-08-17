@@ -145,7 +145,7 @@ export const general = {
     deleteMessage: (name: string, count: number) =>
       `¿Eliminar "${name}" y ${count === 1 ? "su 1 evento" : `sus ${count} eventos`
       }? Esta acción no se puede deshacer`,
-    deleteShortcut: "Eliminar (Enter)",
+    deleteConfirm: "Eliminar",
   },
   updates: {
     notificationsHeading: "Notificaciones",

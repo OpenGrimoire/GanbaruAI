@@ -40,13 +40,13 @@ export const focusAndShortcuts = {
     idlePauseConfirmTitle: "¿Desactivar la pausa por inactividad predeterminada?",
     idlePauseConfirmMessage:
       "La pausa por inactividad es una función importante de productividad. Mantiene honesto el tiempo de enfoque cuando te alejas.",
-    turnOff: "Desactivar (Enter)",
-    keepOn: "Mantener activado (Esc)",
+    turnOff: "Desactivar",
+    keepOn: "Mantener activado",
     disableBreakEndTitle: "¿Desactivar terminar descansos antes?",
     disableBreakEndMessage:
       "La pantalla de descanso ocultará la opción de terminar con Esc. Tendrás que esperar a que termine el temporizador de descanso.",
-    disable: "Desactivar (Enter)",
-    keepCurrent: "Mantener actual (Esc)",
+    disable: "Desactivar",
+    keepCurrent: "Mantener actual",
     disableBreakExtensionTitle: "¿Desactivar extensiones de descanso?",
     disableBreakExtensionMessage:
       "La pantalla de descanso ocultará el atajo de extensión. No podrás agregar tiempo extra de descanso.",

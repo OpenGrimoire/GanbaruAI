@@ -57,7 +57,7 @@ export const shell = {
     deleteGroupMessage: (group: string, projectCount: number) =>
       `This permanently deletes ${group}, ${projectCount} ${projectCount === 1 ? "project" : "projects"
       }, and all task data under them. Linked calendar events stay in the calendar with no project.`,
-    deleteGroupConfirm: "Delete group (Enter)",
+    deleteGroupConfirm: "Delete group",
     empty: "No projects",
   },
   iconPicker: {

@@ -23,21 +23,21 @@ export const pageActions = {
   deleteFolderConfirmTitle: (name: string) => `Delete ${name}?`,
   deleteFolderConfirmMessage:
     "Notes and subfolders inside will move to this folder's current parent. No notes will be deleted.",
-  deleteFolderConfirm: "Delete folder (Enter)",
+  deleteFolderConfirm: "Delete folder",
   folderActionFailed: (message: string) => `Could not update folder: ${message}`,
   pageCreationFailed: (message: string) => `Could not save this new note: ${message}`,
   archivePage: "Archive",
   archiveConfirmTitle: (title: string) => `Archive ${title}?`,
   archiveConfirmMessage:
     "This removes the note without deleting it. You can restore it from Archive.",
-  archiveConfirm: "Archive (Enter)",
+  archiveConfirm: "Archive",
   unarchive: "Unarchive",
   unarchivePage: (title: string) => `Unarchive ${title}`,
   moveToTrash: "Move to trash",
   trashConfirmTitle: (title: string) => `Move ${title} to trash?`,
   trashConfirmMessage:
     "This removes the note without deleting it. It will be permanently deleted after 7 days, but you can restore it from Trash before then.",
-  trashConfirm: "Move to trash (Enter)",
+  trashConfirm: "Move to trash",
   restorePage: (title: string) => `Restore ${title}`,
   restoreMovesToWorkspace: "Restores to Workspace because its parent is in Trash.",
   deleteForever: "Delete forever",
@@ -45,7 +45,7 @@ export const pageActions = {
   permanentDeleteConfirmTitle: (title: string) => `Delete ${title} forever?`,
   permanentDeleteConfirmMessage:
     "This permanently deletes the note, its nested notes, and its blocks. This cannot be undone.",
-  permanentDeleteConfirm: "Delete forever (Enter)",
+  permanentDeleteConfirm: "Delete forever",
   todoChecked: "To-do checked",
   codeLanguage: "Code language",
   codeLanguagePlainText: "Plain text",

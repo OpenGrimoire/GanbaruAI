@@ -62,13 +62,13 @@ export const titleBar = {
   resetSequenceTitle: "Open reset confirmation?",
   resetSequenceMessage:
     "You pressed the hidden reset shortcut 10 times. Continue only if you meant to erase your local app data",
-  resetSequenceConfirm: "Continue (Enter)",
+  resetSequenceConfirm: "Continue",
   resetDatabaseTitle: "Reset local data?",
   resetDatabaseMessage:
     "The active Ganbaru AI folder's local data file will be permanently deleted",
-  resetDatabaseConfirm: "Reset local data (Enter)",
+  resetDatabaseConfirm: "Reset local data",
   closeAppTitle: "Close the app?",
   closeAppMessage: "All productivity features will stop working",
-  closeAnyway: "Close anyway (Enter)",
-  stay: "Stay (Esc)",
+  closeAnyway: "Close anyway",
+  stay: "Stay",
 } as const;

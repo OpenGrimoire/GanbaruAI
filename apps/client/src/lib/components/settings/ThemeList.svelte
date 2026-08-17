@@ -334,8 +334,8 @@
       target ? themeDisplayName(target, t) : t("settings.theme.thisTheme"),
     )}
     message={t("settings.theme.cannotBeUndone")}
-    confirmLabel={t("settings.doomscrolling.shared.deleteShortcut")}
-    cancelLabel={t("common.cancelShortcut")}
+    confirmLabel={t("settings.doomscrolling.shared.deleteAction")}
+    cancelLabel={t("common.cancel")}
     onConfirm={confirmDelete}
     onCancel={cancelDelete}
   />

@@ -32,7 +32,7 @@
 
 <div class="absolute inset-0 z-50 grid place-items-center bg-background/60 p-2 backdrop-blur-sm">
   <button type="button" class="absolute inset-0" onclick={onClose} aria-label={t("music.builder.close")}></button>
-  <div use:containMusicDialogFocus={{ onEscape: onClose, escapeDisabled: saving }} class="relative flex max-h-full w-[min(34rem,100%)] flex-col overflow-hidden rounded-2xl border border-border/70 bg-popover shadow-2xl" role="alertdialog" aria-modal="true" aria-label={t("music.builder.sourceRemovalTitle")} tabindex="-1">
+  <div use:containMusicDialogFocus={{ onEscape: onClose, escapeDisabled: saving, onEnter: () => { void confirm(); }, enterDisabled: saving }} class="relative flex max-h-full w-[min(34rem,100%)] flex-col overflow-hidden rounded-2xl border border-border/70 bg-popover shadow-2xl" role="alertdialog" aria-modal="true" aria-label={t("music.builder.sourceRemovalTitle")} tabindex="-1">
     <header class="border-b border-border/55 px-4 py-3"><h2 class="text-sm font-semibold">{t("music.builder.sourceRemovalTitle")}</h2><p class="mt-1 truncate text-[0.68rem] text-muted-foreground">{collection.name}</p></header>
     <div class="min-h-0 flex-1 overflow-y-auto p-3">
       <div class="flex items-start gap-2 rounded-xl bg-primary/7 p-2.5 text-[0.68rem] leading-relaxed text-muted-foreground"><ShieldCheck class="mt-0.5 shrink-0 text-primary" size={15} /><span>{t("music.builder.sourceRemovalSafe")}</span></div>
@@ -44,7 +44,7 @@
       {#if controller.removalImpact}<div class="mt-3 grid grid-cols-2 gap-2"><div class="impact"><strong>{controller.removalImpact.itemCount}</strong><span>{t("music.builder.affectedItems", controller.removalImpact.itemCount)}</span></div><div class="impact"><strong>{controller.removalImpact.membershipCount}</strong><span>{t("music.builder.affectedMemberships", controller.removalImpact.membershipCount)}</span></div></div>{/if}
       {#if error}<p class="mt-3 rounded-lg bg-destructive/10 px-2.5 py-2 text-[0.68rem] text-destructive" role="alert">{error}</p>{/if}
     </div>
-    <footer class="flex shrink-0 justify-end gap-2 border-t border-border/55 px-3 py-2"><button type="button" onclick={onClose} class="h-8 rounded-lg bg-secondary px-3 text-[0.68rem] font-semibold">{t("music.builder.cancel")}</button><button type="button" onclick={() => { void confirm(); }} disabled={saving} class="h-8 rounded-lg bg-destructive px-3 text-[0.68rem] font-semibold text-destructive-foreground disabled:opacity-45">{t("music.builder.confirmRemoval")}</button></footer>
+    <footer class="flex shrink-0 justify-end gap-2 border-t border-border/55 px-3 py-2"><button type="button" onclick={onClose} class="h-8 rounded-lg bg-secondary px-3 text-[0.68rem] font-semibold">{t("music.builder.cancel")} ({t("common.escapeKey")})</button><button type="button" onclick={() => { void confirm(); }} disabled={saving} class="h-8 rounded-lg bg-destructive px-3 text-[0.68rem] font-semibold text-destructive-foreground disabled:opacity-45">{t("music.builder.confirmRemoval")} ({t("common.enterKey")})</button></footer>
   </div>
 </div>
 

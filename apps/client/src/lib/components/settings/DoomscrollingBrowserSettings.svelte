@@ -513,20 +513,20 @@
   function pendingActionConfirmLabel(action: PendingAction): string {
     if (action.target === "website") {
       return action.action.type === "disable"
-        ? t("settings.doomscrolling.shared.disableShortcut")
-        : t("settings.doomscrolling.shared.deleteShortcut");
+        ? t("settings.doomscrolling.shared.disableAction")
+        : t("settings.doomscrolling.shared.deleteAction");
     }
     if (action.target === "browserConfiguration") {
       return action.action.toggle === "enabled"
-        ? t("settings.doomscrolling.shared.turnOffShortcut")
-        : t("settings.doomscrolling.shared.allowShortcut");
+        ? t("settings.doomscrolling.shared.turnOffAction")
+        : t("settings.doomscrolling.shared.allowAction");
     }
-    if (action.target === "mode") return t("settings.doomscrolling.shared.switchShortcut");
-    if (action.target === "category") return t("settings.doomscrolling.shared.disableShortcut");
-    if (action.target === "customStackDraftHost") return t("settings.doomscrolling.shared.deleteShortcut");
+    if (action.target === "mode") return t("settings.doomscrolling.shared.switchAction");
+    if (action.target === "category") return t("settings.doomscrolling.shared.disableAction");
+    if (action.target === "customStackDraftHost") return t("settings.doomscrolling.shared.deleteAction");
     return action.action.type === "disable"
-      ? t("settings.doomscrolling.shared.disableShortcut")
-      : t("settings.doomscrolling.shared.deleteShortcut");
+      ? t("settings.doomscrolling.shared.disableAction")
+      : t("settings.doomscrolling.shared.deleteAction");
   }
 
 </script>
@@ -815,7 +815,7 @@
     title={pendingActionTitle(pendingAction)}
     message={pendingActionMessage(pendingAction)}
     confirmLabel={pendingActionConfirmLabel(pendingAction)}
-    cancelLabel={t("settings.doomscrolling.shared.cancelShortcut")}
+    cancelLabel={t("settings.doomscrolling.shared.cancelAction")}
     onConfirm={confirmPendingAction}
     onCancel={cancelPendingAction}
   />

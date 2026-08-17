@@ -547,7 +547,7 @@
     title={t("titleBar.resetSequenceTitle")}
     message={t("titleBar.resetSequenceMessage")}
     confirmLabel={t("titleBar.resetSequenceConfirm")}
-    cancelLabel={t("common.cancelShortcut")}
+    cancelLabel={t("common.cancel")}
     onConfirm={() => {
       showResetSequenceConfirm = false;
       showResetConfirm = true;
@@ -561,7 +561,7 @@
     title={t("titleBar.resetDatabaseTitle")}
     message={t("titleBar.resetDatabaseMessage")}
     confirmLabel={t("titleBar.resetDatabaseConfirm")}
-    cancelLabel={t("common.cancelShortcut")}
+    cancelLabel={t("common.cancel")}
     onConfirm={confirmReset}
     onCancel={() => { showResetConfirm = false; }}
   />

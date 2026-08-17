@@ -60,7 +60,7 @@ export const shell = {
     deleteGroupMessage: (group: string, projectCount: number) =>
       `Esto elimina permanentemente ${group}, ${projectCount} ${projectCount === 1 ? "proyecto" : "proyectos"
       }, y todos los datos de tareas dentro. Los eventos vinculados permanecen en el calendario sin proyecto.`,
-    deleteGroupConfirm: "Eliminar grupo (Enter)",
+    deleteGroupConfirm: "Eliminar grupo",
     empty: "Sin proyectos",
   },
   iconPicker: {

@@ -80,7 +80,7 @@ export const configuration = {
     deleteTagTitle: (tag: string) => `Delete ${tag}?`,
     deleteTagMessage: (tag: string) =>
       `This removes ${tag} from every task in this project. Tasks and task history stay intact.`,
-    deleteTagConfirm: "Delete tag (Enter)",
+    deleteTagConfirm: "Delete tag",
     taskStatuses: "Task statuses",
     statusColor: "Status color",
     selectStatusColor: (status: string) => `Select color for ${status}`,
@@ -98,7 +98,7 @@ export const configuration = {
     deleteStatusTitle: (status: string) => `Delete ${status}?`,
     deleteStatusMessage: (status: string) =>
       `This removes ${status} from this project's task statuses.`,
-    deleteStatusConfirm: "Delete status (Enter)",
+    deleteStatusConfirm: "Delete status",
     taskPriorities: "Task priorities",
     priorityColor: "Priority color",
     selectPriorityColor: (priority: string) => `Select color for ${priority}`,
@@ -116,7 +116,7 @@ export const configuration = {
     deletePriorityTitle: (priority: string) => `Delete ${priority}?`,
     deletePriorityMessage: (priority: string) =>
       `This removes ${priority} from this project's task priorities.`,
-    deletePriorityConfirm: "Delete priority (Enter)",
+    deletePriorityConfirm: "Delete priority",
     nameRequired: "Project name is required.",
     groupRequired: "Select a group.",
     invalidDuration: "Choose a default duration from 1 minute to 24 hours.",

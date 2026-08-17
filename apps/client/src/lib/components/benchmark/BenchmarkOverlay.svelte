@@ -215,7 +215,7 @@
     title={confirmTitle}
     message={confirmMessage}
     confirmLabel={t("benchmark.confirmRun")}
-    cancelLabel={t("common.cancelShortcut")}
+    cancelLabel={t("common.cancel")}
     onConfirm={() => void runner.confirm()}
     onCancel={() => runner.cancelConfirm()}
   />

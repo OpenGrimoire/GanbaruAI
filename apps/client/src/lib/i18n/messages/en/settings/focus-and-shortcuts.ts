@@ -31,13 +31,13 @@ export const focusAndShortcuts = {
     idlePauseConfirmTitle: "Turn off idle pause by default?",
     idlePauseConfirmMessage:
       "Idle pause is an important productivity feature. It keeps focus time honest when you step away.",
-    turnOff: "Turn off (Enter)",
-    keepOn: "Keep on (Esc)",
+    turnOff: "Turn off",
+    keepOn: "Keep on",
     disableBreakEndTitle: "Disable early break ending?",
     disableBreakEndMessage:
       "The break screen will hide the Esc ending option. You will need to wait until the break timer finishes.",
-    disable: "Disable (Enter)",
-    keepCurrent: "Keep current (Esc)",
+    disable: "Disable",
+    keepCurrent: "Keep current",
     disableBreakExtensionTitle: "Disable break extensions?",
     disableBreakExtensionMessage:
       "The break screen will hide the extension shortcut. You will not be able to add extra break time.",

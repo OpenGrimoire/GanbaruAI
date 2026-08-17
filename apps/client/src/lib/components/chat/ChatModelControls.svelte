@@ -107,7 +107,7 @@
   let modelListCanScrollUp = $state(false);
   let modelListCanScrollDown = $state(false);
   let modelListScrollFrame: number | null = null;
-  let providerForkDialog: HTMLElement | undefined = $state();
+  let providerForkDialog: HTMLDivElement | undefined = $state();
   let pendingProviderModel = $state<PendingProviderModelSelection | null>(null);
   let modelQuery = $state("");
   let modelPickerError = $state<string | null>(null);
