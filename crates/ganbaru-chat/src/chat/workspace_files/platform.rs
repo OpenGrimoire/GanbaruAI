@@ -9,20 +9,20 @@ mod windows;
 
 #[cfg(not(any(unix, windows)))]
 pub(super) use portable::{
-    create_workspace_file_exclusively, secure_directory_entries, secure_workspace_file,
-    workspace_regular_file_permissions, write_workspace_text_atomically,
+    create_workspace_file_exclusively, delete_workspace_file_atomically, secure_directory_entries,
+    secure_workspace_file, workspace_regular_file_permissions, write_workspace_text_atomically,
 };
 #[cfg(unix)]
 pub(super) use unix::{
-    create_workspace_file_exclusively, secure_directory_entries, secure_workspace_file,
-    workspace_regular_file_permissions, write_workspace_text_atomically,
+    create_workspace_file_exclusively, delete_workspace_file_atomically, secure_directory_entries,
+    secure_workspace_file, workspace_regular_file_permissions, write_workspace_text_atomically,
 };
 #[cfg(all(test, unix))]
 pub(super) use unix::{open_regular_file_at, secure_workspace_parent};
 #[cfg(windows)]
 pub(super) use windows::{
-    create_workspace_file_exclusively, secure_directory_entries, secure_workspace_file,
-    workspace_regular_file_permissions, write_workspace_text_atomically,
+    create_workspace_file_exclusively, delete_workspace_file_atomically, secure_directory_entries,
+    secure_workspace_file, workspace_regular_file_permissions, write_workspace_text_atomically,
 };
 
 pub(super) struct SecureDirectoryEntry {

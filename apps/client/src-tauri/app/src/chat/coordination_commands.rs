@@ -16,6 +16,7 @@ const MAX_PAGE_SIZE: u32 = 100;
 const DEFAULT_PAGE_SIZE: u32 = 50;
 const MAX_SEARCH_RESULTS: u32 = 100;
 
+pub mod access;
 mod assignments;
 mod common;
 mod context;
@@ -34,14 +35,14 @@ use common::{
 use dispatch::{deliver_assignment_input, dispatch_assignment_job};
 pub(crate) use reads::read_memberships_for_conversation;
 use reads::{
-    read_active_or_latest_assignment, read_assignment, read_membership, read_message, read_policy,
-    read_reply_thread_page, read_teammate,
+    read_active_or_latest_assignment, read_assignment, read_message, read_reply_thread_page,
+    read_teammate,
 };
 use teammate_lifecycle::{delete_unused_teammate, set_teammate_archived};
 use workflow::{
     insert_channel_copy, insert_communication_message, insert_policy_revision, next_item_ordinal,
-    persist_assignment_routing, read_post_receipt, require_reply_thread, resolve_invoked_teammate,
-    upsert_membership_in_transaction, AssignmentWrite, CommunicationMessageWrite,
+    persist_assignment_routing, read_post_receipt, require_continuation_scope_is_unchanged,
+    require_reply_thread, resolve_invoked_teammate, AssignmentWrite, CommunicationMessageWrite,
 };
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -125,8 +126,8 @@ pub async fn chat_create_teammate(
     .map_err(map_teammate_write_error)?;
     sqlx::query(
         "INSERT INTO chat_ai_teammates
-            (participant_id, role, instructions, configuration_state, created_at, updated_at)
-         VALUES (?, ?, ?, 'healthy', ?, ?)",
+            (participant_id, role, instructions, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?)",
     )
     .bind(request.teammate_id.as_str())
     .bind(role)
@@ -144,66 +145,6 @@ pub async fn chat_create_teammate(
         &now,
     )
     .await?;
-    for membership in &request.memberships {
-        upsert_membership_in_transaction(
-            &mut transaction,
-            &request.teammate_id,
-            membership,
-            None,
-            &now,
-        )
-        .await?;
-    }
-    transaction.commit().await.map_err(persistence_error)?;
-    read_teammate(&pool, &request.teammate_id).await
-}
-
-#[tauri::command]
-pub async fn chat_update_teammate_profile(
-    app: tauri::AppHandle,
-    db_url: String,
-    request: UpdateChatTeammateProfileCommand,
-) -> ChatResult<ChatAiTeammateRead> {
-    let display_name = validate_display_name(&request.display_name)?;
-    let role = validate_teammate_role(&request.role)?;
-    validate_profile_text(&request.instructions, 65_536, "instructions")?;
-    let avatar_data = json_object(&request.avatar, "avatar")?;
-    let pool = chat_pool(app, db_url).await?;
-    let now = now_timestamp()?;
-    let mut transaction = pool.begin().await.map_err(persistence_error)?;
-    let updated = sqlx::query(
-        "UPDATE chat_participants
-         SET display_name = ?, avatar_schema_version = ?, avatar_data = ?,
-             revision = revision + 1, updated_at = ?
-         WHERE id = ? AND participant_kind = 'ai_teammate' AND revision = ?",
-    )
-    .bind(display_name)
-    .bind(i64::from(request.avatar.schema_version))
-    .bind(avatar_data)
-    .bind(now.as_str())
-    .bind(request.teammate_id.as_str())
-    .bind(i64_value(request.expected_revision)?)
-    .execute(&mut *transaction)
-    .await
-    .map_err(map_teammate_write_error)?;
-    if updated.rows_affected() != 1 {
-        return Err(ChatError::new(
-            ChatErrorCode::StaleRevision,
-            "The teammate changed before the update",
-            true,
-        ));
-    }
-    sqlx::query(
-        "UPDATE chat_ai_teammates SET role = ?, instructions = ?, updated_at = ?
-         WHERE participant_id = ?",
-    )
-    .bind(role)
-    .bind(request.instructions.trim())
-    .bind(now.as_str())
-    .bind(request.teammate_id.as_str())
-    .execute(&mut *transaction)
-    .await
-    .map_err(persistence_error)?;
     transaction.commit().await.map_err(persistence_error)?;
     read_teammate(&pool, &request.teammate_id).await
 }
@@ -229,36 +170,6 @@ pub async fn chat_delete_unused_teammate(
 ) -> ChatResult<()> {
     let pool = chat_pool(app, db_url).await?;
     delete_unused_teammate(&pool, &teammate_id, expected_revision).await
-}
-
-#[tauri::command]
-pub async fn chat_publish_teammate_policy(
-    app: tauri::AppHandle,
-    db_url: String,
-    request: PublishChatTeammatePolicyCommand,
-) -> ChatResult<ChatTeammatePolicyRead> {
-    validate_policy(&app, &request.policy)?;
-    let pool = chat_pool(app, db_url).await?;
-    let now = now_timestamp()?;
-    let revision: i64 = sqlx::query_scalar(
-        "SELECT latest_policy_revision + 1 FROM chat_ai_teammates WHERE participant_id = ?",
-    )
-    .bind(request.teammate_id.as_str())
-    .fetch_optional(&pool)
-    .await
-    .map_err(persistence_error)?
-    .ok_or_else(|| ChatError::new(ChatErrorCode::NotFound, "AI teammate was not found", true))?;
-    let mut transaction = pool.begin().await.map_err(persistence_error)?;
-    insert_policy_revision(
-        &mut transaction,
-        &request.teammate_id,
-        u64_value(revision)?,
-        &request.policy,
-        &now,
-    )
-    .await?;
-    transaction.commit().await.map_err(persistence_error)?;
-    read_policy(&pool, &request.teammate_id, u64_value(revision)?).await
 }
 
 #[tauri::command]
@@ -337,133 +248,6 @@ pub async fn chat_set_project_primary_working_folder(
 }
 
 #[tauri::command]
-pub async fn chat_upsert_teammate_membership(
-    app: tauri::AppHandle,
-    db_url: String,
-    request: UpsertChatTeammateMembershipCommand,
-) -> ChatResult<ChatConversationMembershipRead> {
-    let pool = chat_pool(app, db_url).await?;
-    let now = now_timestamp()?;
-    let mut transaction = pool.begin().await.map_err(persistence_error)?;
-    let conversation_id = upsert_membership_in_transaction(
-        &mut transaction,
-        &request.teammate_id,
-        &request.membership,
-        request.expected_revision,
-        &now,
-    )
-    .await?;
-    transaction.commit().await.map_err(persistence_error)?;
-    read_membership(&pool, &conversation_id, &request.teammate_id).await
-}
-
-#[tauri::command]
-pub async fn chat_remove_teammate_membership(
-    app: tauri::AppHandle,
-    db_url: String,
-    channel_id: ChatChannelId,
-    teammate_id: ChatParticipantId,
-    expected_revision: u64,
-    stop_active_work: bool,
-) -> ChatResult<ChatConversationMembershipRead> {
-    let pool = chat_pool(app, db_url).await?;
-    let channel = super::channel_commands::read_channel(&pool, &channel_id).await?;
-    let active: i64 = sqlx::query_scalar(
-        "SELECT count(*)
-         FROM chat_work_assignments assignment
-         JOIN chat_reply_threads thread ON thread.id = assignment.reply_thread_id
-         WHERE thread.conversation_id = ? AND assignment.teammate_id = ?
-           AND assignment.state IN (
-             'queued', 'working', 'waiting_for_answer', 'waiting_for_approval', 'ready_for_review'
-           )",
-    )
-    .bind(channel.conversation_id.as_str())
-    .bind(teammate_id.as_str())
-    .fetch_one(&pool)
-    .await
-    .map_err(persistence_error)?;
-    if active > 0 && !stop_active_work {
-        return Err(ChatError::new(
-            ChatErrorCode::Busy,
-            "Wait for active work or choose Remove and stop work",
-            true,
-        ));
-    }
-    let now = now_timestamp()?;
-    let mut transaction = pool.begin().await.map_err(persistence_error)?;
-    if active > 0 {
-        sqlx::query(
-            "UPDATE chat_work_assignments
-             SET state = 'cancelled', state_reason = 'Channel membership removed',
-                 settled_at = ?, revision = revision + 1, updated_at = ?
-             WHERE teammate_id = ?
-               AND reply_thread_id IN (
-                 SELECT id FROM chat_reply_threads WHERE conversation_id = ?
-               )
-               AND state IN (
-                 'queued', 'working', 'waiting_for_answer', 'waiting_for_approval', 'ready_for_review'
-               )",
-        )
-        .bind(now.as_str())
-        .bind(now.as_str())
-        .bind(teammate_id.as_str())
-        .bind(channel.conversation_id.as_str())
-        .execute(&mut *transaction)
-        .await
-        .map_err(persistence_error)?;
-        sqlx::query(
-            "UPDATE chat_assignment_dispatch_jobs
-             SET state = 'cancelled', updated_at = ?
-             WHERE assignment_id IN (
-               SELECT assignment.id
-               FROM chat_work_assignments assignment
-               JOIN chat_reply_threads thread ON thread.id = assignment.reply_thread_id
-               WHERE thread.conversation_id = ? AND assignment.teammate_id = ?
-             ) AND state IN ('queued', 'claimed')",
-        )
-        .bind(now.as_str())
-        .bind(channel.conversation_id.as_str())
-        .bind(teammate_id.as_str())
-        .execute(&mut *transaction)
-        .await
-        .map_err(persistence_error)?;
-    }
-    let updated = sqlx::query(
-        "UPDATE chat_conversation_memberships
-         SET removed_at = ?, addressable = 0, revision = revision + 1, updated_at = ?
-         WHERE conversation_id = ? AND participant_id = ? AND revision = ?",
-    )
-    .bind(now.as_str())
-    .bind(now.as_str())
-    .bind(channel.conversation_id.as_str())
-    .bind(teammate_id.as_str())
-    .bind(i64_value(expected_revision)?)
-    .execute(&mut *transaction)
-    .await
-    .map_err(persistence_error)?;
-    if updated.rows_affected() != 1 {
-        return Err(ChatError::new(
-            ChatErrorCode::StaleRevision,
-            "The channel membership changed before removal",
-            true,
-        ));
-    }
-    sqlx::query(
-        "UPDATE chat_teammate_working_folder_grants
-         SET revoked_at = ?, is_default = 0
-         WHERE conversation_id = ? AND teammate_id = ? AND revoked_at IS NULL",
-    )
-    .bind(now.as_str())
-    .bind(channel.conversation_id.as_str())
-    .bind(teammate_id.as_str())
-    .execute(&mut *transaction)
-    .await
-    .map_err(persistence_error)?;
-    transaction.commit().await.map_err(persistence_error)?;
-    read_membership(&pool, &channel.conversation_id, &teammate_id).await
-}
-
-#[tauri::command]
 pub async fn chat_post_message(
     app: tauri::AppHandle,
     db_url: String,
@@ -491,9 +275,16 @@ pub async fn chat_post_message(
         &pool,
         &channel.conversation_id,
         request.reply_thread_id.as_ref(),
-        &request.participant_mentions,
+        &request.references,
     )
     .await?;
+    require_continuation_scope_is_unchanged(
+        resolved_invocation
+            .as_ref()
+            .and_then(|invocation| invocation.active_assignment.as_ref())
+            .is_some(),
+        &request.references,
+    )?;
     let now = now_timestamp()?;
     let item_id = conversation_item_id()?;
     let revision_id = message_revision_id()?;
@@ -529,6 +320,9 @@ pub async fn chat_post_message(
             reply_thread_id: request.reply_thread_id.as_ref(),
             ordinal,
             request: &request,
+            invoked_teammate_id: resolved_invocation
+                .as_ref()
+                .map(|invocation| &invocation.teammate_id),
             now: &now,
         },
     )
@@ -587,6 +381,7 @@ pub async fn chat_post_message(
                 reply_thread_id,
                 &item_id,
                 resolved_invocation.as_ref(),
+                request.execution_target.as_ref(),
                 &now,
             )
             .await?
@@ -597,7 +392,16 @@ pub async fn chat_post_message(
         },
     };
     if request.also_send_to_channel && request.reply_thread_id.is_some() {
-        insert_channel_copy(&mut transaction, &channel.conversation_id, &request, &now).await?;
+        insert_channel_copy(
+            &mut transaction,
+            &channel.conversation_id,
+            &request,
+            resolved_invocation
+                .as_ref()
+                .map(|invocation| &invocation.teammate_id),
+            &now,
+        )
+        .await?;
     }
     let receipt_locator = StoredPostMessageReceipt::Locator {
         message_item_id: item_id.clone(),

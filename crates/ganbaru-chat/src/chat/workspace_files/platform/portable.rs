@@ -134,7 +134,7 @@ pub(in crate::chat::workspace_files) fn workspace_regular_file_permissions(
 pub(in crate::chat::workspace_files) fn create_workspace_file_exclusively(
     root: &Path,
     relative_path: &str,
-    contents: &str,
+    bytes: &[u8],
     permissions: Option<fs::Permissions>,
     conflict_message: &str,
 ) -> ChatResult<()> {
@@ -175,11 +175,7 @@ pub(in crate::chat::workspace_files) fn create_workspace_file_exclusively(
                 workspace_file_write_error()
             }
         })?;
-    if file
-        .write_all(contents.as_bytes())
-        .and_then(|_| file.sync_all())
-        .is_err()
-    {
+    if file.write_all(bytes).and_then(|_| file.sync_all()).is_err() {
         drop(file);
         let _ = fs::remove_file(&target);
         return Err(workspace_file_write_error());
@@ -192,6 +188,53 @@ pub(in crate::chat::workspace_files) fn create_workspace_file_exclusively(
         }
     }
     Ok(())
+}
+
+#[cfg(not(any(unix, windows)))]
+pub(in crate::chat::workspace_files) fn delete_workspace_file_atomically(
+    root: &Path,
+    relative_path: &str,
+    expected_revision: &str,
+) -> ChatResult<()> {
+    if workspace_path_contains_symlink(root, relative_path)? {
+        return Err(ChatError::new(
+            ChatErrorCode::Permission,
+            "Workspace file path cannot be symbolic",
+            false,
+        ));
+    }
+    let target = root.join(relative_path);
+    let canonical = fs::canonicalize(&target).map_err(|_| workspace_file_write_error())?;
+    if !canonical.starts_with(root) {
+        return Err(ChatError::new(
+            ChatErrorCode::Permission,
+            "Workspace file path resolves outside the working folder",
+            false,
+        ));
+    }
+    let current = fs::read(&canonical).map_err(|_| workspace_file_write_error())?;
+    if workspace_file_revision(relative_path, &current) != expected_revision {
+        return Err(stale_workspace_file_error());
+    }
+    let generation = WORKSPACE_FILE_WRITE_GENERATION.fetch_add(1, Ordering::Relaxed);
+    let backup = target.with_extension(format!(
+        "ganbaru.{}.{}.backup",
+        std::process::id(),
+        generation
+    ));
+    fs::rename(&target, &backup).map_err(|_| workspace_file_write_error())?;
+    let displaced_matches = fs::symlink_metadata(&backup)
+        .ok()
+        .filter(|metadata| metadata.is_file() && !metadata.file_type().is_symlink())
+        .and_then(|_| fs::read(&backup).ok())
+        .is_some_and(|bytes| workspace_file_revision(relative_path, &bytes) == expected_revision);
+    if !displaced_matches {
+        if fs::symlink_metadata(&target).is_err() && fs::rename(&backup, &target).is_ok() {
+            return Err(stale_workspace_file_error());
+        }
+        return Err(workspace_file_recovery_error());
+    }
+    fs::remove_file(&backup).map_err(|_| workspace_file_recovery_error())
 }
 
 #[cfg(not(any(unix, windows)))]

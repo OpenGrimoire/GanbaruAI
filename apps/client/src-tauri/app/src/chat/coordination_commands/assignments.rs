@@ -144,6 +144,7 @@ pub(super) async fn recover_stranded_follow_up_assignments(
             &reply_thread_id,
             &first_message_id,
             Some(&invocation),
+            None,
             now,
         )
         .await?;

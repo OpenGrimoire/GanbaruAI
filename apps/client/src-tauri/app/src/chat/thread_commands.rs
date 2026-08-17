@@ -163,6 +163,13 @@ pub async fn chat_fork_thread(
             true,
         ));
     }
+    let working_folder_id = source.working_folder_id.as_ref().ok_or_else(|| {
+        ChatError::new(
+            ChatErrorCode::Conflict,
+            "Private scratch work cannot be forked into direct agent history",
+            true,
+        )
+    })?;
     let execution_environment_id: Option<String> =
         sqlx::query_scalar("SELECT execution_environment_id FROM chat_threads WHERE id = ?")
             .bind(request.source_thread_id.as_str())
@@ -176,7 +183,7 @@ pub async fn chat_fork_thread(
             let authorized = authorize_working_folder(
                 &app,
                 &pool,
-                &source.working_folder_id,
+                working_folder_id,
                 WorkingFolderAuthorizationOperation::ProviderStart,
             )
             .await?;
@@ -188,7 +195,7 @@ pub async fn chat_fork_thread(
             )
             .await?;
             let verified = super::models::VerifiedWorkspaceContext {
-                working_folder_id: source.working_folder_id.clone(),
+                working_folder_id: working_folder_id.clone(),
                 canonical_path: authorized
                     .canonical_path
                     .to_str()

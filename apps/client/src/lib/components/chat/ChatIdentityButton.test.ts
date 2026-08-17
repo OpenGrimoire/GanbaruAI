@@ -2,7 +2,12 @@
 
 import { mount, tick, unmount } from "svelte";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { ChatAiTeammateRead, ChatApprovalPolicy, ChatChannelRead, ChatParticipantRead } from "$lib/chat/contracts";
+import type {
+  ChatAiTeammateRead,
+  ChatChannelRead,
+  ChatParticipantRead,
+  ChatRuntimeApprovalPolicy,
+} from "$lib/chat/contracts";
 import type { ChatModelParticipant } from "$lib/chat/participant-identity";
 import { getChat } from "$lib/stores/chat.svelte";
 import { getPreferences } from "$lib/stores/preferences.svelte";
@@ -28,9 +33,9 @@ const model: ChatModelParticipant = {
 };
 
 const teammateParticipant: ChatParticipantRead = {
-  id: "participant:ganbaru",
+  id: "participant:atlas",
   kind: "ai_teammate",
-  displayName: "Ganbaru",
+  displayName: "Atlas",
   avatar: { schemaVersion: 1, value: {} },
   revision: 1,
   archivedAt: null,
@@ -42,7 +47,7 @@ const teammate: ChatAiTeammateRead = {
   instructions: "",
   configurationState: "healthy",
   latestPolicy: {
-    id: "policy:ganbaru:1",
+    id: "policy:atlas:1",
     teammateId: teammateParticipant.id,
     revision: 1,
     providerInstanceId: "codex-local",
@@ -59,20 +64,28 @@ const teammate: ChatAiTeammateRead = {
   hasDurableHistory: false,
 };
 
-function channel(approvalPolicy: ChatApprovalPolicy): ChatChannelRead {
+function channel(runtimeApprovalOverride: ChatRuntimeApprovalPolicy): ChatChannelRead {
   return {
     id: "channel:general",
     conversationId: "conversation:general",
-    projectId: "project:ganbaru",
+    projectId: "project:atlas",
     name: "general",
     topic: "",
     isDefault: true,
     memberships: [{
       conversationId: "conversation:general",
       participant: teammateParticipant,
-      addressable: true,
-      approvalPolicy,
-      workingFolderGrants: [],
+      aiAccess: {
+        accessProfileId: "access-profile:conversation-only",
+        accessProfileRevision: 1,
+        accessProfileBuiltinKey: "conversationOnly",
+        accessProfileName: "Conversation only",
+        capabilities: { readHistory: false, participate: true },
+        historyBoundary: { kind: "entire" },
+        runtimeApprovalOverride,
+        scratchRuntimeApprovalOverride: null,
+        folderGrants: [],
+      },
       revision: 1,
       removedAt: null,
     }],
@@ -139,7 +152,7 @@ describe("ChatIdentityButton", () => {
   it.each(["name", "mention"] as const)("uses the same teammate identity card from a %s trigger", async (presentation) => {
     chat.settings = modelSettings();
     chat.teammates = [teammate];
-    chat.activeChannels = [channel("full_access")];
+    chat.activeChannels = [channel("unattended")];
     chat.selectedChannelId = "channel:general";
     target = document.createElement("div");
     document.body.append(target);
@@ -155,7 +168,7 @@ describe("ChatIdentityButton", () => {
     target.querySelector<HTMLButtonElement>(".identity-trigger")?.click();
     await tick();
     const card = document.body.querySelector<HTMLElement>(".identity-card");
-    expect(card?.querySelector(".identity-heading strong")?.textContent).toBe("Ganbaru");
+    expect(card?.querySelector(".identity-heading strong")?.textContent).toBe("Atlas");
     expect(card?.querySelector(".identity-heading small")?.textContent).toBe("Coding teammate");
     expect(card?.querySelector(".identity-status-dot")?.getAttribute("aria-label")).toBe("Available");
     expect(card?.querySelector(".identity-settings-label")?.textContent).toBe("Default settings");
@@ -164,7 +177,7 @@ describe("ChatIdentityButton", () => {
     expect(card?.querySelector(".identity-model-row .provider-icon")).toBeNull();
     expect(card?.querySelector(".identity-fast-indicator svg")).not.toBeNull();
     expect(card?.querySelector(".identity-model-divider")?.textContent).toBe("|");
-    expect(card?.querySelector(".identity-approval")?.textContent).toBe("Full access");
+    expect(card?.querySelector(".identity-approval")?.textContent).toBe("Unattended within access");
     expect(card?.querySelector(".identity-approval svg")).toBeNull();
     expect(card?.querySelector("dl")).toBeNull();
     expect(card?.textContent).not.toContain("gpt-5.6-sol");

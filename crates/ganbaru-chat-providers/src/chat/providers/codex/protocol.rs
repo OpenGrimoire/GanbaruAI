@@ -1,5 +1,6 @@
 //! Typed Codex app-server request builders and response decoders.
 
+use super::organizational::{organizational_safety, ORGANIZATIONAL_PERMISSION_PROFILE};
 use super::transport::CodexRpcFailure;
 use crate::chat::models::{
     ChatError, ChatResult, InteractionMode, ModelAvailability, ModelChoiceOption, ModelId,
@@ -37,6 +38,18 @@ pub struct ThreadOpenResponse {
     pub approval_policy: Value,
     pub approvals_reviewer: String,
     pub sandbox: Value,
+    #[serde(default)]
+    pub active_permission_profile: Option<CodexActivePermissionProfile>,
+    #[serde(default)]
+    pub runtime_workspace_roots: Vec<PathBuf>,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct CodexActivePermissionProfile {
+    pub id: String,
+    #[serde(default)]
+    pub extends: Option<String>,
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -293,6 +306,7 @@ pub fn thread_open_params(
     modes: TurnModeSnapshot,
     model_id: Option<&ModelId>,
     developer_instructions: Option<&str>,
+    organizational: bool,
 ) -> ChatResult<Value> {
     validate_optional_text(
         developer_instructions,
@@ -303,7 +317,27 @@ pub fn thread_open_params(
         "cwd".to_string(),
         Value::String(workspace.to_string_lossy().into_owned()),
     )]);
-    if let Some(safety) = safety_settings(modes.safety_mode) {
+    if organizational {
+        let safety = organizational_safety(modes.safety_mode)?;
+        params.insert(
+            "approvalPolicy".to_string(),
+            Value::String(safety.approval_policy.to_string()),
+        );
+        params.insert(
+            "approvalsReviewer".to_string(),
+            Value::String(safety.approvals_reviewer.to_string()),
+        );
+        params.insert(
+            "permissions".to_string(),
+            Value::String(ORGANIZATIONAL_PERMISSION_PROFILE.to_string()),
+        );
+        params.insert(
+            "runtimeWorkspaceRoots".to_string(),
+            Value::Array(vec![Value::String(
+                workspace.to_string_lossy().into_owned(),
+            )]),
+        );
+    } else if let Some(safety) = safety_settings(modes.safety_mode) {
         params.insert(
             "approvalPolicy".to_string(),
             Value::String(safety.approval_policy.to_string()),
@@ -341,10 +375,11 @@ pub fn thread_open_params(
 
 pub fn turn_start_params(
     provider_thread_id: &str,
-    _workspace: &Path,
+    workspace: &Path,
     fallback_model: &str,
     request: &SendTurnRequest,
     custom_safety: Option<&CodexCustomSafetySettings>,
+    organizational: bool,
 ) -> ChatResult<Value> {
     if request.prompt.len() > MAX_PROMPT_BYTES || request.prompt.contains('\0') {
         return Err(ChatError::validation(
@@ -431,7 +466,27 @@ pub fn turn_start_params(
             Value::String(request.turn_id.as_str().to_string()),
         ),
     ]);
-    if let Some(safety) = safety_settings(request.modes.safety_mode) {
+    if organizational {
+        let safety = organizational_safety(request.modes.safety_mode)?;
+        params.insert(
+            "approvalPolicy".to_string(),
+            Value::String(safety.approval_policy.to_string()),
+        );
+        params.insert(
+            "approvalsReviewer".to_string(),
+            Value::String(safety.approvals_reviewer.to_string()),
+        );
+        params.insert(
+            "permissions".to_string(),
+            Value::String(ORGANIZATIONAL_PERMISSION_PROFILE.to_string()),
+        );
+        params.insert(
+            "runtimeWorkspaceRoots".to_string(),
+            Value::Array(vec![Value::String(
+                workspace.to_string_lossy().into_owned(),
+            )]),
+        );
+    } else if let Some(safety) = safety_settings(request.modes.safety_mode) {
         params.insert(
             "approvalPolicy".to_string(),
             Value::String(safety.approval_policy.to_string()),

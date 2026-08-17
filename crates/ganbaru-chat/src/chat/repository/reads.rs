@@ -1,10 +1,11 @@
 use crate::chat::events::{ChangedFileSummary, ThreadUsageUpdatedEvent};
 use crate::chat::models::{
-    ChatActivityId, ChatError, ChatErrorCode, ChatResult, ChatThreadId, ChatThreadShellRead,
-    ChatThreadState, ChatTimelineItemRead, ChatTimelinePageRead, ChatTimelineTurnRead, ChatTurnId,
-    ChatTurnState, InteractionMode, ModelId, ModelOptionSelection, ProjectWorkingFolderId,
-    ProviderFamilyId, ProviderInstanceId, ProviderThreadId, SafetyMode, TurnModeSnapshot,
-    UtcTimestamp, VersionedJson,
+    ChatActivityId, ChatError, ChatErrorCode, ChatExecutionEnvironmentId, ChatResult,
+    ChatScratchGenerationId, ChatThreadId, ChatThreadShellRead, ChatThreadState,
+    ChatTimelineItemRead, ChatTimelinePageRead, ChatTimelineTurnRead, ChatTurnId, ChatTurnState,
+    InteractionMode, ModelId, ModelOptionSelection, ProjectWorkingFolderId, ProviderFamilyId,
+    ProviderInstanceId, ProviderThreadId, SafetyMode, TurnModeSnapshot, UtcTimestamp,
+    VersionedJson,
 };
 use serde::{Deserialize, Serialize};
 use sqlx::{Row, SqlitePool};
@@ -125,13 +126,15 @@ async fn read_thread_shell_query(
     limit: Option<u32>,
 ) -> ChatResult<Vec<ChatThreadShellRead>> {
     let rows = sqlx::query(
-        "SELECT id, working_folder_id, project_id, title, provider_family_id,
+        "SELECT id, working_folder_id, execution_environment_id, scratch_generation_id,
+                project_id, title, provider_family_id,
                 provider_instance_id, provider_thread_id, model_selection_data,
                 safety_mode, interaction_mode, state, latest_turn_state,
                 latest_preview, message_count, revision, last_event_sequence,
                 last_activity_at, unread_at, archived_at
          FROM chat_threads
          WHERE (? IS NULL OR working_folder_id = ?)
+           AND scratch_generation_id IS NULL
            AND ((? = 1 AND archived_at IS NOT NULL) OR (? = 0 AND archived_at IS NULL AND state != 'closed'))
          ORDER BY CASE WHEN archived_at IS NULL THEN last_activity_at ELSE archived_at END DESC, id
          LIMIT COALESCE(?, -1)",
@@ -152,7 +155,8 @@ pub async fn read_thread_shell(
     thread_id: &ChatThreadId,
 ) -> ChatResult<ChatThreadShellRead> {
     sqlx::query(
-        "SELECT id, working_folder_id, project_id, title, provider_family_id,
+        "SELECT id, working_folder_id, execution_environment_id, scratch_generation_id,
+                project_id, title, provider_family_id,
                 provider_instance_id, provider_thread_id, model_selection_data,
                 safety_mode, interaction_mode, state, latest_turn_state,
                 latest_preview, message_count, revision, last_event_sequence,
@@ -177,7 +181,8 @@ pub async fn read_thread_shells_by_ids(
     }
     let encoded_ids = serde_json::to_string(thread_ids).map_err(serialization_error)?;
     let rows = sqlx::query(
-        "SELECT id, working_folder_id, project_id, title, provider_family_id,
+        "SELECT id, working_folder_id, execution_environment_id, scratch_generation_id,
+                project_id, title, provider_family_id,
                 provider_instance_id, provider_thread_id, model_selection_data,
                 safety_mode, interaction_mode, state, latest_turn_state,
                 latest_preview, message_count, revision, last_event_sequence,
@@ -208,13 +213,15 @@ pub async fn search_thread_titles(
     }
     let pattern = format!("%{}%", escape_like(&normalized));
     let rows = sqlx::query(
-        "SELECT id, working_folder_id, project_id, title, provider_family_id,
+        "SELECT id, working_folder_id, execution_environment_id, scratch_generation_id,
+                project_id, title, provider_family_id,
                 provider_instance_id, provider_thread_id, model_selection_data,
                 safety_mode, interaction_mode, state, latest_turn_state,
                 latest_preview, message_count, revision, last_event_sequence,
                 last_activity_at, unread_at, archived_at
          FROM chat_threads
          WHERE title_search LIKE ? ESCAPE '\\'
+           AND scratch_generation_id IS NULL
            AND (? IS NULL OR (? = 1 AND archived_at IS NOT NULL) OR (? = 0 AND archived_at IS NULL AND state != 'closed'))
          ORDER BY CASE WHEN title_search = ? THEN 0 WHEN title_search LIKE ? ESCAPE '\\' THEN 1 ELSE 2 END,
                   last_activity_at DESC, id
@@ -525,12 +532,34 @@ fn row_to_thread_shell(row: sqlx::sqlite::SqliteRow) -> ChatResult<ChatThreadShe
         .map_err(persistence_error)?;
     let model: StoredModelSelection =
         serde_json::from_str(&model_data).map_err(serialization_error)?;
+    let working_folder_id = row
+        .try_get::<Option<String>, _>("working_folder_id")
+        .map_err(persistence_error)?
+        .map(id)
+        .transpose()?;
+    let execution_environment_id = ChatExecutionEnvironmentId::new(
+        row.try_get::<String, _>("execution_environment_id")
+            .map_err(persistence_error)?,
+    )
+    .map_err(|_| corrupt_data())?;
+    let scratch_generation_id = row
+        .try_get::<Option<String>, _>("scratch_generation_id")
+        .map_err(persistence_error)?
+        .map(ChatScratchGenerationId::new)
+        .transpose()
+        .map_err(|_| corrupt_data())?;
+    if !matches!(
+        (&working_folder_id, &scratch_generation_id),
+        (Some(_), None) | (None, Some(_))
+    ) {
+        return Err(corrupt_data());
+    }
     Ok(ChatThreadShellRead {
         id: ChatThreadId::new(row.try_get::<String, _>("id").map_err(persistence_error)?)
             .map_err(|_| corrupt_data())?,
-        working_folder_id: id(row
-            .try_get::<String, _>("working_folder_id")
-            .map_err(persistence_error)?)?,
+        working_folder_id,
+        execution_environment_id,
+        scratch_generation_id,
         project_id: row.try_get("project_id").map_err(persistence_error)?,
         title: row.try_get("title").map_err(persistence_error)?,
         provider_family_id: ProviderFamilyId::new(

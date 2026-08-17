@@ -432,7 +432,7 @@
     <button type="button" role="menuitem" onclick={() => runMenuOperation(currentMenuThread, (thread) => chat.setThreadRead(thread, Boolean(thread.unreadAt)))}>{currentMenuThread.unreadAt ? t("chat.markRead") : t("chat.markUnread")}</button>
     <button type="button" role="menuitem" onclick={() => { menuThread = null; detach(currentMenuThread); }}>{t("chat.detach")}</button>
     <button type="button" role="menuitem" onclick={() => { menuThread = null; copyThreadId(currentMenuThread.id); }}>{t("chat.copyThreadId")}</button>
-    <button type="button" role="menuitem" onclick={() => runMenuOperation(currentMenuThread, (thread) => chat.openWorkingFolder(thread.workingFolderId))}>{t("chat.openFolder")}</button>
+    {#if currentMenuThread.workingFolderId}<button type="button" role="menuitem" onclick={() => runMenuOperation(currentMenuThread, (thread) => thread.workingFolderId ? chat.openWorkingFolder(thread.workingFolderId) : Promise.resolve())}>{t("chat.openFolder")}</button>{/if}
     <button type="button" role="menuitem" onclick={() => runMenuOperation(currentMenuThread, (thread) => chat.archiveThread(thread))}>{t("chat.archive")}</button>
     <button type="button" role="menuitem" class="text-destructive" onclick={() => { deleteThread = currentMenuThread; menuThread = null; }}>{t("chat.deletePermanently")}</button>
   </div>

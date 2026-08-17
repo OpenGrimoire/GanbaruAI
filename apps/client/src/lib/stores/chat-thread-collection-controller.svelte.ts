@@ -1,5 +1,6 @@
 import * as chatApi from "$lib/api/chat";
 import type { ChatThreadId, ChatThreadShellRead } from "$lib/chat/contracts";
+import { isDirectChatThreadShell } from "$lib/chat/shell-model";
 
 const RECENT_THREAD_WINDOW = 200;
 
@@ -96,6 +97,7 @@ export class ChatThreadCollectionController {
   }
 
   upsert(thread: ChatThreadShellRead): void {
+    if (!isDirectChatThreadShell(thread)) return;
     const target = thread.archivedAt ? this.archivedThreads : this.activeThreads;
     const next = target.some((entry) => entry.id === thread.id)
       ? target.map((entry) => entry.id === thread.id ? thread : entry)

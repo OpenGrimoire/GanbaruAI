@@ -1,8 +1,22 @@
 // @vitest-environment jsdom
 
 import { describe, expect, it, vi } from "vitest";
+import type { ChatMessageReference } from "./contracts";
 import { ChatComposerEditor } from "./composer-editor";
 import { chatComposerDocumentFromText } from "./composer-rich-text";
+
+const atlasReference: ChatMessageReference = {
+  kind: "participant",
+  metadata: {
+    referenceId: "reference:atlas",
+    labelSnapshot: "Atlas",
+    startOffset: 4,
+    endOffset: 10,
+    plainTextProjection: "@Atlas",
+  },
+  participantId: "participant:atlas",
+  participantKind: "ai_teammate",
+};
 
 describe("ChatComposerEditor", () => {
   it("maps a browser selection to visible-text offsets", () => {
@@ -123,6 +137,39 @@ describe("ChatComposerEditor", () => {
     editor.handleKeydown(new KeyboardEvent("keydown", { key: "z", ctrlKey: true, cancelable: true }));
 
     expect(editor.plainText()).toBe("abc");
+    root.remove();
+  });
+
+  it("renders references as noneditable atoms and deletes them atomically", () => {
+    const root = document.createElement("div");
+    document.body.append(root);
+    const editor = new ChatComposerEditor(
+      root,
+      chatComposerDocumentFromText("Ask @Atlas now"),
+      { onChange: vi.fn(), onSelectionChange: vi.fn() },
+      [atlasReference],
+    );
+    root.focus();
+    editor.focus({ start: 10, end: 10 });
+
+    const atom = root.querySelector<HTMLElement>("[data-chat-reference-id='reference:atlas']");
+    expect(atom?.contentEditable).toBe("false");
+    expect(atom?.textContent).toBe("@Atlas");
+    const deleted = editor.handleBeforeInput(new InputEvent("beforeinput", {
+      inputType: "deleteContentBackward",
+      cancelable: true,
+    }));
+
+    expect(deleted).toBe(true);
+    expect(editor.plainText()).toBe("Ask  now");
+    expect(editor.messageReferences()).toEqual([]);
+    editor.handleKeydown(new KeyboardEvent("keydown", {
+      key: "z",
+      ctrlKey: true,
+      cancelable: true,
+    }));
+    expect(editor.plainText()).toBe("Ask @Atlas now");
+    expect(editor.messageReferences()).toEqual([atlasReference]);
     root.remove();
   });
 });

@@ -148,11 +148,11 @@ describe("Chat provider contracts", () => {
           revision: 1,
           archivedAt: null,
         },
+        authorLabelSnapshot: "You",
         normalizedMarkdown: "Done",
         richContent: { schemaVersion: 1, value: {} },
-        mentions: [],
         attachmentIds: [],
-        resourceReferences: [],
+        references: [],
         replyThread: null,
         ordinal: 1,
         editedAt: null,
@@ -171,6 +171,40 @@ describe("Chat provider contracts", () => {
     }).replyThreadId).toBeNull();
     expect(() => parseChatChannelPage({ ...page, revision: -1 }))
       .toThrow("revision must not be negative");
+
+    const referenced = parseChatChannelPage({
+      ...page,
+      messages: [{
+        ...page.messages[0]!,
+        normalizedMarkdown: "Ask @Ágata",
+        references: [{
+          kind: "participant",
+          metadata: {
+            referenceId: "reference:agata",
+            labelSnapshot: "Ágata",
+            startOffset: 4,
+            endOffset: 11,
+            plainTextProjection: "@Ágata",
+          },
+          participantId: "participant:agata",
+          participantKind: "ai_teammate",
+        }],
+      }],
+    });
+    expect(referenced.messages[0]?.references[0]?.metadata.endOffset).toBe(11);
+    expect(() => parseChatChannelPage({
+      ...referenced,
+      messages: [{
+        ...referenced.messages[0]!,
+        references: [{
+          ...referenced.messages[0]!.references[0]!,
+          metadata: {
+            ...referenced.messages[0]!.references[0]!.metadata,
+            endOffset: 10,
+          },
+        }],
+      }],
+    })).toThrow("invalid, overlapping, or duplicate reference");
   });
 
   it("retains stable author identity in organizational message search results", () => {
@@ -200,8 +234,7 @@ describe("Chat provider contracts", () => {
       normalizedMarkdown: "Post the update",
       richContent: { schemaVersion: 1, value: {} },
       attachmentIds: [],
-      participantMentions: [],
-      resourceReferences: [],
+      references: [],
       alsoSendToChannel: false,
       state: "scheduled",
       scheduledFor: timestamp,
@@ -653,6 +686,8 @@ describe("Chat read and error contracts", () => {
     const fixture = {
       id: "thread-1",
       workingFolderId: "workspace-1",
+      executionEnvironmentId: "current-folder:workspace-1",
+      scratchGenerationId: null,
       projectId: "project-1",
       title: "Implement Chat contracts",
       providerFamilyId: "codex",
@@ -672,6 +707,18 @@ describe("Chat read and error contracts", () => {
       archivedAt: null,
     };
     expect(parseChatThreadShell(fixture)).toEqual(fixture);
+    const scratch = {
+      ...fixture,
+      id: "thread-scratch",
+      workingFolderId: null,
+      executionEnvironmentId: "scratch-environment:1",
+      scratchGenerationId: "scratch-generation:1",
+    };
+    expect(parseChatThreadShell(scratch)).toEqual(scratch);
+    expect(() => parseChatThreadShell({
+      ...scratch,
+      workingFolderId: "workspace-1",
+    })).toThrow("exactly one working folder or scratch generation");
   });
 
   it("parses structured errors and rejects unbounded unknown detail types", () => {

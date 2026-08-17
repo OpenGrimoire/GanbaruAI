@@ -58,6 +58,65 @@ export function chatComposerMarkdown(document: ChatComposerDocument): string {
   }).join("")).join("\n");
 }
 
+/** Maps a visible JavaScript offset to the matching provider-facing Markdown offset. */
+export function chatComposerMarkdownOffset(
+  document: ChatComposerDocument,
+  visibleOffset: number,
+  affinity: "forward" | "backward" = "forward",
+): number {
+  const normalized = normalizeChatComposerDocument(document);
+  const plainText = chatComposerPlainText(normalized);
+  const target = clampOffset(visibleOffset, plainText.length);
+  let visibleCursor = 0;
+  let markdownCursor = 0;
+  for (let lineIndex = 0; lineIndex < normalized.lines.length; lineIndex += 1) {
+    const line = normalized.lines[lineIndex]!;
+    for (const run of line.runs) {
+      const prefix = markdownRunPrefix(run);
+      const suffix = markdownRunSuffix(run);
+      const serialized = markdownRunText(run);
+      const runEnd = visibleCursor + run.text.length;
+      if (target < runEnd) {
+        return markdownCursor + prefix.length + markdownRunText({
+          ...run,
+          text: run.text.slice(0, target - visibleCursor),
+        }).length;
+      }
+      if (target === runEnd && affinity === "backward") {
+        return markdownCursor + prefix.length + serialized.length;
+      }
+      visibleCursor = runEnd;
+      markdownCursor += prefix.length + serialized.length + suffix.length;
+    }
+    if (lineIndex < normalized.lines.length - 1) {
+      if (target === visibleCursor) return markdownCursor;
+      visibleCursor += 1;
+      markdownCursor += 1;
+    }
+  }
+  return markdownCursor;
+}
+
+/** Maps an exact Markdown boundary back to its visible JavaScript offset. */
+export function chatComposerVisibleOffset(
+  document: ChatComposerDocument,
+  markdownOffset: number,
+): number {
+  const normalized = normalizeChatComposerDocument(document);
+  const plainText = chatComposerPlainText(normalized);
+  const markdownLength = chatComposerMarkdown(normalized).length;
+  const target = clampOffset(markdownOffset, markdownLength);
+  let visibleOffset = 0;
+  while (visibleOffset <= plainText.length) {
+    const mapped = chatComposerMarkdownOffset(normalized, visibleOffset);
+    if (mapped >= target) return visibleOffset;
+    const character = [...plainText.slice(visibleOffset)][0];
+    if (!character) break;
+    visibleOffset += character.length;
+  }
+  return plainText.length;
+}
+
 /** Converts a composer document to its bounded, versioned persistence value. */
 export function chatComposerDocumentVersioned(document: ChatComposerDocument): VersionedJson {
   const normalized = normalizeChatComposerDocument(document);
@@ -256,6 +315,28 @@ function sliceSegments(segments: LinearSegment[], from: number, to: number): Lin
 
 function escapeMarkedText(text: string): string {
   return text.replace(/([\\*_])/gu, "\\$1");
+}
+
+function markdownRunPrefix(run: ChatComposerTextRun): string {
+  const bold = run.marks.includes("bold");
+  const italic = run.marks.includes("italic");
+  if (bold && italic) return "**_";
+  if (bold) return "**";
+  if (italic) return "_";
+  return "";
+}
+
+function markdownRunSuffix(run: ChatComposerTextRun): string {
+  const bold = run.marks.includes("bold");
+  const italic = run.marks.includes("italic");
+  if (bold && italic) return "_**";
+  if (bold) return "**";
+  if (italic) return "_";
+  return "";
+}
+
+function markdownRunText(run: ChatComposerTextRun): string {
+  return run.marks.length > 0 ? escapeMarkedText(run.text) : run.text;
 }
 
 function normalizeMarks(marks: readonly ChatComposerMark[]): ChatComposerMark[] {

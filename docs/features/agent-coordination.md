@@ -2,7 +2,11 @@
 
 Ganbaru AI treats AI as a delegable workforce rather than a collection of isolated assistant chats. Chat is the communication and coordination layer where a person, human collaborators, persistent AI teammates, and task agents discuss work. Projects remains the canonical work record, Notes remains durable knowledge, Calendar remains the record of time and capacity, and provider sessions remain bounded execution machinery beneath those surfaces.
 
-This is the ideal product direction. The current coding-agent Chat already provides native provider sessions, durable events, approvals, terminals, review, worktrees, and checkpoints. Channels, direct messages, structured planning, automatic delegation, and human collaboration are later layers built on that foundation.
+This is the ideal product direction. The current coding-agent Chat provides native provider sessions, durable events, project channels, ordinary vault-wide teammate identities, explicit channel and folder access, approvals, terminals, review, worktrees, and checkpoints. Direct messages, structured planning, automatic delegation, proactive observation, and human collaboration are later layers built on that foundation.
+
+The authorization rules in [Chat access control](../data/access-control.md) are normative for every layer described here.
+
+The channel-native direction is informed by Anthropic's [Claude Tag model](https://www.anthropic.com/news/introducing-claude-tag): administrators select channels, tools, data, and codebases; people delegate by tagging a shared teammate; work stays visible to the channel; and the result returns to a reply thread. Anthropic's [operating walkthrough](https://www.anthropic.com/webinars/how-anthropic-works-with-claude-tag-in-slack) reinforces three distinct workflows: explicit work delegated in a thread, ambient triage, and long-running tasks that hand control back when done. It also treats permissions and agent identity as first-class design topics instead of provider setup details. [Andrej Karpathy's accompanying observation](https://x.com/karpathy/status/2069547676849557725) identifies the central interface shift as placing AI work inline with normal organization-wide human activity, while recognizing that this depends on substantial engineering across tools, integrations, compute environments, and memory. Ganbaru adopts that durable multiplayer shape while keeping its own local, provider-neutral, open-source execution boundary. Explicit thread delegation and bounded asynchronous work belong in the access foundation. Ambient observation, learned channel memory, proactive follow-up, and long-running schedules remain later capabilities. They require explicit subscriptions, provenance, budgets, and the same access evaluator rather than arriving implicitly with membership.
 
 ## Product objective
 
@@ -52,7 +56,7 @@ Sidebar sections organize channels for navigation. They do not change project ow
 
 ### Direct messages
 
-A direct message is a durable conversation with stable participants. A participant can be the local person, a future human collaborator, or a persistent AI teammate such as the Ganbaru manager or a reviewer. Provider and model identity are execution choices, not participant identity. Changing the provider behind the Ganbaru manager does not create a new DM or a new organizational participant.
+A direct message is a durable conversation with stable participants. A participant can be the local person, a future human collaborator, or any ordinary persistent AI teammate. Provider and model identity are execution choices, not participant identity. Changing a teammate's provider does not create a new DM or organizational participant.
 
 Temporary task agents do not automatically become permanent DM entries. A person can turn a useful task-agent profile into a persistent teammate, but ordinary execution stays attached to its task.
 
@@ -60,7 +64,7 @@ Temporary task agents do not automatically become permanent DM entries. A person
 
 A conversation records who authored a message and which participants or teammates it addresses. Human communication is persisted and later synchronized without requiring an AI provider. Merely placing an AI teammate in a channel does not silently send every message, attachment, or linked resource to its provider.
 
-The default channel policy is explicit invocation. A person sends an actionable `@teammate` mention, uses a teammate action, or opens a DM with that teammate. The Ganbaru manager can be available in a project's `#general` channel once a compatible provider is configured, but ordinary unaddressed messages remain local organizational history. A DM with the manager addresses it by definition.
+The default channel policy is explicit invocation. A person sends an actionable `@teammate` mention, uses a teammate action, or opens a DM with that teammate. A teammate remains inert until an explicit membership grants Participate. Ordinary unaddressed messages remain local organizational history. A DM with an AI teammate addresses that teammate by definition.
 
 An actionable mention on a top-level message creates one shared reply thread and one work assignment anchored to that message. The teammate responds in the thread, and every authorized participant can clarify, correct, pause, or review the work there. The root channel message shows only compact thread and work state. A useful reply or final digest can be deliberately sent back to the channel, but raw execution and routine progress stay out of the main stream.
 
@@ -84,9 +88,9 @@ The existing internal term `chat thread` refers to a provider continuation and e
 
 ## AI teammates and identity
 
-An AI teammate is a stable organizational participant with a name, avatar, purpose, instructions, memberships, memory scope, authority policy, budgets, and default execution preferences. It is separate from the provider instance and model used for a particular turn or run. The internal role policy describes what the teammate is expected and allowed to do, but the product presents a teammate rather than a model alias.
+An AI teammate is a stable ordinary organizational participant with a name, avatar, purpose, instructions, runtime defaults, and provider configuration. Memberships, history boundaries, access-profile ceilings, folder grants, references, budgets, and run scopes are separate authorization records. The identity is independent from the provider instance and model used for a particular turn or run.
 
-The first central teammate is the Ganbaru manager. A person can later create specialized teammates such as researcher, implementer, reviewer, scheduler, or release coordinator. Creating one includes its display identity, job and boundaries, instructions, default provider, model and effort policy, tool and resource grants, safety mode, token and monetary budgets, memory namespace, and optional proactive behavior. A teammate is not assumed to be competent merely because it has a name. Its capabilities come from the selected provider, available tools, authorized data, and verified workflow.
+The base system seeds no AI teammate. A person may create planning, research, implementation, review, scheduling, or release teammates in any combination. Future defaults are templates that instantiate ordinary inert identities. Templates have no hidden privileges, automatic membership, global awareness, special provider, or bypass. A teammate's practical capabilities come from the selected provider, available tools, explicit grants, and verified workflow.
 
 Teammate identity supports consistent communication, but durable memory comes from canonical Ganbaru data, explicit memory entries, and bounded summaries. Raw channel history is not an implicit memory store. Memory defaults to the narrowest useful scope, such as one channel or project, includes source provenance, and crosses channel or project boundaries only through an explicit shared memory namespace. Ganbaru never treats an unbounded raw conversation transcript as the sole memory of a project.
 
@@ -114,7 +118,7 @@ Requirement changes record what changed, who or what requested it, why, the orig
 
 ## Context packages
 
-Each manager action and agent run receives an explicit context package rather than unrestricted access to an entire project or channel history. A context package can contain:
+Each approved planning action and agent run receives an explicit context package rather than unrestricted access to an entire project or channel history. A context package can contain:
 
 - The objective, task, acceptance criteria, and relevant requirement revisions.
 - Direct dependencies and blocking tasks.
@@ -133,11 +137,11 @@ The package is inspectable and records its source identities and revisions. A ru
 
 ## Delegation and execution
 
-An agent run is a bounded execution record linked to a task or other explicit objective. It records the teammate or task-agent identity, role-policy revision, provider, model, working folder, execution environment, context package, authority, budgets, lifecycle state, deliverables, usage, and relevant provider continuation.
+An agent run is a bounded execution record linked to a task or other explicit objective. It records the teammate or task-agent identity, role-policy revision, provider, model, one folder or private-scratch execution target, context package, authority revision, budgets, lifecycle state, deliverables, usage, and relevant provider continuation.
 
 Parallel execution is allowed only when workspace ownership, dependencies, budgets, and review capacity permit it. Two agents do not mutate the same execution environment concurrently. Coding work uses isolated worktrees or otherwise separate environments when safe parallelism is required.
 
-The manager monitors exceptions instead of narrating every tool call into a shared channel. Normal channel updates are concise and structured. Detailed provider events remain available in the run timeline for inspection, recovery, and audit.
+The responsible teammate or future planning workflow reports exceptions instead of narrating every tool call into a shared channel. Normal channel updates are concise and structured. Detailed provider events remain available in the run timeline for inspection, recovery, and audit. This behavior is a role or workflow policy, not a privileged built-in teammate.
 
 An addressed AI message first becomes durable organizational history, then starts a work assignment. The dispatch lifecycle is:
 
@@ -200,9 +204,9 @@ The system optimizes for completed, reviewed work and sustainable attention, not
 
 ## Authority and safety
 
-The manager and task agents act only within explicit authority. Project settings can eventually distinguish actions that are allowed automatically, allowed within a budget, require review, or are always prohibited.
+Teammates and task agents act only within explicit authority. Project settings can eventually distinguish actions that are allowed automatically, allowed within a budget, require review, or are always prohibited.
 
-An organizational teammate acts as its own principal. It does not borrow the tagger's provider account, filesystem access, Notes access, or external credentials merely because that person can mention it. Effective authority is the intersection of the requester's permission to request the action, destination visibility, teammate principal grants, explicit resource grants, run grants, and the underlying safety policy. No part of that calculation can widen another part. A personal AI DM can use personal connections only when that identity mode is explicit and visually distinct.
+An organizational teammate acts as its own principal. It does not borrow the tagger's provider account, filesystem access, Notes access, or external credentials merely because that person can mention it. Effective authority is the intersection of requester authority, destination policy and audience, teammate policy and profile ceiling, destination and source memberships, exact folder grants, assignment references and target, runtime approval, and verified provider enforcement. No part of that calculation can widen another part. A personal AI DM can use personal connections only when that identity mode is explicit and visually distinct.
 
 Budgets can apply at organization, project, teammate, channel, work assignment, and run scopes. The narrowest remaining cap wins. Preflight declines work that cannot fit a hard cap, while warning thresholds create visible attention before exhaustion. A model never silently spends beyond a cap or truncates consequential work while reporting success.
 

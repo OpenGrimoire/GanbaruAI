@@ -2,7 +2,7 @@ use super::helpers::{insert_event, insert_open_run, migrated_memory_pool};
 use crate::run_migrations;
 use sqlx::Row;
 
-const EXPECTED_MIGRATION_COUNT: i64 = 21;
+const EXPECTED_MIGRATION_COUNT: i64 = 26;
 
 #[test]
 fn fresh_database_applies_baseline_and_additive_migrations() {

@@ -8,6 +8,7 @@ import {
   contextualChatFolders,
   filterArchivedThreads,
   filterThreadTitles,
+  isDirectChatThreadShell,
   nextThreadIndex,
   partitionThreadSearchResults,
   resolveChatFirstUseState,
@@ -64,6 +65,15 @@ function provider(state: ProviderInstanceRead["lastProbe"] extends infer _Probe 
       negotiatedProtocolVersion: "2",
       accountLabel: null,
       capabilities: { entries: [] },
+      authoritySupport: {
+        internalHostTools: true,
+        denyShell: true,
+        readOnlyRoot: true,
+        writableRoot: true,
+        confinedCommands: true,
+        networkBoundary: true,
+        classifiedPublish: true,
+      },
       checkedAt: timestamp,
       detail: null,
     },
@@ -76,6 +86,8 @@ function thread(id = "thread", overrides: Partial<ChatThreadShellRead> = {}): Ch
   return {
     id,
     workingFolderId: "workspace",
+    executionEnvironmentId: "current-folder:workspace",
+    scratchGenerationId: null,
     projectId: "project",
     title: "Fix calendar",
     providerFamilyId: "codex",
@@ -98,6 +110,15 @@ function thread(id = "thread", overrides: Partial<ChatThreadShellRead> = {}): Ch
 }
 
 describe("Chat shell model", () => {
+  it("keeps private scratch execution shells out of direct navigation", () => {
+    expect(isDirectChatThreadShell(thread())).toBe(true);
+    expect(isDirectChatThreadShell(thread("scratch", {
+      workingFolderId: null,
+      executionEnvironmentId: "scratch-environment:1",
+      scratchGenerationId: "scratch-generation:1",
+    }))).toBe(false);
+  });
+
   it("routes every first-use and unavailable state precisely", () => {
     const base = { providers: [provider()], workingFolders: [workspace()], selectedProjectId: "project", selectedProjectArchived: false, selectedWorkingFolderId: "workspace", selectedThreadId: null, threads: [] };
     expect(resolveChatFirstUseState({ ...base, providers: [] }).kind).toBe("no_provider");

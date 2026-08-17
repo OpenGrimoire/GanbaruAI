@@ -68,17 +68,17 @@ Lazy initialization: the database connection is opened on first use after a Ganb
 
 The Tauri integration owns SQLite in Rust through focused `sqlx` commands. Higher-level ORMs were considered and rejected: they add code to maintain, do not earn enough productivity for an app this small, and obscure the actual queries that show up in performance profiles. Plain SQL with typed command wrappers keeps the call sites direct.
 
-## External tools and the CLI bridge
+## Internal and external agent bridges
 
 The app is not the only thing that needs to read this data. AI agents, external MCP clients, backup tools, scripts, and human collaborators may interact with the same store through different authorization boundaries.
 
-The local external bridge is the `ganbaru-ai` CLI (Rust binary, reads the same SQLite). It exposes structured commands such as `task list`, `event get`, and `export projects` that authorized AI agents and scripts call through their execution environment. Ganbaru-owned manager actions can use the same Rust service layer through typed internal commands without starting a shell. This keeps three properties:
+The future local external bridge is the `ganbaru-ai` CLI (Rust binary, reads the same SQLite). It exposes structured commands such as `task list`, `event get`, and `export projects` that explicitly authorized agents and scripts can call through their execution environment. Organizational Chat uses the same Rust service layer through typed internal commands and assignment-scoped internal host tools without starting a shell. This keeps three properties:
 
 1. One source of truth. The CLI reads what the app writes. There is no duplicate authoritative store for agents.
 2. Markdown exports stay derivative. The CLI can write kanban snapshots or generated reports to a git repo for collaborators who never install the app, but those files are regenerated from the database; editing them by hand is supported only via an explicit import command where the export type supports imports.
 3. External readers handle dirty state. If the app crashed and a run is mid-write, the CLI applies the same recovery semantics as the app on startup (see `algorithms/pomodoro-state-machine.md`). Aggregations always operate on a consistent view.
 
-The general MCP server is for external clients only. Provider sessions inside Chat can also receive an ephemeral, thread-scoped internal MCP endpoint for bounded resources and browser tools as documented in `features/ai-integration.md`; that endpoint is not the general data API. Local agents normally use the CLI for approved structured operations, while the Ganbaru manager uses typed Rust services. Every path applies the effective participant, conversation, project, context-package, and run permissions rather than trusting possession of an identifier.
+The general MCP server is for external clients only. Provider sessions inside Chat can also receive an ephemeral, authorization-revision-scoped internal MCP endpoint for channel history, secondary folders, bounded resources, and browser tools as documented in `features/ai-integration.md`. That endpoint is trusted application infrastructure, not a general data API or teammate identity. Every path applies [Chat access control](access-control.md) rather than trusting possession of an identifier.
 
 ## Source-of-truth checks
 

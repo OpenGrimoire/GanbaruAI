@@ -113,6 +113,29 @@ fn preview_bounds_text_and_rejects_binary_traversal_and_symlinks() {
 }
 
 #[test]
+fn managed_artifact_reads_binary_bytes_without_following_links() {
+    let directory = TestDirectory::new();
+    fs::write(directory.0.join("artifact.bin"), [0, 1, 2, 3]).expect("artifact should write");
+
+    assert_eq!(
+        read_managed_artifact_bytes(&directory.0, "artifact.bin")
+            .expect("regular artifact should read"),
+        [0, 1, 2, 3]
+    );
+    assert!(read_managed_artifact_bytes(&directory.0, "../artifact.bin").is_err());
+
+    #[cfg(unix)]
+    {
+        std::os::unix::fs::symlink(
+            directory.0.join("artifact.bin"),
+            directory.0.join("artifact-link.bin"),
+        )
+        .expect("artifact link should be created");
+        assert!(read_managed_artifact_bytes(&directory.0, "artifact-link.bin").is_err());
+    }
+}
+
+#[test]
 fn save_requires_the_current_revision_and_preserves_file_permissions() {
     let directory = TestDirectory::new();
     let path = directory.0.join("sample.rs");
@@ -200,6 +223,31 @@ fn recreate_requires_confirmation_and_never_overwrites_a_reappeared_file() {
     assert_eq!(
         fs::read_to_string(directory.0.join("restored.txt")).expect("recreated file should read"),
         "preserved\n"
+    );
+}
+
+#[test]
+fn delete_requires_the_current_revision_and_removes_only_the_selected_file() {
+    let directory = TestDirectory::new();
+    fs::write(directory.0.join("delete.txt"), "delete me\n").expect("file should write");
+    fs::write(directory.0.join("keep.txt"), "keep me\n").expect("file should write");
+    let authorized = directory.authorized(RepositoryKind::None);
+    let revision = preview_workspace_file(&authorized, "delete.txt")
+        .expect("preview should succeed")
+        .content_revision
+        .expect("text preview should have a revision");
+
+    let stale = delete_workspace_file(&authorized, "delete.txt", "stale")
+        .expect_err("stale deletion should fail");
+    assert_eq!(stale.code, ChatErrorCode::Conflict);
+    assert!(directory.0.join("delete.txt").is_file());
+
+    delete_workspace_file(&authorized, "delete.txt", &revision)
+        .expect("current revision should delete");
+    assert!(!directory.0.join("delete.txt").exists());
+    assert_eq!(
+        fs::read_to_string(directory.0.join("keep.txt")).expect("other file should remain"),
+        "keep me\n"
     );
 }
 

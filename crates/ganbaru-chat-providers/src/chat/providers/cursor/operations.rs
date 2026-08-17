@@ -10,7 +10,8 @@ use super::session::*;
 use crate::chat::events::*;
 use crate::chat::models::*;
 use crate::chat::providers::{
-    DriverCancellation, DriverFuture, DriverOperationContext, ProviderDriver, ProviderEventSink,
+    DriverCancellation, DriverFuture, DriverOperationContext, ProviderAuthoritySupport,
+    ProviderDriver, ProviderEventSink,
 };
 use base64::{engine::general_purpose, Engine as _};
 use serde_json::{json, Value};
@@ -38,6 +39,18 @@ impl ProviderDriver for CursorProviderDriver {
 
     fn capabilities(&self) -> ProviderCapabilities {
         potential_capabilities_for(self.flavor)
+    }
+
+    fn authority_support(&self) -> ProviderAuthoritySupport {
+        ProviderAuthoritySupport {
+            internal_host_tools: true,
+            deny_shell: false,
+            read_only_root: false,
+            writable_root: false,
+            confined_commands: false,
+            network_boundary: false,
+            classified_publish: false,
+        }
     }
 
     fn cached_model_catalog(&self) -> Option<ProviderModelCatalog> {
@@ -93,6 +106,7 @@ impl ProviderDriver for CursorProviderDriver {
                         ),
                         account_label: about.account_label,
                         capabilities,
+                        authority_support: self.authority_support(),
                         checked_at,
                         detail: None,
                     })
@@ -105,6 +119,7 @@ impl ProviderDriver for CursorProviderDriver {
                     negotiated_protocol_version: None,
                     account_label: None,
                     capabilities: potential_capabilities_for(self.flavor),
+                    authority_support: self.authority_support(),
                     checked_at,
                     detail: Some(probe_detail(self.flavor, error.code)),
                 }),

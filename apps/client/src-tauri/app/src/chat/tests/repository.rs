@@ -24,8 +24,8 @@ use crate::chat::repository::lifecycle::{
     permanently_delete_thread, resolve_project_deletion, set_thread_archived, set_thread_read,
 };
 use crate::chat::repository::reads::{
-    parse_timeline_cursor, read_project_shells, read_thread_shell_window, read_thread_shells,
-    read_timeline_page, read_timeline_turn, search_thread_titles,
+    parse_timeline_cursor, read_project_shells, read_thread_shell, read_thread_shell_window,
+    read_thread_shells, read_timeline_page, read_timeline_turn, search_thread_titles,
 };
 use crate::chat::repository::rebuild::rebuild_thread_projections;
 use crate::chat::repository::receipts::{

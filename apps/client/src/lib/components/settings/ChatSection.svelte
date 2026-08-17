@@ -13,6 +13,8 @@
   let {
     initialSubsection,
     initialChatTeammateId,
+    initialChatChannelId,
+    initialChatCreateTeammate,
     onOpenProviderSetup = () => {},
     onSubsectionChange = () => {},
     onRequestNavigation = (navigate) => navigate(),
@@ -20,6 +22,8 @@
   }: {
     initialSubsection?: ChatSettingsSubsection;
     initialChatTeammateId?: string;
+    initialChatChannelId?: string;
+    initialChatCreateTeammate?: boolean;
     onOpenProviderSetup?: (target: ChatProviderSetupTarget) => void;
     onSubsectionChange?: (subsection: ChatSettingsSubsection) => void;
     onRequestNavigation?: (navigate: () => void) => void;
@@ -111,7 +115,7 @@
       <button type="button" class="chat-settings-button" onclick={() => void initialize()}>{t("common.retry")}</button>
     </div>
   {:else if activeTab === "teammates"}
-    <ChatTeammatesSettings initialTeammateId={initialChatTeammateId} onDraftStateChange={onTeammateDraftStateChange} />
+    <ChatTeammatesSettings initialTeammateId={initialChatTeammateId} initialChannelId={initialChatChannelId} initialCreate={initialChatCreateTeammate} onDraftStateChange={onTeammateDraftStateChange} />
   {:else if activeTab === "providers"}
     <ChatProvidersSettings {onOpenProviderSetup} />
   {:else if activeTab === "permissions"}

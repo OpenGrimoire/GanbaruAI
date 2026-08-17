@@ -688,6 +688,13 @@ class ChatStore {
     thread ??= await chatApi.readChatThreadShell(run.providerExecutionThreadId);
     if (this.openReplyThreadId !== replyThreadId
       || !this.replyThread?.agentRuns.some((entry) => entry.id === runId)) return;
+    if (thread.scratchGenerationId !== null) {
+      this.selectedExecutionRunId = run.id;
+      return;
+    }
+    if (thread.workingFolderId === null) {
+      throw new Error("This execution does not have a valid direct working folder");
+    }
     this.threadCollectionController.upsert(thread);
     this.selectedExecutionRunId = run.id;
     this.selectThread(thread.id);
@@ -859,6 +866,9 @@ class ChatStore {
     }
     const thread = this.selectedThread;
     if (thread) {
+      if (thread.workingFolderId === null || thread.scratchGenerationId !== null) {
+        throw new Error("Private scratch threads cannot be opened as direct agent threads");
+      }
       this.selectedWorkingFolderId = thread.workingFolderId;
       void projects.selectProject(thread.projectId);
       void workingFolderApi.rememberProjectWorkingFolder(thread.projectId, thread.workingFolderId);
@@ -879,6 +889,9 @@ class ChatStore {
   }
 
   selectThreadShell(thread: ChatThreadShellRead): void {
+    if (thread.workingFolderId === null || thread.scratchGenerationId !== null) {
+      throw new Error("Private scratch threads cannot be opened as direct agent threads");
+    }
     this.threadCollectionController.upsert(thread);
     this.selectThread(thread.id);
   }
@@ -940,7 +953,10 @@ class ChatStore {
   }
 
   private async refreshNativeChange(threadId: string): Promise<void> {
-    this.threadCollectionController.upsert(await chatApi.readChatThreadShell(threadId));
+    const thread = await chatApi.readChatThreadShell(threadId);
+    if (thread.workingFolderId !== null && thread.scratchGenerationId === null) {
+      this.threadCollectionController.upsert(thread);
+    }
     const channelId = this.selectedChannelId;
     if (channelId) await this.loadChannelMessages(channelId, true);
     if (this.openReplyThreadId) await this.loadReplyThread(this.openReplyThreadId, true);
@@ -979,7 +995,10 @@ class ChatStore {
       : null;
     if (remembered && ![...this.activeThreads, ...this.archivedThreads].some((thread) => thread.id === remembered)) {
       try {
-        this.threadCollectionController.upsert(await chatApi.readChatThreadShell(remembered));
+        const restored = await chatApi.readChatThreadShell(remembered);
+        if (restored.workingFolderId !== null && restored.scratchGenerationId === null) {
+          this.threadCollectionController.upsert(restored);
+        }
       } catch (error: unknown) {
         console.warn("Remembered Chat thread could not be restored", error);
       }

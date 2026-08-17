@@ -98,19 +98,19 @@ A Notes folder belongs to exactly one project, folder parents stay inside that p
 
 **Enforced by:** SQLite foreign keys and placement triggers, folder create and update validation, the atomic page move command, defensive mixed-tree planning, migration invariant tests, and focused folder and page-movement tests.
 
-## 9. Every Chat execution session belongs to one project working folder
+## 9. Every Chat run has one native execution target
 
-**Statement:** every project owns exactly one active managed working folder, and every provider thread or agent run that can access project files has one non-null project id plus one non-null working-folder id that belongs to that project. An execution session never changes either owner after creation. Channels, DMs, reply threads, and task discussions are organizational conversations and do not inherit this one-folder restriction.
+**Statement:** every provider run resolves exactly one current-folder, existing-worktree, or private-scratch native execution target. A target stays locked during an active continuation. A run may read or edit other explicitly granted project folders only through application-brokered tools, and a communication surface never inherits an execution target.
 
-**Why:** execution must use one stable filesystem authority, while communication must survive provider replacement and may coordinate work across several authorized resources. Keeping the identities separate prevents an implementation detail from becoming the permanent organizational boundary.
+**Why:** commands and native provider filesystem access need one stable root, while communication and bounded context may span several separately authorized resources. Keeping those identities separate prevents provider convenience from becoming an organizational permission boundary.
 
-**What would break:** a provider continuation could resume in another repository, folder-specific trust could leak across contexts, a channel could become unreadable when one folder disappears, or changing a room default could retarget existing work.
+**What would break:** a provider continuation could resume in another repository, folder-specific trust could leak across contexts, concurrent runs could collide, a channel could become unreadable when one folder disappears, or changing a membership default could retarget active work.
 
-**Enforced by:** the `project_working_folders` managed-row index and triggers, composite SQLite foreign keys for provider threads and agent runs, project creation and Routine repair, non-null execution DTOs, membership-scoped folder grants, working-folder authorization, and focused schema tests. No conversation row owns or inherits an execution folder.
+**Enforced by:** typed execution-target records, assignment authorization revisions, one-target dispatch resolution, continuation scope digests, folder grants, private scratch scopes, execution-environment reservations, and focused target-inference tests. No conversation row owns or inherits an execution folder.
 
 ## 10. Working-folder filesystem access stays bounded
 
-**Statement:** the frontend passes a working-folder id and normalized relative path, never an arbitrary root path. Rust recanonicalizes the binding and rechecks the bound directory's filesystem identity before every filesystem-sensitive operation. Git-sensitive operations additionally recheck the Git common storage identity.
+**Statement:** the frontend passes an authorized folder, scratch, or execution-environment identity and normalized relative path, never an arbitrary root path. Rust recanonicalizes the device-local binding and rechecks the directory's filesystem identity before every filesystem-sensitive operation. Git-sensitive operations additionally recheck the Git common storage identity. Secondary folders remain behind bounded broker tools, and shell commands run only in the selected target.
 
 **Why:** folder selection grants a narrow project capability, not general filesystem access.
 
@@ -146,7 +146,27 @@ A Notes folder belongs to exactly one project, folder parents stay inside that p
 
 **What would break:** a teammate addressed in a legal channel could edit an engineering codebase, a restricted collaborator could cause private Notes to enter a shared thread, one channel could spend another channel's budget, or an organizational teammate could act with the tagger's personal credentials.
 
-**Enforced by:** separate participant membership and resource-grant records, teammate principals, typed work-assignment preflight, context-package manifests, layered budget checks, provider safety mappings, permission-safe denial results, scoped memory namespaces, and audit tests covering cross-channel and cross-resource invocation.
+**Enforced by:** separate participant membership and AI access records, teammate principals, access-profile ceilings, typed work-assignment preflight, frozen references, exact folder grants, layered budget checks, verified provider enforcement, permission-safe denial results, and audit tests covering cross-channel and cross-resource invocation.
+
+## 14. Cross-channel disclosure never widens the audience
+
+**Statement:** a channel reference is valid only when the requester and teammate can read its source, the teammate can participate in the destination, and the destination read-history audience is a subset of the source read-history audience. There is no override.
+
+**Why:** channel access would be meaningless if an authorized reader could ask a teammate to summarize a restricted source into a broader destination.
+
+**What would break:** private leadership, legal, security, customer, or personal information could enter channels whose readers were never granted the source.
+
+**Enforced by:** permission-filtered candidates, send and schedule validation, assignment preflight, scoped history handles, result-publication validation, destination membership impact checks, frozen audience revisions, and retained-reference tests.
+
+## 15. Materialized context cannot outlive its authority
+
+**Statement:** a provider continuation, host-tool handle, or scratch generation can be reused only while every materialized source remains authorized for the same destination. Access contraction revokes the scope and never becomes reversible through a later expansion.
+
+**Why:** provider continuations and scratch files retain data after the direct database read. Checking only future tool calls would let stale context launder revoked information.
+
+**What would break:** a removed channel member, lost source grant, destination move, or reduced folder capability could leave restricted content available to a live provider or later result.
+
+**Enforced by:** authorization-scope digests, source provenance, revocation records, active-run interruption, generic host-tool denial, suppressed publication, continuation discard, scratch quarantine, clean generations, and retryable cleanup jobs.
 
 ## Adding new invariants
 

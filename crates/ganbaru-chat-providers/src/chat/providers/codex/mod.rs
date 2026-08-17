@@ -3,6 +3,7 @@
 mod driver;
 mod home;
 mod normalizer;
+mod organizational;
 mod protocol;
 mod session;
 mod transport;

@@ -1,5 +1,6 @@
 <script lang="ts">
   import MessagesSquare from "@lucide/svelte/icons/messages-square";
+  import HardDrive from "@lucide/svelte/icons/hard-drive";
   import X from "@lucide/svelte/icons/x";
   import { tick } from "svelte";
   import * as chatApi from "$lib/api/chat";
@@ -18,6 +19,8 @@
   import ChatMessageComposer from "./ChatMessageComposer.svelte";
   import ChatOrganizationalMessage from "./ChatOrganizationalMessage.svelte";
   import ChatRequestPanel from "./ChatRequestPanel.svelte";
+
+  type ChatScratchManagerComponent = typeof import("$lib/components/settings/chat/ChatScratchManager.svelte").default;
 
   interface ExactExecutionRead {
     timelinePage: ChatTimelinePageRead;
@@ -45,6 +48,10 @@
   let exactExecutionRequest = 0;
   let exactExecutions = $state<Record<string, ExactExecutionRead>>({});
   let exactExecutionError = $state<string | null>(null);
+  let scratchManagerOpen = $state(false);
+  let scratchManagerLoading = $state(false);
+  let ChatScratchManager = $state<ChatScratchManagerComponent | null>(null);
+  let scratchManagerLoad: Promise<void> | null = null;
   let followingEnd = true;
   let restoredDestination: string | null = null;
   const page = $derived(chat.replyThread);
@@ -53,6 +60,9 @@
     ?? page?.thread.participants.find((participant) => participant.kind === "ai_teammate")
     ?? null);
   const executionRun = $derived(latestRenderableAgentRun(page?.agentRuns ?? []));
+  const hasPrivateScratch = $derived((page?.agentRuns ?? []).some((run) => (
+    run.scratchGenerationId !== null
+  )));
   const loadedExecutionTurnIds = $derived(new Set([
     ...chat.timelineItems.flatMap((item) => item.turnId ? [item.turnId] : []),
     ...chat.timelinePages.flatMap((timelinePage) => timelinePage.turns.map((turn) => turn.turnId)),
@@ -114,6 +124,27 @@
     });
   }
 
+  function loadScratchManager(): Promise<void> {
+    if (ChatScratchManager) return Promise.resolve();
+    scratchManagerLoad ??= import("$lib/components/settings/chat/ChatScratchManager.svelte")
+      .then((module) => { ChatScratchManager = module.default; })
+      .finally(() => { scratchManagerLoad = null; });
+    return scratchManagerLoad;
+  }
+
+  async function openScratchManager(): Promise<void> {
+    if (scratchManagerLoading || scratchManagerOpen) return;
+    scratchManagerLoading = true;
+    try {
+      await loadScratchManager();
+      scratchManagerOpen = true;
+    } catch (cause: unknown) {
+      actionError = cause instanceof Error ? cause.message : String(cause);
+    } finally {
+      scratchManagerLoading = false;
+    }
+  }
+
   function followNewContentIfAtBottom(): void {
     const element = scroller;
     const key = destination;
@@ -169,20 +200,21 @@
 
   $effect(() => {
     const currentPage = page;
-    const settledRuns = (currentPage?.agentRuns ?? []).filter((run) => (
+    const exactRuns = (currentPage?.agentRuns ?? []).filter((run) => (
       run.providerExecutionThreadId !== null
-      && ["completed", "failed", "cancelled"].includes(run.state)
+      && (run.scratchGenerationId !== null
+        || ["completed", "failed", "cancelled"].includes(run.state))
     ));
     const scope = currentPage
-      ? `${currentPage.thread.id}:${settledRuns.map((run) => `${run.id}:${run.updatedAt}`).join("|")}`
+      ? `${currentPage.thread.id}:${exactRuns.map((run) => `${run.id}:${run.updatedAt}`).join("|")}`
       : "";
     if (scope === exactExecutionScope) return;
     exactExecutionScope = scope;
     const request = ++exactExecutionRequest;
     exactExecutions = {};
     exactExecutionError = null;
-    if (settledRuns.length > 0) {
-      void loadExactExecutions(settledRuns, request, scope);
+    if (exactRuns.length > 0) {
+      void loadExactExecutions(exactRuns, request, scope);
     }
   });
 
@@ -265,6 +297,17 @@
       <button type="button" class="tab-close" data-thread-close aria-label={t("chat.organization.closeThread")} onmousedown={preventMiddleButtonScroll} onauxclick={closeFromMiddleClick} onclick={onClose}><X size={11} /></button>
     </div>
     <span></span>
+    {#if hasPrivateScratch}
+      <button
+        type="button"
+        class="scratch-inspector"
+        aria-label={scratchManagerLoading ? t("common.loading") : t("chat.organization.openScratchInspector")}
+        aria-busy={scratchManagerLoading || undefined}
+        title={t("chat.organization.openScratchInspector")}
+        disabled={scratchManagerLoading}
+        onclick={() => void openScratchManager()}
+      ><HardDrive size={14} /></button>
+    {/if}
   </header>
 
   {#if actionError || exactExecutionError}<p class="thread-error" role="alert">{actionError ?? exactExecutionError}</p>{/if}
@@ -312,9 +355,18 @@
 
   {#if page && !chat.selectedChannel?.archivedAt}
     {#if chat.interaction?.pendingRequest}<div class="thread-request"><ChatRequestPanel pending={chat.interaction.pendingRequest} /></div>{/if}
-    <div class="thread-composer"><ChatMessageComposer {destination} threadComposer placeholder={t("chat.organization.replyInThread")} onRequestScrollToBottom={scrollToBottomForUserAction} /></div>
+    <div class="thread-composer">
+      {#key destination}
+        <ChatMessageComposer {destination} threadComposer placeholder={t("chat.organization.replyInThread")} onRequestScrollToBottom={scrollToBottomForUserAction} />
+      {/key}
+    </div>
   {/if}
 </section>
+
+{#if scratchManagerOpen && chat.openReplyThreadId && ChatScratchManager}
+  {@const Manager = ChatScratchManager}
+  <Manager initialReplyThreadId={chat.openReplyThreadId} onClose={() => { scratchManagerOpen = false; }} />
+{/if}
 
 <style>
   .reply-thread-panel { display:flex; width:100%; height:100%; min-height:0; flex-direction:column; background:var(--cal-bg); }
@@ -329,6 +381,8 @@
   .thread-tab-shell:hover .tab-close, .tab-close:focus-visible { opacity:1; }
   .tab-close:hover { background:var(--accent); }
   .thread-header > span { flex:1; }
+  .scratch-inspector { display:grid; min-width:2rem; min-height:2rem; place-items:center; border-radius:0.42rem; color:var(--muted-foreground); }
+  .scratch-inspector:hover { background:var(--accent); color:var(--foreground); }
   .thread-scroll { min-height:0; flex:1; overflow-y:auto; overscroll-behavior:contain; padding-block:0.4rem; }
   .date-divider { display:flex; align-items:center; gap:0.5rem; margin:0.75rem; color:var(--muted-foreground); font-size: calc(0.65rem * var(--type-scale)); }
   .date-divider::before,.date-divider::after { height:1px; flex:1; background:var(--border); content:""; }
@@ -336,5 +390,6 @@
   .thread-composer { display:flex; flex:0 0 auto; justify-content:center; padding:0.5rem 0.5rem 0.75rem; }
   .thread-error,.thread-loading { padding:0.6rem; color:var(--destructive); font-size: calc(0.7rem * var(--type-scale)); }.thread-loading { color:var(--muted-foreground); }
   .load-older { display:block; margin:0.3rem auto 0.6rem; border-radius:0.4rem; padding:0.3rem 0.5rem; color:var(--muted-foreground); font-size: calc(0.68rem * var(--type-scale)); }.load-older:hover { background:var(--accent); }
+  @media (pointer:coarse) { .scratch-inspector { min-width:2.75rem; min-height:2.75rem; } }
   @media (hover:none) { .tab-close { opacity:1; } }
 </style>

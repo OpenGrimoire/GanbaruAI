@@ -224,6 +224,67 @@ fn unlink_at(parent: &SecureWorkspaceParent, file_name: &CString) -> std::io::Re
 }
 
 #[cfg(any(target_os = "linux", target_os = "android"))]
+fn rename_noreplace_at(
+    parent: &SecureWorkspaceParent,
+    source: &CString,
+    destination: &CString,
+) -> std::io::Result<()> {
+    if unsafe {
+        libc::renameat2(
+            parent.directory.as_raw_fd(),
+            source.as_ptr(),
+            parent.directory.as_raw_fd(),
+            destination.as_ptr(),
+            libc::RENAME_NOREPLACE,
+        )
+    } == 0
+    {
+        Ok(())
+    } else {
+        Err(std::io::Error::last_os_error())
+    }
+}
+
+#[cfg(any(target_os = "macos", target_os = "ios"))]
+fn rename_noreplace_at(
+    parent: &SecureWorkspaceParent,
+    source: &CString,
+    destination: &CString,
+) -> std::io::Result<()> {
+    if unsafe {
+        libc::renameatx_np(
+            parent.directory.as_raw_fd(),
+            source.as_ptr(),
+            parent.directory.as_raw_fd(),
+            destination.as_ptr(),
+            libc::RENAME_EXCL,
+        )
+    } == 0
+    {
+        Ok(())
+    } else {
+        Err(std::io::Error::last_os_error())
+    }
+}
+
+#[cfg(all(
+    unix,
+    not(any(
+        target_os = "linux",
+        target_os = "android",
+        target_os = "macos",
+        target_os = "ios"
+    ))
+))]
+fn rename_noreplace_at(
+    _parent: &SecureWorkspaceParent,
+    _source: &CString,
+    _destination: &CString,
+) -> std::io::Result<()> {
+    Err(std::io::Error::from(std::io::ErrorKind::Unsupported))
+}
+
+#[cfg(any(target_os = "linux", target_os = "android"))]
 fn exchange_at(
     parent: &SecureWorkspaceParent,
     left: &CString,
@@ -303,7 +364,7 @@ pub(in crate::chat::workspace_files) fn workspace_regular_file_permissions(
 pub(in crate::chat::workspace_files) fn create_workspace_file_exclusively(
     root: &Path,
     relative_path: &str,
-    contents: &str,
+    bytes: &[u8],
     permissions: Option<fs::Permissions>,
     conflict_message: &str,
 ) -> ChatResult<()> {
@@ -317,11 +378,7 @@ pub(in crate::chat::workspace_files) fn create_workspace_file_exclusively(
             workspace_file_write_error()
         }
     })?;
-    if file
-        .write_all(contents.as_bytes())
-        .and_then(|_| file.sync_all())
-        .is_err()
-    {
+    if file.write_all(bytes).and_then(|_| file.sync_all()).is_err() {
         drop(file);
         return if unlink_at(&parent, &parent.file_name).is_ok() {
             Err(workspace_file_write_error())
@@ -330,6 +387,73 @@ pub(in crate::chat::workspace_files) fn create_workspace_file_exclusively(
         };
     }
     Ok(())
+}
+
+#[cfg(unix)]
+pub(in crate::chat::workspace_files) fn delete_workspace_file_atomically(
+    root: &Path,
+    relative_path: &str,
+    expected_revision: &str,
+) -> ChatResult<()> {
+    let parent =
+        secure_workspace_parent(root, relative_path).map_err(|_| workspace_file_write_error())?;
+    let mut current = open_regular_file_at(&parent).map_err(|_| workspace_file_write_error())?;
+    let (current_revision, _) = revision_and_permissions(&mut current, relative_path)?;
+    if current_revision != expected_revision {
+        return Err(stale_workspace_file_error());
+    }
+    let metadata = current
+        .metadata()
+        .map_err(|_| workspace_file_write_error())?;
+    let identity = (metadata.dev(), metadata.ino());
+    let generation = WORKSPACE_FILE_WRITE_GENERATION.fetch_add(1, Ordering::Relaxed);
+    let nonce = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_nanos();
+    let backup_name = CString::new(format!(
+        ".ganbaru.{}.{}.{}.backup",
+        std::process::id(),
+        generation,
+        nonce,
+    ))
+    .map_err(|_| workspace_file_write_error())?;
+    rename_noreplace_at(&parent, &parent.file_name, &backup_name)
+        .map_err(|_| workspace_file_write_error())?;
+    let verification = (|| {
+        let descriptor = unsafe {
+            libc::openat(
+                parent.directory.as_raw_fd(),
+                backup_name.as_ptr(),
+                libc::O_CLOEXEC | libc::O_NOFOLLOW | libc::O_RDONLY,
+            )
+        };
+        if descriptor < 0 {
+            return Err(workspace_file_write_error());
+        }
+        let mut displaced = unsafe { File::from_raw_fd(descriptor) };
+        let displaced_metadata = displaced
+            .metadata()
+            .map_err(|_| workspace_file_write_error())?;
+        if !displaced_metadata.is_file()
+            || (displaced_metadata.dev(), displaced_metadata.ino()) != identity
+        {
+            return Err(stale_workspace_file_error());
+        }
+        let (revision, _) = revision_and_permissions(&mut displaced, relative_path)?;
+        if revision != expected_revision {
+            return Err(stale_workspace_file_error());
+        }
+        Ok(())
+    })();
+    if let Err(error) = verification {
+        return if rename_noreplace_at(&parent, &backup_name, &parent.file_name).is_ok() {
+            Err(error)
+        } else {
+            Err(workspace_file_recovery_error())
+        };
+    }
+    unlink_at(&parent, &backup_name).map_err(|_| workspace_file_recovery_error())
 }
 
 #[cfg(unix)]

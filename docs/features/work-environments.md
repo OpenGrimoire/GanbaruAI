@@ -54,3 +54,5 @@ Environment management requires controlling other applications (opening, closing
 - **Pomodoro:** runs alongside; the timer is independent of the environment but typically pairs with one.
 - **Projects and Notes:** surface the linked task and supporting knowledge for scheduled human work.
 - **Chat:** surfaces the linked channel, task discussion, or attention item without turning the environment into a provider-session owner.
+
+A human work environment and an AI execution environment are related but distinct. Calendar activation may surface a channel or folder for the person, but it never grants a teammate access or changes an active run. An AI run selects one authorized current-folder, worktree, or scratch execution environment under [Chat access control](../data/access-control.md). Other granted folders remain secondary application-brokered resources.

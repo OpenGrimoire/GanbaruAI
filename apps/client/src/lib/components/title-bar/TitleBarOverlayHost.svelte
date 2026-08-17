@@ -132,6 +132,8 @@
     initialDoomscrollingTab={settingsLauncher.targetDoomscrollingTab}
     initialChatSubsection={settingsLauncher.targetChatSubsection}
     initialChatTeammateId={settingsLauncher.targetChatTeammateId}
+    initialChatChannelId={settingsLauncher.targetChatChannelId}
+    initialChatCreateTeammate={settingsLauncher.targetChatCreateTeammate}
   />
 {/if}
 

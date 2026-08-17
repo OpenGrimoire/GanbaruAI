@@ -26,8 +26,9 @@ where
                SELECT 1 FROM chat_communication_messages message
                WHERE message.author_participant_id = ?
              ) OR EXISTS(
-               SELECT 1 FROM chat_participant_mentions mention
-               WHERE mention.participant_id = ?
+               SELECT 1
+               FROM chat_participant_reference_targets reference
+               WHERE reference.participant_id = ?
              ) OR EXISTS(
                SELECT 1 FROM chat_work_assignments assignment
                WHERE assignment.teammate_id = ?

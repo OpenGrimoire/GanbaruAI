@@ -119,9 +119,23 @@ export function parseProviderHistoryPage(value: unknown, label = "provider histo
 
 export function parseChatThreadShell(value: unknown, label = "Chat thread shell"): ChatThreadShellRead {
   const record = readRecord(value, label);
+  const workingFolderId = readNullable(record.workingFolderId, `${label}.workingFolderId`, readIdentifier);
+  const scratchGenerationId = readNullable(
+    record.scratchGenerationId,
+    `${label}.scratchGenerationId`,
+    readIdentifier,
+  );
+  if ((workingFolderId === null) === (scratchGenerationId === null)) {
+    throw new Error(`${label} must identify exactly one working folder or scratch generation`);
+  }
   return {
     id: readIdentifier(record.id, `${label}.id`),
-    workingFolderId: readIdentifier(record.workingFolderId, `${label}.workingFolderId`),
+    workingFolderId,
+    executionEnvironmentId: readIdentifier(
+      record.executionEnvironmentId,
+      `${label}.executionEnvironmentId`,
+    ),
+    scratchGenerationId,
     projectId: readIdentifier(record.projectId, `${label}.projectId`),
     title: readString(record.title, `${label}.title`),
     providerFamilyId: readIdentifier(record.providerFamilyId, `${label}.providerFamilyId`),

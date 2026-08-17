@@ -9,5 +9,6 @@ mod registry;
 mod unsupported;
 
 pub use driver::*;
+pub use ganbaru_chat_contracts::models::ProviderAuthoritySupport;
 pub use registry::ProviderDriverRegistry;
 pub use unsupported::*;

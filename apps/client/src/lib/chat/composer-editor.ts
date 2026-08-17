@@ -12,12 +12,26 @@ import {
   type ChatComposerSelection,
   type ChatComposerTextRun,
 } from "$lib/chat/composer-rich-text";
+import type { ChatMessageReference } from "$lib/chat/contracts";
+import {
+  chatReferenceAdjacentToCaret,
+  chatJsOffsetFromUtf8,
+  copyChatReferenceSlice,
+  expandEditRangeToChatReferences,
+  insertChatMessageReference,
+  normalizeChatMessageReferences,
+  pasteChatReferenceSlice,
+  rebaseChatMessageReferences,
+  rebaseChatReferencesAfterInput,
+  type ChatReferenceClipboardSlice,
+} from "$lib/chat/message-references";
 
 export interface ChatComposerEditorChange {
   document: ChatComposerDocument;
   markdown: string;
   plainText: string;
   richContent: ReturnType<typeof chatComposerDocumentVersioned>;
+  references: ChatMessageReference[];
 }
 
 export interface ChatComposerEditorCallbacks {
@@ -27,8 +41,15 @@ export interface ChatComposerEditorCallbacks {
 
 interface EditorSnapshot {
   document: ChatComposerDocument;
+  references: ChatMessageReference[];
   selection: ChatComposerSelection;
   storedMarks: ChatComposerMark[] | null;
+}
+
+interface EditorReferenceRange {
+  reference: ChatMessageReference;
+  start: number;
+  end: number;
 }
 
 const HISTORY_LIMIT = 100;
@@ -42,6 +63,7 @@ const HISTORY_LIMIT = 100;
  */
 export class ChatComposerEditor {
   private document: ChatComposerDocument;
+  private references: ChatMessageReference[];
   private composing = false;
   private storedMarks: ChatComposerMark[] | null = null;
   private pendingNativeHistory: EditorSnapshot | null = null;
@@ -52,8 +74,10 @@ export class ChatComposerEditor {
     private readonly root: HTMLDivElement,
     document: ChatComposerDocument,
     private readonly callbacks: ChatComposerEditorCallbacks,
+    references: readonly ChatMessageReference[] = [],
   ) {
     this.document = normalizeChatComposerDocument(document);
+    this.references = normalizeChatMessageReferences(chatComposerPlainText(this.document), references);
     this.render();
   }
 
@@ -65,6 +89,14 @@ export class ChatComposerEditor {
   /** Returns the visible text without Markdown formatting delimiters. */
   public plainText(): string {
     return chatComposerPlainText(this.document);
+  }
+
+  /** Returns immutable copies of the structured references currently represented as atoms. */
+  public messageReferences(): ChatMessageReference[] {
+    return this.references.map((reference) => ({
+      ...reference,
+      metadata: { ...reference.metadata },
+    }));
   }
 
   /** Returns the current visible-text selection. */
@@ -82,11 +114,13 @@ export class ChatComposerEditor {
   }
 
   /** Replaces editor state after an external draft or layout change. */
-  public setDocument(document: ChatComposerDocument): void {
+  public setDocument(document: ChatComposerDocument, references: readonly ChatMessageReference[] = []): void {
     const normalized = normalizeChatComposerDocument(document);
-    if (sameDocument(this.document, normalized)) return;
+    const normalizedReferences = normalizeChatMessageReferences(chatComposerPlainText(normalized), references);
+    if (sameDocument(this.document, normalized) && sameReferences(this.references, normalizedReferences)) return;
     const selection = clampSelection(this.selection(), chatComposerPlainText(normalized).length);
     this.document = normalized;
+    this.references = normalizedReferences;
     this.storedMarks = null;
     this.pendingNativeHistory = null;
     this.undoStack.length = 0;
@@ -114,6 +148,42 @@ export class ChatComposerEditor {
       this.toggleMark(event.inputType === "formatBold" ? "bold" : "italic");
       return true;
     }
+    const selection = this.selection();
+    const expanded = expandEditRangeToChatReferences(
+      this.plainText(),
+      this.references,
+      selection.start,
+      selection.end,
+    );
+    if (event.inputType === "deleteContentBackward") {
+      const range = selection.start === selection.end
+        ? chatReferenceAdjacentToCaret(this.plainText(), this.references, selection.start, "backward") ?? expanded
+        : expanded;
+      if (range.start !== selection.start || range.end !== selection.end) {
+        event.preventDefault();
+        this.applyReplacement(range, "", []);
+        return true;
+      }
+    }
+    if (event.inputType === "deleteContentForward") {
+      const range = selection.start === selection.end
+        ? chatReferenceAdjacentToCaret(this.plainText(), this.references, selection.start, "forward") ?? expanded
+        : expanded;
+      if (range.start !== selection.start || range.end !== selection.end) {
+        event.preventDefault();
+        this.applyReplacement(range, "", []);
+        return true;
+      }
+    }
+    if (
+      (expanded.start !== selection.start || expanded.end !== selection.end)
+      && event.inputType === "insertText"
+      && event.data !== null
+    ) {
+      event.preventDefault();
+      this.applyReplacement(expanded, event.data, this.storedMarks ?? []);
+      return true;
+    }
     if (event.inputType === "insertText" && event.data !== null && this.storedMarks !== null) {
       event.preventDefault();
       this.replaceSelection(event.data, this.storedMarks);
@@ -125,12 +195,15 @@ export class ChatComposerEditor {
 
   /** Reconciles a completed native DOM input into editor state. */
   public handleInput(): void {
+    const previousText = chatComposerPlainText(this.document);
     const nextDocument = readChatComposerDocument(this.root);
+    const nextText = chatComposerPlainText(nextDocument);
     const selection = readEditorSelection(this.root, nextDocument) ?? {
       start: chatComposerPlainText(nextDocument).length,
       end: chatComposerPlainText(nextDocument).length,
     };
     const changed = !sameDocument(this.document, nextDocument);
+    if (changed) this.references = rebaseChatReferencesAfterInput(previousText, nextText, this.references);
     this.document = nextDocument;
     if (this.composing) {
       if (changed) this.notifyChange();
@@ -149,6 +222,16 @@ export class ChatComposerEditor {
   /** Starts an IME transaction without normalizing its temporary DOM. */
   public handleCompositionStart(): void {
     if (!this.composing) this.pendingNativeHistory = this.snapshot();
+    const selection = this.selection();
+    const expanded = expandEditRangeToChatReferences(
+      this.plainText(),
+      this.references,
+      selection.start,
+      selection.end,
+    );
+    if (expanded.start !== selection.start || expanded.end !== selection.end) {
+      this.restoreSelection(expanded);
+    }
     this.composing = true;
   }
 
@@ -156,12 +239,15 @@ export class ChatComposerEditor {
   public handleCompositionEnd(): void {
     this.composing = false;
     queueMicrotask(() => {
+      const previousText = chatComposerPlainText(this.document);
       const nextDocument = readChatComposerDocument(this.root);
+      const nextText = chatComposerPlainText(nextDocument);
       const selection = readEditorSelection(this.root, nextDocument) ?? {
         start: chatComposerPlainText(nextDocument).length,
         end: chatComposerPlainText(nextDocument).length,
       };
       const changed = !sameDocument(this.document, nextDocument);
+      if (changed) this.references = rebaseChatReferencesAfterInput(previousText, nextText, this.references);
       this.document = nextDocument;
       if (this.pendingNativeHistory && !sameDocument(this.pendingNativeHistory.document, nextDocument)) {
         this.pushUndo(this.pendingNativeHistory);
@@ -218,6 +304,97 @@ export class ChatComposerEditor {
     this.replaceSelection(text.replace(/\r\n?/gu, "\n"));
   }
 
+  /** Inserts one noneditable structured reference atom at an explicit trigger range. */
+  public insertReference(
+    start: number,
+    end: number,
+    reference: ChatMessageReference,
+  ): boolean {
+    const previous = this.snapshot();
+    const expanded = expandEditRangeToChatReferences(
+      this.plainText(),
+      this.references,
+      start,
+      end,
+    );
+    const result = insertChatMessageReference(
+      this.plainText(),
+      this.references,
+      start,
+      end,
+      reference,
+    );
+    if (!result.inserted) return false;
+    this.pushUndo(previous);
+    this.document = replaceChatComposerText(
+      this.document,
+      expanded,
+      result.text.slice(expanded.start, result.selection),
+      [],
+    ).document;
+    this.references = result.references;
+    this.storedMarks = null;
+    this.render();
+    this.restoreSelection({ start: result.selection, end: result.selection });
+    this.notifyChange();
+    this.notifySelection({ start: result.selection, end: result.selection });
+    return true;
+  }
+
+  /** Removes one complete reference atom by stable reference identity. */
+  public removeReference(referenceId: string): boolean {
+    const reference = this.references.find((candidate) => candidate.metadata.referenceId === referenceId);
+    if (!reference) return false;
+    const text = this.plainText();
+    const start = chatJsOffsetFromUtf8(text, reference.metadata.startOffset);
+    const end = chatJsOffsetFromUtf8(text, reference.metadata.endOffset);
+    this.applyReplacement({ start, end }, "", []);
+    return true;
+  }
+
+  /** Returns a same-vault clipboard slice for the current selection. */
+  public copyReferenceSlice(vaultId: string): ChatReferenceClipboardSlice | null {
+    const selection = this.selection();
+    if (selection.start === selection.end) return null;
+    return copyChatReferenceSlice(
+      vaultId,
+      this.plainText(),
+      this.references,
+      selection.start,
+      selection.end,
+    );
+  }
+
+  /** Inserts trusted same-vault reference clipboard data at the current selection. */
+  public pasteReferenceSlice(slice: ChatReferenceClipboardSlice): void {
+    const selection = this.selection();
+    const result = pasteChatReferenceSlice(
+      this.plainText(),
+      this.references,
+      selection.start,
+      selection.end,
+      slice,
+    );
+    this.pushUndo(this.snapshot());
+    const replacement = replaceChatComposerText(
+      this.document,
+      expandEditRangeToChatReferences(
+        this.plainText(),
+        this.references,
+        selection.start,
+        selection.end,
+      ),
+      slice.text,
+      [],
+    );
+    this.document = replacement.document;
+    this.references = result.references;
+    this.render();
+    this.restoreSelection({ start: result.selection, end: result.selection });
+    this.notifyChange();
+    this.notifySelection({ start: result.selection, end: result.selection });
+  }
+
   /** Replaces an explicit visible-text range, used by mentions and commands. */
   public replaceRange(start: number, end: number, text: string): void {
     const selection = { start, end };
@@ -265,9 +442,23 @@ export class ChatComposerEditor {
     text: string,
     marks: readonly ChatComposerMark[],
   ): void {
+    const previousText = this.plainText();
+    const expanded = expandEditRangeToChatReferences(
+      previousText,
+      this.references,
+      selection.start,
+      selection.end,
+    );
     this.pushUndo(this.snapshot());
-    const replacement = replaceChatComposerText(this.document, selection, text, marks);
+    const replacement = replaceChatComposerText(this.document, expanded, text, marks);
     this.document = replacement.document;
+    this.references = rebaseChatMessageReferences(
+      previousText,
+      chatComposerPlainText(this.document),
+      this.references,
+      expanded.start,
+      expanded.end,
+    );
     this.render();
     this.restoreSelection(replacement.selection);
     this.notifyChange();
@@ -290,6 +481,7 @@ export class ChatComposerEditor {
 
   private restoreSnapshot(snapshot: EditorSnapshot): void {
     this.document = snapshot.document;
+    this.references = snapshot.references;
     this.storedMarks = snapshot.storedMarks;
     this.pendingNativeHistory = null;
     this.render();
@@ -301,6 +493,7 @@ export class ChatComposerEditor {
   private snapshot(): EditorSnapshot {
     return {
       document: this.document,
+      references: this.messageReferences(),
       selection: this.selection(),
       storedMarks: this.storedMarks ? [...this.storedMarks] : null,
     };
@@ -309,6 +502,7 @@ export class ChatComposerEditor {
   private pushUndo(snapshot: EditorSnapshot): void {
     const previous = this.undoStack.at(-1);
     if (!previous || !sameDocument(previous.document, snapshot.document)
+      || !sameReferences(previous.references, snapshot.references)
       || previous.selection.start !== snapshot.selection.start || previous.selection.end !== snapshot.selection.end) {
       this.undoStack.push(snapshot);
       if (this.undoStack.length > HISTORY_LIMIT) this.undoStack.shift();
@@ -317,7 +511,7 @@ export class ChatComposerEditor {
   }
 
   private render(): void {
-    renderChatComposerDocument(this.root, this.document);
+    renderChatComposerDocument(this.root, this.document, this.references);
   }
 
   private restoreSelection(selection: ChatComposerSelection): void {
@@ -331,6 +525,7 @@ export class ChatComposerEditor {
       markdown: chatComposerMarkdown(this.document),
       plainText: chatComposerPlainText(this.document),
       richContent: chatComposerDocumentVersioned(this.document),
+      references: this.messageReferences(),
     });
   }
 
@@ -353,10 +548,24 @@ export function readChatComposerDocument(root: ParentNode): ChatComposerDocument
 }
 
 /** Renders a composer document without assigning HTML strings. */
-export function renderChatComposerDocument(root: HTMLDivElement, document: ChatComposerDocument): void {
+export function renderChatComposerDocument(
+  root: HTMLDivElement,
+  document: ChatComposerDocument,
+  messageReferences: readonly ChatMessageReference[] = [],
+): void {
   const owner = root.ownerDocument;
   const normalized = normalizeChatComposerDocument(document);
-  const lines = normalized.lines.map((line) => {
+  const plainText = chatComposerPlainText(normalized);
+  let documentOffset = 0;
+  const references = normalizeChatMessageReferences(
+    plainText,
+    messageReferences,
+  ).map((reference) => ({
+    reference,
+    start: chatJsOffsetFromUtf8(plainText, reference.metadata.startOffset),
+    end: chatJsOffsetFromUtf8(plainText, reference.metadata.endOffset),
+  }));
+  const lines = normalized.lines.map((line, lineIndex) => {
     const lineElement = owner.createElement("div");
     lineElement.dataset.chatComposerLine = "true";
     if (line.runs.length === 0) {
@@ -364,9 +573,16 @@ export function renderChatComposerDocument(root: HTMLDivElement, document: ChatC
       sentinel.dataset.chatComposerSentinel = "true";
       sentinel.textContent = "\u200b";
       lineElement.append(sentinel);
+      if (lineIndex < normalized.lines.length - 1) documentOffset += 1;
       return lineElement;
     }
-    for (const run of line.runs) lineElement.append(renderRun(owner, run));
+    for (const run of line.runs) {
+      const runStart = documentOffset;
+      const runEnd = runStart + run.text.length;
+      lineElement.append(renderRunWithReferences(owner, run, runStart, runEnd, references));
+      documentOffset = runEnd;
+    }
+    if (lineIndex < normalized.lines.length - 1) documentOffset += 1;
     return lineElement;
   });
   root.replaceChildren(...lines);
@@ -446,7 +662,17 @@ function textPointAtOffset(root: HTMLElement, offset: number): { node: Node; off
     if (!(node instanceof Text)) continue;
     last = node;
     const length = node.data.length;
-    if (remaining <= length) return { node, offset: remaining };
+    if (remaining <= length) {
+      const atom = node.parentElement?.closest<HTMLElement>("[data-chat-reference-id]");
+      if (atom && atom.parentNode) {
+        const index = [...atom.parentNode.childNodes].indexOf(atom);
+        return {
+          node: atom.parentNode,
+          offset: index + (remaining === 0 ? 0 : 1),
+        };
+      }
+      return { node, offset: remaining };
+    }
     remaining -= length;
   }
   return last ? { node: last, offset: last.data.length } : { node: root, offset: 0 };
@@ -517,12 +743,67 @@ function renderRun(owner: Document, run: ChatComposerTextRun): Node {
   return node;
 }
 
+function renderRunWithReferences(
+  owner: Document,
+  run: ChatComposerTextRun,
+  runStart: number,
+  runEnd: number,
+  references: readonly EditorReferenceRange[],
+): DocumentFragment {
+  const fragment = owner.createDocumentFragment();
+  let cursor = runStart;
+  for (const range of references) {
+    if (range.start < runStart || range.end > runEnd || range.start < cursor) continue;
+    if (range.start > cursor) {
+      fragment.append(renderRun(owner, {
+        text: run.text.slice(cursor - runStart, range.start - runStart),
+        marks: run.marks,
+      }));
+    }
+    const atom = owner.createElement("span");
+    atom.dataset.chatReferenceId = range.reference.metadata.referenceId;
+    atom.dataset.chatReferenceKind = range.reference.kind;
+    atom.contentEditable = "false";
+    atom.className = "chat-reference-atom";
+    atom.setAttribute("aria-label", range.reference.metadata.labelSnapshot);
+    atom.textContent = range.reference.metadata.plainTextProjection;
+    fragment.append(wrapRunMarks(owner, atom, run.marks));
+    cursor = range.end;
+  }
+  if (cursor < runEnd) {
+    fragment.append(renderRun(owner, {
+      text: run.text.slice(cursor - runStart),
+      marks: run.marks,
+    }));
+  }
+  return fragment;
+}
+
+function wrapRunMarks(owner: Document, content: Node, marks: readonly ChatComposerMark[]): Node {
+  let node = content;
+  if (marks.includes("italic")) {
+    const italic = owner.createElement("em");
+    italic.append(node);
+    node = italic;
+  }
+  if (marks.includes("bold")) {
+    const bold = owner.createElement("strong");
+    bold.append(node);
+    node = bold;
+  }
+  return node;
+}
+
 function isEditorBlock(node: Node): node is HTMLElement {
   return node instanceof HTMLElement && (node.dataset.chatComposerLine === "true" || node.tagName === "DIV" || node.tagName === "P");
 }
 
 function sameDocument(left: ChatComposerDocument, right: ChatComposerDocument): boolean {
   return JSON.stringify(normalizeChatComposerDocument(left)) === JSON.stringify(normalizeChatComposerDocument(right));
+}
+
+function sameReferences(left: readonly ChatMessageReference[], right: readonly ChatMessageReference[]): boolean {
+  return JSON.stringify(left) === JSON.stringify(right);
 }
 
 function sameMarks(left: readonly ChatComposerMark[], right: readonly ChatComposerMark[]): boolean {

@@ -2,9 +2,9 @@ import * as chatApi from "$lib/api/chat";
 import type {
   ChatChannelId,
   ChatChannelRead,
-  ChatParticipantMentionInput,
+  ChatExecutionTarget,
+  ChatMessageReference,
   ChatReplyThreadId,
-  ChatResourceReferenceInput,
   ChatScheduledMessageDispatchRead,
   ChatScheduledMessageId,
   ChatScheduledMessageRead,
@@ -17,8 +17,8 @@ export interface ChatOrganizationalDraft {
   normalizedMarkdown: string;
   richContent: VersionedJson;
   attachmentIds: string[];
-  participantMentions: ChatParticipantMentionInput[];
-  resourceReferences: ChatResourceReferenceInput[];
+  references: ChatMessageReference[];
+  executionTarget: ChatExecutionTarget | null;
   selectionStart: number;
   selectionEnd: number;
   scheduledFor: UtcTimestamp | null;
@@ -74,8 +74,8 @@ export class ChatOrganizationalController {
       normalizedMarkdown: draft.normalizedMarkdown,
       richContent: draft.richContent,
       attachmentIds: [...draft.attachmentIds],
-      participantMentions: draft.participantMentions.map((mention) => ({ ...mention })),
-      resourceReferences: draft.resourceReferences.map((reference) => ({ ...reference })),
+      references: structuredClone(draft.references),
+      executionTarget: draft.executionTarget ? structuredClone(draft.executionTarget) : null,
       alsoSendToChannel: options.alsoSendToChannel ?? false,
     });
     this.setDraft(destination, emptyOrganizationalDraft());
@@ -104,8 +104,8 @@ export class ChatOrganizationalController {
         normalizedMarkdown: draft.normalizedMarkdown,
         richContent: draft.richContent,
         attachmentIds: [...draft.attachmentIds],
-        participantMentions: draft.participantMentions.map((mention) => ({ ...mention })),
-        resourceReferences: draft.resourceReferences.map((reference) => ({ ...reference })),
+        references: structuredClone(draft.references),
+        executionTarget: draft.executionTarget ? structuredClone(draft.executionTarget) : null,
         alsoSendToChannel: options.alsoSendToChannel ?? false,
       },
     });
@@ -183,7 +183,7 @@ export class ChatOrganizationalController {
     const draft = this.draft(destination);
     if (!draft.normalizedMarkdown.trim()
       && draft.attachmentIds.length === 0
-      && draft.resourceReferences.length === 0) {
+      && draft.references.length === 0) {
       throw new Error(`Write a message or attach context before ${action}`);
     }
     return draft;
@@ -201,8 +201,8 @@ function emptyOrganizationalDraft(): ChatOrganizationalDraft {
     normalizedMarkdown: "",
     richContent: { schemaVersion: 1, value: { type: "document", children: [] } },
     attachmentIds: [],
-    participantMentions: [],
-    resourceReferences: [],
+    references: [],
+    executionTarget: null,
     selectionStart: 0,
     selectionEnd: 0,
     scheduledFor: null,

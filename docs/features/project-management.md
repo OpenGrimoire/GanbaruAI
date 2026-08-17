@@ -2,7 +2,7 @@
 
 Project management is Ganbaru AI's guided system for turning intent into reviewed, scheduled, and completed work. It combines a flexible lifecycle framework with the canonical task layer in Projects, durable knowledge in Notes, capacity in Calendar, and communication plus delegation in Chat.
 
-The feature is not a rigid wizard and Chat is not a second task database. A person can begin with an incomplete idea, discuss it with the Ganbaru manager or collaborators, approve a structured plan, and then manage the resulting commitments from Projects. See [Agent coordination](agent-coordination.md) for the manager, channel, context-package, agent-run, and review model.
+The feature is not a rigid wizard and Chat is not a second task database. A person can begin with an incomplete idea, discuss it with an explicitly configured planning teammate or collaborators, approve a structured plan, and then manage the resulting commitments from Projects. See [Agent coordination](agent-coordination.md) for the teammate, channel, context-package, agent-run, and review model. No planning teammate is seeded or privileged by the base system.
 
 ## Product objective
 
@@ -59,7 +59,7 @@ The most substantial phase is divided into planning, minimum viable product, exe
 
 ## Manager planning flow
 
-The Ganbaru manager converts an objective into a reviewable proposal. A proposal can include:
+An explicitly authorized planning teammate converts an objective into a reviewable proposal. A proposal can include:
 
 - Objective, scope, exclusions, and success criteria.
 - Tasks, subtasks, checklists, milestones, and acceptance criteria.
@@ -163,5 +163,5 @@ Until collaboration is implemented, participant controls are absent or clearly d
 - **Calendar:** owns scheduling, hard time constraints, capacity reservations, and proposed cascades.
 - **Notes:** owns specifications, research, decisions, and working documents.
 - **Work environments:** activates the tools and context needed for scheduled human work.
-- **AI integration:** supplies provider-native manager actions and agent runs through bounded context and authority.
+- **AI integration:** supplies provider-native planning actions and agent runs through bounded context and authority. A planning role is an ordinary configured teammate or workflow, never a privileged built-in identity.
 - **Gamification:** can guide phase transitions in the eventual visual layer without changing the underlying project model.

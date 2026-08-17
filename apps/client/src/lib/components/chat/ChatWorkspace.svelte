@@ -199,13 +199,26 @@
         && typeof event.detail.participantId === "string"
         ? event.detail.participantId
         : undefined;
-      settings.open("chat", { chatSubsection: "teammates", chatTeammateId: participantId });
+      const channelId = event instanceof CustomEvent
+        && typeof event.detail === "object"
+        && event.detail !== null
+        && "channelId" in event.detail
+        && typeof event.detail.channelId === "string"
+        ? event.detail.channelId
+        : undefined;
+      settings.open("chat", {
+        chatSubsection: "teammates",
+        chatTeammateId: participantId,
+        chatChannelId: channelId,
+        chatCreateTeammate: event.type === "ganbaru-ai:chat-new-teammate",
+      });
     };
     window.addEventListener("ganbaru-ai:chat-revert-message", revertMessage);
     window.addEventListener("ganbaru-ai:chat-open-review", openWorkspaceTool);
     window.addEventListener("ganbaru-ai:chat-open-file", openWorkspaceTool);
     window.addEventListener("ganbaru-ai:chat-configure-teammate", openTeammates);
     window.addEventListener("ganbaru-ai:chat-manage-members", openTeammates);
+    window.addEventListener("ganbaru-ai:chat-new-teammate", openTeammates);
     const unregisterBenchmark = registerMountedChatBenchmark();
     return () => {
       unregisterBenchmark();
@@ -226,6 +239,7 @@
       window.removeEventListener("ganbaru-ai:chat-open-file", openWorkspaceTool);
       window.removeEventListener("ganbaru-ai:chat-configure-teammate", openTeammates);
       window.removeEventListener("ganbaru-ai:chat-manage-members", openTeammates);
+      window.removeEventListener("ganbaru-ai:chat-new-teammate", openTeammates);
       void unlisten.then((dispose) => dispose());
     };
   });

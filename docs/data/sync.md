@@ -2,7 +2,7 @@
 
 Sync turns Ganbaru AI from a local app into a multi-device and optionally collaborative workspace. The user provisions and hosts the sync server; Ganbaru AI does not run shared infrastructure. End-to-end encryption keeps cleartext away from the server, and typed conflict handling preserves the local data invariants.
 
-Human collaboration is a later capability. Its permission model already constrains the design of Chat channels, Projects assignments, Notes folders, reports, search, and AI context packages. Collaboration cannot be added safely as a simple shared-workspace boolean.
+Human collaboration is a later capability. Local AI teammate access is already canonical in the active vault and is defined by [Chat access control](access-control.md). Its immutable revisions, disclosure constraints, and revocations constrain future synchronization. Collaboration cannot be added safely as a simple shared-workspace boolean.
 
 ## Principles
 
@@ -46,7 +46,7 @@ Invitations state whether prior history becomes visible. A participant joining a
 - **Structured data and document graphs:** Notes folders, pages, blocks, comments, Calendar events, Projects tasks, Chat conversations and messages, work environments, and project state through typed operations that preserve graph invariants.
 - **Chat execution summaries:** durable run state, approvals, usage, deliverable links, and provider-neutral events needed for authorized history. Device-bound executable paths, provider homes, live processes, terminals, and local trust remain device-local.
 - **Pomodoro tracking data:** per-user data available to that user's devices. Other workspace participants never receive raw focus, idle, break, blocker, or diary measurements.
-- **Membership and permission changes:** signed, ordered access operations, history-visibility decisions, key-envelope changes, revocation state, and audit metadata.
+- **Membership and permission changes:** future sync carries signed, ordered access operations, immutable authorization revisions, history-visibility decisions, key-envelope changes, revocation state, and audit metadata. Device bindings, provider probes, external paths, and scratch paths never sync.
 
 The two-category storage model in `data/architecture.md` remains intact. File-backed documents stay files on each authorized client. Structured data and Notes graphs stay in local SQLite. Sync does not make exported Markdown or the server database authoritative.
 
@@ -63,7 +63,7 @@ Authorization happens before direct reads and before aggregation. The same effec
 - Manager proposals and AI context packages.
 - Agent-run tools, artifacts, and explanations.
 
-An inaccessible resource does not leak through its title, count, participant list, relationship, or a detailed denial reason. AI uses the intersection of the requesting participant, destination conversation, selected role, context package, and run grants.
+An inaccessible resource does not leak through its title, count, participant list, relationship, or a detailed denial reason. AI uses the complete requester, destination audience, teammate, source membership, folder, assignment, runtime, and provider-enforcement intersection from the normative access specification.
 
 ## Conflict resolution
 
@@ -97,4 +97,4 @@ Sync is not a backup. Backups go to a user-specified path outside the Ganbaru AI
 
 ## Deferred implementation details
 
-Exact CRDT schemas, key hierarchy, invitation protocol, history-visibility storage, encrypted search strategy, offline revocation, conflict UI, server deployment, and recovery flows remain to be designed and threat-modeled before phase 9 implementation. The access scopes and non-leakage rules in this document are product constraints, not claims that collaboration is currently available.
+Exact CRDT schemas, key hierarchy, invitation protocol, encrypted search strategy, offline revocation, conflict UI, server deployment, and recovery flows remain to be designed and threat-modeled before phase 9 implementation. The local schema already supplies stable access and authorization revisions that future operations must preserve. The collaboration behavior in this document remains a product constraint, not a claim that remote collaboration is currently available.

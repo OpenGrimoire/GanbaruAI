@@ -1,8 +1,21 @@
 import type {
   ChatThreadShellRead,
+  ProjectWorkingFolderId,
   ProjectWorkingFolderRead,
   ProviderInstanceRead,
 } from "./contracts";
+
+export type DirectChatThreadShellRead = ChatThreadShellRead & {
+  workingFolderId: ProjectWorkingFolderId;
+  scratchGenerationId: null;
+};
+
+/** Returns whether a provider thread is safe to expose in direct-agent navigation. */
+export function isDirectChatThreadShell(
+  thread: ChatThreadShellRead,
+): thread is DirectChatThreadShellRead {
+  return thread.workingFolderId !== null && thread.scratchGenerationId === null;
+}
 
 export type ChatFirstUseState =
   | { kind: "no_provider" }

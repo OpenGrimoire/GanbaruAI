@@ -1,4 +1,6 @@
-use super::persistence::{persist_user_turn, read_thread_runtime_data, PersistUserTurnContext};
+use super::persistence::{
+    persist_user_turn, read_thread_runtime_data, PersistUserTurnContext, TurnPersistenceTarget,
+};
 use super::session::{normalize_changed_file_paths, reuse_existing_session};
 use super::validation::{
     validate_approval_decision, validate_model_options, validate_pending_request,
@@ -136,7 +138,8 @@ fn user_intent_and_receipt_commit_before_provider_dispatch() {
                 client_command_id: ChatCommandId::new("send-before-dispatch").unwrap(),
                 expected_thread_revision: Some(existing.revision),
             },
-            working_folder_id,
+            working_folder_id: Some(working_folder_id.clone()),
+            scratch_generation_id: None,
             thread_id: Some(thread_id.clone()),
             new_thread_id: None,
             execution_environment_id: None,
@@ -167,9 +170,15 @@ fn user_intent_and_receipt_commit_before_provider_dispatch() {
         }];
         let family_id = ProviderFamilyId::new("codex").unwrap();
         let persisted_at = UtcTimestamp::new("2026-07-21T12:00:00Z").unwrap();
+        let target = TurnPersistenceTarget {
+            project_id: workspace.project_id.clone(),
+            working_folder_id: Some(working_folder_id.clone()),
+            scratch_generation_id: None,
+            execution_environment_id: format!("current-folder:{}", working_folder_id.as_str()),
+        };
         persist_user_turn(PersistUserTurnContext {
             pool: &pool,
-            workspace: &workspace,
+            target: &target,
             thread_id: &thread_id,
             existing: Some(&existing),
             continuation_group_id: &existing.continuation_group_id,

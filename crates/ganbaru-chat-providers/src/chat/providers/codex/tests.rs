@@ -4,6 +4,7 @@ use super::driver::{
 };
 use super::home::*;
 use super::normalizer::{CodexEventNormalizer, CodexRouteState};
+use super::organizational::*;
 use super::protocol::*;
 use super::session::{
     resolve_codex_approval, resolve_codex_user_input, CodexApprovalResponse, PendingCodexRequest,
@@ -130,6 +131,7 @@ fn modes(safety_mode: SafetyMode, interaction_mode: InteractionMode) -> TurnMode
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum FixtureScenario {
     Healthy,
+    Organizational,
     ResumeMissing,
     ResumeWithoutStarted,
     AuthenticationRequired,
@@ -142,6 +144,7 @@ enum FixtureScenario {
 struct AppServerFixtureState {
     received: Mutex<Vec<Value>>,
     closed: AtomicBool,
+    connections: AtomicU64,
 }
 
 impl AppServerFixtureState {
@@ -154,12 +157,21 @@ fn fixture_driver(
     workspace: &Path,
     scenario: FixtureScenario,
 ) -> (CodexProviderDriver, Arc<AppServerFixtureState>) {
-    let config = configuration(workspace, None);
+    let mut config = configuration(workspace, None);
+    if scenario == FixtureScenario::Organizational {
+        config.internal_mcp = Some(ProviderInternalMcpConfig {
+            name: "ganbaru-chat".to_string(),
+            url: "http://127.0.0.1:41827/mcp".to_string(),
+            bearer_token: "fixture-token".to_string(),
+            organizational_authority: true,
+        });
+    }
     let mut driver = CodexProviderDriver::new(config).unwrap();
     let state = Arc::new(AppServerFixtureState::default());
     let factory_state = Arc::clone(&state);
     let home = workspace.to_path_buf();
     driver.set_connection_factory(Arc::new(move |_working_directory| {
+        let connection_index = factory_state.connections.fetch_add(1, Ordering::AcqRel);
         let (client_reader, server_writer) = tokio::io::duplex(64 * 1024);
         let (server_reader, client_writer) = tokio::io::duplex(64 * 1024);
         tokio::spawn(run_app_server_fixture(
@@ -167,6 +179,7 @@ fn fixture_driver(
             server_writer,
             home.clone(),
             scenario,
+            connection_index,
             Arc::clone(&factory_state),
         ));
         Ok((
@@ -196,6 +209,7 @@ async fn run_app_server_fixture<R, W>(
     mut writer: W,
     home: PathBuf,
     scenario: FixtureScenario,
+    connection_index: u64,
     state: Arc<AppServerFixtureState>,
 ) where
     R: tokio::io::AsyncRead + Unpin,
@@ -289,17 +303,27 @@ async fn run_app_server_fixture<R, W>(
                 .await;
             }
             "mcpServerStatus/list" => {
+                let server = if scenario == FixtureScenario::Organizational {
+                    json!({
+                        "name": "ganbaru-chat",
+                        "authStatus": "bearerToken",
+                        "enabled": true,
+                        "status": "ready"
+                    })
+                } else {
+                    json!({
+                        "name": "openaiDeveloperDocs",
+                        "authStatus": "unsupported",
+                        "enabled": true,
+                        "status": "ready"
+                    })
+                };
                 write_fixture_message(
                     &mut writer,
                     json!({
                         "id": id,
                         "result": {
-                            "data": [{
-                                "name": "openaiDeveloperDocs",
-                                "authStatus": "unsupported",
-                                "enabled": true,
-                                "status": "ready"
-                            }],
+                            "data": [server],
                             "nextCursor": null
                         }
                     }),
@@ -307,22 +331,109 @@ async fn run_app_server_fixture<R, W>(
                 .await;
             }
             "config/read" => {
+                let config = if scenario == FixtureScenario::Organizational {
+                    if connection_index == 0 {
+                        json!({
+                            "mcp_servers": {
+                                "openaiDeveloperDocs": { "enabled": true }
+                            }
+                        })
+                    } else {
+                        json!({
+                            "default_permissions": ORGANIZATIONAL_PERMISSION_PROFILE,
+                            "allow_login_shell": false,
+                            "web_search": "disabled",
+                            "shell_environment_policy": {
+                                "inherit": "core",
+                                "ignore_default_excludes": false,
+                                "experimental_use_profile": false,
+                                "set": {}
+                            },
+                            "permissions": {
+                                (ORGANIZATIONAL_PERMISSION_PROFILE): {
+                                    "filesystem": {
+                                        ":minimal": "read",
+                                        ":workspace_roots": { ".": "write" }
+                                    },
+                                    "network": { "enabled": false }
+                                }
+                            },
+                            "features": {
+                                "apps": false,
+                                "artifact": false,
+                                "auth_elicitation": false,
+                                "browser_use": false,
+                                "browser_use_external": false,
+                                "browser_use_full_cdp_access": false,
+                                "code_mode": { "enabled": false },
+                                "code_mode_host": false,
+                                "computer_use": false,
+                                "enable_mcp_apps": false,
+                                "external_agent_memory_import": false,
+                                "hooks": false,
+                                "image_generation": false,
+                                "in_app_browser": false,
+                                "memories": false,
+                                "multi_agent": false,
+                                "multi_agent_v2": false,
+                                "network_proxy": false,
+                                "plugin_sharing": false,
+                                "plugins": false,
+                                "recommended_plugins": false,
+                                "remote_plugin": false,
+                                "request_permissions_tool": false,
+                                "respect_system_proxy": false,
+                                "shell_snapshot": false,
+                                "skill_mcp_dependency_install": false,
+                                "skill_search": false,
+                                "standalone_web_search": false,
+                                "use_agent_identity": false,
+                                "workspace_dependencies": false
+                            },
+                            "mcp_servers": {
+                                "openaiDeveloperDocs": { "enabled": false },
+                                "ganbaru-chat": {
+                                    "enabled": true,
+                                    "required": true,
+                                    "url": "http://127.0.0.1:41827/mcp",
+                                    "bearer_token_env_var": "GANBARU_CHAT_MCP_TOKEN"
+                                }
+                            }
+                        })
+                    }
+                } else {
+                    json!({
+                        "approval_policy": "on-request",
+                        "approvals_reviewer": "user",
+                        "sandbox_mode": "workspace-write",
+                        "sandbox_workspace_write": {
+                            "writable_roots": [],
+                            "network_access": false,
+                            "exclude_tmpdir_env_var": false,
+                            "exclude_slash_tmp": false
+                        }
+                    })
+                };
+                write_fixture_message(
+                    &mut writer,
+                    json!({
+                        "id": id,
+                        "result": { "config": config }
+                    }),
+                )
+                .await;
+            }
+            "permissionProfile/list" => {
                 write_fixture_message(
                     &mut writer,
                     json!({
                         "id": id,
                         "result": {
-                            "config": {
-                                "approval_policy": "on-request",
-                                "approvals_reviewer": "user",
-                                "sandbox_mode": "workspace-write",
-                                "sandbox_workspace_write": {
-                                    "writable_roots": [],
-                                    "network_access": false,
-                                    "exclude_tmpdir_env_var": false,
-                                    "exclude_slash_tmp": false
-                                }
-                            }
+                            "data": [{
+                                "id": ORGANIZATIONAL_PERMISSION_PROFILE,
+                                "allowed": true
+                            }],
+                            "nextCursor": null
                         }
                     }),
                 )
@@ -349,6 +460,14 @@ async fn run_app_server_fixture<R, W>(
                             "model": "gpt-5.4",
                             "approvalPolicy": message["params"]["approvalPolicy"].as_str().unwrap_or("on-request"),
                             "approvalsReviewer": message["params"]["approvalsReviewer"].as_str().unwrap_or("user"),
+                            "activePermissionProfile": message["params"]["permissions"].as_str().map(|id| json!({
+                                "id": id,
+                                "extends": null
+                            })),
+                            "runtimeWorkspaceRoots": message["params"]
+                                .get("runtimeWorkspaceRoots")
+                                .cloned()
+                                .unwrap_or_else(|| json!([])),
                             "sandbox": {
                                 "type": match message["params"]["sandbox"].as_str() {
                                     Some("read-only") => "readOnly",
@@ -430,6 +549,25 @@ async fn run_app_server_fixture<R, W>(
                                     "isSecret": false,
                                     "options": [{ "label": "Focused", "description": "Small scope" }]
                                 }]
+                            }
+                        }),
+                    )
+                    .await;
+                }
+                if scenario == FixtureScenario::Organizational {
+                    write_fixture_message(
+                        &mut writer,
+                        json!({
+                            "id": "fixture-organizational-escalation",
+                            "method": "item/commandExecution/requestApproval",
+                            "params": {
+                                "threadId": message["params"]["threadId"],
+                                "turnId": "fixture-provider-turn",
+                                "itemId": "fixture-command-item",
+                                "command": "curl https://example.test",
+                                "additionalPermissions": {
+                                    "network": { "enabled": true }
+                                }
                             }
                         }),
                     )

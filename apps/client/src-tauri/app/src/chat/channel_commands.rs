@@ -143,9 +143,8 @@ pub async fn chat_create_channel(
     .map_err(persistence_error)?;
     sqlx::query(
         "INSERT INTO chat_conversation_memberships
-            (conversation_id, participant_id, membership_role, addressable,
-             approval_policy, created_at, updated_at)
-         VALUES (?, ?, 'owner', 0, 'ask_for_approval', ?, ?)",
+            (conversation_id, participant_id, membership_role, created_at, updated_at)
+         VALUES (?, ?, 'owner', ?, ?)",
     )
     .bind(conversation_id.as_str())
     .bind(LOCAL_PARTICIPANT_ID)

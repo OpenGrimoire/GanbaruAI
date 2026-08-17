@@ -33,14 +33,15 @@ use std::os::unix::fs::{MetadataExt, PermissionsExt};
 mod platform;
 
 use platform::{
-    create_workspace_file_exclusively, secure_directory_entries, secure_workspace_file,
-    workspace_regular_file_permissions, write_workspace_text_atomically,
+    create_workspace_file_exclusively, delete_workspace_file_atomically, secure_directory_entries,
+    secure_workspace_file, workspace_regular_file_permissions, write_workspace_text_atomically,
 };
 #[cfg(all(test, unix))]
 use platform::{open_regular_file_at, secure_workspace_parent};
 
 const MAX_DIRECTORY_ENTRIES: usize = 5_000;
 const MAX_PREVIEW_BYTES: u64 = 1024 * 1024;
+const MAX_PROMOTED_ARTIFACT_BYTES: u64 = 50 * 1024 * 1024;
 const MAX_RELATIVE_PATH_BYTES: usize = 4_096;
 static WORKSPACE_FILE_WRITE_GENERATION: AtomicU64 = AtomicU64::new(0);
 static WORKSPACE_FILE_WRITE_LOCK: Mutex<()> = Mutex::new(());
@@ -61,6 +62,14 @@ pub struct ProjectWorkingFolderDirectoryRead {
     pub relative_path: String,
     pub entries: Vec<ProjectWorkingFolderFileEntry>,
     pub truncated: bool,
+}
+
+/// One regular entry discovered below an already validated managed root.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ManagedArtifactDirectoryEntry {
+    pub display_name: String,
+    pub directory: bool,
+    pub byte_size: Option<u64>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
@@ -290,6 +299,33 @@ pub fn save_workspace_file(
     preview_workspace_file(authorized, relative_path)
 }
 
+/// Deletes one bounded regular text file when its content revision still matches.
+pub fn delete_workspace_file(
+    authorized: &AuthorizedWorkingFolder,
+    relative_path: &str,
+    expected_revision: &str,
+) -> ChatResult<()> {
+    validate_required_relative_path(relative_path)?;
+    if safety_excluded(relative_path) {
+        return Err(ChatError::new(
+            ChatErrorCode::Permission,
+            "This workspace file is excluded from Chat editing",
+            false,
+        ));
+    }
+    let _guard = WORKSPACE_FILE_WRITE_LOCK
+        .lock()
+        .map_err(|_| workspace_file_write_error())?;
+    let current = preview_workspace_file(authorized, relative_path)?;
+    let current_revision = current.content_revision.as_deref().ok_or_else(|| {
+        ChatError::validation("relativePath", "Workspace file is not editable text")
+    })?;
+    if current_revision != expected_revision {
+        return Err(stale_workspace_file_error());
+    }
+    delete_workspace_file_atomically(&authorized.canonical_path, relative_path, expected_revision)
+}
+
 pub fn save_workspace_file_copy(
     authorized: &AuthorizedWorkingFolder,
     source_relative_path: &str,
@@ -328,11 +364,101 @@ pub fn save_workspace_file_copy(
     create_workspace_file_exclusively(
         &authorized.canonical_path,
         target_relative_path,
-        contents,
+        contents.as_bytes(),
         Some(source_permissions),
         "Save-copy target already exists",
     )?;
     preview_workspace_file(authorized, target_relative_path)
+}
+
+/// Creates one bounded artifact without following workspace links or replacing an existing file.
+pub fn create_workspace_artifact(
+    authorized: &AuthorizedWorkingFolder,
+    relative_path: &str,
+    bytes: &[u8],
+) -> ChatResult<()> {
+    validate_required_relative_path(relative_path)?;
+    if safety_excluded(relative_path) {
+        return Err(ChatError::new(
+            ChatErrorCode::Permission,
+            "This workspace path is excluded from Chat editing",
+            false,
+        ));
+    }
+    if bytes.len() as u64 > MAX_PROMOTED_ARTIFACT_BYTES {
+        return Err(ChatError::validation(
+            "artifact",
+            "Promoted workspace artifacts must be 50 MiB or smaller",
+        ));
+    }
+    let _guard = WORKSPACE_FILE_WRITE_LOCK
+        .lock()
+        .map_err(|_| workspace_file_write_error())?;
+    create_workspace_file_exclusively(
+        &authorized.canonical_path,
+        relative_path,
+        bytes,
+        None,
+        "The promotion destination already exists",
+    )
+}
+
+/// Reads one bounded regular artifact from an already validated managed root.
+///
+/// Platform handles reject symbolic links and reparse points while each path
+/// component is opened. Callers remain responsible for authorizing `root`.
+pub fn read_managed_artifact_bytes(root: &Path, relative_path: &str) -> ChatResult<Vec<u8>> {
+    validate_required_relative_path(relative_path)?;
+    let mut file = secure_workspace_file(root, relative_path)?;
+    let before = file.metadata().map_err(file_error)?;
+    if !before.is_file() || before.len() > MAX_PROMOTED_ARTIFACT_BYTES {
+        return Err(ChatError::validation(
+            "relativePath",
+            "Managed artifact is not a bounded regular file",
+        ));
+    }
+    let modified = before.modified().ok();
+    let mut bytes = Vec::with_capacity(usize::try_from(before.len()).unwrap_or_default());
+    (&mut file)
+        .take(MAX_PROMOTED_ARTIFACT_BYTES + 1)
+        .read_to_end(&mut bytes)
+        .map_err(file_error)?;
+    let after = file.metadata().map_err(file_error)?;
+    if bytes.len() as u64 != before.len()
+        || after.len() != before.len()
+        || modified.is_some() && after.modified().ok() != modified
+    {
+        return Err(ChatError::new(
+            ChatErrorCode::Conflict,
+            "Managed artifact changed while it was being read",
+            true,
+        ));
+    }
+    Ok(bytes)
+}
+
+/// Lists regular entries below an already validated managed root.
+///
+/// Platform handles do not follow symbolic links or reparse points. The
+/// returned truncation flag prevents callers from treating a bounded scan as
+/// a complete directory.
+pub fn list_managed_artifact_directory(
+    root: &Path,
+    relative_path: &str,
+) -> ChatResult<(Vec<ManagedArtifactDirectoryEntry>, bool)> {
+    validate_optional_relative_path(relative_path)?;
+    let (entries, truncated) = secure_directory_entries(root, relative_path)?;
+    Ok((
+        entries
+            .into_iter()
+            .map(|entry| ManagedArtifactDirectoryEntry {
+                display_name: entry.display_name,
+                directory: entry.directory,
+                byte_size: entry.byte_size,
+            })
+            .collect(),
+        truncated,
+    ))
 }
 
 pub fn recreate_workspace_file(
@@ -368,7 +494,7 @@ pub fn recreate_workspace_file(
     create_workspace_file_exclusively(
         &authorized.canonical_path,
         relative_path,
-        contents,
+        contents.as_bytes(),
         None,
         "Workspace file already exists. Reload it before saving.",
     )?;

@@ -3,7 +3,7 @@
 use super::checkpoints::ensure_pre_turn_checkpoint;
 use super::persistence::{
     mark_turn_dispatch_failed, persist_user_turn, read_attachment_references,
-    read_thread_runtime_data, replay_send_receipt, PersistUserTurnContext,
+    read_thread_runtime_data, replay_send_receipt, PersistUserTurnContext, TurnPersistenceTarget,
 };
 use super::session::{ensure_session_with_executable_recovery, EnsureSessionContext};
 use super::support::{
@@ -14,7 +14,7 @@ use super::validation::{
     validate_explicit_model, validate_mentions, validate_modes, validate_prompt,
     validate_provider_selection, validate_send_mentions,
 };
-use crate::chat::agent_runs::TurnOrigin;
+use crate::chat::agent_runs::{AgentRunBinding, TurnOrigin};
 use crate::chat::credentials::{materialize_provider_environment, PlatformCredentialStore};
 use crate::chat::device_state::{full_access_is_trusted, read_active_device_scope};
 use crate::chat::models::*;
@@ -27,7 +27,7 @@ use crate::chat::runtime::ChatRuntimeRegistry;
 use crate::chat::send_commands::{SendChatTurnCommand, SendChatTurnResult};
 use crate::chat::workspace::WorkingFolderAuthorizationOperation;
 use crate::vault;
-use sqlx::SqlitePool;
+use sqlx::{Row, SqlitePool};
 use std::collections::BTreeMap;
 use tauri::Manager;
 
@@ -63,42 +63,9 @@ pub(crate) async fn send_turn(
         }
         None => None,
     };
-    let logical_workspace = workspaces::read_workspace(&pool, &request.working_folder_id).await?;
-    require_project_accepts_ai_work(&pool, &logical_workspace.project_id).await?;
-    let scope = read_active_device_scope(&app).map_err(device_state_error)?;
-    let authorized = crate::chat::workspace_commands::authorize_working_folder(
-        &app,
-        &pool,
-        &request.working_folder_id,
-        WorkingFolderAuthorizationOperation::ProviderStart,
-    )
-    .await?;
-    let selected_environment = existing
-        .as_ref()
-        .and_then(|data| data.execution_environment_id.as_deref())
-        .or(request.execution_environment_id.as_deref());
-    let authorized = crate::chat::execution_environment::resolve_environment_workspace(
-        &app,
-        &pool,
-        authorized,
-        selected_environment,
-    )
-    .await?;
-    if matches!(
-        request.modes.safety_mode,
-        SafetyMode::FullAccess | SafetyMode::Custom
-    ) && !full_access_is_trusted(
-        &scope,
-        &request.provider_instance_id,
-        &request.working_folder_id,
-    ) {
-        return Err(ChatError::new(
-            ChatErrorCode::Permission,
-            "Broad permissions are not trusted for this provider and workspace",
-            true,
-        ));
-    }
-    validate_send_mentions(&authorized, &request.mentions)?;
+    let (target, authorized) =
+        resolve_turn_target(&app, &pool, &request, &origin, existing.as_ref()).await?;
+    require_project_accepts_ai_work(&pool, &target.project_id).await?;
     let provider =
         crate::chat::settings_commands::read_provider(&app, &request.provider_instance_id)?;
     validate_provider_selection(&provider, &request)?;
@@ -106,28 +73,14 @@ pub(crate) async fn send_turn(
         &provider.configuration,
         &PlatformCredentialStore::default(),
     )?;
-    let resource_endpoint = app
-        .state::<crate::chat::internal_mcp::InternalMcpRegistry>()
-        .ensure_thread_endpoint(
-            app.clone(),
-            pool.clone(),
-            vault::active_vault_path(&app).map_err(|_| {
-                ChatError::new(
-                    ChatErrorCode::Persistence,
-                    "Active Ganbaru folder is unavailable",
-                    true,
-                )
-            })?,
-            thread_id.clone(),
-        )
-        .await?;
-    configuration.internal_mcp = Some(ProviderInternalMcpConfig {
-        name: "ganbaru-chat".to_string(),
-        url: resource_endpoint.url,
-        bearer_token: resource_endpoint.bearer_token,
-    });
+    let inspection_driver = ProviderDriverRegistry.create_driver(configuration.clone())?;
+    let authority_support = inspection_driver.authority_support();
+    if let Some(binding) = origin.run() {
+        validate_organizational_authority(&pool, binding, authority_support).await?;
+    }
     if let Some(existing) = &existing {
         if existing.working_folder_id != request.working_folder_id
+            || existing.scratch_generation_id != request.scratch_generation_id
             || existing.provider_instance_id != request.provider_instance_id
             || request
                 .execution_environment_id
@@ -146,6 +99,57 @@ pub(crate) async fn send_turn(
     let owner = app
         .state::<ChatRuntimeRegistry>()
         .owner(thread_id.clone())?;
+    let mcp_registry = app.state::<crate::chat::internal_mcp::InternalMcpRegistry>();
+    let mut snapshot = owner.snapshot()?;
+    if origin.run().is_some() {
+        if snapshot.turn_active {
+            return Err(ChatError::new(
+                ChatErrorCode::Busy,
+                "The previous organizational turn must settle before authority can rotate",
+                true,
+            ));
+        }
+        mcp_registry.revoke_run_scope(&thread_id).await;
+        if snapshot.session_id.is_some() {
+            let _ = owner
+                .stop_session(
+                    false,
+                    operation_context("rotate-organizational-session", PROVIDER_START_TIMEOUT),
+                )
+                .await;
+            snapshot = owner.snapshot()?;
+        }
+    }
+    let fresh_native_session = !matches!(snapshot.session_state, ProviderSessionState::Ready)
+        || snapshot.session_id.is_none();
+    if authority_support.internal_host_tools {
+        if fresh_native_session {
+            mcp_registry.stop_thread_endpoint(&thread_id).await;
+        }
+        let resource_endpoint = mcp_registry
+            .ensure_thread_endpoint(
+                app.clone(),
+                pool.clone(),
+                vault::active_vault_path(&app).map_err(|_| {
+                    ChatError::new(
+                        ChatErrorCode::Persistence,
+                        "Active Ganbaru folder is unavailable",
+                        true,
+                    )
+                })?,
+                thread_id.clone(),
+                origin.run().is_some(),
+            )
+            .await?;
+        configuration.internal_mcp = Some(ProviderInternalMcpConfig {
+            name: "ganbaru-chat".to_string(),
+            url: resource_endpoint.url,
+            bearer_token: resource_endpoint.bearer_token,
+            organizational_authority: origin.run().is_some(),
+        });
+    } else {
+        configuration.internal_mcp = None;
+    }
     let mut new_driver = None;
     let continuation_group_id = if let Some(existing) = &existing {
         existing.continuation_group_id.clone()
@@ -173,7 +177,7 @@ pub(crate) async fn send_turn(
     let attachment_references = read_attachment_references(
         &app,
         &pool,
-        &request.working_folder_id,
+        request.working_folder_id.as_ref(),
         &request.attachment_ids,
     )
     .await?;
@@ -187,7 +191,7 @@ pub(crate) async fn send_turn(
     )?;
     let persistence = persist_user_turn(PersistUserTurnContext {
         pool: &pool,
-        workspace: &logical_workspace,
+        target: &target,
         thread_id: &thread_id,
         existing: existing.as_ref(),
         continuation_group_id: &continuation_group_id,
@@ -199,14 +203,20 @@ pub(crate) async fn send_turn(
     })
     .await;
     persistence?;
-    ensure_pre_turn_checkpoint(
-        &pool,
-        &authorized,
-        &thread_id,
-        &request.turn_id,
-        &persistence_now,
-    )
-    .await;
+    if let Some(binding) = origin.run() {
+        let scope = load_internal_mcp_scope(&pool, &thread_id, binding).await?;
+        mcp_registry.activate_run_scope(&thread_id, scope).await?;
+    }
+    if request.working_folder_id.is_some() {
+        ensure_pre_turn_checkpoint(
+            &pool,
+            &authorized,
+            &thread_id,
+            &request.turn_id,
+            &persistence_now,
+        )
+        .await;
+    }
 
     let operation = async {
         let session = ensure_session_with_executable_recovery(EnsureSessionContext {
@@ -220,8 +230,12 @@ pub(crate) async fn send_turn(
             existing: existing.as_ref(),
             continuation_group_id: &continuation_group_id,
             request: &request,
+            authorization: origin.run(),
         })
         .await?;
+        if origin.run().is_some() {
+            mcp_registry.wait_until_ready(&thread_id).await?;
+        }
         let reservation = reservation.handoff_to_runtime()?;
         owner
             .send_turn(
@@ -309,4 +323,388 @@ async fn require_project_accepts_ai_work(pool: &SqlitePool, project_id: &str) ->
             true,
         )),
     }
+}
+
+async fn resolve_turn_target(
+    app: &tauri::AppHandle,
+    pool: &SqlitePool,
+    request: &SendChatTurnCommand,
+    origin: &TurnOrigin,
+    existing: Option<&super::persistence::ThreadRuntimeData>,
+) -> ChatResult<(
+    TurnPersistenceTarget,
+    crate::chat::workspace::AuthorizedWorkingFolder,
+)> {
+    match (
+        request.working_folder_id.as_ref(),
+        request.scratch_generation_id.as_deref(),
+    ) {
+        (Some(working_folder_id), None) => {
+            if let Some(binding) = origin.run() {
+                if binding.working_folder_id.as_deref() != Some(working_folder_id.as_str())
+                    || binding.scratch_generation_id.is_some()
+                    || request.execution_environment_id.as_deref()
+                        != Some(binding.execution_environment_id.as_str())
+                {
+                    return Err(ChatError::new(
+                        ChatErrorCode::Permission,
+                        "The working-folder target does not match this assignment",
+                        false,
+                    ));
+                }
+            }
+            let logical_workspace = workspaces::read_workspace(pool, working_folder_id).await?;
+            let scope = read_active_device_scope(app).map_err(device_state_error)?;
+            let authorized = crate::chat::workspace_commands::authorize_working_folder(
+                app,
+                pool,
+                working_folder_id,
+                WorkingFolderAuthorizationOperation::ProviderStart,
+            )
+            .await?;
+            let selected_environment = existing
+                .and_then(|data| data.execution_environment_id.as_deref())
+                .or(request.execution_environment_id.as_deref());
+            let authorized = crate::chat::execution_environment::resolve_environment_workspace(
+                app,
+                pool,
+                authorized,
+                selected_environment,
+            )
+            .await?;
+            if matches!(
+                request.modes.safety_mode,
+                SafetyMode::FullAccess | SafetyMode::Custom
+            ) && !full_access_is_trusted(
+                &scope,
+                &request.provider_instance_id,
+                working_folder_id,
+            ) {
+                return Err(ChatError::new(
+                    ChatErrorCode::Permission,
+                    "Broad permissions are not trusted for this provider and workspace",
+                    true,
+                ));
+            }
+            validate_send_mentions(&authorized, &request.mentions)?;
+            Ok((
+                TurnPersistenceTarget {
+                    project_id: logical_workspace.project_id,
+                    working_folder_id: Some(working_folder_id.clone()),
+                    scratch_generation_id: None,
+                    execution_environment_id: selected_environment
+                        .map(str::to_string)
+                        .unwrap_or_else(|| {
+                            format!("current-folder:{}", working_folder_id.as_str())
+                        }),
+                },
+                authorized,
+            ))
+        }
+        (None, Some(scratch_generation_id)) => {
+            let binding = origin.run().ok_or_else(|| {
+                ChatError::new(
+                    ChatErrorCode::Permission,
+                    "Private scratch requires an authorized organizational assignment",
+                    false,
+                )
+            })?;
+            if binding.scratch_generation_id.as_deref() != Some(scratch_generation_id)
+                || request.execution_environment_id.as_deref()
+                    != Some(binding.execution_environment_id.as_str())
+                || !request.mentions.is_empty()
+            {
+                return Err(ChatError::new(
+                    ChatErrorCode::Permission,
+                    "The scratch execution target does not match this assignment",
+                    false,
+                ));
+            }
+            let authorized = crate::chat::scratch::authorize_scratch_target(
+                app,
+                pool,
+                scratch_generation_id,
+                &binding.execution_environment_id,
+            )
+            .await?;
+            Ok((
+                TurnPersistenceTarget {
+                    project_id: binding.project_id.clone(),
+                    working_folder_id: None,
+                    scratch_generation_id: Some(scratch_generation_id.to_string()),
+                    execution_environment_id: binding.execution_environment_id.clone(),
+                },
+                authorized,
+            ))
+        }
+        _ => Err(ChatError::validation(
+            "executionTarget",
+            "Select exactly one working folder or private scratch target",
+        )),
+    }
+}
+
+async fn validate_organizational_authority(
+    pool: &SqlitePool,
+    binding: &AgentRunBinding,
+    support: ProviderAuthoritySupport,
+) -> ChatResult<()> {
+    let authorization = sqlx::query(
+        "SELECT resolved_runtime_approval_policy, working_folder_id,
+                execution_environment_id
+         FROM chat_assignment_authorization_revisions
+         WHERE id = ? AND assignment_id = ? AND scope_digest = ?
+           AND decision_state = 'allowed' AND revoked_at IS NULL",
+    )
+    .bind(binding.authorization_revision_id.as_str())
+    .bind(binding.assignment_id.as_str())
+    .bind(&binding.authorization_scope_digest)
+    .fetch_optional(pool)
+    .await
+    .map_err(|_| provider_authority_error("Assignment authority could not be verified"))?;
+    let Some(authorization) = authorization else {
+        return Err(provider_authority_error(
+            "Assignment authority is no longer active",
+        ));
+    };
+    let runtime_approval_policy: String = authorization
+        .try_get("resolved_runtime_approval_policy")
+        .map_err(|_| provider_authority_error("Assignment authority is invalid"))?;
+    let authorization_folder_id: Option<String> = authorization
+        .try_get("working_folder_id")
+        .map_err(|_| provider_authority_error("Assignment authority is invalid"))?;
+    let authorization_environment_id: Option<String> = authorization
+        .try_get("execution_environment_id")
+        .map_err(|_| provider_authority_error("Assignment authority is invalid"))?;
+    if authorization_folder_id != binding.working_folder_id
+        || authorization_environment_id.as_deref()
+            != Some(binding.execution_environment_id.as_str())
+        || binding.working_folder_id.is_some() == binding.scratch_generation_id.is_some()
+    {
+        return Err(provider_authority_error(
+            "Assignment execution target does not match its authorization",
+        ));
+    }
+    if runtime_approval_policy == "provider_custom" {
+        return Err(provider_authority_error(
+            "Provider-custom approval cannot prove this assignment's exact authority",
+        ));
+    }
+    if !support.internal_host_tools || !support.network_boundary {
+        return Err(provider_authority_error(
+            "This provider cannot prove the required internal tools and network boundary",
+        ));
+    }
+    let target_capability: Option<String> = sqlx::query_scalar(
+        "SELECT capability FROM chat_assignment_authorized_folder_sources
+         WHERE authorization_revision_id = ? AND is_execution_target = 1",
+    )
+    .bind(binding.authorization_revision_id.as_str())
+    .fetch_optional(pool)
+    .await
+    .map_err(|_| provider_authority_error("Assignment authority could not be verified"))?;
+    if binding.scratch_generation_id.is_some()
+        && (!support.writable_root || !support.confined_commands)
+    {
+        return Err(provider_authority_error(
+            "This provider cannot confine writable private scratch work",
+        ));
+    }
+    if let Some(capability) = target_capability.as_deref() {
+        let supported = match capability {
+            "read" => support.read_only_root && support.deny_shell,
+            "edit" => support.writable_root && support.deny_shell,
+            "execute" => support.writable_root && support.confined_commands,
+            "publish" => {
+                support.writable_root && support.confined_commands && support.classified_publish
+            }
+            _ => false,
+        };
+        if !supported {
+            return Err(provider_authority_error(
+                "This provider cannot enforce the selected folder capability",
+            ));
+        }
+    }
+    Ok(())
+}
+
+pub(super) async fn load_internal_mcp_scope(
+    pool: &SqlitePool,
+    thread_id: &ChatThreadId,
+    binding: &AgentRunBinding,
+) -> ChatResult<crate::chat::internal_mcp::InternalMcpRunScope> {
+    let row = sqlx::query(
+        "SELECT authorization.destination_conversation_id,
+                authorization.resolved_runtime_approval_policy,
+                authorization.execution_environment_id, run.provider_turn_id
+         FROM chat_assignment_authorization_revisions authorization
+         JOIN chat_agent_runs run
+           ON run.authorization_revision_id = authorization.id
+          AND run.assignment_id = authorization.assignment_id
+          AND run.authorization_scope_digest = authorization.scope_digest
+         WHERE authorization.id = ? AND authorization.assignment_id = ?
+           AND authorization.scope_digest = ? AND run.id = ?
+           AND run.provider_thread_id = ?
+           AND authorization.decision_state = 'allowed'
+           AND authorization.revoked_at IS NULL",
+    )
+    .bind(binding.authorization_revision_id.as_str())
+    .bind(binding.assignment_id.as_str())
+    .bind(&binding.authorization_scope_digest)
+    .bind(binding.run_id.as_str())
+    .bind(thread_id.as_str())
+    .fetch_optional(pool)
+    .await
+    .map_err(|_| provider_authority_error("Assignment authority could not be loaded"))?
+    .ok_or_else(|| provider_authority_error("Assignment authority is no longer active"))?;
+    let channel_rows = sqlx::query(
+        "SELECT source_handle, message_reference_id, conversation_id, label_snapshot,
+                lower_ordinal, high_ordinal, source_revision_cutoff_id,
+                destination_audience_revision
+         FROM chat_assignment_authorized_channel_sources
+         WHERE authorization_revision_id = ? ORDER BY conversation_id",
+    )
+    .bind(binding.authorization_revision_id.as_str())
+    .fetch_all(pool)
+    .await
+    .map_err(|_| provider_authority_error("Channel authority could not be loaded"))?;
+    let folder_rows = sqlx::query(
+        "SELECT frozen.root_handle, frozen.working_folder_id, frozen.capability,
+                frozen.is_execution_target,
+                frozen.resolved_runtime_approval_policy
+         FROM chat_assignment_authorized_folder_sources frozen
+         JOIN chat_assignment_authorization_revisions authorization
+           ON authorization.id = frozen.authorization_revision_id
+         JOIN chat_work_assignments assignment
+           ON assignment.id = authorization.assignment_id
+         JOIN chat_teammate_working_folder_grants live
+           ON live.conversation_id = authorization.destination_conversation_id
+          AND live.teammate_id = assignment.teammate_id
+          AND live.working_folder_id = frozen.working_folder_id
+          AND live.revoked_at IS NULL
+         JOIN chat_ai_channel_memberships channel_access
+           ON channel_access.conversation_id = live.conversation_id
+          AND channel_access.teammate_id = live.teammate_id
+         WHERE frozen.authorization_revision_id = ?
+         ORDER BY frozen.working_folder_id",
+    )
+    .bind(binding.authorization_revision_id.as_str())
+    .fetch_all(pool)
+    .await
+    .map_err(|_| provider_authority_error("Folder authority could not be loaded"))?;
+    let expected_folder_count: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM chat_assignment_authorized_folder_sources
+         WHERE authorization_revision_id = ?",
+    )
+    .bind(binding.authorization_revision_id.as_str())
+    .fetch_one(pool)
+    .await
+    .map_err(|_| provider_authority_error("Folder authority could not be loaded"))?;
+    if usize::try_from(expected_folder_count).ok() != Some(folder_rows.len()) {
+        return Err(provider_authority_error(
+            "Folder authority is no longer active",
+        ));
+    }
+    Ok(crate::chat::internal_mcp::InternalMcpRunScope {
+        run_id: binding.run_id.clone(),
+        provider_turn_id: ChatTurnId::new(
+            row.try_get::<String, _>("provider_turn_id")
+                .map_err(|_| provider_authority_error("Provider turn authority is invalid"))?,
+        )
+        .map_err(|_| provider_authority_error("Provider turn authority is invalid"))?,
+        assignment_id: binding.assignment_id.clone(),
+        authorization_revision_id: binding.authorization_revision_id.clone(),
+        destination_conversation_id: ChatConversationId::new(
+            row.try_get::<String, _>("destination_conversation_id")
+                .map_err(|_| provider_authority_error("Destination authority is invalid"))?,
+        )
+        .map_err(|_| provider_authority_error("Destination authority is invalid"))?,
+        authorization_scope_digest: binding.authorization_scope_digest.clone(),
+        execution_environment_id: row
+            .try_get("execution_environment_id")
+            .map_err(|_| provider_authority_error("Execution authority is invalid"))?,
+        scratch_generation_id: binding.scratch_generation_id.clone(),
+        runtime_approval_policy: parse_runtime_approval(
+            &row.try_get::<String, _>("resolved_runtime_approval_policy")
+                .map_err(|_| provider_authority_error("Runtime approval is invalid"))?,
+        )?,
+        channel_sources: channel_rows
+            .into_iter()
+            .map(|row| {
+                Ok(crate::chat::internal_mcp::InternalMcpChannelSource {
+                    source_handle: row.try_get("source_handle").map_err(scope_row_error)?,
+                    message_reference_id: row
+                        .try_get("message_reference_id")
+                        .map_err(scope_row_error)?,
+                    conversation_id: row.try_get("conversation_id").map_err(scope_row_error)?,
+                    label_snapshot: row.try_get("label_snapshot").map_err(scope_row_error)?,
+                    lower_ordinal: row_u64(&row, "lower_ordinal")?,
+                    high_ordinal: row_u64(&row, "high_ordinal")?,
+                    source_revision_cutoff_id: row
+                        .try_get("source_revision_cutoff_id")
+                        .map_err(scope_row_error)?,
+                    destination_audience_revision: row_u64(&row, "destination_audience_revision")?,
+                })
+            })
+            .collect::<ChatResult<Vec<_>>>()?,
+        folder_sources: folder_rows
+            .into_iter()
+            .map(|row| {
+                Ok(crate::chat::internal_mcp::InternalMcpFolderSource {
+                    root_handle: row.try_get("root_handle").map_err(scope_row_error)?,
+                    working_folder_id: ProjectWorkingFolderId::new(
+                        row.try_get::<String, _>("working_folder_id")
+                            .map_err(scope_row_error)?,
+                    )
+                    .map_err(|_| scope_row_error(()))?,
+                    capability: parse_folder_capability(
+                        &row.try_get::<String, _>("capability")
+                            .map_err(scope_row_error)?,
+                    )?,
+                    is_execution_target: row
+                        .try_get::<i64, _>("is_execution_target")
+                        .map_err(scope_row_error)?
+                        == 1,
+                    runtime_approval_policy: parse_runtime_approval(
+                        &row.try_get::<String, _>("resolved_runtime_approval_policy")
+                            .map_err(scope_row_error)?,
+                    )?,
+                })
+            })
+            .collect::<ChatResult<Vec<_>>>()?,
+    })
+}
+
+fn parse_runtime_approval(value: &str) -> ChatResult<ChatRuntimeApprovalPolicy> {
+    match value {
+        "ask" => Ok(ChatRuntimeApprovalPolicy::Ask),
+        "auto_approve" => Ok(ChatRuntimeApprovalPolicy::AutoApprove),
+        "unattended" => Ok(ChatRuntimeApprovalPolicy::Unattended),
+        "provider_custom" => Ok(ChatRuntimeApprovalPolicy::ProviderCustom),
+        _ => Err(scope_row_error(())),
+    }
+}
+
+fn parse_folder_capability(value: &str) -> ChatResult<ChatFolderCapability> {
+    match value {
+        "read" => Ok(ChatFolderCapability::Read),
+        "edit" => Ok(ChatFolderCapability::Edit),
+        "execute" => Ok(ChatFolderCapability::Execute),
+        "publish" => Ok(ChatFolderCapability::Publish),
+        _ => Err(scope_row_error(())),
+    }
+}
+
+fn row_u64(row: &sqlx::sqlite::SqliteRow, column: &str) -> ChatResult<u64> {
+    u64::try_from(row.try_get::<i64, _>(column).map_err(scope_row_error)?)
+        .map_err(|_| scope_row_error(()))
+}
+
+fn provider_authority_error(message: &str) -> ChatError {
+    ChatError::new(ChatErrorCode::Permission, message, false)
+}
+
+fn scope_row_error<T>(_error: T) -> ChatError {
+    provider_authority_error("The assignment authorization scope is invalid")
 }

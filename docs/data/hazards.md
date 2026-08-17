@@ -142,7 +142,7 @@ Situations most likely to produce bugs, data corruption, or confusing UX. Every 
 
 **Why it is dangerous:** a channel or direct message is a durable place organized around participants and purpose. A provider session is a replaceable execution continuation bound to one authorized working folder. Reusing one identity for both makes a room inherit the provider, model, context window, folder, failure state, and retention lifecycle of one execution attempt.
 
-**Scenario:** a person discusses a release in `#general`, delegates two tasks to separate agents, and later changes the provider behind the Ganbaru manager. If the channel row is also the provider thread row, only one folder can be authoritative, parallel runs collide, changing providers appears to erase the manager's identity, and archiving one failed run can hide the organizational history.
+**Scenario:** a person discusses a release in `#general`, delegates two tasks to separate ordinary teammates, and later changes one teammate's provider. If the channel row is also the provider thread row, only one folder can be authoritative, parallel runs collide, changing providers appears to erase the teammate identity, and archiving one failed run can hide the organizational history.
 
 **Mitigation:** channels, direct messages, replies, and task discussions have stable organizational identities. Agent runs link them to one or more provider sessions, context packages, workspaces, and deliverables. Replacing or resuming a session preserves provenance without claiming that provider continuity defines the room. Existing `chat_threads` remain execution-session records. The pre-user redesign resets development vaults instead of inferring organizational relationships from unrelated legacy threads.
 
@@ -164,6 +164,26 @@ Situations most likely to produce bugs, data corruption, or confusing UX. Every 
 
 **Scenario:** the same teammate appears in `#legal` and `#engineering`. It can read contracts in the first scope and edit a codebase in the second. A legal-channel participant asks it to change code, or an engineering question causes a contract summary to enter the reply thread. If dispatch uses the union of grants attached to the display identity, the teammate crosses both boundaries.
 
-**Mitigation:** every actionable mention creates a typed work assignment and computes the intersection of requester invocation authority, destination visibility, teammate principal grants, explicit resource grants, run grants, budgets, and provider safety. Memory namespaces and context packages retain scope and provenance. A shared display identity never merges access profiles. Denials remain permission-safe, and proactive subscriptions name one bounded readable scope.
+**Mitigation:** every actionable mention creates a typed work assignment and computes the intersection of requester authority, destination policy and audience, teammate policy and profile ceiling, destination and source memberships, exact folder grants, assignment references and target, runtime approval, budgets, and verified provider enforcement. References and context packages retain scope and provenance. A shared display identity never merges access profiles. Denials remain permission-safe, and future proactive subscriptions name one bounded readable scope.
 
-**Governed by:** `features/agent-coordination.md`, `features/chat.md`, `data/security.md`, invariants 12 and 13.
+**Governed by:** `features/agent-coordination.md`, `features/chat.md`, `data/access-control.md`, `data/security.md`, invariants 12 and 13.
+
+## 15. Restricted context retained by continuations or scratch
+
+**Why it is dangerous:** denying a new database read does not remove data already retained in a native provider continuation, host-tool result, worktree, or scratch generation. Reusing those materials after a membership or audience change can disclose data that current authorization would reject.
+
+**Scenario:** a teammate reads a restricted source channel while producing an artifact for a narrow destination. A new reader later joins the destination, or the teammate loses source access. The next prompt reuses the provider continuation or promotes the old scratch artifact into the broader destination.
+
+**Mitigation:** every authorization revision has a scope digest and exact materialized-source provenance. Contractions interrupt runs, revoke handles, stop sessions, suppress publication, discard continuations, and quarantine affected scratch generations. Expansion creates new authority and never revives old material. Cleanup failures become retryable durable jobs.
+
+**Governed by:** `data/access-control.md`, `data/security.md`, invariants 14 and 15.
+
+## 16. Destination audience expands around retained channel references
+
+**Why it is dangerous:** a channel message can retain an authorized reference after the destination audience changes. Adding a reader with earlier-history access can expose the existence or result of a source that the new reader cannot access.
+
+**Scenario:** a private source is safely referenced into a destination whose current readers all share source access. A later membership change gives another person the destination's entire history, including the retained reference and its result.
+
+**Mitigation:** destination membership changes recheck every retained source constraint. The change is blocked when earlier history would widen disclosure. The safe alternative is From access grant, which captures a lower message ordinal after the restricted reference. Scheduled delivery and result publication repeat the same audience-revision check.
+
+**Governed by:** `data/access-control.md`, `data/security.md`, invariant 14.

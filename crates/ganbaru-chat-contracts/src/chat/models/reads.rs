@@ -1,8 +1,9 @@
 use super::{
-    ChatActivityId, ChatThreadId, ChatThreadState, ChatTurnId, ChatTurnState, ContinuationGroupId,
-    ModelId, ModelOptionSelection, ProjectWorkingFolderId, ProviderCapabilities, ProviderFamilyId,
-    ProviderInstanceId, ProviderSessionId, ProviderSessionState, ProviderThreadId,
-    TurnModeSnapshot, UtcTimestamp, VersionedJson,
+    ChatActivityId, ChatExecutionEnvironmentId, ChatScratchGenerationId, ChatThreadId,
+    ChatThreadState, ChatTurnId, ChatTurnState, ContinuationGroupId, ModelId, ModelOptionSelection,
+    ProjectWorkingFolderId, ProviderCapabilities, ProviderFamilyId, ProviderInstanceId,
+    ProviderSessionId, ProviderSessionState, ProviderThreadId, TurnModeSnapshot, UtcTimestamp,
+    VersionedJson,
 };
 use crate::chat::events::{ChangedFileSummary, ThreadUsageUpdatedEvent};
 use serde::{Deserialize, Serialize};
@@ -99,7 +100,9 @@ pub struct ProviderHistoryPage {
 #[serde(rename_all = "camelCase")]
 pub struct ChatThreadShellRead {
     pub id: ChatThreadId,
-    pub working_folder_id: ProjectWorkingFolderId,
+    pub working_folder_id: Option<ProjectWorkingFolderId>,
+    pub execution_environment_id: ChatExecutionEnvironmentId,
+    pub scratch_generation_id: Option<ChatScratchGenerationId>,
     pub project_id: String,
     pub title: String,
     pub provider_family_id: ProviderFamilyId,

@@ -156,13 +156,15 @@ The local agent execution and communication foundation. Native harness transport
 - Native coding-agent execution: Codex app-server, Claude native streaming, Cursor and Grok ACP, and OpenCode HTTP plus events through Rust-owned transports
 - Durable provider threads: normalized canonical events, resume, approvals, questions, plans, usage, recovery, attachments, terminals, review, checkpoints, source control, worktrees, and browser preview
 - Channel foundation: one durable `#general` channel per project, room drafts and history, channel-first navigation, archive and search, and links from channels to one or more bounded provider sessions
+- Organizational teammate access foundation: inert vault-wide teammate identities, independent channel history and participation capabilities, immutable access-profile revisions, exact folder tiers, one native target, private scratch, strict channel disclosure, scoped internal host tools, and revocation-safe continuations
+- Teammates studio and roster: wide Overview and Access editing, Group, Project, and Channel navigation, atomic impact-reviewed access replacement, device binding state, current-channel membership management, and typed English and Spanish copy
 - Left-rail redesign: Channels and later Direct messages replace working-folder groups and New chat as the primary mental model; working folders remain visible where execution requires them
 - Stable vocabulary and pre-release reset: organizational reply threads remain distinct from provider continuations, and development vaults reset instead of silently merging unrelated provider history
 - Markdown export and import: CLI exports approved project state as Markdown to repositories for collaborators and agents without the CLI
 
 **Depends on:** phase 1 (SQLite, Kanban, calendar for context), phase 2 (notes for project docs)
 
-**Out of scope:** automatic manager planning and task spawning, human collaboration, BYOK general assistant, external MCP, and content-specific blocking
+**Out of scope:** automatic planning and task spawning, proactive channel observation, shared or long-term teammate memory, multi-agent fan-out and orchestration, group or workspace channels, human collaboration, cloud runners, BYOK general assistant, external MCP, and content-specific blocking
 
 **Complexity:** large
 
@@ -181,9 +183,9 @@ Structured project lifecycle templates and the first manager-coordination layer.
 - Actionable methodology templates: reverse brainstorming, value proposition canvas, business model canvas, SWOT analysis, market research frameworks. Structured forms, not static documents
 - Project Kanban boards: per-project boards linked to project phases
 - Manager planning: reviewable proposals for objectives, tasks, subtasks, dependencies, acceptance criteria, assignments, reviewers, estimates, deadlines, budgets, risks, and scheduling effects
-- Persistent AI teammates and context packages: user-created teammate identity independent of provider, versioned thread and task context, selected Notes and files, Calendar constraints, scoped memory, authority, and budgets
+- Persistent AI teammate workflows and context packages: build planning and task behavior on ordinary user-created identities and the access foundation from phase 7, with versioned thread and task context, selected Notes and files, Calendar constraints, future scoped memory, authority, and budgets
 - Mention-led participation: actionable `@teammate` invocation, channel membership, shared reply threads, human steering, semantic work state, and DMs without making temporary worker runs permanent sidebar contacts
-- Teammate permissions and routing: separate channel addressability from code, shell, Notes, Calendar, external-service, memory, and budget grants; provider, model, effort, and fallback policy remain execution settings behind the teammate
+- Teammate routing beyond the foundation: add Notes, Calendar, external-service, memory, and budget grants without weakening channel, folder, provider, scratch, and revocation enforcement; provider, model, effort, and fallback policy remain execution settings behind the teammate
 - Task-linked agent runs: bounded execution, structured status, deliverables, usage, review-ready state, and links to exact provider execution timelines
 - Requirement version control: timestamped revisions with requester, reason, origin discussion or review, approval, and downstream task, date, budget, Notes, deliverable, and run impact
 - Review workflow: human or AI reviewer assignment, review target and late reason, corrections versus requirement revisions versus related work

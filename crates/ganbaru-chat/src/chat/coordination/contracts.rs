@@ -17,19 +17,8 @@ pub struct ChatTeammatePolicyInput {
     pub provider_options: VersionedJson,
 }
 
-#[derive(Clone, Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ChatTeammateMembershipInput {
-    pub channel_id: ChatChannelId,
-    #[serde(default = "default_addressable")]
-    pub addressable: bool,
-    pub approval_policy: ChatApprovalPolicy,
-    pub working_folder_ids: Vec<ProjectWorkingFolderId>,
-    pub default_working_folder_id: ProjectWorkingFolderId,
-}
-
 #[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct CreateChatTeammateCommand {
     pub teammate_id: ChatParticipantId,
     pub display_name: String,
@@ -39,8 +28,179 @@ pub struct CreateChatTeammateCommand {
     #[serde(default)]
     pub instructions: String,
     pub policy: ChatTeammatePolicyInput,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ChatAccessProfileRevisionInput {
+    pub default_channel_capabilities: ChatChannelCapabilities,
+    pub default_history_boundary: ChatHistoryBoundary,
+    pub maximum_folder_capability: ChatFolderCapability,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CreateChatAccessProfileCommand {
+    pub access_profile_id: ChatAccessProfileId,
+    pub display_name: String,
+    pub revision: ChatAccessProfileRevisionInput,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DuplicateChatAccessProfileCommand {
+    pub source_access_profile_id: ChatAccessProfileId,
+    pub access_profile_id: ChatAccessProfileId,
+    pub display_name: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PublishChatAccessProfileRevisionCommand {
+    pub access_profile_id: ChatAccessProfileId,
+    pub expected_revision: u64,
+    pub revision: ChatAccessProfileRevisionInput,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PreviewChatAccessProfileRevisionCommand {
+    pub access_profile_id: ChatAccessProfileId,
+    pub expected_revision: u64,
+    pub revision: ChatAccessProfileRevisionInput,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ArchiveChatAccessProfileCommand {
+    pub access_profile_id: ChatAccessProfileId,
+    pub expected_revision: u64,
+    pub archived: bool,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ChatFolderGrantInput {
+    pub working_folder_id: ProjectWorkingFolderId,
+    pub capability: ChatFolderCapability,
     #[serde(default)]
-    pub memberships: Vec<ChatTeammateMembershipInput>,
+    pub is_default: bool,
+    pub runtime_approval_override: Option<ChatRuntimeApprovalPolicy>,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ChatTeammateChannelAccessInput {
+    pub channel_id: ChatChannelId,
+    pub access_profile_id: ChatAccessProfileId,
+    pub access_profile_revision: u64,
+    pub capabilities: ChatChannelCapabilities,
+    pub history_boundary: ChatHistoryBoundary,
+    pub runtime_approval_override: Option<ChatRuntimeApprovalPolicy>,
+    pub scratch_runtime_approval_override: Option<ChatRuntimeApprovalPolicy>,
+    #[serde(default)]
+    pub folder_grants: Vec<ChatFolderGrantInput>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct PreviewChatTeammateAccessCommand {
+    pub teammate_id: ChatParticipantId,
+    pub expected_access_revision: u64,
+    pub teammate_default_runtime_approval: ChatRuntimeApprovalPolicy,
+    #[serde(default)]
+    pub channels: Vec<ChatTeammateChannelAccessInput>,
+    #[serde(default)]
+    pub teammate_profile: Option<UpdateChatTeammateProfileCommand>,
+    #[serde(default)]
+    pub policy: Option<ChatTeammatePolicyInput>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ReplaceChatTeammateAccessCommand {
+    pub teammate_id: ChatParticipantId,
+    pub expected_access_revision: u64,
+    pub teammate_default_runtime_approval: ChatRuntimeApprovalPolicy,
+    #[serde(default)]
+    pub channels: Vec<ChatTeammateChannelAccessInput>,
+    #[serde(default)]
+    pub teammate_profile: Option<UpdateChatTeammateProfileCommand>,
+    #[serde(default)]
+    pub policy: Option<ChatTeammatePolicyInput>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PreviewChatChannelMembershipRemovalCommand {
+    pub teammate_id: ChatParticipantId,
+    pub channel_id: ChatChannelId,
+    pub expected_access_revision: u64,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ListChatAssignmentTargetsCommand {
+    pub teammate_id: ChatParticipantId,
+    pub channel_id: ChatChannelId,
+    pub reply_thread_id: Option<ChatReplyThreadId>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BrowseChatScratchGenerationCommand {
+    pub scratch_generation_id: ChatScratchGenerationId,
+    #[serde(default)]
+    pub relative_path: String,
+    pub cursor: Option<String>,
+    pub limit: u32,
+    #[serde(default)]
+    pub allow_restricted_inspection: bool,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(
+    tag = "kind",
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase",
+    deny_unknown_fields
+)]
+pub enum ChatScratchPromotionDestinationInput {
+    WorkingFolder {
+        channel_id: ChatChannelId,
+        working_folder_id: ProjectWorkingFolderId,
+        relative_path: String,
+    },
+    ManagedAttachment {
+        channel_id: ChatChannelId,
+        attachment_id: ChatAttachmentId,
+        display_name: String,
+    },
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PromoteChatScratchFileCommand {
+    pub promotion_id: ChatScratchPromotionId,
+    pub scratch_generation_id: ChatScratchGenerationId,
+    pub source_relative_path: String,
+    pub expected_content_revision: String,
+    pub destination: ChatScratchPromotionDestinationInput,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PreviewChatScratchCleanupCommand {
+    pub scratch_generation_id: ChatScratchGenerationId,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CleanupChatScratchCommand {
+    pub scratch_generation_id: ChatScratchGenerationId,
+    pub expected_scope_revision: u64,
+    #[serde(default)]
+    pub confirmed: bool,
 }
 
 #[derive(Debug, Deserialize)]
@@ -56,40 +216,6 @@ pub struct UpdateChatTeammateProfileCommand {
     pub expected_revision: u64,
 }
 
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct PublishChatTeammatePolicyCommand {
-    pub teammate_id: ChatParticipantId,
-    pub policy: ChatTeammatePolicyInput,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct UpsertChatTeammateMembershipCommand {
-    pub teammate_id: ChatParticipantId,
-    pub membership: ChatTeammateMembershipInput,
-    pub expected_revision: Option<u64>,
-}
-
-#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ChatParticipantMentionInput {
-    pub participant_id: ChatParticipantId,
-    pub participant_kind: ChatParticipantKind,
-    pub label_snapshot: String,
-    pub start_offset: u64,
-    pub end_offset: u64,
-}
-
-#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ChatResourceReferenceInput {
-    pub working_folder_id: ProjectWorkingFolderId,
-    pub kind: String,
-    pub relative_path: String,
-    pub display_label: String,
-}
-
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PostChatMessageCommand {
@@ -101,9 +227,9 @@ pub struct PostChatMessageCommand {
     #[serde(default)]
     pub attachment_ids: Vec<ChatAttachmentId>,
     #[serde(default)]
-    pub participant_mentions: Vec<ChatParticipantMentionInput>,
+    pub references: Vec<ChatMessageReference>,
     #[serde(default)]
-    pub resource_references: Vec<ChatResourceReferenceInput>,
+    pub execution_target: Option<ChatExecutionTarget>,
     #[serde(default)]
     pub also_send_to_channel: bool,
 }
@@ -125,6 +251,102 @@ pub struct PostChatMessageResult {
     pub assignment_input_queued: bool,
 }
 
-fn default_addressable() -> bool {
-    true
+#[cfg(test)]
+mod tests {
+    use super::{
+        ChatScratchPromotionDestinationInput, CreateChatTeammateCommand,
+        PreviewChatTeammateAccessCommand,
+    };
+    use serde_json::json;
+
+    fn teammate_payload() -> serde_json::Value {
+        json!({
+            "teammateId": "teammate:reviewer",
+            "displayName": "Reviewer",
+            "avatar": { "schemaVersion": 1, "value": { "kind": "initials" } },
+            "role": "Code reviewer",
+            "instructions": "",
+            "policy": {
+                "providerInstanceId": "provider:test",
+                "providerManagedModel": true,
+                "modelId": null,
+                "modelOptions": [],
+                "effort": null,
+                "speed": null,
+                "providerOptions": { "schemaVersion": 1, "value": {} }
+            }
+        })
+    }
+
+    #[test]
+    fn standalone_teammate_creation_has_no_access_input() {
+        let payload = teammate_payload();
+        assert!(serde_json::from_value::<CreateChatTeammateCommand>(payload).is_ok());
+
+        let mut legacy_payload = teammate_payload();
+        legacy_payload["memberships"] = json!([{
+            "channelId": "channel:general"
+        }]);
+        assert!(serde_json::from_value::<CreateChatTeammateCommand>(legacy_payload).is_err());
+    }
+
+    #[test]
+    fn managed_scratch_attachment_destination_has_no_folder_authority() {
+        let destination = json!({
+            "kind": "managedAttachment",
+            "channelId": "channel:general",
+            "attachmentId": "attachment:result",
+            "displayName": "result.md"
+        });
+        assert!(
+            serde_json::from_value::<ChatScratchPromotionDestinationInput>(destination).is_ok()
+        );
+
+        let legacy_destination = json!({
+            "kind": "managedAttachment",
+            "channelId": "channel:general",
+            "workingFolderId": "folder:implicit",
+            "attachmentId": "attachment:result",
+            "displayName": "result.md"
+        });
+        assert!(
+            serde_json::from_value::<ChatScratchPromotionDestinationInput>(legacy_destination)
+                .is_err()
+        );
+    }
+
+    #[test]
+    fn teammate_access_preview_accepts_the_complete_atomic_draft() {
+        let payload = json!({
+            "teammateId": "teammate:reviewer",
+            "expectedAccessRevision": 4,
+            "teammateDefaultRuntimeApproval": "ask",
+            "channels": [],
+            "teammateProfile": {
+                "teammateId": "teammate:reviewer",
+                "displayName": "Reviewer",
+                "avatar": { "schemaVersion": 1, "value": { "kind": "initials" } },
+                "role": "Code reviewer",
+                "instructions": "Review changes",
+                "expectedRevision": 7
+            },
+            "policy": {
+                "providerInstanceId": "provider:test",
+                "providerManagedModel": true,
+                "modelId": null,
+                "modelOptions": [],
+                "effort": null,
+                "speed": null,
+                "providerOptions": { "schemaVersion": 1, "value": {} }
+            }
+        });
+        let command = serde_json::from_value::<PreviewChatTeammateAccessCommand>(payload.clone())
+            .expect("the complete draft should deserialize");
+        assert!(command.teammate_profile.is_some());
+        assert!(command.policy.is_some());
+
+        let mut unknown = payload;
+        unknown["legacyMemberships"] = json!([]);
+        assert!(serde_json::from_value::<PreviewChatTeammateAccessCommand>(unknown).is_err());
+    }
 }

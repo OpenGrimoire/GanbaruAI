@@ -6,6 +6,21 @@ impl CodexProviderDriver {
         &self,
         working_directory: &Path,
     ) -> ChatResult<(CodexRpcConnection, CodexHomeLayout)> {
+        let inject_internal = self
+            .configuration
+            .internal_mcp
+            .as_ref()
+            .is_some_and(|server| !server.organizational_authority);
+        self.spawn_connection(working_directory, false, &[], inject_internal)
+    }
+
+    pub(super) fn spawn_connection(
+        &self,
+        working_directory: &Path,
+        organizational: bool,
+        disabled_mcp_servers: &[String],
+        inject_internal_mcp: bool,
+    ) -> ChatResult<(CodexRpcConnection, CodexHomeLayout)> {
         #[cfg(test)]
         if let Some(factory) = self.connection_factory.as_ref() {
             return factory(working_directory);
@@ -20,30 +35,48 @@ impl CodexProviderDriver {
         arguments.extend(validated_app_server_arguments(
             &self.configuration.launch_arguments,
         )?);
-        if let Some(server) = &self.configuration.internal_mcp {
-            const TOKEN_ENVIRONMENT: &str = "GANBARU_CHAT_MCP_TOKEN";
-            environment.insert(TOKEN_ENVIRONMENT.to_string(), server.bearer_token.clone());
-            arguments.extend([
-                "-c".to_string(),
-                format!(
-                    "mcp_servers.{}.url={}",
-                    server.name,
-                    serde_json::to_string(&server.url).map_err(|_| {
-                        ChatError::validation("internalMcp", "Internal MCP URL is invalid")
-                    })?
-                ),
-                "-c".to_string(),
-                format!(
-                    "mcp_servers.{}.bearer_token_env_var={}",
-                    server.name,
-                    serde_json::to_string(TOKEN_ENVIRONMENT).map_err(|_| {
+        if organizational {
+            append_organizational_base_arguments(&mut arguments);
+        }
+        if inject_internal_mcp {
+            let server = self.configuration.internal_mcp.as_ref().ok_or_else(|| {
+                ChatError::validation(
+                    "internalMcp",
+                    "Organizational Codex runs require the internal MCP endpoint",
+                )
+            })?;
+            if organizational != server.organizational_authority {
+                return Err(ChatError::validation(
+                    "internalMcp",
+                    "Codex organizational authority mode is inconsistent",
+                ));
+            }
+            if organizational {
+                append_disabled_mcp_arguments(&mut arguments, disabled_mcp_servers, &server.name)?;
+                append_internal_mcp_arguments(&mut arguments, &server.name, &server.url)?;
+            } else {
+                let name = mcp_server_config_key(&server.name)?;
+                let url = serde_json::to_string(&server.url).map_err(|_| {
+                    ChatError::validation("internalMcp", "Internal MCP URL is invalid")
+                })?;
+                let token_environment = serde_json::to_string(INTERNAL_MCP_TOKEN_ENVIRONMENT)
+                    .map_err(|_| {
                         ChatError::validation(
                             "internalMcp",
                             "Internal MCP token reference is invalid",
                         )
-                    })?
-                ),
-            ]);
+                    })?;
+                arguments.extend([
+                    "-c".to_string(),
+                    format!("mcp_servers.{name}.url={url}"),
+                    "-c".to_string(),
+                    format!("mcp_servers.{name}.bearer_token_env_var={token_environment}"),
+                ]);
+            }
+            environment.insert(
+                INTERNAL_MCP_TOKEN_ENVIRONMENT.to_string(),
+                server.bearer_token.clone(),
+            );
         }
         let process = spawn_provider_process(ProviderProcessConfig {
             executable: executable.executable,
@@ -53,6 +86,78 @@ impl CodexProviderDriver {
             stderr_limit_bytes: CODEX_STDERR_LIMIT_BYTES,
         })?;
         Ok((CodexRpcConnection::from_process(process)?, layout))
+    }
+
+    async fn open_organizational_connection(
+        &self,
+        working_directory: &Path,
+        context: &DriverOperationContext,
+    ) -> ChatResult<(CodexRpcConnection, CodexHomeLayout)> {
+        let server = self.configuration.internal_mcp.as_ref().ok_or_else(|| {
+            ChatError::validation(
+                "internalMcp",
+                "Organizational Codex runs require the internal MCP endpoint",
+            )
+        })?;
+        if !server.organizational_authority {
+            return Err(ChatError::validation(
+                "internalMcp",
+                "Codex organizational authority was not activated",
+            ));
+        }
+        let disabled_mcp_servers = self
+            .organizational_mcp_server_names(working_directory, context)
+            .await?;
+        self.spawn_connection(working_directory, true, &disabled_mcp_servers, true)
+    }
+
+    pub(super) async fn organizational_mcp_server_names(
+        &self,
+        working_directory: &Path,
+        context: &DriverOperationContext,
+    ) -> ChatResult<Vec<String>> {
+        let (mut inspection, layout) =
+            self.spawn_connection(working_directory, true, &[], false)?;
+        let inspection_client = inspection.client();
+        let inspection_result = async {
+            let initialize = inspection_client
+                .request("initialize", initialize_params(), context)
+                .await
+                .map_err(|error| error.to_chat_error("organizational initialize"))?;
+            let initialize: InitializeResponse =
+                decode_response(initialize, "organizational initialize response")
+                    .map_err(|error| error.to_chat_error("organizational initialize"))?;
+            verify_reported_home(&layout, &initialize.codex_home)?;
+            inspection_client
+                .notify("initialized", json!({}))
+                .await
+                .map_err(|error| error.to_chat_error("organizational initialized notification"))?;
+            let response = inspection_client
+                .request(
+                    "config/read",
+                    json!({
+                        "cwd": working_directory.to_string_lossy(),
+                        "includeLayers": false,
+                    }),
+                    context,
+                )
+                .await
+                .map_err(|error| error.to_chat_error("organizational config read"))?;
+            let response: ConfigReadResponse = decode_response(response, "config response")
+                .map_err(|error| error.to_chat_error("organizational config read"))?;
+            mcp_server_names(response)
+        }
+        .await;
+        let stop_result = inspection
+            .stop(SESSION_GRACEFUL_STOP, SESSION_FORCE_STOP)
+            .await;
+        match inspection_result {
+            Ok(names) => {
+                stop_result?;
+                Ok(names)
+            }
+            Err(error) => Err(error),
+        }
     }
 
     pub(super) async fn open_session(
@@ -76,8 +181,18 @@ impl CodexProviderDriver {
             ));
         }
         let workspace = canonical_verified_workspace(input.workspace())?;
-        let (mut connection, layout) = self.open_connection(&workspace)?;
-        let continuation_group_id = layout.continuation_group()?;
+        let organizational = self
+            .configuration
+            .internal_mcp
+            .as_ref()
+            .is_some_and(|server| server.organizational_authority);
+        let (mut connection, layout) = if organizational {
+            self.open_organizational_connection(&workspace, context)
+                .await?
+        } else {
+            self.open_connection(&workspace)?
+        };
+        let continuation_group_id = layout.continuation_group_with_authority(organizational)?;
         input.verify_continuation(&continuation_group_id)?;
         let client = connection.client();
         let initialize = client
@@ -91,6 +206,43 @@ impl CodexProviderDriver {
             .notify("initialized", json!({}))
             .await
             .map_err(|error| error.to_chat_error("initialized notification"))?;
+        if organizational {
+            let config = client
+                .request(
+                    "config/read",
+                    json!({
+                        "cwd": workspace.to_string_lossy(),
+                        "includeLayers": false,
+                    }),
+                    context,
+                )
+                .await
+                .map_err(|error| error.to_chat_error("organizational config verification"))?;
+            let config: ConfigReadResponse = decode_response(config, "config response")
+                .map_err(|error| error.to_chat_error("organizational config verification"))?;
+            let internal_mcp = self
+                .configuration
+                .internal_mcp
+                .as_ref()
+                .map(|server| (server.name.as_str(), server.url.as_str()));
+            verify_organizational_effective_config(config, internal_mcp)?;
+            let profiles = client
+                .request(
+                    "permissionProfile/list",
+                    json!({
+                        "cwd": workspace.to_string_lossy(),
+                        "cursor": null,
+                        "limit": 100,
+                    }),
+                    context,
+                )
+                .await
+                .map_err(|error| error.to_chat_error("organizational permission profiles"))?;
+            let profiles: PermissionProfileListResponse =
+                decode_response(profiles, "permission profile list response")
+                    .map_err(|error| error.to_chat_error("organizational permission profiles"))?;
+            verify_permission_profile_list(&profiles)?;
+        }
 
         let session_id = new_session_id(&self.configuration.instance_id)?;
         let requested_model = input.model_id();
@@ -118,6 +270,7 @@ impl CodexProviderDriver {
             provider_thread_sender,
             expected_shutdown: Arc::clone(&expected_shutdown),
             terminal_error: Arc::clone(&terminal_error),
+            organizational,
         });
 
         let developer_instructions = input.developer_instructions();
@@ -127,6 +280,7 @@ impl CodexProviderDriver {
             input.modes(),
             requested_model,
             developer_instructions,
+            organizational,
         )?;
         let requested_provider_thread_id = input.resume_provider_thread_id().map(str::to_owned);
         let (response, resumed) = match requested_provider_thread_id.as_deref() {
@@ -137,6 +291,7 @@ impl CodexProviderDriver {
                     input.modes(),
                     requested_model,
                     developer_instructions,
+                    organizational,
                 )?;
                 match client.request("thread/resume", params, context).await {
                     Ok(response) => (response, true),
@@ -179,7 +334,11 @@ impl CodexProviderDriver {
         };
         let response: ThreadOpenResponse = decode_response(response, "thread open response")
             .map_err(|error| error.to_chat_error("thread open"))?;
-        verify_effective_safety(input.modes().safety_mode, &response)?;
+        if organizational {
+            verify_organizational_thread_open(input.modes().safety_mode, &workspace, &response)?;
+        } else {
+            verify_effective_safety(input.modes().safety_mode, &response)?;
+        }
         let provider_thread_id = ProviderThreadId::new(response.thread.id.clone())
             .map_err(|_| protocol_identifier_error("provider thread"))?;
         if resumed && requested_provider_thread_id.as_deref() != Some(provider_thread_id.as_str()) {
@@ -196,6 +355,22 @@ impl CodexProviderDriver {
                 context,
             )
             .await?;
+        }
+        if organizational {
+            let internal_name = self
+                .configuration
+                .internal_mcp
+                .as_ref()
+                .map(|server| server.name.as_str())
+                .ok_or_else(|| {
+                    ChatError::validation(
+                        "internalMcp",
+                        "Organizational Codex runs require the internal MCP endpoint",
+                    )
+                })?;
+            let status =
+                Self::fetch_mcp_status(&client, Some(provider_thread_id.as_str()), context).await?;
+            verify_organizational_mcp_status(&status, internal_name)?;
         }
         let effective_model = ModelId::new(response.model.clone())
             .map_err(|_| protocol_identifier_error("effective model"))?;
@@ -267,6 +442,12 @@ impl CodexProviderDriver {
                     .launch_arguments
                     .iter()
                     .any(|argument| argument.contains("mcp_servers.")),
+            organizational,
+            internal_mcp_name: self
+                .configuration
+                .internal_mcp
+                .as_ref()
+                .map(|server| server.name.clone()),
         });
         Ok(ProviderSessionSnapshot {
             session_id,

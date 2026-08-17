@@ -2,6 +2,7 @@
 
 use super::home::*;
 use super::normalizer::{CodexEventNormalizer, CodexRouteState};
+use super::organizational::*;
 use super::protocol::*;
 use super::session::*;
 use super::transport::{CodexRpcConnection, CodexRpcFailure};
@@ -77,6 +78,8 @@ struct CodexLiveSession {
     workspace: PathBuf,
     effective_model: String,
     refresh_mcp_before_turn: bool,
+    organizational: bool,
+    internal_mcp_name: Option<String>,
 }
 
 impl Drop for CodexLiveSession {
@@ -90,6 +93,7 @@ struct ProbeSnapshot {
     initialize: InitializeResponse,
     account: AccountReadResponse,
     models: Vec<ProviderModel>,
+    authority_support: ProviderAuthoritySupport,
 }
 
 impl CodexProviderDriver {
@@ -175,6 +179,10 @@ impl ProviderDriver for CodexProviderDriver {
 
     fn capabilities(&self) -> ProviderCapabilities {
         codex_capabilities()
+    }
+
+    fn authority_support(&self) -> ProviderAuthoritySupport {
+        organizational_authority_support()
     }
 
     fn cached_model_catalog(&self) -> Option<ProviderModelCatalog> {
@@ -437,6 +445,7 @@ impl ProviderDriver for CodexProviderDriver {
                         negotiated_protocol_version: Some("2".to_string()),
                         account_label,
                         capabilities: codex_capabilities(),
+                        authority_support: snapshot.authority_support,
                         checked_at,
                         detail: (!authenticated)
                             .then_some("Codex requires authentication".to_string()),
@@ -450,6 +459,7 @@ impl ProviderDriver for CodexProviderDriver {
                     negotiated_protocol_version: None,
                     account_label: None,
                     capabilities: codex_capabilities(),
+                    authority_support: ProviderAuthoritySupport::default(),
                     checked_at,
                     detail: Some(probe_detail(error.code).to_string()),
                 }),
@@ -504,7 +514,12 @@ impl ProviderDriver for CodexProviderDriver {
                     ));
                 }
             }
-            layout.continuation_group()
+            let organizational = self
+                .configuration
+                .internal_mcp
+                .as_ref()
+                .is_some_and(|server| server.organizational_authority);
+            layout.continuation_group_with_authority(organizational)
         })
     }
 
@@ -540,9 +555,11 @@ impl ProviderDriver for CodexProviderDriver {
         Box::pin(async move {
             let live = self.live_mut(&request.session_id)?;
             let client = live.connection.client();
-            if let Some(command) = codex_native_command(&request) {
-                return dispatch_codex_command(live, request, command, context).await;
-            }
+            let command = if live.organizational {
+                None
+            } else {
+                codex_native_command(&request)
+            };
             if live.refresh_mcp_before_turn {
                 client
                     .request("config/mcpServer/reload", json!({}), context)
@@ -556,27 +573,43 @@ impl ProviderDriver for CodexProviderDriver {
                 .provider_thread_id
                 .clone()
                 .ok_or_else(|| protocol_identifier_error("provider thread"))?;
-            let custom_safety = if request.modes.safety_mode == SafetyMode::Custom {
-                let response = client
-                    .request(
-                        "config/read",
-                        json!({ "cwd": live.workspace.to_string_lossy() }),
-                        context,
+            if live.organizational {
+                let status =
+                    Self::fetch_mcp_status(&client, Some(&provider_thread_id), context).await?;
+                let internal_name = live.internal_mcp_name.as_deref().ok_or_else(|| {
+                    ChatError::validation(
+                        "internalMcp",
+                        "Organizational Codex runs require the internal MCP endpoint",
                     )
-                    .await
-                    .map_err(|error| error.to_chat_error("config read"))?;
-                let response: ConfigReadResponse = decode_response(response, "config response")
-                    .map_err(|error| error.to_chat_error("config read"))?;
-                Some(custom_safety_settings(response)?)
-            } else {
-                None
-            };
+                })?;
+                verify_organizational_mcp_status(&status, internal_name)?;
+            }
+            if let Some(command) = command {
+                return dispatch_codex_command(live, request, command, context).await;
+            }
+            let custom_safety =
+                if !live.organizational && request.modes.safety_mode == SafetyMode::Custom {
+                    let response = client
+                        .request(
+                            "config/read",
+                            json!({ "cwd": live.workspace.to_string_lossy() }),
+                            context,
+                        )
+                        .await
+                        .map_err(|error| error.to_chat_error("config read"))?;
+                    let response: ConfigReadResponse = decode_response(response, "config response")
+                        .map_err(|error| error.to_chat_error("config read"))?;
+                    Some(custom_safety_settings(response)?)
+                } else {
+                    None
+                };
             let params = turn_start_params(
                 &provider_thread_id,
                 &live.workspace,
                 &live.effective_model,
                 &request,
                 custom_safety.as_ref(),
+                live.organizational,
             )?;
             {
                 let mut state = live.route.lock().map_err(|_| driver_state_error())?;

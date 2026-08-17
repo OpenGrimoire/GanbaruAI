@@ -145,13 +145,34 @@ fn schema_creates_chat_tables_indexes_and_no_device_paths() {
             "chat_channels",
             "chat_conversation_memberships",
             "chat_teammate_working_folder_grants",
+            "chat_access_profiles",
+            "chat_access_profile_revisions",
+            "chat_ai_teammate_access_state",
+            "chat_ai_channel_memberships",
+            "chat_conversation_audience_state",
+            "chat_message_references",
+            "chat_participant_reference_targets",
+            "chat_channel_reference_targets",
+            "chat_working_folder_reference_targets",
+            "chat_workspace_path_reference_targets",
+            "chat_execution_environment_reference_targets",
+            "chat_assignment_authorization_revisions",
+            "chat_assignment_authorized_channel_sources",
+            "chat_assignment_authorized_folder_sources",
+            "chat_host_tool_invocations",
+            "chat_host_tool_returned_message_revisions",
+            "chat_scratch_scopes",
+            "chat_scratch_generations",
+            "chat_scratch_generation_sources",
+            "chat_scratch_promotions",
+            "chat_scratch_cleanup_jobs",
+            "chat_access_revocation_jobs",
             "chat_reply_threads",
             "chat_conversation_items",
             "chat_communication_messages",
             "chat_communication_message_revisions",
-            "chat_participant_mentions",
+            "chat_communication_message_revision_ordinals",
             "chat_communication_attachment_references",
-            "chat_communication_resource_references",
             "chat_conversation_read_cursors",
             "chat_reply_thread_read_cursors",
             "chat_organizational_drafts",
@@ -161,12 +182,11 @@ fn schema_creates_chat_tables_indexes_and_no_device_paths() {
             "chat_work_semantic_updates",
             "chat_assignment_context_packages",
             "chat_assignment_context_sources",
-            "chat_assignment_authorization_decisions",
             "chat_agent_runs",
             "chat_assignment_dispatch_jobs",
             "chat_scheduled_messages",
             "chat_scheduled_message_attachment_references",
-            "chat_scheduled_message_resource_references",
+            "chat_scheduled_message_references",
             "chat_project_primary_working_folders",
             "chat_communication_search_fts",
             "idx_chat_threads_active_project",
@@ -187,6 +207,9 @@ fn schema_creates_chat_tables_indexes_and_no_device_paths() {
             "idx_chat_restore_operations_thread",
             "idx_chat_events_valid_thread_sequence",
             "idx_chat_threads_execution_environment",
+            "idx_chat_threads_scratch_generation",
+            "idx_chat_execution_environments_current_folder",
+            "idx_chat_execution_environments_scratch",
             "idx_chat_worktrees_cleanup",
             "idx_chat_review_comments_thread_path",
             "idx_chat_review_comments_thread_queue",
@@ -199,6 +222,15 @@ fn schema_creates_chat_tables_indexes_and_no_device_paths() {
             "idx_chat_participants_local_user",
             "idx_chat_ai_teammate_display_name",
             "idx_chat_teammate_folder_default",
+            "idx_chat_access_profiles_builtin",
+            "idx_chat_ai_channel_memberships_teammate",
+            "idx_chat_assignment_authorization_active",
+            "idx_chat_host_tool_invocations_authorization",
+            "idx_chat_scratch_generation_active",
+            "idx_chat_scratch_promotions_generation",
+            "idx_chat_scratch_promotions_destination",
+            "idx_chat_scratch_cleanup_jobs_ready",
+            "idx_chat_access_revocation_jobs_ready",
             "idx_chat_conversation_items_root_ordinal",
             "idx_chat_conversation_items_reply_ordinal",
             "idx_chat_work_assignments_one_active",
@@ -206,6 +238,7 @@ fn schema_creates_chat_tables_indexes_and_no_device_paths() {
             "idx_chat_scheduled_messages_due",
             "idx_chat_scheduled_messages_destination",
             "idx_chat_scheduled_message_attachments_attachment",
+            "idx_chat_scheduled_message_references_target",
         ] {
             let exists: Option<i64> =
                 sqlx::query_scalar("SELECT 1 FROM sqlite_schema WHERE name = ?")
@@ -226,6 +259,10 @@ fn schema_creates_chat_tables_indexes_and_no_device_paths() {
             "chat_worktrees",
             "chat_resources",
             "chat_browser_artifacts",
+            "chat_scratch_scopes",
+            "chat_scratch_generations",
+            "chat_scratch_promotions",
+            "chat_scratch_cleanup_jobs",
         ] {
             let columns = sqlx::query(&format!("SELECT name FROM pragma_table_info('{table}')"))
                 .fetch_all(&pool)
@@ -265,6 +302,24 @@ fn schema_creates_chat_tables_indexes_and_no_device_paths() {
                 .await
                 .unwrap();
         assert_eq!(legacy_sessions, None);
+
+        let promotion_columns = sqlx::query(
+            "SELECT name, \"notnull\" AS required
+             FROM pragma_table_info('chat_scratch_promotions')",
+        )
+        .fetch_all(&pool)
+        .await
+        .unwrap();
+        let destination_channel = promotion_columns
+            .iter()
+            .find(|row| row.get::<String, _>("name") == "destination_channel_id")
+            .expect("scratch promotions should retain their exact destination channel");
+        let destination_folder = promotion_columns
+            .iter()
+            .find(|row| row.get::<String, _>("name") == "destination_working_folder_id")
+            .expect("scratch promotions should record working-folder destinations");
+        assert_eq!(destination_channel.get::<i64, _>("required"), 1);
+        assert_eq!(destination_folder.get::<i64, _>("required"), 0);
     });
 }
 
@@ -302,6 +357,455 @@ fn fresh_projects_create_general_owner_membership_and_primary_folder() {
         assert_eq!(general_channels, projects);
         assert_eq!(owner_memberships, projects);
         assert_eq!(primary_folders, projects);
+    });
+}
+
+#[test]
+fn fresh_chat_has_only_the_local_owner_and_unprivileged_profile_recipes() {
+    super::block_on(async {
+        let pool = migrated_memory_pool().await;
+        let participants: i64 = sqlx::query_scalar("SELECT count(*) FROM chat_participants")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        let local_owners: i64 = sqlx::query_scalar(
+            "SELECT count(*) FROM chat_participants
+             WHERE id = 'participant:local-owner' AND participant_kind = 'local_user'",
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        let ai_teammates: i64 = sqlx::query_scalar(
+            "SELECT count(*) FROM chat_participants WHERE participant_kind = 'ai_teammate'",
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        let profiles: i64 = sqlx::query_scalar("SELECT count(*) FROM chat_access_profiles")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+
+        assert_eq!(participants, 1);
+        assert_eq!(local_owners, 1);
+        assert_eq!(ai_teammates, 0);
+        assert_eq!(profiles, 5);
+    });
+}
+
+#[test]
+fn standalone_teammate_identity_is_inert_until_access_is_replaced() {
+    super::block_on(async {
+        let pool = migrated_memory_pool().await;
+        sqlx::query(
+            "INSERT INTO chat_participants
+                (id, participant_kind, display_name, created_at, updated_at)
+             VALUES ('teammate:inert', 'ai_teammate', 'Inert teammate', ?, ?)",
+        )
+        .bind(NOW)
+        .bind(NOW)
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            "INSERT INTO chat_ai_teammates
+                (participant_id, role, instructions, created_at, updated_at)
+             VALUES ('teammate:inert', 'General support', '', ?, ?)",
+        )
+        .bind(NOW)
+        .bind(NOW)
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        let access_revision: i64 = sqlx::query_scalar(
+            "SELECT access_revision FROM chat_ai_teammate_access_state
+             WHERE teammate_id = 'teammate:inert'",
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        let memberships: i64 = sqlx::query_scalar(
+            "SELECT count(*) FROM chat_conversation_memberships
+             WHERE participant_id = 'teammate:inert'",
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        let ai_access: i64 = sqlx::query_scalar(
+            "SELECT count(*) FROM chat_ai_channel_memberships
+             WHERE teammate_id = 'teammate:inert'",
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        let folder_grants: i64 = sqlx::query_scalar(
+            "SELECT count(*) FROM chat_teammate_working_folder_grants
+             WHERE teammate_id = 'teammate:inert'",
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+
+        assert_eq!(access_revision, 0);
+        assert_eq!(memberships, 0);
+        assert_eq!(ai_access, 0);
+        assert_eq!(folder_grants, 0);
+    });
+}
+
+#[test]
+fn access_profile_revisions_are_immutable_and_do_not_create_memberships() {
+    super::block_on(async {
+        let pool = migrated_memory_pool().await;
+        let update = sqlx::query(
+            "UPDATE chat_access_profile_revisions
+             SET maximum_folder_capability = 'publish'
+             WHERE id = 'access-profile-revision:conversation-only:1'",
+        )
+        .execute(&pool)
+        .await;
+        let delete = sqlx::query(
+            "DELETE FROM chat_access_profile_revisions
+             WHERE id = 'access-profile-revision:conversation-only:1'",
+        )
+        .execute(&pool)
+        .await;
+        let extend_builtin = sqlx::query(
+            "INSERT INTO chat_access_profile_revisions
+                (id, access_profile_id, revision, default_read_history,
+                 default_participate, default_history_boundary,
+                 maximum_folder_capability, created_at)
+             VALUES ('forbidden-built-in-revision', 'access-profile:conversation-only',
+                     2, 1, 1, 'entire', 'read', ?)",
+        )
+        .bind(NOW)
+        .execute(&pool)
+        .await;
+        let rewrite_builtin = sqlx::query(
+            "UPDATE chat_access_profiles
+             SET latest_revision = 2, revision = 2
+             WHERE id = 'access-profile:conversation-only'",
+        )
+        .execute(&pool)
+        .await;
+        let memberships: i64 =
+            sqlx::query_scalar("SELECT count(*) FROM chat_ai_channel_memberships")
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+
+        assert!(update.is_err());
+        assert!(delete.is_err());
+        assert!(extend_builtin.is_err());
+        assert!(rewrite_builtin.is_err());
+        assert_eq!(memberships, 0);
+    });
+}
+
+#[test]
+fn live_profile_expansion_preserves_active_access_revision_and_membership_intent() {
+    super::block_on(async {
+        let pool = migrated_memory_pool().await;
+        let conversation_id: String = sqlx::query_scalar(
+            "SELECT conversation_id FROM chat_channels WHERE is_default = 1 LIMIT 1",
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            "INSERT INTO chat_participants
+                (id, participant_kind, display_name, created_at, updated_at)
+             VALUES ('teammate:profile-test', 'ai_teammate', 'Profile test', ?, ?)",
+        )
+        .bind(NOW)
+        .bind(NOW)
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            "INSERT INTO chat_ai_teammates
+                (participant_id, role, instructions, created_at, updated_at)
+             VALUES ('teammate:profile-test', 'Tester', '', ?, ?)",
+        )
+        .bind(NOW)
+        .bind(NOW)
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            "INSERT INTO chat_access_profiles
+                (id, display_name, created_at, updated_at)
+             VALUES ('access-profile:test', 'Test profile', ?, ?)",
+        )
+        .bind(NOW)
+        .bind(NOW)
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            "INSERT INTO chat_access_profile_revisions
+                (id, access_profile_id, revision, default_read_history,
+                 default_participate, default_history_boundary,
+                 maximum_folder_capability, created_at)
+             VALUES ('access-profile-revision:test:1', 'access-profile:test',
+                     1, 1, 1, 'entire', 'read', ?)",
+        )
+        .bind(NOW)
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            "INSERT INTO chat_conversation_memberships
+                (conversation_id, participant_id, membership_role, created_at, updated_at)
+             VALUES (?, 'teammate:profile-test', 'member', ?, ?)",
+        )
+        .bind(&conversation_id)
+        .bind(NOW)
+        .bind(NOW)
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            "INSERT INTO chat_ai_channel_memberships
+                (conversation_id, teammate_id, access_profile_id,
+                 read_history, read_history_inherits_profile,
+                 participate, participate_inherits_profile,
+                 history_boundary, history_boundary_inherits_profile,
+                 created_at, updated_at)
+             VALUES (?, 'teammate:profile-test', 'access-profile:test',
+                     1, 1, 1, 1, 'entire', 1, ?, ?)",
+        )
+        .bind(&conversation_id)
+        .bind(NOW)
+        .bind(NOW)
+        .execute(&pool)
+        .await
+        .unwrap();
+        let (project_id, working_folder_id): (String, String) = sqlx::query_as(
+            "SELECT channel.project_id, primary_folder.working_folder_id
+             FROM chat_channels channel
+             JOIN chat_project_primary_working_folders primary_folder
+               ON primary_folder.project_id = channel.project_id
+             WHERE channel.conversation_id = ?",
+        )
+        .bind(&conversation_id)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            "INSERT INTO chat_teammate_working_folder_grants
+                (conversation_id, teammate_id, project_id, working_folder_id,
+                 capability, capability_inherits_profile, created_at)
+             VALUES (?, 'teammate:profile-test', ?, ?, 'read', 1, ?)",
+        )
+        .bind(&conversation_id)
+        .bind(project_id)
+        .bind(working_folder_id)
+        .bind(NOW)
+        .execute(&pool)
+        .await
+        .unwrap();
+        let audience_revision_before: i64 = sqlx::query_scalar(
+            "SELECT revision FROM chat_conversation_audience_state
+             WHERE conversation_id = ?",
+        )
+        .bind(&conversation_id)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            "INSERT INTO chat_access_profile_revisions
+                (id, access_profile_id, revision, default_read_history,
+                 default_participate, default_history_boundary,
+                 maximum_folder_capability, created_at)
+             VALUES ('access-profile-revision:test:2', 'access-profile:test',
+                     2, 1, 1, 'entire', 'edit', ?)",
+        )
+        .bind("2026-07-20T12:01:00Z")
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        let access_revision: i64 = sqlx::query_scalar(
+            "SELECT access_revision FROM chat_ai_teammate_access_state
+             WHERE teammate_id = 'teammate:profile-test'",
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        let latest_profile_revision: i64 = sqlx::query_scalar(
+            "SELECT profile.latest_revision
+             FROM chat_ai_channel_memberships membership
+             JOIN chat_access_profiles profile ON profile.id = membership.access_profile_id
+             WHERE membership.teammate_id = 'teammate:profile-test'",
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        let audience_revision_after: i64 = sqlx::query_scalar(
+            "SELECT revision FROM chat_conversation_audience_state
+             WHERE conversation_id = ?",
+        )
+        .bind(&conversation_id)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        let pinned_column: i64 = sqlx::query_scalar(
+            "SELECT count(*) FROM pragma_table_info('chat_ai_channel_memberships')
+             WHERE name = 'access_profile_revision'",
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        let effective_folder_capability: String = sqlx::query_scalar(
+            "SELECT CASE WHEN grant_row.capability_inherits_profile = 1
+                    THEN revision.maximum_folder_capability
+                    ELSE grant_row.capability END
+             FROM chat_teammate_working_folder_grants grant_row
+             JOIN chat_ai_channel_memberships membership
+               ON membership.conversation_id = grant_row.conversation_id
+              AND membership.teammate_id = grant_row.teammate_id
+             JOIN chat_access_profiles profile ON profile.id = membership.access_profile_id
+             JOIN chat_access_profile_revisions revision
+               ON revision.access_profile_id = profile.id
+              AND revision.revision = profile.latest_revision
+             WHERE grant_row.teammate_id = 'teammate:profile-test'",
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+
+        assert_eq!(access_revision, 0);
+        assert_eq!(latest_profile_revision, 2);
+        assert!(audience_revision_after > audience_revision_before);
+        assert_eq!(pinned_column, 0);
+        assert_eq!(effective_folder_capability, "edit");
+    });
+}
+
+#[test]
+fn organizational_access_schema_has_one_authority_path_and_folder_or_scratch_targets() {
+    super::block_on(async {
+        let pool = migrated_memory_pool().await;
+        let legacy_authorization: Option<i64> = sqlx::query_scalar(
+            "SELECT 1 FROM sqlite_schema
+             WHERE type = 'table' AND name = 'chat_assignment_authorization_decisions'",
+        )
+        .fetch_optional(&pool)
+        .await
+        .unwrap();
+        let legacy_reference_tables: i64 = sqlx::query_scalar(
+            "SELECT count(*) FROM sqlite_schema
+             WHERE type = 'table' AND name IN (
+               'chat_participant_mentions',
+               'chat_communication_resource_references',
+               'chat_scheduled_message_resource_references'
+             )",
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        let membership_columns =
+            sqlx::query("SELECT name FROM pragma_table_info('chat_conversation_memberships')")
+                .fetch_all(&pool)
+                .await
+                .unwrap()
+                .into_iter()
+                .map(|row| row.get::<String, _>("name"))
+                .collect::<Vec<_>>();
+        let thread_sql: String = sqlx::query_scalar(
+            "SELECT sql FROM sqlite_schema WHERE type = 'table' AND name = 'chat_threads'",
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        let run_sql: String = sqlx::query_scalar(
+            "SELECT sql FROM sqlite_schema WHERE type = 'table' AND name = 'chat_agent_runs'",
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+
+        assert_eq!(legacy_authorization, None);
+        assert_eq!(legacy_reference_tables, 0);
+        assert!(!membership_columns
+            .iter()
+            .any(|column| column == "addressable"));
+        assert!(!membership_columns
+            .iter()
+            .any(|column| column == "approval_policy"));
+        assert!(thread_sql.contains("scratch_generation_id"));
+        assert!(run_sql.contains("authorization_revision_id"));
+        assert!(run_sql.contains("scratch_generation_id"));
+    });
+}
+
+#[test]
+fn authorization_source_snapshots_are_immutable_and_folder_policy_is_required() {
+    super::block_on(async {
+        let pool = migrated_memory_pool().await;
+        let mut connection = pool.acquire().await.unwrap();
+        sqlx::raw_sql("PRAGMA foreign_keys=OFF")
+            .execute(&mut *connection)
+            .await
+            .unwrap();
+
+        let missing_policy = sqlx::query(
+            "INSERT INTO chat_assignment_authorized_folder_sources
+                (authorization_revision_id, root_handle, working_folder_id,
+                 capability, is_execution_target, created_at)
+             VALUES ('authorization:test', ?, 'working-folder:test', 'read', 0, ?)",
+        )
+        .bind("r".repeat(32))
+        .bind(NOW)
+        .execute(&mut *connection)
+        .await;
+        assert!(missing_policy.is_err());
+
+        sqlx::query(
+            "INSERT INTO chat_assignment_authorized_folder_sources
+                (authorization_revision_id, root_handle, working_folder_id,
+                 capability, is_execution_target, created_at,
+                 resolved_runtime_approval_policy)
+             VALUES ('authorization:test', ?, 'working-folder:test', 'read', 0, ?, 'ask')",
+        )
+        .bind("r".repeat(32))
+        .bind(NOW)
+        .execute(&mut *connection)
+        .await
+        .unwrap();
+        sqlx::query(
+            "INSERT INTO chat_assignment_authorized_channel_sources
+                (authorization_revision_id, source_handle, message_reference_id,
+                 conversation_id, label_snapshot, lower_ordinal, high_ordinal,
+                 source_revision_cutoff_id, destination_audience_revision, created_at)
+             VALUES ('authorization:test', ?, 'reference:test', 'conversation:test',
+                     'Source', 1, 1, 'revision:test', 1, ?)",
+        )
+        .bind("s".repeat(32))
+        .bind(NOW)
+        .execute(&mut *connection)
+        .await
+        .unwrap();
+
+        for statement in [
+            "UPDATE chat_assignment_authorized_folder_sources SET capability = 'edit'",
+            "DELETE FROM chat_assignment_authorized_folder_sources",
+            "UPDATE chat_assignment_authorized_channel_sources SET label_snapshot = 'Changed'",
+            "DELETE FROM chat_assignment_authorized_channel_sources",
+        ] {
+            let result = sqlx::query(statement).execute(&mut *connection).await;
+            assert!(
+                result.is_err(),
+                "source snapshot mutation should fail: {statement}"
+            );
+        }
+
+        sqlx::raw_sql("PRAGMA foreign_keys=ON")
+            .execute(&mut *connection)
+            .await
+            .unwrap();
     });
 }
 

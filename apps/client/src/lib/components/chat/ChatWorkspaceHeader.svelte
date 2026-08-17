@@ -4,7 +4,6 @@
   import Hash from "@lucide/svelte/icons/hash";
   import Menu from "@lucide/svelte/icons/menu";
   import MessageSquare from "@lucide/svelte/icons/message-square";
-  import Users from "@lucide/svelte/icons/users";
   import {
     COMPACT_IDENTITY_EMOJI_SCALE,
     COMPACT_IDENTITY_ICON_SIZE,
@@ -20,6 +19,7 @@
   import ProjectIcon from "$lib/components/projects/ProjectIcon.svelte";
   import WorkspaceBreadcrumbTerminalIcon from "$lib/components/WorkspaceBreadcrumbTerminalIcon.svelte";
   import ChatChannelPickerPanel from "./ChatChannelPickerPanel.svelte";
+  import ChatChannelRoster from "./ChatChannelRoster.svelte";
   import ChatProjectNavigator from "./ChatProjectNavigator.svelte";
   import ChatTitleEditor from "./ChatTitleEditor.svelte";
 
@@ -204,7 +204,7 @@
   <div class="flex shrink-0 items-center gap-1">
     {#if selectedFolder?.bindingStatus === "available"}<button type="button" class="chat-toolbar-icon-button" title={t("chat.openFolder")} aria-label={t("chat.openFolder")} onclick={() => run(() => chat.openWorkingFolder(selectedFolder.workingFolder.id))}><FolderOpen size={14} /></button>{/if}
     {#if selectedChannel}
-      <button type="button" class="chat-toolbar-icon-button" title={t("chat.organization.manageMembers")} aria-label={t("chat.organization.manageMembers")} onclick={() => window.dispatchEvent(new Event("ganbaru-ai:chat-manage-members"))}><Users size={14} /></button>
+      <ChatChannelRoster />
     {/if}
     {#if selectedFolder?.currentBranch}<span class="chat-branch" title={t("chat.header.branch", selectedFolder.currentBranch)}><GitBranch size={13} /><span>{selectedFolder.currentBranch}</span></span>{/if}
   </div>

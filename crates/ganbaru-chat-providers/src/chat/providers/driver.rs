@@ -54,6 +54,10 @@ pub trait ProviderDriver: Send {
 
     fn capabilities(&self) -> ProviderCapabilities;
 
+    fn authority_support(&self) -> ProviderAuthoritySupport {
+        ProviderAuthoritySupport::default()
+    }
+
     fn cached_model_catalog(&self) -> Option<ProviderModelCatalog> {
         None
     }

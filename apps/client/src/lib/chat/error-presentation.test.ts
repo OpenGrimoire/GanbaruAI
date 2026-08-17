@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { chatErrorField, chatErrorMessage } from "./error-presentation";
+import { chatErrorCode, chatErrorField, chatErrorMessage } from "./error-presentation";
 
 describe("chatErrorMessage", () => {
   it("reads typed Tauri Chat errors without object stringification", () => {
@@ -19,5 +19,13 @@ describe("chatErrorMessage", () => {
     expect(chatErrorField({ field: "handle", message: "Already used" })).toBe("handle");
     expect(chatErrorField({ error: { field: "displayName", message: "Required" } })).toBe("displayName");
     expect(chatErrorField("Failed")).toBeNull();
+  });
+
+  it("reads only recognized direct and nested error codes", () => {
+    expect(chatErrorCode({ code: "stale_revision" })).toBe("stale_revision");
+    expect(chatErrorCode({ error: { code: "conflict" } })).toBe("conflict");
+    expect(chatErrorCode({ cause: { code: "permission" } })).toBe("permission");
+    expect(chatErrorCode({ code: "invented" })).toBeNull();
+    expect(chatErrorCode("stale_revision")).toBeNull();
   });
 });

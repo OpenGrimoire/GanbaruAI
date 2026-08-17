@@ -143,13 +143,13 @@ Chat is Ganbaru AI's communication and coordination workspace. It combines the d
 
 **Mention-led delegation.** AI appears as persistent teammates created and configured by the user, not as disposable model chats. An actionable `@teammate` mention on a message creates or continues a shared reply thread. The thread contains human steering, teammate questions, meaningful status, results, and review. Provider sessions, model handoffs, tools, terminals, and detailed execution remain inspectable beneath it without creating `AI session` or generic tool rows in the organizational conversation.
 
-**AI as a delegable workforce.** The persistent Ganbaru manager teammate helps turn objectives and discussion into reviewable plans. Approved plans create canonical Projects tasks, subtasks, dependencies, acceptance criteria, assignments, reviewers, estimates, deadlines, budgets, risks, and Calendar proposals. Task agents receive narrow context and authority, perform bounded work, and report structured status. The person normally reviews tasks and deliverables rather than reading every raw agent conversation.
+**AI as a delegable workforce.** User-created planning teammates can turn objectives and discussion into reviewable plans. The base system seeds no AI teammate, and future defaults are ordinary templates without special authority. Approved plans create canonical Projects tasks, subtasks, dependencies, acceptance criteria, assignments, reviewers, estimates, deadlines, budgets, risks, and Calendar proposals. Task agents receive narrow context and authority, perform bounded work, and report structured status. The person normally reviews tasks and deliverables rather than reading every raw agent conversation.
 
 **Canonical boundaries.** Chat owns communication and provenance. Projects owns committed work, assignment, review, budgets, and requirement history. Notes owns durable specifications and research. Calendar owns time, capacity, and hard scheduling constraints. Execution sessions own provider events, workspaces, tools, artifacts, and checkpoints. A message can create or change another record only through a typed, auditable transition.
 
-**Stable teammates and replaceable providers.** Human participants and AI teammates have stable identity independently of a provider or model. A teammate owns its name, purpose, instructions, memberships, memory scope, authority, budgets, and execution policy. The Ganbaru manager can use one provider now and another later without becoming a different participant. Durable organizational memory comes from structured records, selected Notes, decisions, bounded conversation context, scoped memories, and run summaries rather than one infinite model transcript.
+**Stable teammates and replaceable providers.** Human participants and AI teammates have stable identity independently of a provider or model. A teammate owns its name, purpose, instructions, and runtime defaults, while memberships and resource grants remain separate explicit authorization records. Any teammate can use one provider now and another later without becoming a different participant. Durable organizational memory comes from structured records, selected Notes, decisions, bounded conversation context, future scoped memories, and run summaries rather than one infinite model transcript.
 
-**Context packages.** Every manager action and task run receives a versioned context package containing only the objective, task, acceptance criteria, dependencies, selected Notes and files, Calendar constraints, prior decisions, relevant messages, workspace, instructions, budgets, and permissions it needs. Package sources and revisions are inspectable. Later project edits do not silently change a running agent's objective.
+**Context packages.** Every approved planning action and task run receives a versioned context package containing only the objective, task, acceptance criteria, dependencies, selected Notes and files, Calendar constraints, prior decisions, relevant messages, workspace, instructions, budgets, and permissions it needs. Package sources and revisions are inspectable. Later project edits do not silently change a running agent's objective.
 
 **Scoped identity and permissions.** Adding a teammate to a channel makes it addressable but grants no code, shell, Notes, Calendar, external-service, or cross-channel access. Each assignment uses the intersection of requester authority, destination visibility, teammate grants, explicit resource grants, run grants, budgets, and provider safety. A shared teammate name never merges memory or capabilities across legal, engineering, private, or guest scopes.
 
@@ -273,7 +273,7 @@ The system can generate project status reports automatically from Projects state
 
 ## NPC characters and narrative layer (deferred)
 
-Three NPCs are planned as an aesthetic layer on top of the project management workflows: the Fairy (Sparkweaver) for brainstorming, the Dwarf (Bearer of Great Promise) for idea evaluation, and Drasil (The Eternal Wayfinder) for planning and execution. They appear in visual novel style during guided workflows. The NPC layer is purely visual; all project management functionality works without it. AI assistance comes from Chat teammates, manager actions, and task agents rather than from the NPC identity itself.
+Three NPCs are planned as an aesthetic layer on top of the project management workflows: the Fairy (Sparkweaver) for brainstorming, the Dwarf (Bearer of Great Promise) for idea evaluation, and Drasil (The Eternal Wayfinder) for planning and execution. They appear in visual novel style during guided workflows. The NPC layer is purely visual; all project management functionality works without it. AI assistance comes from ordinary configured Chat teammates, approved planning workflows, and task agents rather than from an NPC or privileged application identity.
 
 ---
 
@@ -343,7 +343,7 @@ The edge panel displays context relevant to the current work environment: the ri
 
 ### Calendar → Chat and coordination
 
-When a Calendar block starts, Ganbaru can select the linked project and suggest its relevant channel, task discussion, or task. It preserves every Chat draft, active review, and provider continuation. Calendar context can contribute to a later manager action or agent context package, but it does not silently send a prompt or retarget a running agent.
+When a Calendar block starts, Ganbaru can select the linked project and suggest its relevant channel, task discussion, or task. It preserves every Chat draft, active review, and provider continuation. Calendar context can contribute to a later approved planning action or agent context package, but it does not silently send a prompt or retarget a running agent.
 
 ### Projects → Chat and coordination
 
@@ -351,7 +351,7 @@ Opening Chat from a project selects its last channel or `#general`. Opening a ta
 
 ### Chat and coordination → Projects
 
-The Ganbaru manager can propose tasks, subtasks, dependencies, assignments, reviewers, estimates, budgets, deadlines, risks, and requirement revisions. Accepted changes use typed Projects operations and link back to the originating message, plan, requester, reason, and approval. Task agents update execution status and deliverables, while required review remains a separate acceptance step.
+An explicitly authorized planning teammate can propose tasks, subtasks, dependencies, assignments, reviewers, estimates, budgets, deadlines, risks, and requirement revisions. Accepted changes use typed Projects operations and link back to the originating message, plan, requester, reason, and approval. Task agents update execution status and deliverables, while required review remains a separate acceptance step.
 
 ### Chat and coordination → Calendar
 
@@ -412,7 +412,7 @@ Chat coordination, native coding-agent execution, and the future BYOK path provi
 
 **Local LLM diary analysis:** small local models (via Ollama) analyze diary language for goal-setting patterns, reflection quality, and mood trends without any API calls or data leaving the device.
 
-**MCP for external access:** exposes Ganbaru AI's data (Calendar, Projects, Notes, and authorized coordination records) to separately authorized external AI clients. Ganbaru can also consume external MCP servers for integrations such as email and external calendars. The general MCP service is not the manager's internal data API. Local agents use the CLI or typed Rust services, while a coding-agent session can receive an ephemeral internal MCP endpoint for narrowly bounded resources and browser tools.
+**MCP for external access:** exposes Ganbaru AI's data (Calendar, Projects, Notes, and authorized coordination records) to separately authorized external AI clients. Ganbaru can also consume external MCP servers for integrations such as email and external calendars. The general MCP service is not an internal teammate data API. Local agents use the CLI or typed Rust services, while a coding-agent session can receive an ephemeral internal MCP endpoint for narrowly bounded resources and browser tools. The internal endpoint is application infrastructure, never a participant.
 
 ---
 

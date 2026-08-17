@@ -1,9 +1,9 @@
 <script lang="ts">
   import MessageCircle from "@lucide/svelte/icons/message-circle";
-  import type { ChatMessageRead, ChatParticipantMentionRead, ChatParticipantRead } from "$lib/chat/contracts";
+  import type { ChatMessageRead, ChatMessageReference, ChatParticipantRead } from "$lib/chat/contracts";
   import { organizationalMessageActionTarget } from "$lib/chat/message-action-target";
   import { chatParticipantDisplayName } from "$lib/chat/participant-display";
-  import { participantMentionTextSegments } from "$lib/chat/participant-mentions";
+  import { chatReferenceTextSegments } from "$lib/chat/message-references";
   import { formatDateTime } from "$lib/i18n/formatters";
   import { getLocalization } from "$lib/i18n/translator.svelte";
   import { getChat } from "$lib/stores/chat.svelte";
@@ -32,29 +32,52 @@
   const chat = getChat();
   const preferences = getPreferences();
   let actionToolbarVisible = $state(false);
-  const authorDisplayName = $derived(chatParticipantDisplayName(
+  const authorDisplayName = $derived(message.authorLabelSnapshot || chatParticipantDisplayName(
     message.author,
     preferences.profileDisplayName,
     t("chat.timeline.you"),
   ));
   const actionTarget = $derived(organizationalMessageActionTarget(message));
-  const messageSegments = $derived(participantMentionTextSegments(message.normalizedMarkdown, message.mentions));
+  const messageSegments = $derived(chatReferenceTextSegments(message.normalizedMarkdown, message.references));
 
-  function participantForMention(mention: ChatParticipantMentionRead): ChatParticipantRead {
+  function participantForReference(reference: Extract<ChatMessageReference, { kind: "participant" }>): ChatParticipantRead {
     const current = [
       ...(chat.selectedChannel?.memberships ?? []).map((membership) => membership.participant),
       ...chat.teammateIdentities.map((teammate) => teammate.participant),
       ...(message.replyThread?.participants ?? []),
       message.author,
-    ].find((participant) => participant.id === mention.participantId);
+    ].find((participant) => participant.id === reference.participantId);
     return current ?? {
-      id: mention.participantId,
-      kind: mention.participantKind,
-      displayName: mention.labelSnapshot,
+      id: reference.participantId,
+      kind: reference.participantKind,
+      displayName: reference.metadata.labelSnapshot,
       avatar: { schemaVersion: 1, value: {} },
       revision: 0,
       archivedAt: null,
     };
+  }
+
+  function openReference(reference: ChatMessageReference): void {
+    if (reference.kind === "channel") {
+      void chat.selectChannel(reference.channelId);
+      return;
+    }
+    if (reference.kind === "workingFolder") {
+      chat.selectWorkingFolder(reference.workingFolderId);
+      return;
+    }
+    if (reference.kind === "workspacePath") {
+      window.dispatchEvent(new CustomEvent("ganbaru-ai:chat-open-file", {
+        detail: {
+          workingFolderId: reference.workingFolderId,
+          relativePath: reference.relativePath,
+        },
+      }));
+      return;
+    }
+    if (reference.kind === "executionEnvironment") {
+      chat.setExecutionEnvironment(reference.executionEnvironmentId);
+    }
   }
 
 </script>
@@ -84,10 +107,9 @@
         <time datetime={message.createdAt}>{formatDateTime(localization.locale, Date.parse(message.createdAt), { timeStyle: "short" })}</time>
       </header>
     {/if}
-    <div class="message-copy">{#each messageSegments as segment, index (`${segment.kind}:${index}`)}{#if segment.kind === "mention"}<ChatIdentityButton participant={participantForMention(segment.mention)} presentation="mention" triggerLabel={segment.text} {currentResponseSettings} />{:else}{segment.text}{/if}{/each}</div>
-    {#if message.resourceReferences.length > 0 || message.attachmentIds.length > 0}
+    <div class="message-copy">{#each messageSegments as segment, index (`${segment.kind}:${index}`)}{#if segment.kind === "reference"}{#if segment.reference.kind === "participant"}<ChatIdentityButton participant={participantForReference(segment.reference)} presentation="mention" triggerLabel={segment.text} {currentResponseSettings} />{:else}<button type="button" class="inline-reference" onclick={() => openReference(segment.reference)}>{segment.text}</button>{/if}{:else}{segment.text}{/if}{/each}</div>
+    {#if message.attachmentIds.length > 0}
       <div class="message-context">
-        {#each message.resourceReferences as reference (`${reference.kind}:${reference.relativePath}`)}<span>{reference.kind === "folder" ? "▣" : "▤"} {reference.displayLabel}</span>{/each}
         {#if message.attachmentIds.length > 0}<span>{t("chat.organization.images", message.attachmentIds.length)}</span>{/if}
       </div>
     {/if}
@@ -120,6 +142,8 @@
   header { display:flex; min-height:1.3rem; align-items:baseline; gap:0.4rem; }
   header strong { font-size:var(--chat-organizational-font-size,calc(0.875rem * var(--type-scale))); } header time { color:var(--muted-foreground); font-size:var(--chat-organizational-time-font-size,calc(0.6875rem * var(--type-scale))); }
   .message-copy { white-space:pre-wrap; overflow-wrap:anywhere; color:var(--foreground); font-size:var(--chat-organizational-font-size,calc(0.875rem * var(--type-scale))); line-height:var(--chat-organizational-line-height,calc(1.3125rem * var(--type-scale))); }
+  .inline-reference { display:inline; border-radius:0.25rem; background:color-mix(in srgb,var(--primary) 10%,transparent); padding-inline:0.1rem; color:color-mix(in srgb,var(--primary) 76%,var(--foreground)); font:inherit; }
+  .inline-reference:hover,.inline-reference:focus-visible { text-decoration:underline; }
   .message-context { display:flex; flex-wrap:wrap; gap:0.3rem; margin-top:0.3rem; }
   .message-context span { border-radius:999px; background:var(--accent); padding:0.15rem 0.4rem; color:var(--muted-foreground); font-size: calc(0.65rem * var(--type-scale)); }
   .reply-strip { display:flex; width:100%; min-height:2rem; align-items:center; gap:0.4rem; margin-top:0.35rem; border-radius:0.4rem; color:color-mix(in srgb,var(--primary) 70%,var(--foreground)); font-size: calc(0.68rem * var(--type-scale)); text-align:left; }

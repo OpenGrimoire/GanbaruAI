@@ -8,7 +8,8 @@ use super::support::*;
 use crate::chat::events::*;
 use crate::chat::models::*;
 use crate::chat::providers::{
-    DriverFuture, DriverOperationContext, ProviderDriver, ProviderEventSink,
+    DriverFuture, DriverOperationContext, ProviderAuthoritySupport, ProviderDriver,
+    ProviderEventSink,
 };
 use serde_json::{json, Value};
 use std::sync::{atomic::Ordering, Arc};
@@ -25,6 +26,18 @@ impl ProviderDriver for ClaudeProviderDriver {
 
     fn capabilities(&self) -> ProviderCapabilities {
         claude_capabilities()
+    }
+
+    fn authority_support(&self) -> ProviderAuthoritySupport {
+        ProviderAuthoritySupport {
+            internal_host_tools: true,
+            deny_shell: false,
+            read_only_root: false,
+            writable_root: false,
+            confined_commands: false,
+            network_boundary: false,
+            classified_publish: false,
+        }
     }
 
     fn cached_model_catalog(&self) -> Option<ProviderModelCatalog> {
@@ -72,6 +85,7 @@ impl ProviderDriver for ClaudeProviderDriver {
                                 .or(account.subscription_type)
                         }),
                         capabilities: claude_capabilities(),
+                        authority_support: self.authority_support(),
                         checked_at,
                         detail: (!authenticated)
                             .then_some("Claude authentication is required".to_string()),
@@ -85,6 +99,7 @@ impl ProviderDriver for ClaudeProviderDriver {
                     negotiated_protocol_version: None,
                     account_label: None,
                     capabilities: claude_capabilities(),
+                    authority_support: self.authority_support(),
                     checked_at,
                     detail: Some(probe_detail(error.code).to_string()),
                 }),

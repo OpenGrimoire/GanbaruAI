@@ -106,7 +106,7 @@ Task scheduling from Projects uses the task title as the event title, the task's
 
 ## Coordination, delegation, and review
 
-The deeper coordination model is defined in [Agent coordination](agent-coordination.md) and [Project management](project-management.md). Projects remains authoritative when Chat or the Ganbaru manager turns a discussion into committed work.
+The deeper coordination model is defined in [Agent coordination](agent-coordination.md), [Project management](project-management.md), and [Chat access control](../data/access-control.md). Projects remains authoritative when Chat or an explicitly configured planning teammate turns a discussion into committed work.
 
 The mature task model adds or normalizes:
 
@@ -130,7 +130,7 @@ Task detail eventually includes its focused discussion with the project manager,
 
 Every project receives one durable `#general` channel in the coordination layer. Project templates may suggest a small number of additional purpose-based channels, but Projects sections, statuses, tasks, and working folders do not automatically become channels.
 
-Future collaboration supports group-wide members, project-only members, and restricted participants who can access selected channels, Notes folders or pages, tasks, task discussions, or project working folders. These are separate grants. Projects queries, dashboards, reports, notifications, search, and AI context assembly must filter unauthorized records and derived facts.
+Future collaboration supports group-wide members, project-only members, and restricted participants who can access selected channels, Notes folders or pages, tasks, task discussions, or project working folders. These are separate grants. Current AI teammate folder grants are also channel-specific and never follow merely from project or channel identity. Projects queries, dashboards, reports, notifications, search, and AI context assembly must filter unauthorized records and derived facts.
 
 ## Data ownership
 

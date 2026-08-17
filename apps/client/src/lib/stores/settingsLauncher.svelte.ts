@@ -18,6 +18,8 @@ interface SettingsLaunchOptions {
   doomscrollingTab?: DoomscrollingSettingsTab;
   chatSubsection?: ChatSettingsSubsection;
   chatTeammateId?: string;
+  chatChannelId?: string;
+  chatCreateTeammate?: boolean;
 }
 
 class SettingsLauncherStore {
@@ -26,6 +28,8 @@ class SettingsLauncherStore {
   targetDoomscrollingTab = $state<DoomscrollingSettingsTab | undefined>(undefined);
   targetChatSubsection = $state<ChatSettingsSubsection | undefined>(undefined);
   targetChatTeammateId = $state<string | undefined>(undefined);
+  targetChatChannelId = $state<string | undefined>(undefined);
+  targetChatCreateTeammate = $state(false);
 
   /**
    * Request that the Settings modal open. Pass `section` to land on a
@@ -39,6 +43,8 @@ class SettingsLauncherStore {
       : undefined;
     this.targetChatSubsection = section === "chat" ? options.chatSubsection : undefined;
     this.targetChatTeammateId = section === "chat" ? options.chatTeammateId : undefined;
+    this.targetChatChannelId = section === "chat" ? options.chatChannelId : undefined;
+    this.targetChatCreateTeammate = section === "chat" ? options.chatCreateTeammate ?? false : false;
     this.isOpen = true;
   }
 
@@ -48,6 +54,8 @@ class SettingsLauncherStore {
     this.targetDoomscrollingTab = undefined;
     this.targetChatSubsection = undefined;
     this.targetChatTeammateId = undefined;
+    this.targetChatChannelId = undefined;
+    this.targetChatCreateTeammate = false;
   }
 }
 

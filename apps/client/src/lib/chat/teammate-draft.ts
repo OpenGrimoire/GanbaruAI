@@ -1,8 +1,4 @@
-import type {
-  ChatApprovalPolicy,
-  ModelOptionSelection,
-  ProviderModel,
-} from "$lib/chat/contracts";
+import type { ModelOptionSelection, ProviderModel } from "$lib/chat/contracts";
 import { isKnownModelOption, modelOptionRole } from "$lib/chat/model-picker-model";
 
 export interface TeammateProfileDraftSnapshotInput {
@@ -15,13 +11,6 @@ export interface TeammateProfileDraftSnapshotInput {
   modelOptions: readonly ModelOptionSelection[];
   effort: string | null;
   speed: string | null;
-}
-
-export interface TeammateMembershipDraftSnapshotInput {
-  channelId: string;
-  approvalPolicy: ChatApprovalPolicy;
-  folderIds: readonly string[];
-  defaultFolderId: string;
 }
 
 export interface TeammateExecutionSummary {
@@ -87,23 +76,5 @@ export function teammateProfileDraftSnapshot(
     modelOptions,
     effort: input.effort,
     speed: input.speed,
-  });
-}
-
-/**
- * Creates a canonical snapshot of the membership fields saved for one channel.
- */
-export function teammateMembershipDraftSnapshot(
-  input: TeammateMembershipDraftSnapshotInput,
-): string {
-  const folderIds = [...new Set([
-    ...input.folderIds,
-    input.defaultFolderId,
-  ].filter(Boolean))].sort();
-  return JSON.stringify({
-    channelId: input.channelId,
-    approvalPolicy: input.approvalPolicy,
-    folderIds,
-    defaultFolderId: input.defaultFolderId,
   });
 }

@@ -3,6 +3,7 @@
   import Send from "@lucide/svelte/icons/send";
   import Trash2 from "@lucide/svelte/icons/trash-2";
   import type { ChatScheduledMessageRead } from "$lib/chat/contracts";
+  import { chatReferenceTextSegments } from "$lib/chat/message-references";
   import ProfileAvatar from "$lib/components/profile/ProfileAvatar.svelte";
   import { formatDateTime } from "$lib/i18n/formatters";
   import { getLocalization } from "$lib/i18n/translator.svelte";
@@ -26,6 +27,10 @@
   const { t } = localization;
   const preferences = getPreferences();
   const userDisplayName = $derived(preferences.profileDisplayName || t("chat.timeline.you"));
+  const messageSegments = $derived(chatReferenceTextSegments(
+    message.normalizedMarkdown,
+    message.references,
+  ));
 </script>
 
 <article class="scheduled-preview">
@@ -37,12 +42,9 @@
       <strong>{userDisplayName}</strong>
       <time datetime={message.createdAt}>{formatDateTime(localization.locale, Date.parse(message.createdAt), { timeStyle: "short" })}</time>
     </header>
-    {#if message.normalizedMarkdown}<div class="message-copy">{message.normalizedMarkdown}</div>{/if}
-    {#if message.resourceReferences.length > 0 || message.attachmentIds.length > 0 || message.alsoSendToChannel}
+    {#if message.normalizedMarkdown}<div class="message-copy">{#each messageSegments as segment, index (`${segment.kind}:${index}`)}{#if segment.kind === "reference"}<span class="inline-reference">{segment.text}</span>{:else}{segment.text}{/if}{/each}</div>{/if}
+    {#if message.attachmentIds.length > 0 || message.alsoSendToChannel}
       <div class="message-context">
-        {#each message.resourceReferences as reference (`${reference.kind}:${reference.relativePath}`)}
-          <span>{reference.kind === "folder" ? "▣" : "▤"} {reference.displayLabel}</span>
-        {/each}
         {#if message.attachmentIds.length > 0}<span>{t("chat.organization.images", message.attachmentIds.length)}</span>{/if}
         {#if message.alsoSendToChannel}<span>{t("chat.organization.alsoSharedToChannel")}</span>{/if}
       </div>
@@ -78,6 +80,7 @@
   header strong { font-size: calc(0.875rem * var(--type-scale)); }
   header time { color:var(--muted-foreground); font-size: calc(0.75rem * var(--type-scale)); }
   .message-copy { white-space:pre-wrap; overflow-wrap:anywhere; color:var(--foreground); font-size: calc(1rem * var(--type-scale)); line-height: calc(1.5rem * var(--type-scale)); }
+  .inline-reference { border-radius:0.25rem; background:color-mix(in srgb,var(--primary) 10%,transparent); padding-inline:0.1rem; color:color-mix(in srgb,var(--primary) 76%,var(--foreground)); }
   .message-context { display:flex; flex-wrap:wrap; gap:0.3rem; margin-top:0.35rem; }
   .message-context span { border-radius:999px; background:var(--accent); padding:0.15rem 0.4rem; color:var(--muted-foreground); font-size: calc(0.65rem * var(--type-scale)); }
   .delivery-row { display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:0.4rem; margin-top:0.55rem; }

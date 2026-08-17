@@ -1,7 +1,7 @@
 //! Assignment dispatch and live provider delivery.
 
 use super::super::models::*;
-use super::common::{new_id, parse_approval_policy, serialization_error, sha256_hex};
+use super::common::{new_id, serialization_error, sha256_hex};
 use super::reads::read_policy;
 use super::{chat_pool, identifier_error, now_timestamp, persistence_error, u64_value};
 use serde_json::json;
@@ -109,41 +109,62 @@ async fn dispatch_claimed_assignment(
             assignment.triggering_message_item_id,
             assignment.state,
             context.serialized_text,
-            authorization.id AS authorization_id,
+            authorization.id AS authorization_revision_id,
             authorization.teammate_policy_revision_id,
-            authorization.conversation_id,
+            authorization.requester_participant_id,
+            authorization.destination_conversation_id,
             authorization.working_folder_id,
-            authorization.approval_policy,
+            authorization.execution_environment_id,
+            authorization.resolved_runtime_approval_policy,
+            authorization.scope_digest,
             authorization.decision_state,
+            authorization.revoked_at AS authorization_revoked_at,
             policy.revision AS policy_revision,
             teammate.instructions,
             channel.project_id,
             project.status AS project_status,
-            membership.addressable,
-            membership.removed_at,
+            environment.scratch_generation_id,
             participant.archived_at,
-            grant_row.revoked_at AS grant_revoked_at,
             job.claim_token
          FROM chat_work_assignments assignment
          JOIN chat_assignment_context_packages context
            ON context.assignment_id = assignment.id AND context.revision = 1
-         JOIN chat_assignment_authorization_decisions authorization
+         JOIN chat_assignment_authorization_revisions authorization
            ON authorization.assignment_id = assignment.id
+          AND authorization.revision = (
+            SELECT max(candidate.revision)
+            FROM chat_assignment_authorization_revisions candidate
+            WHERE candidate.assignment_id = assignment.id
+          )
          JOIN chat_teammate_policy_revisions policy
            ON policy.id = authorization.teammate_policy_revision_id
          JOIN chat_ai_teammates teammate ON teammate.participant_id = assignment.teammate_id
          JOIN chat_participants participant ON participant.id = assignment.teammate_id
-         JOIN chat_channels channel ON channel.conversation_id = authorization.conversation_id
+         JOIN chat_channels channel
+           ON channel.conversation_id = authorization.destination_conversation_id
          JOIN projects project ON project.id = channel.project_id
-         LEFT JOIN chat_conversation_memberships membership
-           ON membership.conversation_id = authorization.conversation_id
+         JOIN chat_execution_environments environment
+           ON environment.id = authorization.execution_environment_id
+          AND environment.lifecycle_state = 'available'
+          AND environment.archived_at IS NULL
+         JOIN chat_conversation_memberships membership
+           ON membership.conversation_id = authorization.destination_conversation_id
           AND membership.participant_id = assignment.teammate_id
-         LEFT JOIN chat_teammate_working_folder_grants grant_row
-           ON grant_row.conversation_id = authorization.conversation_id
-          AND grant_row.teammate_id = assignment.teammate_id
-          AND grant_row.working_folder_id = authorization.working_folder_id
+          AND membership.removed_at IS NULL
+         JOIN chat_ai_channel_memberships channel_access
+           ON channel_access.conversation_id = membership.conversation_id
+          AND channel_access.teammate_id = membership.participant_id
+         JOIN chat_access_profiles profile ON profile.id = channel_access.access_profile_id
+         JOIN chat_access_profile_revisions profile_revision
+           ON profile_revision.access_profile_id = profile.id
+          AND profile_revision.revision = profile.latest_revision
          JOIN chat_assignment_dispatch_jobs job ON job.assignment_id = assignment.id
-         WHERE assignment.id = ?",
+         WHERE assignment.id = ?
+           AND CASE
+                 WHEN channel_access.participate_inherits_profile = 1
+                   THEN profile_revision.default_participate
+                 ELSE channel_access.participate AND profile_revision.default_participate
+               END = 1",
     )
     .bind(assignment_id.as_str())
     .fetch_optional(pool)
@@ -178,26 +199,14 @@ async fn dispatch_claimed_assignment(
             true,
         ));
     }
-    let membership_active = row
-        .try_get::<Option<i64>, _>("addressable")
+    if row
+        .try_get::<Option<String>, _>("archived_at")
         .map_err(persistence_error)?
-        == Some(1)
-        && row
-            .try_get::<Option<String>, _>("removed_at")
-            .map_err(persistence_error)?
-            .is_none()
-        && row
-            .try_get::<Option<String>, _>("archived_at")
-            .map_err(persistence_error)?
-            .is_none()
-        && row
-            .try_get::<Option<String>, _>("grant_revoked_at")
-            .map_err(persistence_error)?
-            .is_none();
-    if !membership_active {
+        .is_some()
+    {
         return Err(ChatError::new(
             ChatErrorCode::Permission,
-            "The teammate no longer has access to this channel and working folder",
+            "The teammate is no longer available for organizational work",
             true,
         ));
     }
@@ -216,6 +225,10 @@ async fn dispatch_claimed_assignment(
         .try_get::<String, _>("decision_state")
         .map_err(persistence_error)?
         != "allowed"
+        || row
+            .try_get::<Option<String>, _>("authorization_revoked_at")
+            .map_err(persistence_error)?
+            .is_some()
     {
         return Err(ChatError::new(
             ChatErrorCode::Permission,
@@ -230,11 +243,63 @@ async fn dispatch_claimed_assignment(
     .map_err(identifier_error)?;
     let policy_revision = u64_value(row.try_get("policy_revision").map_err(persistence_error)?)?;
     let policy = read_policy(pool, &teammate_id, policy_revision).await?;
-    let working_folder_id = ProjectWorkingFolderId::new(
-        row.try_get::<String, _>("working_folder_id")
+    let working_folder_id = row
+        .try_get::<Option<String>, _>("working_folder_id")
+        .map_err(persistence_error)?
+        .map(ProjectWorkingFolderId::new)
+        .transpose()
+        .map_err(identifier_error)?;
+    let scratch_generation_id: Option<String> = row
+        .try_get("scratch_generation_id")
+        .map_err(persistence_error)?;
+    if working_folder_id.is_some() == scratch_generation_id.is_some() {
+        return Err(ChatError::new(
+            ChatErrorCode::Permission,
+            "The assignment execution target is invalid",
+            false,
+        ));
+    }
+    let execution_environment_id: String = row
+        .try_get("execution_environment_id")
+        .map_err(persistence_error)?;
+    let destination_conversation_id: String = row
+        .try_get("destination_conversation_id")
+        .map_err(persistence_error)?;
+    let requester_participant_id: String = row
+        .try_get("requester_participant_id")
+        .map_err(persistence_error)?;
+    let authorization_revision_id = ChatAuthorizationRevisionId::new(
+        row.try_get::<String, _>("authorization_revision_id")
             .map_err(persistence_error)?,
     )
     .map_err(identifier_error)?;
+    if let Some(working_folder_id) = working_folder_id.as_ref() {
+        require_live_folder_target(
+            pool,
+            authorization_revision_id.as_str(),
+            &destination_conversation_id,
+            teammate_id.as_str(),
+            working_folder_id.as_str(),
+        )
+        .await?;
+    }
+    if let Some(scratch_generation_id) = scratch_generation_id.as_deref() {
+        if !super::super::scratch::generation_constraints_hold(
+            pool,
+            scratch_generation_id,
+            &destination_conversation_id,
+            teammate_id.as_str(),
+            &requester_participant_id,
+        )
+        .await?
+        {
+            return Err(ChatError::new(
+                ChatErrorCode::Permission,
+                "Private scratch contains context that is no longer authorized",
+                false,
+            ));
+        }
+    }
     let reply_thread_id = ChatReplyThreadId::new(
         row.try_get::<String, _>("reply_thread_id")
             .map_err(persistence_error)?,
@@ -245,15 +310,28 @@ async fn dispatch_claimed_assignment(
             .map_err(persistence_error)?,
     )
     .map_err(identifier_error)?;
+    let authorization_scope_digest: String =
+        row.try_get("scope_digest").map_err(persistence_error)?;
     let continuation = sqlx::query(
         "SELECT thread.id, thread.revision
          FROM chat_agent_runs run
          JOIN chat_work_assignments previous_assignment
            ON previous_assignment.id = run.assignment_id
+         JOIN chat_assignment_authorization_revisions previous_authorization
+           ON previous_authorization.id = run.authorization_revision_id
+          AND previous_authorization.assignment_id = run.assignment_id
+          AND previous_authorization.scope_digest = run.authorization_scope_digest
+          AND previous_authorization.decision_state = 'allowed'
+          AND previous_authorization.revoked_at IS NULL
          JOIN chat_threads thread ON thread.id = run.provider_thread_id
          WHERE previous_assignment.reply_thread_id = ?
            AND previous_assignment.id != ?
-           AND run.working_folder_id = ?
+           AND previous_assignment.state = 'completed'
+           AND run.state = 'completed'
+           AND run.working_folder_id IS ?
+           AND run.scratch_generation_id IS ?
+           AND run.execution_environment_id = ?
+           AND run.authorization_scope_digest = ?
            AND thread.provider_instance_id = ?
            AND thread.archived_at IS NULL
            AND thread.state NOT IN ('closed', 'error')
@@ -262,7 +340,14 @@ async fn dispatch_claimed_assignment(
     )
     .bind(reply_thread_id.as_str())
     .bind(assignment_id.as_str())
-    .bind(working_folder_id.as_str())
+    .bind(
+        working_folder_id
+            .as_ref()
+            .map(ProjectWorkingFolderId::as_str),
+    )
+    .bind(&scratch_generation_id)
+    .bind(&execution_environment_id)
+    .bind(&authorization_scope_digest)
     .bind(policy.provider_instance_id.as_str())
     .fetch_optional(pool)
     .await
@@ -302,29 +387,35 @@ async fn dispatch_claimed_assignment(
     .map(ChatAttachmentId::new)
     .collect::<Result<Vec<_>, _>>()
     .map_err(identifier_error)?;
-    let mentions = sqlx::query(
-        "SELECT resource.relative_path, resource.reference_kind
+    let mentions = if let Some(working_folder_id) = working_folder_id.as_ref() {
+        sqlx::query(
+            "SELECT path.relative_path, path.path_kind
          FROM chat_communication_messages message
-         JOIN chat_communication_resource_references resource
-           ON resource.message_revision_id = message.current_revision_id
-         WHERE message.item_id = ? ORDER BY resource.ordinal",
-    )
-    .bind(triggering_message_item_id.as_str())
-    .fetch_all(pool)
-    .await
-    .map_err(persistence_error)?
-    .into_iter()
-    .map(|resource| {
-        Ok(WorkspaceMentionReference {
-            relative_path: resource
-                .try_get("relative_path")
-                .map_err(persistence_error)?,
-            kind: resource
-                .try_get("reference_kind")
-                .map_err(persistence_error)?,
+         JOIN chat_message_references reference
+           ON reference.message_revision_id = message.current_revision_id
+          AND reference.reference_kind = 'workspace_path'
+         JOIN chat_workspace_path_reference_targets path ON path.reference_id = reference.id
+         WHERE message.item_id = ? AND path.working_folder_id = ?
+         ORDER BY reference.ordinal",
+        )
+        .bind(triggering_message_item_id.as_str())
+        .bind(working_folder_id.as_str())
+        .fetch_all(pool)
+        .await
+        .map_err(persistence_error)?
+        .into_iter()
+        .map(|resource| {
+            Ok(WorkspaceMentionReference {
+                relative_path: resource
+                    .try_get("relative_path")
+                    .map_err(persistence_error)?,
+                kind: resource.try_get("path_kind").map_err(persistence_error)?,
+            })
         })
-    })
-    .collect::<ChatResult<Vec<_>>>()?;
+        .collect::<ChatResult<Vec<_>>>()?
+    } else {
+        Vec::new()
+    };
     let run_ordinal: i64 = sqlx::query_scalar(
         "SELECT coalesce(max(run_ordinal), 0) + 1 FROM chat_agent_runs WHERE assignment_id = ?",
     )
@@ -332,11 +423,11 @@ async fn dispatch_claimed_assignment(
     .fetch_one(pool)
     .await
     .map_err(persistence_error)?;
-    let approval_policy = parse_approval_policy(
-        &row.try_get::<String, _>("approval_policy")
-            .map_err(persistence_error)?,
-    )?;
+    let runtime_approval_policy: String = row
+        .try_get("resolved_runtime_approval_policy")
+        .map_err(persistence_error)?;
     let developer_instructions: String = row.try_get("instructions").map_err(persistence_error)?;
+    let project_id: String = row.try_get("project_id").map_err(persistence_error)?;
     let request = super::super::send_commands::SendChatTurnCommand {
         command: ChatCommandContext {
             client_command_id: ChatCommandId::new(format!(
@@ -347,10 +438,11 @@ async fn dispatch_claimed_assignment(
             .map_err(identifier_error)?,
             expected_thread_revision,
         },
-        working_folder_id,
+        working_folder_id: working_folder_id.clone(),
         thread_id: existing_thread_id,
         new_thread_id: (continuation.is_none()).then_some(provider_execution_thread_id),
-        execution_environment_id: None,
+        execution_environment_id: Some(execution_environment_id.clone()),
+        scratch_generation_id: scratch_generation_id.clone(),
         turn_id: ChatTurnId::new(new_id("provider-turn")).map_err(identifier_error)?,
         message_id: ChatMessageId::new(new_id("provider-message")).map_err(identifier_error)?,
         provider_instance_id: policy.provider_instance_id,
@@ -358,7 +450,7 @@ async fn dispatch_claimed_assignment(
         model_id: policy.model_id,
         model_options: policy.model_options,
         modes: TurnModeSnapshot {
-            safety_mode: approval_policy_to_safety(approval_policy),
+            safety_mode: runtime_approval_to_safety(&runtime_approval_policy)?,
             interaction_mode: InteractionMode::Build,
         },
         prompt: row.try_get("serialized_text").map_err(persistence_error)?,
@@ -372,20 +464,91 @@ async fn dispatch_claimed_assignment(
             command: request,
             origin: super::super::agent_runs::TurnOrigin::Assignment {
                 developer_instructions,
-                run: super::super::agent_runs::AgentRunBinding {
+                run: Box::new(super::super::agent_runs::AgentRunBinding {
                     run_id: ChatAgentRunId::new(new_id("agent-run")).map_err(identifier_error)?,
                     assignment_id: assignment_id.clone(),
+                    project_id,
                     teammate_policy_revision_id: policy.id,
-                    authorization_decision_id: row
-                        .try_get("authorization_id")
-                        .map_err(persistence_error)?,
+                    authorization_revision_id,
+                    authorization_scope_digest,
+                    working_folder_id: working_folder_id
+                        .as_ref()
+                        .map(|value| value.as_str().to_string()),
+                    scratch_generation_id,
+                    execution_environment_id,
                     run_ordinal: u64_value(run_ordinal)?,
-                },
+                }),
             },
         },
     )
     .await?;
     Ok(())
+}
+
+async fn require_live_folder_target(
+    pool: &SqlitePool,
+    authorization_revision_id: &str,
+    destination_conversation_id: &str,
+    teammate_id: &str,
+    working_folder_id: &str,
+) -> ChatResult<()> {
+    let valid: bool = sqlx::query_scalar(
+        "SELECT EXISTS(
+           SELECT 1
+           FROM chat_assignment_authorized_folder_sources frozen
+           JOIN chat_teammate_working_folder_grants live
+             ON live.conversation_id = ?
+            AND live.teammate_id = ?
+            AND live.working_folder_id = frozen.working_folder_id
+            AND live.revoked_at IS NULL
+           JOIN chat_ai_channel_memberships channel_access
+             ON channel_access.conversation_id = live.conversation_id
+            AND channel_access.teammate_id = live.teammate_id
+           JOIN chat_access_profiles profile ON profile.id = channel_access.access_profile_id
+           JOIN chat_access_profile_revisions profile_revision
+             ON profile_revision.access_profile_id = profile.id
+            AND profile_revision.revision = profile.latest_revision
+           WHERE frozen.authorization_revision_id = ?
+             AND frozen.working_folder_id = ?
+             AND frozen.is_execution_target = 1
+             AND CASE frozen.capability
+                   WHEN 'read' THEN 1 WHEN 'edit' THEN 2
+                   WHEN 'execute' THEN 3 WHEN 'publish' THEN 4 ELSE 5
+                 END <= CASE
+                   WHEN live.capability_inherits_profile = 1 THEN
+                     CASE profile_revision.maximum_folder_capability
+                       WHEN 'none' THEN 0 WHEN 'read' THEN 1 WHEN 'edit' THEN 2
+                       WHEN 'execute' THEN 3 WHEN 'publish' THEN 4 ELSE 0
+                     END
+                   ELSE min(
+                     CASE live.capability
+                       WHEN 'none' THEN 0 WHEN 'read' THEN 1 WHEN 'edit' THEN 2
+                       WHEN 'execute' THEN 3 WHEN 'publish' THEN 4 ELSE 0
+                     END,
+                     CASE profile_revision.maximum_folder_capability
+                       WHEN 'none' THEN 0 WHEN 'read' THEN 1 WHEN 'edit' THEN 2
+                       WHEN 'execute' THEN 3 WHEN 'publish' THEN 4 ELSE 0
+                     END
+                   )
+                 END
+         )",
+    )
+    .bind(destination_conversation_id)
+    .bind(teammate_id)
+    .bind(authorization_revision_id)
+    .bind(working_folder_id)
+    .fetch_one(pool)
+    .await
+    .map_err(persistence_error)?;
+    if valid {
+        Ok(())
+    } else {
+        Err(ChatError::new(
+            ChatErrorCode::Permission,
+            "The execution folder is no longer authorized for this assignment",
+            false,
+        ))
+    }
 }
 
 async fn fail_assignment_dispatch(
@@ -440,9 +603,11 @@ async fn insert_dispatch_failure_message(
     now: &UtcTimestamp,
 ) -> ChatResult<()> {
     let row = sqlx::query(
-        "SELECT assignment.reply_thread_id, assignment.teammate_id, thread.conversation_id
+        "SELECT assignment.reply_thread_id, assignment.teammate_id, thread.conversation_id,
+                participant.display_name AS author_label_snapshot
          FROM chat_work_assignments assignment
          JOIN chat_reply_threads thread ON thread.id = assignment.reply_thread_id
+         JOIN chat_participants participant ON participant.id = assignment.teammate_id
          WHERE assignment.id = ?",
     )
     .bind(assignment_id.as_str())
@@ -452,6 +617,9 @@ async fn insert_dispatch_failure_message(
     let reply_thread_id: String = row.try_get("reply_thread_id").map_err(persistence_error)?;
     let teammate_id: String = row.try_get("teammate_id").map_err(persistence_error)?;
     let conversation_id: String = row.try_get("conversation_id").map_err(persistence_error)?;
+    let author_label_snapshot: String = row
+        .try_get("author_label_snapshot")
+        .map_err(persistence_error)?;
     let hash = sha256_hex(format!("{}:{claim_token}", assignment_id.as_str()).as_bytes());
     let item_id = format!("organizational-item:{hash}");
     let revision_id = format!("organizational-revision:{hash}");
@@ -478,10 +646,12 @@ async fn insert_dispatch_failure_message(
     .map_err(persistence_error)?;
     sqlx::query(
         "INSERT INTO chat_communication_messages
-            (item_id, author_participant_id, created_at) VALUES (?, ?, ?)",
+            (item_id, author_participant_id, author_label_snapshot, created_at)
+         VALUES (?, ?, ?, ?)",
     )
     .bind(&item_id)
     .bind(&teammate_id)
+    .bind(&author_label_snapshot)
     .bind(now.as_str())
     .execute(&mut **transaction)
     .await
@@ -556,15 +726,62 @@ pub(super) async fn deliver_assignment_input(
     message_item_id: ChatConversationItemId,
 ) -> ChatResult<()> {
     let pool = chat_pool(app.clone(), db_url.clone()).await?;
+    let carries_new_authority: bool = sqlx::query_scalar(
+        "SELECT EXISTS(
+           SELECT 1
+           FROM chat_communication_messages message
+           JOIN chat_message_references reference
+             ON reference.message_revision_id = message.current_revision_id
+           WHERE message.item_id = ?
+             AND reference.reference_kind IN (
+               'channel', 'working_folder', 'workspace_path', 'execution_environment'
+             )
+         )",
+    )
+    .bind(message_item_id.as_str())
+    .fetch_one(&pool)
+    .await
+    .map_err(persistence_error)?;
+    if carries_new_authority {
+        return Err(ChatError::new(
+            ChatErrorCode::Conflict,
+            "Resource references require a linked assignment after current work settles",
+            true,
+        ));
+    }
     let row = sqlx::query(
-        "SELECT run.provider_thread_id, revision.normalized_markdown
+        "SELECT run.provider_thread_id, run.scratch_generation_id,
+                run.authorization_revision_id, revision.normalized_markdown
          FROM chat_agent_runs run
+         JOIN chat_assignment_authorization_revisions authorization
+           ON authorization.id = run.authorization_revision_id
+          AND authorization.assignment_id = run.assignment_id
+          AND authorization.scope_digest = run.authorization_scope_digest
+          AND authorization.decision_state = 'allowed'
+          AND authorization.revoked_at IS NULL
+         JOIN chat_work_assignments assignment ON assignment.id = run.assignment_id
+         JOIN chat_conversation_memberships membership
+           ON membership.conversation_id = authorization.destination_conversation_id
+          AND membership.participant_id = assignment.teammate_id
+          AND membership.removed_at IS NULL
+         JOIN chat_ai_channel_memberships channel_access
+           ON channel_access.conversation_id = membership.conversation_id
+          AND channel_access.teammate_id = membership.participant_id
+         JOIN chat_access_profiles profile ON profile.id = channel_access.access_profile_id
+         JOIN chat_access_profile_revisions profile_revision
+           ON profile_revision.access_profile_id = profile.id
+          AND profile_revision.revision = profile.latest_revision
          JOIN chat_work_assignment_inputs input ON input.assignment_id = run.assignment_id
          JOIN chat_communication_messages message ON message.item_id = input.message_item_id
          JOIN chat_communication_message_revisions revision
            ON revision.id = message.current_revision_id
          WHERE run.assignment_id = ? AND input.message_item_id = ?
            AND run.state = 'working' AND input.delivery_state = 'pending'
+           AND CASE
+                 WHEN channel_access.participate_inherits_profile = 1
+                   THEN profile_revision.default_participate
+                 ELSE channel_access.participate AND profile_revision.default_participate
+               END = 1
          ORDER BY run.run_ordinal DESC LIMIT 1",
     )
     .bind(assignment_id.as_str())
@@ -580,6 +797,20 @@ pub(super) async fn deliver_assignment_input(
             .map_err(persistence_error)?,
     )
     .map_err(identifier_error)?;
+    if let Some(scratch_generation_id) = row
+        .try_get::<Option<String>, _>("scratch_generation_id")
+        .map_err(persistence_error)?
+    {
+        let authorization_revision_id: String = row
+            .try_get("authorization_revision_id")
+            .map_err(persistence_error)?;
+        super::super::scratch::require_reusable_generation(
+            &pool,
+            &scratch_generation_id,
+            &authorization_revision_id,
+        )
+        .await?;
+    }
     super::super::turns::steer_turn(
         app,
         db_url,
@@ -615,11 +846,15 @@ pub(super) async fn deliver_assignment_input(
     Ok(())
 }
 
-fn approval_policy_to_safety(value: ChatApprovalPolicy) -> SafetyMode {
+fn runtime_approval_to_safety(value: &str) -> ChatResult<SafetyMode> {
     match value {
-        ChatApprovalPolicy::AskForApproval => SafetyMode::AskForApproval,
-        ChatApprovalPolicy::ApproveForMe => SafetyMode::ApproveForMe,
-        ChatApprovalPolicy::FullAccess => SafetyMode::FullAccess,
-        ChatApprovalPolicy::Custom => SafetyMode::Custom,
+        "ask" => Ok(SafetyMode::AskForApproval),
+        "auto_approve" | "unattended" => Ok(SafetyMode::ApproveForMe),
+        "provider_custom" => Ok(SafetyMode::Custom),
+        _ => Err(ChatError::new(
+            ChatErrorCode::Persistence,
+            "The assignment runtime approval policy is invalid",
+            false,
+        )),
     }
 }

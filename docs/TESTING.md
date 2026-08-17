@@ -199,6 +199,12 @@ Cover relevant cases such as:
 
 Avoid shallow existence assertions and tests that merely repeat the type system. Before adding a test, inspect nearby tests and match their depth, fixture style, and naming conventions.
 
+### Chat authorization matrix
+
+Organizational Chat tests exercise authorization as an intersection, not as isolated positive flags. Focused coverage includes inert teammate creation, explicit channel-scoped access save, templates without special authority, profile ceilings and membership narrowing, independent read-history and participation capabilities, history boundaries, folder tiers, optional default targets, scratch fallback, runtime precedence, provider-enforcement rejection, optimistic access conflicts, and immediate reduction effects.
+
+Cross-channel cases cover requester access, teammate source access, destination participation, destination-audience subset, retained references after audience changes, scheduling, assignment preflight, scoped history queries, result publication, and generic denial behavior. Runtime cases cover host-tool authentication and bounds, secondary-folder traversal and symlink rejection, existing worktree selection, continuation-scope digests, scratch quarantine, live-run interruption, and suppressed publication. Frontend cases cover English and Spanish catalog parity, grouped channel selection, two-step creation, impact review, keyboard focus restoration, and coarse-pointer targets. The normative matrix is in [Chat access control](data/access-control.md).
+
 Do not shrink realistic security, data-volume, or interoperability bounds only to shorten the suite. If a stress test is valuable but expensive, prefer bounded serialization, shared fixture design, or focused execution over deleting its coverage.
 
 ## Frontend test guidance
@@ -218,7 +224,7 @@ Do not globally disable Vitest isolation without a dedicated state-leak audit. S
 
 Use library tests for backend behavior unless the behavior belongs specifically to a binary target. Add `--lib` to focused Cargo commands so unrelated binary targets are not built.
 
-Persistence tests should use isolated temporary databases. Tests that depend on the current schema should apply the real migration chain or a proven equivalent fixture. Migration-specific tests must always exercise the actual migrations and SQLx checksums.
+Persistence tests should use isolated temporary databases. Tests that depend on the current schema should apply the real migration chain or a proven equivalent fixture. Migration-specific tests must always exercise the actual migrations and SQLx checksums. The `ganbaru-db` build script declares the complete migration directory as a Cargo input so downstream app and test binaries rebuild whenever a migration is added or edited. Preserve that invalidation boundary if the migration directory moves.
 
 Database fixture optimizations must preserve:
 

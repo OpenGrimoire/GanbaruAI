@@ -3,6 +3,7 @@ use super::common::{
     valid_teammate_effort, validate_message_request, validate_teammate_role,
 };
 use super::scheduling::{claim_scheduled_message_for_immediate_send, validate_scheduled_for};
+use super::workflow::{has_authority_bearing_references, require_continuation_scope_is_unchanged};
 use super::*;
 use serde_json::json;
 use sqlx::{Row, SqlitePool};
@@ -120,9 +121,31 @@ fn message(markdown: &str) -> PostChatMessageCommand {
             value: json!({ "type": "doc", "content": [] }),
         },
         attachment_ids: Vec::new(),
-        participant_mentions: Vec::new(),
-        resource_references: Vec::new(),
+        references: Vec::new(),
+        execution_target: None,
         also_send_to_channel: false,
+    }
+}
+
+fn participant_reference(
+    reference_id: &str,
+    participant_id: ChatParticipantId,
+    participant_kind: ChatParticipantKind,
+    label_snapshot: &str,
+    plain_text_projection: &str,
+    start_offset: u64,
+    end_offset: u64,
+) -> ChatMessageReference {
+    ChatMessageReference::Participant {
+        metadata: ChatReferenceMetadata {
+            reference_id: ChatMessageReferenceId::new(reference_id).unwrap(),
+            label_snapshot: label_snapshot.to_string(),
+            start_offset,
+            end_offset,
+            plain_text_projection: plain_text_projection.to_string(),
+        },
+        participant_id,
+        participant_kind,
     }
 }
 
@@ -152,7 +175,7 @@ async fn seed_review_assignment_with_stranded_replies(pool: &SqlitePool) {
          INSERT INTO chat_participants
              (id, participant_kind, display_name, created_at, updated_at)
          VALUES (
-             'participant:review-agent', 'ai_teammate', 'Ganbaru',
+             'participant:review-agent', 'ai_teammate', 'Review agent',
              '2026-08-04T17:00:00.000Z', '2026-08-04T17:00:00.000Z'
          );
          INSERT INTO chat_ai_teammates
@@ -170,18 +193,32 @@ async fn seed_review_assignment_with_stranded_replies(pool: &SqlitePool) {
              '2026-08-04T17:00:00.000Z'
          );
          INSERT INTO chat_conversation_memberships
-             (conversation_id, participant_id, approval_policy, created_at, updated_at)
+             (conversation_id, participant_id, membership_role, created_at, updated_at)
          VALUES (
-             'conversation:review', 'participant:review-agent', 'ask_for_approval',
+             'conversation:review', 'participant:review-agent', 'member',
+             '2026-08-04T17:00:00.000Z', '2026-08-04T17:00:00.000Z'
+         );
+         INSERT INTO chat_ai_channel_memberships
+             (conversation_id, teammate_id, access_profile_id,
+              read_history, read_history_inherits_profile,
+              participate, participate_inherits_profile,
+              history_boundary, history_boundary_inherits_profile,
+              created_at, updated_at)
+         VALUES (
+             'conversation:review', 'participant:review-agent',
+             'access-profile:build-and-test', 1, 1, 1, 1, 'entire', 1,
              '2026-08-04T17:00:00.000Z', '2026-08-04T17:00:00.000Z'
          );
          INSERT INTO chat_teammate_working_folder_grants
              (conversation_id, teammate_id, project_id, working_folder_id,
-              is_default, created_at)
+              capability, capability_inherits_profile, is_default, created_at)
          VALUES (
              'conversation:review', 'participant:review-agent', 'project:review',
-             'folder:review', 1, '2026-08-04T17:00:00.000Z'
+             'folder:review', 'execute', 1, 1, '2026-08-04T17:00:00.000Z'
          );
+         UPDATE chat_ai_teammate_access_state
+         SET access_revision = 1, updated_at = '2026-08-04T17:00:00.000Z'
+         WHERE teammate_id = 'participant:review-agent';
          INSERT INTO chat_conversation_items
              (id, conversation_id, item_kind, ordinal, created_at)
          VALUES (
@@ -189,9 +226,9 @@ async fn seed_review_assignment_with_stranded_replies(pool: &SqlitePool) {
              '2026-08-04T17:00:00.000Z'
          );
          INSERT INTO chat_communication_messages
-             (item_id, author_participant_id, created_at)
+             (item_id, author_participant_id, author_label_snapshot, created_at)
          VALUES (
-             'item:review-root', 'participant:local-owner',
+             'item:review-root', 'participant:local-owner', 'You',
              '2026-08-04T17:00:00.000Z'
          );
          INSERT INTO chat_communication_message_revisions
@@ -219,11 +256,11 @@ async fn seed_review_assignment_with_stranded_replies(pool: &SqlitePool) {
              ('item:review-reply-2', 'conversation:review', 'reply-thread:review',
               'message', 2, '2026-08-04T17:02:00.000Z');
          INSERT INTO chat_communication_messages
-             (item_id, author_participant_id, created_at)
+             (item_id, author_participant_id, author_label_snapshot, created_at)
          VALUES
-             ('item:review-reply-1', 'participant:local-owner',
+             ('item:review-reply-1', 'participant:local-owner', 'You',
               '2026-08-04T17:01:00.000Z'),
-             ('item:review-reply-2', 'participant:local-owner',
+             ('item:review-reply-2', 'participant:local-owner', 'You',
               '2026-08-04T17:02:00.000Z');
          INSERT INTO chat_communication_message_revisions
              (id, message_item_id, revision, normalized_markdown, created_at)
@@ -231,7 +268,7 @@ async fn seed_review_assignment_with_stranded_replies(pool: &SqlitePool) {
              ('revision:review-reply-1', 'item:review-reply-1', 1,
               'Ok, remove it now.', '2026-08-04T17:01:00.000Z'),
              ('revision:review-reply-2', 'item:review-reply-2', 1,
-              '@ganbaru Ok, remove it now.', '2026-08-04T17:02:00.000Z');
+              '@review-agent Ok, remove it now.', '2026-08-04T17:02:00.000Z');
          UPDATE chat_communication_messages
          SET current_revision_id = 'revision:review-reply-1'
          WHERE item_id = 'item:review-reply-1';
@@ -360,22 +397,6 @@ fn durable_history_blocks_permanent_teammate_deletion() {
                 .await
                 .unwrap();
         assert!(archived.has_durable_history);
-        let conversation_id = ChatConversationId::new("conversation:review").unwrap();
-        let membership = super::reads::read_membership(&pool, &conversation_id, &teammate_id)
-            .await
-            .unwrap();
-        assert!(!membership.addressable);
-        let stored_addressable: i64 = sqlx::query_scalar(
-            "SELECT addressable FROM chat_conversation_memberships
-             WHERE conversation_id = ? AND participant_id = ?",
-        )
-        .bind(conversation_id.as_str())
-        .bind(teammate_id.as_str())
-        .fetch_one(&pool)
-        .await
-        .unwrap();
-        assert_eq!(stored_addressable, 1);
-
         let error = super::teammate_lifecycle::delete_unused_teammate(
             &pool,
             &teammate_id,
@@ -582,13 +603,13 @@ fn restart_rehomes_review_replies_into_one_ordered_follow_up_assignment() {
 fn plain_at_text_is_valid_but_does_not_invoke_a_teammate() {
     tauri::async_runtime::block_on(async {
         let pool = migrated_pool().await;
-        let request = message("Please ask @ganbaru to review this.");
+        let request = message("Please ask @atlas to review this.");
         validate_message_request(&request).unwrap();
         let invocation = resolve_invoked_teammate(
             &pool,
             &ChatConversationId::new("conversation:test").unwrap(),
             None,
-            &request.participant_mentions,
+            &request.references,
         )
         .await
         .unwrap();
@@ -597,20 +618,57 @@ fn plain_at_text_is_valid_but_does_not_invoke_a_teammate() {
 }
 
 #[test]
-fn only_structured_participant_mentions_make_top_level_messages_thread_eligible() {
+fn only_structured_participant_references_make_top_level_messages_thread_eligible() {
     let mut request = message("Ordinary channel message");
     assert!(!has_thread_eligible_mention(&request));
 
-    request.normalized_markdown = "@Ganbaru Please review this.".to_string();
-    request.participant_mentions = vec![ChatParticipantMentionInput {
-        participant_id: ChatParticipantId::new("participant:ganbaru").unwrap(),
-        participant_kind: ChatParticipantKind::AiTeammate,
-        label_snapshot: "Ganbaru".to_string(),
-        start_offset: 0,
-        end_offset: 8,
-    }];
+    request.normalized_markdown = "@Atlas Please review this.".to_string();
+    request.references = vec![participant_reference(
+        "reference:atlas",
+        ChatParticipantId::new("participant:atlas").unwrap(),
+        ChatParticipantKind::AiTeammate,
+        "Atlas",
+        "@Atlas",
+        0,
+        6,
+    )];
 
     assert!(has_thread_eligible_mention(&request));
+}
+
+#[test]
+fn active_continuations_reject_new_authority_bearing_references() {
+    let participant = participant_reference(
+        "reference:atlas",
+        ChatParticipantId::new("participant:atlas").unwrap(),
+        ChatParticipantKind::AiTeammate,
+        "Atlas",
+        "@Atlas",
+        0,
+        6,
+    );
+    assert!(!has_authority_bearing_references(std::slice::from_ref(
+        &participant
+    )));
+    require_continuation_scope_is_unchanged(true, &[participant]).unwrap();
+
+    let channel = ChatMessageReference::Channel {
+        metadata: ChatReferenceMetadata {
+            reference_id: ChatMessageReferenceId::new("reference:source-channel").unwrap(),
+            label_snapshot: "source".to_string(),
+            start_offset: 0,
+            end_offset: 7,
+            plain_text_projection: "#source".to_string(),
+        },
+        channel_id: ChatChannelId::new("channel:source").unwrap(),
+    };
+    assert!(has_authority_bearing_references(std::slice::from_ref(
+        &channel
+    )));
+    let error =
+        require_continuation_scope_is_unchanged(true, std::slice::from_ref(&channel)).unwrap_err();
+    assert_eq!(error.code, ChatErrorCode::Conflict);
+    require_continuation_scope_is_unchanged(false, &[channel]).unwrap();
 }
 
 #[test]
@@ -648,15 +706,15 @@ fn empty_unmentioned_thread_cleanup_preserves_mentioned_threads() {
                  ('item:scheduled', 'conversation:cleanup', 'message', 4,
                   '2026-08-04T18:03:00.000Z');
              INSERT INTO chat_communication_messages
-                 (item_id, author_participant_id, created_at)
+                 (item_id, author_participant_id, author_label_snapshot, created_at)
              VALUES
-                 ('item:ordinary', 'participant:local-owner',
+                 ('item:ordinary', 'participant:local-owner', 'You',
                   '2026-08-04T18:00:00.000Z'),
-                 ('item:mentioned', 'participant:local-owner',
+                 ('item:mentioned', 'participant:local-owner', 'You',
                   '2026-08-04T18:01:00.000Z'),
-                 ('item:drafted', 'participant:local-owner',
+                 ('item:drafted', 'participant:local-owner', 'You',
                   '2026-08-04T18:02:00.000Z'),
-                 ('item:scheduled', 'participant:local-owner',
+                 ('item:scheduled', 'participant:local-owner', 'You',
                   '2026-08-04T18:03:00.000Z');
              INSERT INTO chat_communication_message_revisions
                  (id, message_item_id, revision, normalized_markdown, created_at)
@@ -671,13 +729,16 @@ fn empty_unmentioned_thread_cleanup_preserves_mentioned_threads() {
              UPDATE chat_communication_messages
              SET current_revision_id = 'revision:mentioned'
              WHERE item_id = 'item:mentioned';
-             INSERT INTO chat_participant_mentions
-                 (id, message_revision_id, participant_id, participant_kind,
-                  label_snapshot, start_offset, end_offset)
+             INSERT INTO chat_message_references
+                 (id, message_revision_id, reference_kind, label_snapshot,
+                  plain_text_projection, start_offset, end_offset, ordinal, created_at)
              VALUES (
-                 'mention:cleanup', 'revision:mentioned', 'participant:local-owner',
-                 'local_user', 'You', 0, 4
+                 'reference:cleanup', 'revision:mentioned', 'participant', 'You',
+                 '@You', 0, 4, 0, '2026-08-04T18:01:00.000Z'
              );
+             INSERT INTO chat_participant_reference_targets
+                 (reference_id, participant_id)
+             VALUES ('reference:cleanup', 'participant:local-owner');
              INSERT INTO chat_reply_threads
                  (id, conversation_id, root_item_id, last_activity_at,
                   created_at, updated_at)
@@ -724,10 +785,11 @@ fn empty_unmentioned_thread_cleanup_preserves_mentioned_threads() {
         .await
         .unwrap();
 
-        sqlx::raw_sql(REMOVE_EMPTY_UNMENTIONED_CHAT_THREADS)
-            .execute(&pool)
-            .await
-            .unwrap();
+        let cleanup_sql = REMOVE_EMPTY_UNMENTIONED_CHAT_THREADS.replace(
+            "chat_participant_mentions mention",
+            "chat_message_references mention",
+        );
+        sqlx::raw_sql(&cleanup_sql).execute(&pool).await.unwrap();
 
         let remaining = sqlx::query_scalar::<_, String>(
             "SELECT id FROM chat_reply_threads
@@ -789,11 +851,11 @@ fn channel_unread_count_excludes_local_messages() {
                  ('item:incoming-unread', 'conversation:unread', 'message', 2,
                   '2026-08-04T19:01:00.000Z');
              INSERT INTO chat_communication_messages
-                 (item_id, author_participant_id, created_at)
+                 (item_id, author_participant_id, author_label_snapshot, created_at)
              VALUES
-                 ('item:local-unread', 'participant:local-owner',
+                 ('item:local-unread', 'participant:local-owner', 'You',
                   '2026-08-04T19:00:00.000Z'),
-                 ('item:incoming-unread', 'participant:collaborator',
+                 ('item:incoming-unread', 'participant:collaborator', 'Collaborator',
                   '2026-08-04T19:01:00.000Z');",
         )
         .execute(&pool)
@@ -842,9 +904,9 @@ fn reply_thread_unread_excludes_local_messages_and_tracks_item_ordinals() {
                  '2026-08-04T19:00:00.000Z'
              );
              INSERT INTO chat_communication_messages
-                 (item_id, author_participant_id, created_at)
+                 (item_id, author_participant_id, author_label_snapshot, created_at)
              VALUES (
-                 'item:thread-root', 'participant:local-owner',
+                 'item:thread-root', 'participant:local-owner', 'You',
                  '2026-08-04T19:00:00.000Z'
              );
              INSERT INTO chat_communication_message_revisions
@@ -874,9 +936,9 @@ fn reply_thread_unread_excludes_local_messages_and_tracks_item_ordinals() {
                   'reply-thread:unread', 'message', 2,
                   '2026-08-04T19:02:00.000Z');
              INSERT INTO chat_communication_messages
-                 (item_id, author_participant_id, created_at)
+                 (item_id, author_participant_id, author_label_snapshot, created_at)
              VALUES (
-                 'item:thread-local', 'participant:local-owner',
+                 'item:thread-local', 'participant:local-owner', 'You',
                  '2026-08-04T19:02:00.000Z'
              );
              INSERT INTO chat_communication_message_revisions
@@ -908,9 +970,9 @@ fn reply_thread_unread_excludes_local_messages_and_tracks_item_ordinals() {
                  '2026-08-04T19:03:00.000Z'
              );
              INSERT INTO chat_communication_messages
-                 (item_id, author_participant_id, created_at)
+                 (item_id, author_participant_id, author_label_snapshot, created_at)
              VALUES (
-                 'item:thread-incoming', 'participant:thread-collaborator',
+                 'item:thread-incoming', 'participant:thread-collaborator', 'Collaborator',
                  '2026-08-04T19:03:00.000Z'
              );
              INSERT INTO chat_communication_message_revisions
@@ -962,9 +1024,9 @@ fn reply_thread_unread_excludes_local_messages_and_tracks_item_ordinals() {
                  '2026-08-04T19:04:00.000Z'
              );
              INSERT INTO chat_communication_messages
-                 (item_id, author_participant_id, created_at)
+                 (item_id, author_participant_id, author_label_snapshot, created_at)
              VALUES (
-                 'item:thread-local-after-read', 'participant:local-owner',
+                 'item:thread-local-after-read', 'participant:local-owner', 'You',
                  '2026-08-04T19:04:00.000Z'
              );
              UPDATE chat_reply_threads SET reply_count = 3
@@ -998,42 +1060,47 @@ fn two_structured_ai_mentions_are_rejected_before_dispatch() {
             .await
             .unwrap();
         }
-        let mentions = (1..=2)
-            .map(|index| ChatParticipantMentionInput {
-                participant_id: ChatParticipantId::new(format!("participant:agent-{index}"))
-                    .unwrap(),
-                participant_kind: ChatParticipantKind::AiTeammate,
-                label_snapshot: format!("Agent {index}"),
-                start_offset: u64::try_from((index - 1) * 9).unwrap(),
-                end_offset: u64::try_from(index * 9 - 1).unwrap(),
+        let references = (1..=2)
+            .map(|index| {
+                participant_reference(
+                    &format!("reference:agent-{index}"),
+                    ChatParticipantId::new(format!("participant:agent-{index}")).unwrap(),
+                    ChatParticipantKind::AiTeammate,
+                    &format!("Agent {index}"),
+                    &format!("@Agent {index}"),
+                    u64::try_from((index - 1) * 9).unwrap(),
+                    u64::try_from(index * 9).unwrap(),
+                )
             })
             .collect::<Vec<_>>();
         let error = resolve_invoked_teammate(
             &pool,
             &ChatConversationId::new("conversation:test").unwrap(),
             None,
-            &mentions,
+            &references,
         )
         .await
         .unwrap_err();
         assert_eq!(error.code, ChatErrorCode::Validation);
-        assert_eq!(error.field.as_deref(), Some("participantMentions"));
+        assert_eq!(error.field.as_deref(), Some("references"));
     });
 }
 
 #[test]
 fn message_validation_rejects_duplicate_atomic_mention_ranges() {
-    let mut request = message("@Ganbaru");
-    let mention = ChatParticipantMentionInput {
-        participant_id: ChatParticipantId::new("participant:ganbaru").unwrap(),
-        participant_kind: ChatParticipantKind::AiTeammate,
-        label_snapshot: "Ganbaru".to_string(),
-        start_offset: 0,
-        end_offset: 8,
-    };
-    request.participant_mentions = vec![mention.clone(), mention];
+    let mut request = message("@Atlas");
+    let reference = participant_reference(
+        "reference:duplicate",
+        ChatParticipantId::new("participant:atlas").unwrap(),
+        ChatParticipantKind::AiTeammate,
+        "Atlas",
+        "@Atlas",
+        0,
+        6,
+    );
+    request.references = vec![reference.clone(), reference];
     let error = validate_message_request(&request).unwrap_err();
-    assert_eq!(error.field.as_deref(), Some("participantMentions"));
+    assert_eq!(error.field.as_deref(), Some("references"));
 }
 
 #[test]

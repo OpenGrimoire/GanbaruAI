@@ -8,16 +8,35 @@ import type {
   ChatReplyThreadId,
   ChatWorkAssignmentId,
   ChatAiTeammateRead,
-  ChatTeammatePolicyRead,
+  ChatAccessProfileRead,
+  ChatAccessProfileImpactPreviewRead,
+  ChatTeammateAccessPreviewRead,
+  ChatTeammateAccessRead,
   ChatConversationMembershipRead,
+  ChatChannelRosterRead,
+  ChatChannelMembershipRemovalPreview,
+  PreviewChatChannelMembershipRemovalRequest,
+  ChatAssignmentTargetRead,
+  ListChatAssignmentTargetsRequest,
+  BrowseChatScratchGenerationRequest,
+  CleanupChatScratchRequest,
+  PreviewChatScratchCleanupRequest,
+  PromoteChatScratchFileRequest,
+  ChatScratchCleanupPreviewRead,
+  ChatScratchCleanupResultRead,
+  ChatScratchDirectoryPageRead,
+  ChatScratchPromotionResultRead,
+  ChatScratchScopeRead,
   ChatProjectPrimaryWorkingFolderRead,
   ChatChannelPageRead,
   ChatReplyThreadPageRead,
   ChatMessageSearchResultRead,
   CreateChatTeammateRequest,
-  UpdateChatTeammateProfileRequest,
-  PublishChatTeammatePolicyRequest,
-  UpsertChatTeammateMembershipRequest,
+  ReplaceChatTeammateAccessRequest,
+  CreateChatAccessProfileRequest,
+  DuplicateChatAccessProfileRequest,
+  PublishChatAccessProfileRevisionRequest,
+  ArchiveChatAccessProfileRequest,
   PostChatMessageRequest,
   PostChatMessageResult,
   ScheduleChatMessageRequest,
@@ -102,8 +121,20 @@ import {
   parseChatChannels,
   parseChatAiTeammate,
   parseChatAiTeammates,
-  parseChatTeammatePolicy,
+  parseChatAccessProfiles,
+  parseChatAccessProfile,
+  parseChatAccessProfileImpactPreview,
+  parseChatTeammateAccess,
+  parseChatTeammateAccessPreview,
   parseChatConversationMemberships,
+  parseChatChannelRoster,
+  parseChatChannelMembershipRemovalPreview,
+  parseChatAssignmentTargets,
+  parseChatScratchCleanupPreview,
+  parseChatScratchCleanupResult,
+  parseChatScratchDirectoryPage,
+  parseChatScratchPromotionResult,
+  parseChatScratchScopes,
   parseChatProjectPrimaryWorkingFolder,
   parseChatChannelPage,
   parseChatReplyThreadPage,
@@ -250,16 +281,79 @@ export async function readChatTeammate(teammateId: ChatParticipantId): Promise<C
   }));
 }
 
-export async function createChatTeammate(request: CreateChatTeammateRequest): Promise<ChatAiTeammateRead> {
-  return parseChatAiTeammate(await invoke<unknown>("chat_create_teammate", {
+export async function listChatAccessProfiles(archived = false): Promise<ChatAccessProfileRead[]> {
+  return parseChatAccessProfiles(await invoke<unknown>("chat_list_access_profiles", {
+    dbUrl: await ensureDbUrl(), archived,
+  }));
+}
+
+export async function createChatAccessProfile(
+  request: CreateChatAccessProfileRequest,
+): Promise<ChatAccessProfileRead> {
+  return parseChatAccessProfile(await invoke<unknown>("chat_create_access_profile", {
     dbUrl: await ensureDbUrl(), request,
   }));
 }
 
-export async function updateChatTeammateProfile(
-  request: UpdateChatTeammateProfileRequest,
-): Promise<ChatAiTeammateRead> {
-  return parseChatAiTeammate(await invoke<unknown>("chat_update_teammate_profile", {
+export async function duplicateChatAccessProfile(
+  request: DuplicateChatAccessProfileRequest,
+): Promise<ChatAccessProfileRead> {
+  return parseChatAccessProfile(await invoke<unknown>("chat_duplicate_access_profile", {
+    dbUrl: await ensureDbUrl(), request,
+  }));
+}
+
+export async function previewChatAccessProfileRevision(
+  request: PublishChatAccessProfileRevisionRequest,
+): Promise<ChatAccessProfileImpactPreviewRead> {
+  return parseChatAccessProfileImpactPreview(await invoke<unknown>(
+    "chat_preview_access_profile_revision",
+    { dbUrl: await ensureDbUrl(), request },
+  ));
+}
+
+export async function publishChatAccessProfileRevision(
+  request: PublishChatAccessProfileRevisionRequest,
+): Promise<ChatAccessProfileRead> {
+  return parseChatAccessProfile(await invoke<unknown>("chat_publish_access_profile_revision", {
+    dbUrl: await ensureDbUrl(), request,
+  }));
+}
+
+export async function archiveChatAccessProfile(
+  request: ArchiveChatAccessProfileRequest,
+): Promise<ChatAccessProfileRead> {
+  return parseChatAccessProfile(await invoke<unknown>("chat_archive_access_profile", {
+    dbUrl: await ensureDbUrl(), request,
+  }));
+}
+
+export async function readChatTeammateAccess(
+  teammateId: ChatParticipantId,
+): Promise<ChatTeammateAccessRead> {
+  return parseChatTeammateAccess(await invoke<unknown>("chat_read_teammate_access", {
+    dbUrl: await ensureDbUrl(), teammateId,
+  }));
+}
+
+export async function previewChatTeammateAccess(
+  request: ReplaceChatTeammateAccessRequest,
+): Promise<ChatTeammateAccessPreviewRead> {
+  return parseChatTeammateAccessPreview(await invoke<unknown>("chat_preview_teammate_access", {
+    dbUrl: await ensureDbUrl(), request,
+  }));
+}
+
+export async function replaceChatTeammateAccess(
+  request: ReplaceChatTeammateAccessRequest,
+): Promise<ChatTeammateAccessRead> {
+  return parseChatTeammateAccess(await invoke<unknown>("chat_replace_teammate_access", {
+    dbUrl: await ensureDbUrl(), request,
+  }));
+}
+
+export async function createChatTeammate(request: CreateChatTeammateRequest): Promise<ChatAiTeammateRead> {
+  return parseChatAiTeammate(await invoke<unknown>("chat_create_teammate", {
     dbUrl: await ensureDbUrl(), request,
   }));
 }
@@ -283,20 +377,76 @@ export async function deleteUnusedChatTeammate(
   });
 }
 
-export async function publishChatTeammatePolicy(
-  request: PublishChatTeammatePolicyRequest,
-): Promise<ChatTeammatePolicyRead> {
-  return parseChatTeammatePolicy(await invoke<unknown>("chat_publish_teammate_policy", {
-    dbUrl: await ensureDbUrl(), request,
-  }));
-}
-
 export async function listChatChannelMemberships(
   channelId: ChatChannelId,
 ): Promise<ChatConversationMembershipRead[]> {
   return parseChatConversationMemberships(await invoke<unknown>("chat_list_channel_memberships", {
     dbUrl: await ensureDbUrl(), channelId,
   }));
+}
+
+export async function readChatChannelRoster(channelId: ChatChannelId): Promise<ChatChannelRosterRead> {
+  return parseChatChannelRoster(await invoke<unknown>("chat_read_channel_roster", {
+    dbUrl: await ensureDbUrl(), channelId,
+  }));
+}
+
+export async function listChatAssignmentTargets(
+  request: ListChatAssignmentTargetsRequest,
+): Promise<ChatAssignmentTargetRead[]> {
+  return parseChatAssignmentTargets(await invoke<unknown>("chat_list_assignment_targets", {
+    dbUrl: await ensureDbUrl(), request,
+  }));
+}
+
+export async function listChatScratchScopes(
+  teammateId: ChatParticipantId | null = null,
+  replyThreadId: ChatReplyThreadId | null = null,
+): Promise<ChatScratchScopeRead[]> {
+  return parseChatScratchScopes(await invoke<unknown>("chat_list_scratch_scopes", {
+    dbUrl: await ensureDbUrl(), teammateId, replyThreadId,
+  }));
+}
+
+export async function browseChatScratchGeneration(
+  request: BrowseChatScratchGenerationRequest,
+): Promise<ChatScratchDirectoryPageRead> {
+  return parseChatScratchDirectoryPage(await invoke<unknown>("chat_browse_scratch_generation", {
+    dbUrl: await ensureDbUrl(), request,
+  }));
+}
+
+export async function promoteChatScratchFile(
+  request: PromoteChatScratchFileRequest,
+): Promise<ChatScratchPromotionResultRead> {
+  return parseChatScratchPromotionResult(await invoke<unknown>("chat_promote_scratch_file", {
+    dbUrl: await ensureDbUrl(), request,
+  }));
+}
+
+export async function previewChatScratchCleanup(
+  request: PreviewChatScratchCleanupRequest,
+): Promise<ChatScratchCleanupPreviewRead> {
+  return parseChatScratchCleanupPreview(await invoke<unknown>("chat_preview_scratch_cleanup", {
+    dbUrl: await ensureDbUrl(), request,
+  }));
+}
+
+export async function cleanupChatScratch(
+  request: CleanupChatScratchRequest,
+): Promise<ChatScratchCleanupResultRead> {
+  return parseChatScratchCleanupResult(await invoke<unknown>("chat_cleanup_scratch", {
+    dbUrl: await ensureDbUrl(), request,
+  }));
+}
+
+export async function previewChatChannelMembershipRemoval(
+  request: PreviewChatChannelMembershipRemovalRequest,
+): Promise<ChatChannelMembershipRemovalPreview> {
+  return parseChatChannelMembershipRemovalPreview(await invoke<unknown>(
+    "chat_preview_channel_membership_removal",
+    { dbUrl: await ensureDbUrl(), request },
+  ));
 }
 
 export async function readChatProjectPrimaryWorkingFolder(
@@ -317,28 +467,6 @@ export async function setChatProjectPrimaryWorkingFolder(
     "chat_set_project_primary_working_folder",
     { dbUrl: await ensureDbUrl(), projectId, workingFolderId, expectedRevision },
   ));
-}
-
-export async function upsertChatTeammateMembership(
-  request: UpsertChatTeammateMembershipRequest,
-): Promise<ChatConversationMembershipRead> {
-  const memberships = parseChatConversationMemberships([
-    await invoke<unknown>("chat_upsert_teammate_membership", {
-      dbUrl: await ensureDbUrl(), request,
-    }),
-  ]);
-  return memberships[0];
-}
-
-export async function removeChatTeammateMembership(
-  teammateId: ChatParticipantId,
-  channelId: ChatChannelId,
-  expectedRevision: number,
-  stopActiveWork: boolean,
-): Promise<void> {
-  await invoke("chat_remove_teammate_membership", {
-    dbUrl: await ensureDbUrl(), teammateId, channelId, expectedRevision, stopActiveWork,
-  });
 }
 
 export async function postChatMessage(request: PostChatMessageRequest): Promise<PostChatMessageResult> {

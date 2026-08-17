@@ -150,6 +150,85 @@ fn driver_fixture_covers_fresh_plan_interrupt_and_shutdown() {
 }
 
 #[test]
+fn organizational_fixture_verifies_permissions_and_mcp_before_dispatch() {
+    crate::test_block_on(async {
+        let workspace = TestDirectory::new("driver-organizational");
+        let (mut driver, fixture) =
+            fixture_driver(workspace.path(), FixtureScenario::Organizational);
+        let sink: Arc<dyn ProviderEventSink> = Arc::new(RecordingSink::default());
+        let snapshot = driver
+            .start_session(
+                start_request(workspace.path()),
+                sink,
+                &context("organizational-start"),
+            )
+            .await
+            .unwrap();
+
+        driver
+            .send_turn(
+                fixture_turn(&snapshot.session_id, "build"),
+                &context("organizational-send"),
+            )
+            .await
+            .unwrap();
+
+        let received = fixture.received();
+        let thread = received
+            .iter()
+            .find(|message| message["method"] == "thread/start")
+            .unwrap();
+        let turn = received
+            .iter()
+            .find(|message| message["method"] == "turn/start")
+            .unwrap();
+        for request in [thread, turn] {
+            assert_eq!(
+                request["params"]["permissions"],
+                ORGANIZATIONAL_PERMISSION_PROFILE
+            );
+            assert_eq!(
+                request["params"]["runtimeWorkspaceRoots"],
+                json!([workspace.path()])
+            );
+            assert!(request["params"].get("sandbox").is_none());
+            assert!(request["params"].get("sandboxPolicy").is_none());
+        }
+        let turn_position = received
+            .iter()
+            .position(|message| message["method"] == "turn/start")
+            .unwrap();
+        let mcp_status_positions = received
+            .iter()
+            .enumerate()
+            .filter_map(|(index, message)| {
+                (message["method"] == "mcpServerStatus/list").then_some(index)
+            })
+            .collect::<Vec<_>>();
+        assert!(mcp_status_positions.len() >= 2);
+        assert!(mcp_status_positions
+            .iter()
+            .any(|index| *index < turn_position));
+        let escalation_response = wait_for_fixture_message(&fixture, |message| {
+            message["id"] == "fixture-organizational-escalation" && message.get("result").is_some()
+        })
+        .await;
+        assert_eq!(escalation_response["result"]["decision"], "decline");
+
+        driver
+            .stop_session(
+                StopSessionRequest {
+                    session_id: snapshot.session_id,
+                    force: true,
+                },
+                &context("organizational-stop"),
+            )
+            .await
+            .unwrap();
+    });
+}
+
+#[test]
 fn driver_fixture_covers_native_resume_and_confirmed_missing_fallback() {
     crate::test_block_on(async {
         for (scenario, expected_thread, expects_fallback) in [

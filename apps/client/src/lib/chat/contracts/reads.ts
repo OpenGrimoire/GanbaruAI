@@ -1,5 +1,7 @@
 import type {
   ChatActivityId,
+  ChatExecutionEnvironmentId,
+  ChatScratchGenerationId,
   ChatThreadId,
   ChatThreadState,
   ChatTurnId,
@@ -59,7 +61,9 @@ export interface ProviderHistoryPage {
 
 export interface ChatThreadShellRead {
   id: ChatThreadId;
-  workingFolderId: ProjectWorkingFolderId;
+  workingFolderId: ProjectWorkingFolderId | null;
+  executionEnvironmentId: ChatExecutionEnvironmentId;
+  scratchGenerationId: ChatScratchGenerationId | null;
   projectId: string;
   title: string;
   providerFamilyId: ProviderFamilyId;

@@ -33,10 +33,15 @@ impl CodexProviderDriver {
             } else {
                 Vec::new()
             };
+            let authority_support = self
+                .probe_organizational_authority(&working_directory, context)
+                .await
+                .unwrap_or_default();
             Ok(ProbeSnapshot {
                 initialize,
                 account,
                 models,
+                authority_support,
             })
         }
         .await;
@@ -47,6 +52,99 @@ impl CodexProviderDriver {
             Ok(snapshot) => {
                 stop_result?;
                 Ok(snapshot)
+            }
+            Err(error) => Err(error),
+        }
+    }
+
+    async fn probe_organizational_authority(
+        &self,
+        working_directory: &Path,
+        context: &DriverOperationContext,
+    ) -> ChatResult<ProviderAuthoritySupport> {
+        let disabled_mcp_servers = self
+            .organizational_mcp_server_names(working_directory, context)
+            .await?;
+        let (mut connection, layout) =
+            self.spawn_connection(working_directory, true, &disabled_mcp_servers, false)?;
+        let client = connection.client();
+        let result = async {
+            let initialize = client
+                .request("initialize", initialize_params(), context)
+                .await
+                .map_err(|error| error.to_chat_error("organizational authority initialize"))?;
+            let initialize: InitializeResponse =
+                decode_response(initialize, "organizational authority initialize response")
+                    .map_err(|error| error.to_chat_error("organizational authority initialize"))?;
+            verify_reported_home(&layout, &initialize.codex_home)?;
+            client
+                .notify("initialized", json!({}))
+                .await
+                .map_err(|error| {
+                    error.to_chat_error("organizational authority initialized notification")
+                })?;
+            let config = client
+                .request(
+                    "config/read",
+                    json!({
+                        "cwd": working_directory.to_string_lossy(),
+                        "includeLayers": false,
+                    }),
+                    context,
+                )
+                .await
+                .map_err(|error| error.to_chat_error("organizational authority config"))?;
+            let config: ConfigReadResponse = decode_response(config, "config response")
+                .map_err(|error| error.to_chat_error("organizational authority config"))?;
+            verify_organizational_effective_config(config, None)?;
+            let profiles = client
+                .request(
+                    "permissionProfile/list",
+                    json!({
+                        "cwd": working_directory.to_string_lossy(),
+                        "cursor": null,
+                        "limit": 100,
+                    }),
+                    context,
+                )
+                .await
+                .map_err(|error| error.to_chat_error("organizational permission profiles"))?;
+            let profiles: PermissionProfileListResponse =
+                decode_response(profiles, "permission profile list response")
+                    .map_err(|error| error.to_chat_error("organizational permission profiles"))?;
+            verify_permission_profile_list(&profiles)?;
+            let modes = TurnModeSnapshot {
+                safety_mode: SafetyMode::AskForApproval,
+                interaction_mode: InteractionMode::Build,
+            };
+            let mut params = thread_open_params(None, working_directory, modes, None, None, true)?;
+            params
+                .as_object_mut()
+                .ok_or_else(|| {
+                    ChatError::new(
+                        ChatErrorCode::Protocol,
+                        "Codex organizational thread request is invalid",
+                        false,
+                    )
+                })?
+                .insert("ephemeral".to_string(), Value::Bool(true));
+            let response = client
+                .request("thread/start", params, context)
+                .await
+                .map_err(|error| error.to_chat_error("organizational authority thread"))?;
+            let response: ThreadOpenResponse = decode_response(response, "thread open response")
+                .map_err(|error| error.to_chat_error("organizational authority thread"))?;
+            verify_organizational_thread_open(modes.safety_mode, working_directory, &response)?;
+            Ok(organizational_authority_support())
+        }
+        .await;
+        let stop_result = connection
+            .stop(SESSION_GRACEFUL_STOP, SESSION_FORCE_STOP)
+            .await;
+        match result {
+            Ok(support) => {
+                stop_result?;
+                Ok(support)
             }
             Err(error) => Err(error),
         }

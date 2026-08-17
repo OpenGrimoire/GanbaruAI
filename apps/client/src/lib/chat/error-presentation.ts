@@ -1,3 +1,5 @@
+import { CHAT_ERROR_CODES, type ChatErrorCode } from "./contracts";
+
 const FALLBACK_CHAT_ERROR = "Chat operation failed";
 
 /** Extracts a useful bounded message from browser, Tauri, and provider failures. */
@@ -21,6 +23,16 @@ export function chatErrorField(error: unknown): string | null {
   return stringValue(objectRecord(record.error)?.field);
 }
 
+/** Extracts a recognized Chat error code from direct and nested failures. */
+export function chatErrorCode(error: unknown): ChatErrorCode | null {
+  const record = objectRecord(error);
+  if (!record) return null;
+  const code = stringValue(record.code)
+    ?? stringValue(objectRecord(record.error)?.code)
+    ?? stringValue(objectRecord(record.cause)?.code);
+  return code && isChatErrorCode(code) ? code : null;
+}
+
 function objectRecord(value: unknown): Record<string, unknown> | null {
   return typeof value === "object" && value !== null && !Array.isArray(value)
     ? value as Record<string, unknown>
@@ -29,4 +41,8 @@ function objectRecord(value: unknown): Record<string, unknown> | null {
 
 function stringValue(value: unknown): string | null {
   return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+function isChatErrorCode(value: string): value is ChatErrorCode {
+  return (CHAT_ERROR_CODES as readonly string[]).includes(value);
 }

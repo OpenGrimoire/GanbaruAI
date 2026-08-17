@@ -47,6 +47,13 @@ pub struct PendingCodexRequest {
     pub kind: PendingCodexRequestKind,
 }
 
+#[derive(Clone, Debug)]
+struct CodexRequestProvenance {
+    chat_turn_id: Option<ChatTurnId>,
+    provider_turn_id: Option<ProviderTurnId>,
+    provider_item_id: Option<ProviderItemId>,
+}
+
 pub type PendingCodexRequests = Arc<Mutex<HashMap<ProviderRequestId, PendingCodexRequest>>>;
 
 pub struct CodexRouterResources {
@@ -59,6 +66,7 @@ pub struct CodexRouterResources {
     pub provider_thread_sender: watch::Sender<Option<String>>,
     pub expected_shutdown: Arc<AtomicBool>,
     pub terminal_error: Arc<Mutex<Option<ChatError>>>,
+    pub organizational: bool,
 }
 
 pub fn spawn_codex_router(resources: CodexRouterResources) -> JoinHandle<()> {
@@ -140,11 +148,26 @@ async fn route_server_request(
         .lock()
         .map_err(|_| router_state_error())?
         .clone();
-    let provider_turn_id =
-        text(object, "turnId").and_then(|value| ProviderTurnId::new(value.to_string()).ok());
-    let provider_item_id =
-        text(object, "itemId").and_then(|value| ProviderItemId::new(value.to_string()).ok());
-    let chat_turn_id = route.active_chat_turn_id.clone();
+    let provenance = CodexRequestProvenance {
+        chat_turn_id: route.active_chat_turn_id.clone(),
+        provider_turn_id: text(object, "turnId")
+            .and_then(|value| ProviderTurnId::new(value.to_string()).ok()),
+        provider_item_id: text(object, "itemId")
+            .and_then(|value| ProviderItemId::new(value.to_string()).ok()),
+    };
+    if resources.organizational
+        && deny_organizational_authority_escalation(
+            resources,
+            rpc_id.clone(),
+            method,
+            object,
+            &route,
+            &provenance,
+        )
+        .await?
+    {
+        return Ok(());
+    }
     let (pending_kind, event) = match method {
         "item/commandExecution/requestApproval" => {
             let title = text(object, "command")
@@ -199,9 +222,9 @@ async fn route_server_request(
             let unknown = resources.normalizer.request_event(
                 &route,
                 provider_request_id,
-                provider_turn_id,
-                provider_item_id,
-                chat_turn_id,
+                provenance.provider_turn_id,
+                provenance.provider_item_id,
+                provenance.chat_turn_id,
                 CanonicalEvent::Unknown(UnknownEvent {
                     source_type: method.to_string(),
                     summary: "Codex requested an unsupported client operation".to_string(),
@@ -217,9 +240,9 @@ async fn route_server_request(
     let pending = PendingCodexRequest {
         rpc_id,
         provider_request_id: provider_request_id.clone(),
-        chat_turn_id: chat_turn_id.clone(),
-        provider_turn_id: provider_turn_id.clone(),
-        provider_item_id: provider_item_id.clone(),
+        chat_turn_id: provenance.chat_turn_id.clone(),
+        provider_turn_id: provenance.provider_turn_id.clone(),
+        provider_item_id: provenance.provider_item_id.clone(),
         kind: pending_kind,
     };
     {
@@ -235,9 +258,9 @@ async fn route_server_request(
     let canonical = resources.normalizer.request_event(
         &route,
         provider_request_id.clone(),
-        provider_turn_id,
-        provider_item_id,
-        chat_turn_id,
+        provenance.provider_turn_id,
+        provenance.provider_item_id,
+        provenance.chat_turn_id,
         event,
     )?;
     if let Err(error) = resources.sink.emit(canonical).await {
@@ -253,6 +276,73 @@ async fn route_server_request(
         };
     }
     Ok(())
+}
+
+async fn deny_organizational_authority_escalation(
+    resources: &CodexRouterResources,
+    rpc_id: Value,
+    method: &str,
+    object: &Map<String, Value>,
+    route: &CodexRouteState,
+    provenance: &CodexRequestProvenance,
+) -> ChatResult<bool> {
+    let response = match method {
+        "item/permissions/requestApproval" => Some(json!({
+            "permissions": {},
+            "scope": "turn",
+        })),
+        "item/fileChange/requestApproval"
+            if object
+                .get("grantRoot")
+                .is_some_and(|value| !value.is_null()) =>
+        {
+            Some(json!({ "decision": "decline" }))
+        }
+        "item/commandExecution/requestApproval"
+            if object
+                .get("additionalPermissions")
+                .is_some_and(|value| !value.is_null())
+                || object
+                    .get("networkApprovalContext")
+                    .is_some_and(|value| !value.is_null())
+                || object
+                    .get("proposedExecpolicyAmendment")
+                    .is_some_and(|value| !value.is_null())
+                || object
+                    .get("proposedNetworkPolicyAmendments")
+                    .is_some_and(|value| !value.is_null()) =>
+        {
+            Some(json!({ "decision": "decline" }))
+        }
+        _ => None,
+    };
+    let Some(response) = response else {
+        return Ok(false);
+    };
+    resources
+        .client
+        .respond(rpc_id, response)
+        .await
+        .map_err(|error| error.to_chat_error("organizational authority denial"))?;
+    resources
+        .sink
+        .emit(resources.normalizer.event(
+            route,
+            "organizational/authority-denied",
+            provenance.chat_turn_id.clone(),
+            provenance.provider_turn_id.clone(),
+            provenance.provider_item_id.clone(),
+            CanonicalEvent::RuntimeWarning(NotificationEvent {
+                code: "codex_organizational_authority_escalation_denied".to_string(),
+                title: "Codex authority expansion was denied".to_string(),
+                detail: Some(
+                    "The organizational assignment keeps its original channel, folder, network, and runtime boundaries."
+                        .to_string(),
+                ),
+            }),
+        )?)
+        .await?;
+    Ok(true)
 }
 
 fn approval_request(

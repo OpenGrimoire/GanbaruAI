@@ -32,9 +32,9 @@ const localParticipant: ChatParticipantRead = {
 };
 
 const agentParticipant: ChatParticipantRead = {
-  id: "participant:ganbaru",
+  id: "participant:atlas",
   kind: "ai_teammate",
-  displayName: "Ganbaru",
+  displayName: "Atlas",
   avatar: { schemaVersion: 1, value: {} },
   revision: 1,
   archivedAt: null,
@@ -54,6 +54,7 @@ function message(
     revisionId: `revision:${itemId}`,
     revision: 1,
     author,
+    authorLabelSnapshot: author.displayName,
     normalizedMarkdown: markdown,
     richContent: {
       schemaVersion: 1,
@@ -61,9 +62,8 @@ function message(
         ? { type: "agent_update", agentRunId, updateKind: "result" }
         : { type: "message", content: [{ type: "text", text: markdown }] },
     },
-    mentions: [],
     attachmentIds: [],
-    resourceReferences: [],
+    references: [],
     replyThread: null,
     ordinal,
     editedAt: null,
@@ -76,6 +76,8 @@ const run: ChatAgentRunRead = {
   assignmentId: "assignment:test",
   projectId: "project:test",
   workingFolderId: "folder:test",
+  executionEnvironmentId: "environment:test",
+  scratchGenerationId: null,
   teammatePolicyRevisionId: "policy:test",
   effort: "medium",
   providerExecutionTurnId: "turn:test",
@@ -86,10 +88,15 @@ const run: ChatAgentRunRead = {
   updatedAt: "2026-08-04T17:01:00.000Z",
 };
 
-function threadShell(id: string): ChatThreadShellRead {
+function threadShell(
+  id: string,
+  overrides: Partial<ChatThreadShellRead> = {},
+): ChatThreadShellRead {
   return {
     id,
     workingFolderId: "folder:test",
+    executionEnvironmentId: "environment:test",
+    scratchGenerationId: null,
     projectId: "project:test",
     title: "Execution",
     providerFamilyId: "codex",
@@ -107,6 +114,7 @@ function threadShell(id: string): ChatThreadShellRead {
     lastActivityAt: "2026-08-04T17:01:00.000Z",
     unreadAt: null,
     archivedAt: null,
+    ...overrides,
   };
 }
 
@@ -311,7 +319,51 @@ describe("ChatReplyThreadPanel", () => {
     expect(target.querySelectorAll(".chat-execution-timeline")).toHaveLength(2);
     const identityTriggers = [...target.querySelectorAll(".chat-execution-timeline .name-trigger")];
     expect(identityTriggers).toHaveLength(2);
-    expect(identityTriggers.map((trigger) => trigger.textContent)).toEqual(["Ganbaru", "Ganbaru"]);
+    expect(identityTriggers.map((trigger) => trigger.textContent)).toEqual(["Atlas", "Atlas"]);
     expect(target.querySelector(".agent-badge")).toBeNull();
+  });
+
+  it("exposes private scratch only when the reply thread has a scratch run", async () => {
+    const scratchThreadId = "provider-thread:scratch";
+    const scratchRun = {
+      ...run,
+      workingFolderId: null,
+      scratchGenerationId: "scratch-generation:test",
+      providerExecutionThreadId: scratchThreadId,
+      state: "working" as const,
+    };
+    const scratchPage = { ...page, agentRuns: [scratchRun] };
+    chat.openReplyThreadId = scratchPage.thread.id;
+    chat.replyThread = scratchPage;
+    chat.replyThreadPages = [scratchPage];
+    chat.selectedExecutionRunId = null;
+    chat.selectedThreadId = null;
+    vi.spyOn(chat, "selectAssignmentExecution").mockResolvedValue();
+    vi.spyOn(chatApi, "readChatTimelineTurn").mockResolvedValue(
+      exactTimelinePage(
+        scratchThreadId,
+        scratchRun.providerExecutionTurnId,
+        "Scratch result",
+      ),
+    );
+    vi.spyOn(chatApi, "readChatThreadShell").mockResolvedValue(
+      threadShell(scratchThreadId, {
+        workingFolderId: null,
+        executionEnvironmentId: scratchRun.executionEnvironmentId,
+        scratchGenerationId: scratchRun.scratchGenerationId,
+      }),
+    );
+    vi.spyOn(chat, "listScheduledOrganizationalMessages").mockResolvedValue([]);
+    target = document.createElement("div");
+    document.body.append(target);
+    component = mount(ChatReplyThreadPanel, {
+      target,
+      props: { onClose: vi.fn() },
+    });
+
+    await vi.waitFor(() => {
+      expect(target?.querySelector('button[aria-label="Inspect private scratch"]')).not.toBeNull();
+      expect(target?.textContent).toContain("Scratch result");
+    });
   });
 });

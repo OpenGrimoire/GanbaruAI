@@ -21,17 +21,22 @@ const message: ChatMessageRead = {
   revisionId: "revision:mention",
   revision: 1,
   author: localParticipant,
-  normalizedMarkdown: "Ask @Ganbaru now",
+  authorLabelSnapshot: "You",
+  normalizedMarkdown: "Ask @Atlas now",
   richContent: { schemaVersion: 1, value: {} },
-  mentions: [{
-    participantId: "participant:ganbaru",
-    participantKind: "ai_teammate",
-    labelSnapshot: "Ganbaru",
-    startOffset: 4,
-    endOffset: 12,
-  }],
   attachmentIds: [],
-  resourceReferences: [],
+  references: [{
+    kind: "participant",
+    metadata: {
+      referenceId: "reference:atlas",
+      labelSnapshot: "Atlas",
+      startOffset: 4,
+      endOffset: 10,
+      plainTextProjection: "@Atlas",
+    },
+    participantId: "participant:atlas",
+    participantKind: "ai_teammate",
+  }],
   replyThread: null,
   ordinal: 1,
   editedAt: null,
@@ -56,11 +61,11 @@ describe("ChatOrganizationalMessage", () => {
 
     const copy = target.querySelector<HTMLElement>(".message-copy");
     const mention = copy?.querySelector<HTMLButtonElement>(".mention-trigger");
-    expect(mention?.textContent).toBe("@Ganbaru");
-    expect(copy?.textContent).toBe("Ask @Ganbaru now");
+    expect(mention?.textContent).toBe("@Atlas");
+    expect(copy?.textContent).toBe("Ask @Atlas now");
 
     mention?.click();
     await tick();
-    expect(document.body.querySelector(".identity-card")?.textContent).toContain("Ganbaru");
+    expect(document.body.querySelector(".identity-card")?.textContent).toContain("Atlas");
   });
 });

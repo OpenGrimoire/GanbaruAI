@@ -54,6 +54,8 @@ function thread(
   return {
     id,
     workingFolderId,
+    executionEnvironmentId: `current-folder:${workingFolderId}`,
+    scratchGenerationId: null,
     projectId: "project-1",
     title: id,
     providerFamilyId: "codex",

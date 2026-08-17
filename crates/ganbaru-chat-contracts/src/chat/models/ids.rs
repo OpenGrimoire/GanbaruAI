@@ -97,6 +97,21 @@ chat_identifier!(ChatAttachmentId, "Chat attachment ID");
 chat_identifier!(ChatEventId, "Chat event ID");
 chat_identifier!(ChatCommandId, "Chat command ID");
 chat_identifier!(ChatScheduledMessageId, "Chat scheduled message ID");
+chat_identifier!(ChatAccessProfileId, "Chat access profile ID");
+chat_identifier!(
+    ChatAccessProfileRevisionId,
+    "Chat access profile revision ID"
+);
+chat_identifier!(ChatMessageReferenceId, "Chat message reference ID");
+chat_identifier!(
+    ChatAuthorizationRevisionId,
+    "Chat authorization revision ID"
+);
+chat_identifier!(ChatScratchScopeId, "Chat scratch scope ID");
+chat_identifier!(ChatScratchGenerationId, "Chat scratch generation ID");
+chat_identifier!(ChatScratchPromotionId, "Chat scratch promotion ID");
+chat_identifier!(ChatScratchCleanupJobId, "Chat scratch cleanup job ID");
+chat_identifier!(ChatExecutionEnvironmentId, "Chat execution environment ID");
 chat_identifier!(ChatCheckpointId, "Chat checkpoint ID");
 chat_identifier!(CredentialReferenceId, "credential reference ID");
 chat_identifier!(ProviderFamilyId, "provider family ID");

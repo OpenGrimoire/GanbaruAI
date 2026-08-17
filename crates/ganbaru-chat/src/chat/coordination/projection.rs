@@ -323,9 +323,11 @@ async fn insert_projected_teammate_message(
     .map_err(persistence_error)?;
     sqlx::query(
         "INSERT INTO chat_communication_messages
-            (item_id, author_participant_id, created_at) VALUES (?, ?, ?)",
+            (item_id, author_participant_id, author_label_snapshot, created_at)
+         VALUES (?, ?, (SELECT display_name FROM chat_participants WHERE id = ?), ?)",
     )
     .bind(&item_id)
+    .bind(target.teammate_id.as_str())
     .bind(target.teammate_id.as_str())
     .bind(runtime.created_at.as_str())
     .execute(&mut **transaction)

@@ -4,8 +4,8 @@ use super::super::coordination::contracts::*;
 use super::super::models::*;
 use super::common::{
     conversation_item_id, has_thread_eligible_mention, json_object, message_revision_id, new_id,
-    parse_participant_kind, reply_thread_id, serialization_error, wire_approval_policy,
-    wire_participant_kind, wire_work_state, work_assignment_id,
+    parse_participant_kind, reply_thread_id, serialization_error, wire_participant_kind,
+    wire_work_state, work_assignment_id,
 };
 use super::context::freeze_context_package;
 use super::reads::{
@@ -17,7 +17,6 @@ use super::{
 };
 use serde::{Deserialize, Serialize};
 use sqlx::{Row, Sqlite, SqlitePool, Transaction};
-use std::collections::BTreeSet;
 
 #[derive(Clone, Debug)]
 pub(super) struct ResolvedInvocation {
@@ -31,30 +30,64 @@ pub(super) struct AssignmentWrite {
     pub(super) input_queued: bool,
 }
 
+pub(super) fn has_authority_bearing_references(references: &[ChatMessageReference]) -> bool {
+    references.iter().any(|reference| {
+        matches!(
+            reference,
+            ChatMessageReference::Channel { .. }
+                | ChatMessageReference::WorkingFolder { .. }
+                | ChatMessageReference::WorkspacePath { .. }
+                | ChatMessageReference::ExecutionEnvironment { .. }
+        )
+    })
+}
+
+pub(super) fn require_continuation_scope_is_unchanged(
+    has_active_assignment: bool,
+    references: &[ChatMessageReference],
+) -> ChatResult<()> {
+    if has_active_assignment && has_authority_bearing_references(references) {
+        return Err(ChatError::new(
+            ChatErrorCode::Conflict,
+            "Resource references require a new linked assignment after current work settles",
+            true,
+        ));
+    }
+    Ok(())
+}
+
 pub(super) async fn resolve_invoked_teammate(
     pool: &SqlitePool,
     conversation_id: &ChatConversationId,
     reply_thread_id: Option<&ChatReplyThreadId>,
-    mentions: &[ChatParticipantMentionInput],
+    references: &[ChatMessageReference],
 ) -> ChatResult<Option<ResolvedInvocation>> {
     let mut ai_mentions = Vec::new();
-    for mention in mentions {
-        let participant = read_participant(pool, &mention.participant_id).await?;
-        if participant.kind != mention.participant_kind {
+    for reference in references {
+        let ChatMessageReference::Participant {
+            participant_id,
+            participant_kind,
+            ..
+        } = reference
+        else {
+            continue;
+        };
+        let participant = read_participant(pool, participant_id).await?;
+        if participant.kind != *participant_kind {
             return Err(ChatError::validation(
-                "participantMentions",
-                "A participant mention has stale identity data",
+                "references",
+                "A participant reference has stale identity data",
             ));
         }
         if participant.kind == ChatParticipantKind::AiTeammate {
-            ai_mentions.push(mention.participant_id.clone());
+            ai_mentions.push(participant_id.clone());
         }
     }
     ai_mentions.sort();
     ai_mentions.dedup();
     if ai_mentions.len() > 1 {
         return Err(ChatError::validation(
-            "participantMentions",
+            "references",
             "Assign one AI teammate at a time",
         ));
     }
@@ -79,11 +112,11 @@ pub(super) async fn resolve_invoked_teammate(
         .is_some_and(|assignment| assignment.teammate.id != teammate_id)
     {
         return Err(ChatError::validation(
-            "participantMentions",
+            "references",
             "This reply thread already has an active AI teammate",
         ));
     }
-    require_addressable_teammate(pool, conversation_id, &teammate_id).await?;
+    require_participating_teammate(pool, conversation_id, &teammate_id).await?;
     Ok(Some(ResolvedInvocation {
         teammate_id,
         active_assignment,
@@ -96,6 +129,7 @@ pub(super) async fn persist_assignment_routing(
     reply_thread_id: &ChatReplyThreadId,
     message_item_id: &ChatConversationItemId,
     invocation: Option<&ResolvedInvocation>,
+    execution_target: Option<&ChatExecutionTarget>,
     now: &UtcTimestamp,
 ) -> ChatResult<AssignmentWrite> {
     let Some(invocation) = invocation else {
@@ -205,6 +239,7 @@ pub(super) async fn persist_assignment_routing(
         reply_thread_id,
         message_item_id,
         &invocation.teammate_id,
+        execution_target,
         now,
     )
     .await?;
@@ -234,6 +269,7 @@ pub(super) struct CommunicationMessageWrite<'a> {
     pub(super) reply_thread_id: Option<&'a ChatReplyThreadId>,
     pub(super) ordinal: i64,
     pub(super) request: &'a PostChatMessageCommand,
+    pub(super) invoked_teammate_id: Option<&'a ChatParticipantId>,
     pub(super) now: &'a UtcTimestamp,
 }
 
@@ -256,11 +292,13 @@ pub(super) async fn insert_communication_message(
     .map_err(persistence_error)?;
     sqlx::query(
         "INSERT INTO chat_communication_messages
-            (item_id, author_participant_id, created_at) VALUES (?, ?, ?)",
+            (item_id, author_participant_id, author_label_snapshot, created_at)
+         SELECT ?, participant.id, participant.display_name, ?
+         FROM chat_participants participant WHERE participant.id = ?",
     )
     .bind(write.item_id.as_str())
-    .bind(LOCAL_PARTICIPANT_ID)
     .bind(write.now.as_str())
+    .bind(LOCAL_PARTICIPANT_ID)
     .execute(&mut **transaction)
     .await
     .map_err(persistence_error)?;
@@ -279,23 +317,17 @@ pub(super) async fn insert_communication_message(
     .execute(&mut **transaction)
     .await
     .map_err(persistence_error)?;
-    for (index, mention) in write.request.participant_mentions.iter().enumerate() {
-        sqlx::query(
-            "INSERT INTO chat_participant_mentions
-                (id, message_revision_id, participant_id, participant_kind,
-                 label_snapshot, start_offset, end_offset)
-             VALUES (?, ?, ?, ?, ?, ?, ?)",
+    for (index, reference) in write.request.references.iter().enumerate() {
+        insert_message_reference(
+            transaction,
+            write.revision_id,
+            write.conversation_id,
+            reference,
+            write.invoked_teammate_id,
+            index,
+            write.now,
         )
-        .bind(format!("mention:{}:{index}", write.revision_id.as_str()))
-        .bind(write.revision_id.as_str())
-        .bind(mention.participant_id.as_str())
-        .bind(wire_participant_kind(mention.participant_kind))
-        .bind(&mention.label_snapshot)
-        .bind(i64_value(mention.start_offset)?)
-        .bind(i64_value(mention.end_offset)?)
-        .execute(&mut **transaction)
-        .await
-        .map_err(persistence_error)?;
+        .await?;
     }
     for (index, attachment_id) in write.request.attachment_ids.iter().enumerate() {
         sqlx::query(
@@ -311,27 +343,6 @@ pub(super) async fn insert_communication_message(
         .await
         .map_err(persistence_error)?;
     }
-    for (index, resource) in write.request.resource_references.iter().enumerate() {
-        sqlx::query(
-            "INSERT INTO chat_communication_resource_references
-                (id, message_revision_id, working_folder_id, reference_kind,
-                 relative_path, display_label, ordinal)
-             VALUES (?, ?, ?, ?, ?, ?, ?)",
-        )
-        .bind(format!(
-            "resource-reference:{}:{index}",
-            write.revision_id.as_str()
-        ))
-        .bind(write.revision_id.as_str())
-        .bind(resource.working_folder_id.as_str())
-        .bind(&resource.kind)
-        .bind(&resource.relative_path)
-        .bind(&resource.display_label)
-        .bind(i64::try_from(index).unwrap_or(i64::MAX))
-        .execute(&mut **transaction)
-        .await
-        .map_err(persistence_error)?;
-    }
     sqlx::query("UPDATE chat_communication_messages SET current_revision_id = ? WHERE item_id = ?")
         .bind(write.revision_id.as_str())
         .bind(write.item_id.as_str())
@@ -341,15 +352,477 @@ pub(super) async fn insert_communication_message(
     Ok(())
 }
 
+async fn insert_message_reference(
+    transaction: &mut Transaction<'_, Sqlite>,
+    revision_id: &ChatMessageRevisionId,
+    destination_conversation_id: &ChatConversationId,
+    reference: &ChatMessageReference,
+    invoked_teammate_id: Option<&ChatParticipantId>,
+    ordinal: usize,
+    now: &UtcTimestamp,
+) -> ChatResult<()> {
+    let metadata = reference.metadata();
+    let reference_kind = match reference {
+        ChatMessageReference::Participant { .. } => "participant",
+        ChatMessageReference::Channel { .. } => "channel",
+        ChatMessageReference::WorkingFolder { .. } => "working_folder",
+        ChatMessageReference::WorkspacePath { .. } => "workspace_path",
+        ChatMessageReference::ExecutionEnvironment { .. } => "execution_environment",
+    };
+    sqlx::query(
+        "INSERT INTO chat_message_references
+            (id, message_revision_id, reference_kind, label_snapshot,
+             plain_text_projection, start_offset, end_offset, ordinal, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+    )
+    .bind(metadata.reference_id.as_str())
+    .bind(revision_id.as_str())
+    .bind(reference_kind)
+    .bind(&metadata.label_snapshot)
+    .bind(&metadata.plain_text_projection)
+    .bind(i64_value(metadata.start_offset)?)
+    .bind(i64_value(metadata.end_offset)?)
+    .bind(i64::try_from(ordinal).unwrap_or(i64::MAX))
+    .bind(now.as_str())
+    .execute(&mut **transaction)
+    .await
+    .map_err(persistence_error)?;
+
+    match reference {
+        ChatMessageReference::Participant {
+            participant_id,
+            participant_kind,
+            ..
+        } => {
+            let stored_kind = sqlx::query_scalar::<_, String>(
+                "SELECT participant_kind FROM chat_participants WHERE id = ?",
+            )
+            .bind(participant_id.as_str())
+            .fetch_optional(&mut **transaction)
+            .await
+            .map_err(persistence_error)?
+            .ok_or_else(|| {
+                ChatError::validation("references", "Referenced participant was not found")
+            })?;
+            if stored_kind != wire_participant_kind(*participant_kind) {
+                return Err(ChatError::validation(
+                    "references",
+                    "Referenced participant identity is stale",
+                ));
+            }
+            sqlx::query(
+                "INSERT INTO chat_participant_reference_targets (reference_id, participant_id)
+                 VALUES (?, ?)",
+            )
+            .bind(metadata.reference_id.as_str())
+            .bind(participant_id.as_str())
+            .execute(&mut **transaction)
+            .await
+            .map_err(persistence_error)?;
+        }
+        ChatMessageReference::Channel { channel_id, .. } => {
+            let source = sqlx::query(
+                "SELECT channel.conversation_id, channel.archived_at
+                 FROM chat_channels channel WHERE channel.id = ?",
+            )
+            .bind(channel_id.as_str())
+            .fetch_optional(&mut **transaction)
+            .await
+            .map_err(persistence_error)?
+            .ok_or_else(|| {
+                ChatError::validation("references", "Referenced channel was not found")
+            })?;
+            if source
+                .try_get::<Option<String>, _>("archived_at")
+                .map_err(persistence_error)?
+                .is_some()
+            {
+                return Err(ChatError::validation(
+                    "references",
+                    "Archived channels cannot be referenced",
+                ));
+            }
+            let source_conversation_id: String = source
+                .try_get("conversation_id")
+                .map_err(persistence_error)?;
+            let source_high_ordinal = sqlx::query_scalar::<_, Option<i64>>(
+                "SELECT max(item.ordinal)
+                 FROM chat_conversation_items item
+                 JOIN chat_communication_messages message ON message.item_id = item.id
+                 WHERE item.conversation_id = ? AND item.reply_thread_id IS NULL
+                   AND message.deleted_at IS NULL",
+            )
+            .bind(&source_conversation_id)
+            .fetch_one(&mut **transaction)
+            .await
+            .map_err(persistence_error)?
+            .ok_or_else(|| {
+                ChatError::validation(
+                    "references",
+                    "An empty channel cannot be used as an assignment context source",
+                )
+            })?;
+            let audience_gap: i64 = sqlx::query_scalar(
+                "SELECT count(*)
+                 FROM chat_conversation_memberships destination
+                 JOIN chat_participants participant ON participant.id = destination.participant_id
+                 LEFT JOIN chat_ai_channel_memberships destination_ai
+                   ON destination_ai.conversation_id = destination.conversation_id
+                  AND destination_ai.teammate_id = destination.participant_id
+                 LEFT JOIN chat_access_profiles destination_profile
+                   ON destination_profile.id = destination_ai.access_profile_id
+                 LEFT JOIN chat_access_profile_revisions destination_revision
+                   ON destination_revision.access_profile_id = destination_profile.id
+                  AND destination_revision.revision = destination_profile.latest_revision
+                 WHERE destination.conversation_id = ?
+                   AND destination.removed_at IS NULL
+                   AND (
+                     participant.participant_kind != 'ai_teammate'
+                     OR (
+                       CASE WHEN destination_ai.read_history_inherits_profile = 1
+                         THEN destination_revision.default_read_history
+                         ELSE min(destination_ai.read_history,
+                                  destination_revision.default_read_history)
+                       END = 1
+                     )
+                   )
+                   AND NOT EXISTS (
+                     SELECT 1
+                     FROM chat_conversation_memberships source_membership
+                     LEFT JOIN chat_ai_channel_memberships source_ai
+                       ON source_ai.conversation_id = source_membership.conversation_id
+                      AND source_ai.teammate_id = source_membership.participant_id
+                     LEFT JOIN chat_access_profiles source_profile
+                       ON source_profile.id = source_ai.access_profile_id
+                     LEFT JOIN chat_access_profile_revisions source_revision
+                       ON source_revision.access_profile_id = source_profile.id
+                      AND source_revision.revision = source_profile.latest_revision
+                     WHERE source_membership.conversation_id = ?
+                       AND source_membership.participant_id = destination.participant_id
+                       AND source_membership.removed_at IS NULL
+                       AND (
+                         participant.participant_kind != 'ai_teammate'
+                         OR (
+                           CASE WHEN source_ai.read_history_inherits_profile = 1
+                             THEN source_revision.default_read_history
+                             ELSE min(source_ai.read_history,
+                                      source_revision.default_read_history)
+                           END = 1
+                         )
+                       )
+                   )",
+            )
+            .bind(destination_conversation_id.as_str())
+            .bind(&source_conversation_id)
+            .fetch_one(&mut **transaction)
+            .await
+            .map_err(persistence_error)?;
+            if audience_gap > 0 {
+                return Err(ChatError::new(
+                    ChatErrorCode::Conflict,
+                    "The destination audience cannot read the referenced channel",
+                    true,
+                ));
+            }
+            let mut source_lower_ordinal: i64 = sqlx::query_scalar(
+                "SELECT coalesce(max(
+                   CASE
+                     WHEN participant.participant_kind = 'ai_teammate'
+                       AND CASE WHEN source_ai.history_boundary_inherits_profile = 1
+                         THEN source_revision.default_history_boundary
+                         WHEN source_revision.default_history_boundary = 'from_grant'
+                           OR source_ai.history_boundary = 'from_grant'
+                         THEN 'from_grant' ELSE 'entire' END = 'from_grant'
+                     THEN coalesce(source_ai.history_from_ordinal, ? + 1)
+                     ELSE 1
+                   END
+                 ), 1)
+                 FROM chat_conversation_memberships destination
+                 JOIN chat_participants participant ON participant.id = destination.participant_id
+                 LEFT JOIN chat_ai_channel_memberships destination_ai
+                   ON destination_ai.conversation_id = destination.conversation_id
+                  AND destination_ai.teammate_id = destination.participant_id
+                 LEFT JOIN chat_access_profiles destination_profile
+                   ON destination_profile.id = destination_ai.access_profile_id
+                 LEFT JOIN chat_access_profile_revisions destination_revision
+                   ON destination_revision.access_profile_id = destination_profile.id
+                  AND destination_revision.revision = destination_profile.latest_revision
+                 JOIN chat_conversation_memberships source_membership
+                   ON source_membership.participant_id = destination.participant_id
+                  AND source_membership.conversation_id = ?
+                  AND source_membership.removed_at IS NULL
+                 LEFT JOIN chat_ai_channel_memberships source_ai
+                   ON source_ai.conversation_id = source_membership.conversation_id
+                  AND source_ai.teammate_id = source_membership.participant_id
+                 LEFT JOIN chat_access_profiles source_profile
+                   ON source_profile.id = source_ai.access_profile_id
+                 LEFT JOIN chat_access_profile_revisions source_revision
+                   ON source_revision.access_profile_id = source_profile.id
+                  AND source_revision.revision = source_profile.latest_revision
+                 WHERE destination.conversation_id = ?
+                   AND destination.removed_at IS NULL
+                   AND (
+                     participant.participant_kind != 'ai_teammate'
+                     OR (
+                       CASE WHEN destination_ai.read_history_inherits_profile = 1
+                         THEN destination_revision.default_read_history
+                         ELSE min(destination_ai.read_history,
+                                  destination_revision.default_read_history)
+                       END = 1
+                     )
+                   )",
+            )
+            .bind(source_high_ordinal)
+            .bind(&source_conversation_id)
+            .bind(destination_conversation_id.as_str())
+            .fetch_one(&mut **transaction)
+            .await
+            .map_err(persistence_error)?;
+            if let Some(teammate_id) = invoked_teammate_id {
+                let teammate_lower_ordinal = sqlx::query_scalar::<_, i64>(
+                    "SELECT CASE
+                              WHEN CASE
+                                WHEN ai_membership.history_boundary_inherits_profile = 1
+                                THEN profile_revision.default_history_boundary
+                                WHEN ai_membership.history_boundary = 'from_grant'
+                                  OR profile_revision.default_history_boundary = 'from_grant'
+                                THEN 'from_grant' ELSE 'entire' END = 'from_grant'
+                              THEN coalesce(ai_membership.history_from_ordinal, ? + 1)
+                              ELSE 1
+                            END
+                        FROM chat_conversation_memberships membership
+                        JOIN chat_ai_channel_memberships ai_membership
+                          ON ai_membership.conversation_id = membership.conversation_id
+                         AND ai_membership.teammate_id = membership.participant_id
+                        JOIN chat_access_profiles profile
+                          ON profile.id = ai_membership.access_profile_id
+                        JOIN chat_access_profile_revisions profile_revision
+                          ON profile_revision.access_profile_id = profile.id
+                         AND profile_revision.revision = profile.latest_revision
+                        WHERE membership.conversation_id = ?
+                          AND membership.participant_id = ?
+                          AND membership.removed_at IS NULL
+                          AND CASE WHEN ai_membership.read_history_inherits_profile = 1
+                            THEN profile_revision.default_read_history
+                            ELSE min(ai_membership.read_history,
+                                     profile_revision.default_read_history)
+                          END = 1",
+                )
+                .bind(source_high_ordinal)
+                .bind(&source_conversation_id)
+                .bind(teammate_id.as_str())
+                .fetch_optional(&mut **transaction)
+                .await
+                .map_err(persistence_error)?;
+                let Some(teammate_lower_ordinal) = teammate_lower_ordinal else {
+                    return Err(ChatError::new(
+                        ChatErrorCode::Conflict,
+                        "The assigned teammate cannot read the referenced channel history",
+                        true,
+                    ));
+                };
+                source_lower_ordinal = source_lower_ordinal.max(teammate_lower_ordinal);
+            }
+            if source_lower_ordinal > source_high_ordinal {
+                return Err(ChatError::new(
+                    ChatErrorCode::Conflict,
+                    "No referenced channel history is readable by the complete destination audience",
+                    true,
+                ));
+            }
+            let source_revision_cutoff_id = sqlx::query_scalar::<_, String>(
+                "SELECT frozen.id
+                 FROM (
+                   SELECT revision.id, revision_ordinal.ordinal
+                   FROM chat_conversation_items item
+                   JOIN chat_communication_messages message ON message.item_id = item.id
+                   JOIN chat_communication_message_revisions revision
+                     ON revision.id = message.current_revision_id
+                   JOIN chat_communication_message_revision_ordinals revision_ordinal
+                     ON revision_ordinal.message_revision_id = revision.id
+                   WHERE item.conversation_id = ? AND item.reply_thread_id IS NULL
+                     AND message.deleted_at IS NULL
+                   UNION ALL
+                   SELECT revision.id, revision_ordinal.ordinal
+                   FROM chat_conversation_items item
+                   JOIN chat_communication_messages message ON message.item_id = item.id
+                   JOIN chat_communication_message_revisions revision
+                     ON revision.id = message.current_revision_id
+                   JOIN chat_communication_message_revision_ordinals revision_ordinal
+                     ON revision_ordinal.message_revision_id = revision.id
+                   WHERE item.conversation_id = ? AND item.reply_thread_id IS NOT NULL
+                     AND message.deleted_at IS NULL
+                 ) frozen
+                 ORDER BY frozen.ordinal DESC
+                 LIMIT 1",
+            )
+            .bind(&source_conversation_id)
+            .bind(&source_conversation_id)
+            .fetch_optional(&mut **transaction)
+            .await
+            .map_err(persistence_error)?
+            .unwrap_or_else(|| revision_id.as_str().to_string());
+            let destination_audience_revision: i64 = sqlx::query_scalar(
+                "SELECT revision FROM chat_conversation_audience_state
+                 WHERE conversation_id = ?",
+            )
+            .bind(destination_conversation_id.as_str())
+            .fetch_one(&mut **transaction)
+            .await
+            .map_err(persistence_error)?;
+            sqlx::query(
+                "INSERT INTO chat_channel_reference_targets
+                    (reference_id, channel_id, source_conversation_id,
+                     destination_conversation_id, source_lower_ordinal,
+                     source_high_ordinal, source_revision_cutoff_id,
+                     destination_audience_revision)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            )
+            .bind(metadata.reference_id.as_str())
+            .bind(channel_id.as_str())
+            .bind(&source_conversation_id)
+            .bind(destination_conversation_id.as_str())
+            .bind(source_lower_ordinal)
+            .bind(source_high_ordinal)
+            .bind(&source_revision_cutoff_id)
+            .bind(destination_audience_revision)
+            .execute(&mut **transaction)
+            .await
+            .map_err(persistence_error)?;
+        }
+        ChatMessageReference::WorkingFolder {
+            working_folder_id, ..
+        } => {
+            require_destination_project_folder(
+                transaction,
+                destination_conversation_id,
+                working_folder_id,
+            )
+            .await?;
+            sqlx::query(
+                "INSERT INTO chat_working_folder_reference_targets
+                    (reference_id, working_folder_id) VALUES (?, ?)",
+            )
+            .bind(metadata.reference_id.as_str())
+            .bind(working_folder_id.as_str())
+            .execute(&mut **transaction)
+            .await
+            .map_err(persistence_error)?;
+        }
+        ChatMessageReference::WorkspacePath {
+            working_folder_id,
+            path_kind,
+            relative_path,
+            ..
+        } => {
+            require_destination_project_folder(
+                transaction,
+                destination_conversation_id,
+                working_folder_id,
+            )
+            .await?;
+            let path_kind = match path_kind {
+                ChatWorkspacePathKind::File => "file",
+                ChatWorkspacePathKind::Folder => "folder",
+            };
+            sqlx::query(
+                "INSERT INTO chat_workspace_path_reference_targets
+                    (reference_id, working_folder_id, path_kind, relative_path)
+                 VALUES (?, ?, ?, ?)",
+            )
+            .bind(metadata.reference_id.as_str())
+            .bind(working_folder_id.as_str())
+            .bind(path_kind)
+            .bind(relative_path)
+            .execute(&mut **transaction)
+            .await
+            .map_err(persistence_error)?;
+        }
+        ChatMessageReference::ExecutionEnvironment {
+            execution_environment_id,
+            ..
+        } => {
+            let valid: i64 = sqlx::query_scalar(
+                "SELECT EXISTS(
+                    SELECT 1
+                    FROM chat_execution_environments environment
+                    JOIN project_working_folders folder
+                      ON folder.id = environment.working_folder_id
+                    JOIN chat_conversations conversation
+                      ON conversation.project_id = folder.project_id
+                    WHERE environment.id = ? AND conversation.id = ?
+                      AND environment.kind IN ('current_folder', 'worktree')
+                      AND environment.archived_at IS NULL
+                      AND environment.lifecycle_state = 'available'
+                 )",
+            )
+            .bind(execution_environment_id.as_str())
+            .bind(destination_conversation_id.as_str())
+            .fetch_one(&mut **transaction)
+            .await
+            .map_err(persistence_error)?;
+            if valid == 0 {
+                return Err(ChatError::validation(
+                    "references",
+                    "Execution environment does not belong to the channel project",
+                ));
+            }
+            sqlx::query(
+                "INSERT INTO chat_execution_environment_reference_targets
+                    (reference_id, execution_environment_id) VALUES (?, ?)",
+            )
+            .bind(metadata.reference_id.as_str())
+            .bind(execution_environment_id.as_str())
+            .execute(&mut **transaction)
+            .await
+            .map_err(persistence_error)?;
+        }
+    }
+    Ok(())
+}
+
+async fn require_destination_project_folder(
+    transaction: &mut Transaction<'_, Sqlite>,
+    destination_conversation_id: &ChatConversationId,
+    working_folder_id: &ProjectWorkingFolderId,
+) -> ChatResult<()> {
+    let valid: i64 = sqlx::query_scalar(
+        "SELECT EXISTS(
+            SELECT 1
+            FROM project_working_folders folder
+            JOIN chat_conversations conversation ON conversation.project_id = folder.project_id
+            WHERE folder.id = ? AND conversation.id = ? AND folder.archived_at IS NULL
+         )",
+    )
+    .bind(working_folder_id.as_str())
+    .bind(destination_conversation_id.as_str())
+    .fetch_one(&mut **transaction)
+    .await
+    .map_err(persistence_error)?;
+    if valid == 0 {
+        return Err(ChatError::validation(
+            "references",
+            "Working folder does not belong to the channel project",
+        ));
+    }
+    Ok(())
+}
+
 pub(super) async fn insert_channel_copy(
     transaction: &mut Transaction<'_, Sqlite>,
     conversation_id: &ChatConversationId,
     request: &PostChatMessageCommand,
+    invoked_teammate_id: Option<&ChatParticipantId>,
     now: &UtcTimestamp,
 ) -> ChatResult<()> {
     let item_id = conversation_item_id()?;
     let revision_id = message_revision_id()?;
     let ordinal = next_item_ordinal(transaction, conversation_id, None).await?;
+    let mut copied_request = request.clone();
+    for reference in &mut copied_request.references {
+        reference.metadata_mut().reference_id =
+            ChatMessageReferenceId::new(new_id("message-reference")).map_err(identifier_error)?;
+    }
     insert_communication_message(
         transaction,
         CommunicationMessageWrite {
@@ -358,7 +831,8 @@ pub(super) async fn insert_channel_copy(
             conversation_id,
             reply_thread_id: None,
             ordinal,
-            request,
+            request: &copied_request,
+            invoked_teammate_id,
             now,
         },
     )
@@ -426,22 +900,26 @@ pub(super) async fn require_reply_thread(
     Ok(reply_thread_id.clone())
 }
 
-pub(super) async fn require_addressable_teammate(
+pub(super) async fn require_participating_teammate(
     pool: &SqlitePool,
     conversation_id: &ChatConversationId,
     teammate_id: &ChatParticipantId,
 ) -> ChatResult<()> {
     let row = sqlx::query(
-        "SELECT membership.addressable, membership.removed_at,
-                participant.archived_at, teammate.configuration_state,
-                teammate.latest_policy_revision,
-                (SELECT count(*) FROM chat_teammate_working_folder_grants grant_row
-                 WHERE grant_row.conversation_id = membership.conversation_id
-                   AND grant_row.teammate_id = membership.participant_id
-                   AND grant_row.is_default = 1 AND grant_row.revoked_at IS NULL) AS defaults
+        "SELECT membership.removed_at, participant.archived_at,
+                teammate.latest_policy_revision, ai_membership.participate,
+                ai_membership.participate_inherits_profile,
+                profile_revision.default_participate
          FROM chat_conversation_memberships membership
          JOIN chat_participants participant ON participant.id = membership.participant_id
          JOIN chat_ai_teammates teammate ON teammate.participant_id = membership.participant_id
+         JOIN chat_ai_channel_memberships ai_membership
+           ON ai_membership.conversation_id = membership.conversation_id
+          AND ai_membership.teammate_id = membership.participant_id
+         JOIN chat_access_profiles profile ON profile.id = ai_membership.access_profile_id
+         JOIN chat_access_profile_revisions profile_revision
+           ON profile_revision.access_profile_id = profile.id
+          AND profile_revision.revision = profile.latest_revision
          WHERE membership.conversation_id = ? AND membership.participant_id = ?",
     )
     .bind(conversation_id.as_str())
@@ -451,34 +929,39 @@ pub(super) async fn require_addressable_teammate(
     .map_err(persistence_error)?
     .ok_or_else(|| {
         ChatError::validation(
-            "participantMentions",
+            "references",
             "The AI teammate is not a member of this channel",
         )
     })?;
     let available = row
-        .try_get::<i64, _>("addressable")
+        .try_get::<Option<String>, _>("removed_at")
         .map_err(persistence_error)?
-        != 0
-        && row
-            .try_get::<Option<String>, _>("removed_at")
-            .map_err(persistence_error)?
-            .is_none()
+        .is_none()
         && row
             .try_get::<Option<String>, _>("archived_at")
             .map_err(persistence_error)?
             .is_none()
         && row
-            .try_get::<String, _>("configuration_state")
-            .map_err(persistence_error)?
-            == "healthy"
-        && row
             .try_get::<i64, _>("latest_policy_revision")
             .map_err(persistence_error)?
             > 0
-        && row
-            .try_get::<i64, _>("defaults")
+        && if row
+            .try_get::<i64, _>("participate_inherits_profile")
             .map_err(persistence_error)?
-            == 1;
+            != 0
+        {
+            row.try_get::<i64, _>("default_participate")
+                .map_err(persistence_error)?
+                != 0
+        } else {
+            row.try_get::<i64, _>("participate")
+                .map_err(persistence_error)?
+                != 0
+                && row
+                    .try_get::<i64, _>("default_participate")
+                    .map_err(persistence_error)?
+                    != 0
+        };
     if !available {
         return Err(ChatError::new(
             ChatErrorCode::Conflict,
@@ -487,177 +970,6 @@ pub(super) async fn require_addressable_teammate(
         ));
     }
     Ok(())
-}
-
-pub(super) async fn upsert_membership_in_transaction(
-    transaction: &mut Transaction<'_, Sqlite>,
-    teammate_id: &ChatParticipantId,
-    membership: &ChatTeammateMembershipInput,
-    expected_revision: Option<u64>,
-    now: &UtcTimestamp,
-) -> ChatResult<ChatConversationId> {
-    if !membership
-        .working_folder_ids
-        .iter()
-        .any(|id| id == &membership.default_working_folder_id)
-    {
-        return Err(ChatError::validation(
-            "defaultWorkingFolderId",
-            "The default folder must be included in the allowed folders",
-        ));
-    }
-    let unique = membership
-        .working_folder_ids
-        .iter()
-        .map(ProjectWorkingFolderId::as_str)
-        .collect::<BTreeSet<_>>();
-    if unique.len() != membership.working_folder_ids.len() || unique.is_empty() {
-        return Err(ChatError::validation(
-            "workingFolderIds",
-            "Choose one or more distinct allowed working folders",
-        ));
-    }
-    let row = sqlx::query(
-        "SELECT channel.conversation_id, channel.project_id
-         FROM chat_channels channel
-         WHERE channel.id = ? AND channel.archived_at IS NULL",
-    )
-    .bind(membership.channel_id.as_str())
-    .fetch_optional(&mut **transaction)
-    .await
-    .map_err(persistence_error)?
-    .ok_or_else(|| {
-        ChatError::new(
-            ChatErrorCode::NotFound,
-            "Active Chat channel was not found",
-            true,
-        )
-    })?;
-    let conversation_id = ChatConversationId::new(
-        row.try_get::<String, _>("conversation_id")
-            .map_err(persistence_error)?,
-    )
-    .map_err(identifier_error)?;
-    let project_id: String = row.try_get("project_id").map_err(persistence_error)?;
-    let teammate_exists: i64 = sqlx::query_scalar(
-        "SELECT EXISTS(
-            SELECT 1 FROM chat_ai_teammates teammate
-            JOIN chat_participants participant ON participant.id = teammate.participant_id
-            WHERE teammate.participant_id = ? AND participant.archived_at IS NULL
-         )",
-    )
-    .bind(teammate_id.as_str())
-    .fetch_one(&mut **transaction)
-    .await
-    .map_err(persistence_error)?;
-    if teammate_exists == 0 {
-        return Err(ChatError::new(
-            ChatErrorCode::NotFound,
-            "AI teammate was not found",
-            true,
-        ));
-    }
-    for folder_id in &membership.working_folder_ids {
-        let folder_exists: i64 = sqlx::query_scalar(
-            "SELECT EXISTS(
-                SELECT 1 FROM project_working_folders
-                WHERE id = ? AND project_id = ? AND archived_at IS NULL
-             )",
-        )
-        .bind(folder_id.as_str())
-        .bind(&project_id)
-        .fetch_one(&mut **transaction)
-        .await
-        .map_err(persistence_error)?;
-        if folder_exists == 0 {
-            return Err(ChatError::validation(
-                "workingFolderIds",
-                "Every allowed folder must be active and belong to the channel project",
-            ));
-        }
-    }
-    match expected_revision {
-        Some(expected_revision) => {
-            let updated = sqlx::query(
-                "UPDATE chat_conversation_memberships
-                 SET addressable = ?, approval_policy = ?, removed_at = NULL,
-                     revision = revision + 1, updated_at = ?
-                 WHERE conversation_id = ? AND participant_id = ? AND revision = ?",
-            )
-            .bind(membership.addressable)
-            .bind(wire_approval_policy(membership.approval_policy))
-            .bind(now.as_str())
-            .bind(conversation_id.as_str())
-            .bind(teammate_id.as_str())
-            .bind(i64_value(expected_revision)?)
-            .execute(&mut **transaction)
-            .await
-            .map_err(persistence_error)?;
-            if updated.rows_affected() != 1 {
-                return Err(ChatError::new(
-                    ChatErrorCode::StaleRevision,
-                    "The channel membership changed before the update",
-                    true,
-                ));
-            }
-        }
-        None => {
-            sqlx::query(
-                "INSERT INTO chat_conversation_memberships
-                    (conversation_id, participant_id, membership_role, addressable,
-                     approval_policy, created_at, updated_at)
-                 VALUES (?, ?, 'member', ?, ?, ?, ?)
-                 ON CONFLICT(conversation_id, participant_id) DO UPDATE SET
-                    addressable = excluded.addressable,
-                    approval_policy = excluded.approval_policy,
-                    removed_at = NULL,
-                    revision = chat_conversation_memberships.revision + 1,
-                    updated_at = excluded.updated_at",
-            )
-            .bind(conversation_id.as_str())
-            .bind(teammate_id.as_str())
-            .bind(membership.addressable)
-            .bind(wire_approval_policy(membership.approval_policy))
-            .bind(now.as_str())
-            .bind(now.as_str())
-            .execute(&mut **transaction)
-            .await
-            .map_err(persistence_error)?;
-        }
-    }
-    sqlx::query(
-        "UPDATE chat_teammate_working_folder_grants
-         SET revoked_at = ?, is_default = 0
-         WHERE conversation_id = ? AND teammate_id = ? AND revoked_at IS NULL",
-    )
-    .bind(now.as_str())
-    .bind(conversation_id.as_str())
-    .bind(teammate_id.as_str())
-    .execute(&mut **transaction)
-    .await
-    .map_err(persistence_error)?;
-    for folder_id in &membership.working_folder_ids {
-        sqlx::query(
-            "INSERT INTO chat_teammate_working_folder_grants
-                (conversation_id, teammate_id, project_id, working_folder_id,
-                 is_default, created_at, revoked_at)
-             VALUES (?, ?, ?, ?, ?, ?, NULL)
-             ON CONFLICT(conversation_id, teammate_id, working_folder_id) DO UPDATE SET
-                project_id = excluded.project_id,
-                is_default = excluded.is_default,
-                revoked_at = NULL",
-        )
-        .bind(conversation_id.as_str())
-        .bind(teammate_id.as_str())
-        .bind(&project_id)
-        .bind(folder_id.as_str())
-        .bind(folder_id == &membership.default_working_folder_id)
-        .bind(now.as_str())
-        .execute(&mut **transaction)
-        .await
-        .map_err(persistence_error)?;
-    }
-    Ok(conversation_id)
 }
 
 pub(super) async fn insert_policy_revision(
@@ -697,67 +1009,154 @@ pub(super) async fn insert_policy_revision(
     Ok(())
 }
 
-pub(super) async fn read_mentions(
+pub(super) async fn read_message_references(
     pool: &SqlitePool,
     revision_id: &ChatMessageRevisionId,
-) -> ChatResult<Vec<ChatParticipantMentionRead>> {
+) -> ChatResult<Vec<ChatMessageReference>> {
     let rows = sqlx::query(
-        "SELECT participant_id, participant_kind, label_snapshot,
+        "SELECT id, reference_kind, label_snapshot, plain_text_projection,
                 start_offset, end_offset
-         FROM chat_participant_mentions WHERE message_revision_id = ?
-         ORDER BY start_offset",
+         FROM chat_message_references WHERE message_revision_id = ?
+         ORDER BY ordinal",
     )
     .bind(revision_id.as_str())
     .fetch_all(pool)
     .await
     .map_err(persistence_error)?;
-    rows.into_iter()
-        .map(|row| {
-            Ok(ChatParticipantMentionRead {
-                participant_id: ChatParticipantId::new(
-                    row.try_get::<String, _>("participant_id")
-                        .map_err(persistence_error)?,
+    let mut references = Vec::with_capacity(rows.len());
+    for row in rows {
+        let reference_id =
+            ChatMessageReferenceId::new(row.try_get::<String, _>("id").map_err(persistence_error)?)
+                .map_err(identifier_error)?;
+        let metadata = ChatReferenceMetadata {
+            reference_id: reference_id.clone(),
+            label_snapshot: row.try_get("label_snapshot").map_err(persistence_error)?,
+            start_offset: u64_value(row.try_get("start_offset").map_err(persistence_error)?)?,
+            end_offset: u64_value(row.try_get("end_offset").map_err(persistence_error)?)?,
+            plain_text_projection: row
+                .try_get("plain_text_projection")
+                .map_err(persistence_error)?,
+        };
+        let reference_kind: String = row.try_get("reference_kind").map_err(persistence_error)?;
+        let reference = match reference_kind.as_str() {
+            "participant" => {
+                let target = sqlx::query(
+                    "SELECT target.participant_id, participant.participant_kind
+                     FROM chat_participant_reference_targets target
+                     JOIN chat_participants participant ON participant.id = target.participant_id
+                     WHERE target.reference_id = ?",
                 )
-                .map_err(identifier_error)?,
-                participant_kind: parse_participant_kind(
-                    &row.try_get::<String, _>("participant_kind")
-                        .map_err(persistence_error)?,
-                )?,
-                label_snapshot: row.try_get("label_snapshot").map_err(persistence_error)?,
-                start_offset: u64_value(row.try_get("start_offset").map_err(persistence_error)?)?,
-                end_offset: u64_value(row.try_get("end_offset").map_err(persistence_error)?)?,
-            })
-        })
-        .collect()
-}
-
-pub(super) async fn read_resource_references(
-    pool: &SqlitePool,
-    revision_id: &ChatMessageRevisionId,
-) -> ChatResult<Vec<ChatResourceReferenceRead>> {
-    let rows = sqlx::query(
-        "SELECT working_folder_id, reference_kind, relative_path, display_label
-         FROM chat_communication_resource_references
-         WHERE message_revision_id = ? ORDER BY ordinal",
-    )
-    .bind(revision_id.as_str())
-    .fetch_all(pool)
-    .await
-    .map_err(persistence_error)?;
-    rows.into_iter()
-        .map(|row| {
-            Ok(ChatResourceReferenceRead {
-                working_folder_id: ProjectWorkingFolderId::new(
-                    row.try_get::<String, _>("working_folder_id")
-                        .map_err(persistence_error)?,
+                .bind(reference_id.as_str())
+                .fetch_one(pool)
+                .await
+                .map_err(persistence_error)?;
+                ChatMessageReference::Participant {
+                    metadata,
+                    participant_id: ChatParticipantId::new(
+                        target
+                            .try_get::<String, _>("participant_id")
+                            .map_err(persistence_error)?,
+                    )
+                    .map_err(identifier_error)?,
+                    participant_kind: parse_participant_kind(
+                        &target
+                            .try_get::<String, _>("participant_kind")
+                            .map_err(persistence_error)?,
+                    )?,
+                }
+            }
+            "channel" => {
+                let channel_id: String = sqlx::query_scalar(
+                    "SELECT channel_id FROM chat_channel_reference_targets
+                     WHERE reference_id = ?",
                 )
-                .map_err(identifier_error)?,
-                kind: row.try_get("reference_kind").map_err(persistence_error)?,
-                relative_path: row.try_get("relative_path").map_err(persistence_error)?,
-                display_label: row.try_get("display_label").map_err(persistence_error)?,
-            })
-        })
-        .collect()
+                .bind(reference_id.as_str())
+                .fetch_one(pool)
+                .await
+                .map_err(persistence_error)?;
+                ChatMessageReference::Channel {
+                    metadata,
+                    channel_id: ChatChannelId::new(channel_id).map_err(identifier_error)?,
+                }
+            }
+            "working_folder" => {
+                let folder_id: String = sqlx::query_scalar(
+                    "SELECT working_folder_id FROM chat_working_folder_reference_targets
+                     WHERE reference_id = ?",
+                )
+                .bind(reference_id.as_str())
+                .fetch_one(pool)
+                .await
+                .map_err(persistence_error)?;
+                ChatMessageReference::WorkingFolder {
+                    metadata,
+                    working_folder_id: ProjectWorkingFolderId::new(folder_id)
+                        .map_err(identifier_error)?,
+                }
+            }
+            "workspace_path" => {
+                let target = sqlx::query(
+                    "SELECT working_folder_id, path_kind, relative_path
+                     FROM chat_workspace_path_reference_targets WHERE reference_id = ?",
+                )
+                .bind(reference_id.as_str())
+                .fetch_one(pool)
+                .await
+                .map_err(persistence_error)?;
+                let path_kind = match target
+                    .try_get::<String, _>("path_kind")
+                    .map_err(persistence_error)?
+                    .as_str()
+                {
+                    "file" => ChatWorkspacePathKind::File,
+                    "folder" => ChatWorkspacePathKind::Folder,
+                    _ => {
+                        return Err(ChatError::new(
+                            ChatErrorCode::Persistence,
+                            "Stored workspace path kind is invalid",
+                            false,
+                        ));
+                    }
+                };
+                ChatMessageReference::WorkspacePath {
+                    metadata,
+                    working_folder_id: ProjectWorkingFolderId::new(
+                        target
+                            .try_get::<String, _>("working_folder_id")
+                            .map_err(persistence_error)?,
+                    )
+                    .map_err(identifier_error)?,
+                    path_kind,
+                    relative_path: target.try_get("relative_path").map_err(persistence_error)?,
+                }
+            }
+            "execution_environment" => {
+                let environment_id: String = sqlx::query_scalar(
+                    "SELECT execution_environment_id
+                     FROM chat_execution_environment_reference_targets
+                     WHERE reference_id = ?",
+                )
+                .bind(reference_id.as_str())
+                .fetch_one(pool)
+                .await
+                .map_err(persistence_error)?;
+                ChatMessageReference::ExecutionEnvironment {
+                    metadata,
+                    execution_environment_id: ChatExecutionEnvironmentId::new(environment_id)
+                        .map_err(identifier_error)?,
+                }
+            }
+            _ => {
+                return Err(ChatError::new(
+                    ChatErrorCode::Persistence,
+                    "Stored message reference kind is invalid",
+                    false,
+                ));
+            }
+        };
+        references.push(reference);
+    }
+    Ok(references)
 }
 
 pub(super) async fn read_post_receipt(

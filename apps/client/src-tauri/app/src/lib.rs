@@ -874,15 +874,28 @@ pub fn run(context: tauri::Context<tauri::Wry>) {
             chat::coordination_commands::chat_list_teammates,
             chat::coordination_commands::chat_read_teammate,
             chat::coordination_commands::chat_create_teammate,
-            chat::coordination_commands::chat_update_teammate_profile,
             chat::coordination_commands::chat_archive_teammate,
             chat::coordination_commands::chat_delete_unused_teammate,
-            chat::coordination_commands::chat_publish_teammate_policy,
+            chat::coordination_commands::access::chat_list_access_profiles,
+            chat::coordination_commands::access::chat_create_access_profile,
+            chat::coordination_commands::access::chat_duplicate_access_profile,
+            chat::coordination_commands::access::chat_preview_access_profile_revision,
+            chat::coordination_commands::access::chat_publish_access_profile_revision,
+            chat::coordination_commands::access::chat_archive_access_profile,
+            chat::coordination_commands::access::chat_read_teammate_access,
+            chat::coordination_commands::access::chat_read_channel_roster,
+            chat::coordination_commands::access::chat_list_assignment_targets,
+            chat::coordination_commands::access::chat_preview_channel_membership_removal,
+            chat::coordination_commands::access::chat_preview_teammate_access,
+            chat::coordination_commands::access::chat_replace_teammate_access,
+            chat::scratch_commands::chat_list_scratch_scopes,
+            chat::scratch_commands::chat_browse_scratch_generation,
+            chat::scratch_commands::chat_promote_scratch_file,
+            chat::scratch_commands::chat_preview_scratch_cleanup,
+            chat::scratch_commands::chat_cleanup_scratch,
             chat::coordination_commands::chat_list_channel_memberships,
             chat::coordination_commands::chat_read_project_primary_working_folder,
             chat::coordination_commands::chat_set_project_primary_working_folder,
-            chat::coordination_commands::chat_upsert_teammate_membership,
-            chat::coordination_commands::chat_remove_teammate_membership,
             chat::coordination_commands::chat_post_message,
             chat::coordination_commands::chat_schedule_message,
             chat::coordination_commands::chat_list_scheduled_messages,
@@ -1412,6 +1425,7 @@ pub fn run(context: tauri::Context<tauri::Wry>) {
         .setup(|app| {
             clear_doomscrolling_enforcement_state_best_effort(app.handle(), "during startup");
             schedule_main_window_reveal_fallback(app.handle());
+            chat::revocation::start_startup_recovery(app.handle());
             music::setup_youtube_host(app.handle())?;
             media_controls::setup_media_controls(app.handle())?;
             if let Err(err) = notification::restore_stale_shortcuts(app.handle()) {

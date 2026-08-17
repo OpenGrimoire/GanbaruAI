@@ -47,11 +47,223 @@ fn safety_modes_map_to_exact_codex_policies() {
         modes(SafetyMode::Custom, InteractionMode::Build),
         None,
         None,
+        false,
     )
     .unwrap();
     assert!(custom.get("approvalPolicy").is_none());
     assert!(custom.get("approvalsReviewer").is_none());
     assert!(custom.get("sandbox").is_none());
+}
+
+#[test]
+fn organizational_requests_use_permission_profiles_without_legacy_sandbox_fields() {
+    let workspace = Path::new("/workspace");
+    let request: SendTurnRequest = serde_json::from_value(json!({
+        "command": { "clientCommandId": "command-1", "expectedThreadRevision": 3 },
+        "sessionId": "session-1",
+        "turnId": "chat-turn-1",
+        "prompt": "Implement the change",
+        "attachments": [],
+        "mentions": [],
+        "modelId": "gpt-5.4",
+        "modelOptions": [],
+        "modes": { "safetyMode": "ask_for_approval", "interactionMode": "build" }
+    }))
+    .unwrap();
+
+    let thread = thread_open_params(
+        None,
+        workspace,
+        request.modes,
+        request.model_id.as_ref(),
+        None,
+        true,
+    )
+    .unwrap();
+    let turn = turn_start_params(
+        "provider-thread-1",
+        workspace,
+        "fallback-model",
+        &request,
+        None,
+        true,
+    )
+    .unwrap();
+
+    for params in [&thread, &turn] {
+        assert_eq!(params["permissions"], ORGANIZATIONAL_PERMISSION_PROFILE);
+        assert_eq!(params["runtimeWorkspaceRoots"], json!(["/workspace"]));
+        assert_eq!(params["approvalPolicy"], "on-request");
+        assert_eq!(params["approvalsReviewer"], "user");
+        assert!(params.get("sandbox").is_none());
+        assert!(params.get("sandboxPolicy").is_none());
+    }
+}
+
+#[test]
+fn organizational_launch_arguments_replace_authority_and_disable_inherited_mcp() {
+    let mut arguments = Vec::new();
+    append_organizational_base_arguments(&mut arguments);
+    append_disabled_mcp_arguments(
+        &mut arguments,
+        &["user-server".to_string(), "ganbaru-chat".to_string()],
+        "ganbaru-chat",
+    )
+    .unwrap();
+    append_internal_mcp_arguments(&mut arguments, "ganbaru-chat", "http://127.0.0.1:41827/mcp")
+        .unwrap();
+
+    assert!(arguments.iter().any(|argument| {
+        argument.starts_with("permissions.ganbaru_organizational=")
+            && argument.contains("filesystem")
+            && argument.contains("network={enabled=false}")
+    }));
+    assert!(arguments
+        .iter()
+        .any(|argument| argument == "mcp_servers.user-server.enabled=false"));
+    assert!(arguments
+        .iter()
+        .any(|argument| argument == "mcp_servers.ganbaru-chat.required=true"));
+    assert!(arguments
+        .iter()
+        .all(|argument| !argument.contains("sandbox_mode")));
+    assert!(append_internal_mcp_arguments(
+        &mut Vec::new(),
+        "ganbaru-chat",
+        "https://example.test/mcp",
+    )
+    .is_err());
+}
+
+#[test]
+fn organizational_verification_rejects_profile_and_root_mismatches() {
+    let response = |profile: &str, root: &str| ThreadOpenResponse {
+        thread: CodexThread {
+            id: "provider-thread-1".to_string(),
+        },
+        model: "gpt-5.4".to_string(),
+        approval_policy: json!("on-request"),
+        approvals_reviewer: "user".to_string(),
+        sandbox: json!({ "type": "workspaceWrite" }),
+        active_permission_profile: Some(CodexActivePermissionProfile {
+            id: profile.to_string(),
+            extends: None,
+        }),
+        runtime_workspace_roots: vec![PathBuf::from(root)],
+    };
+
+    assert!(verify_organizational_thread_open(
+        SafetyMode::AskForApproval,
+        Path::new("/workspace"),
+        &response(ORGANIZATIONAL_PERMISSION_PROFILE, "/workspace"),
+    )
+    .is_ok());
+    assert!(verify_organizational_thread_open(
+        SafetyMode::AskForApproval,
+        Path::new("/workspace"),
+        &response("user-profile", "/workspace"),
+    )
+    .is_err());
+    assert!(verify_organizational_thread_open(
+        SafetyMode::AskForApproval,
+        Path::new("/workspace"),
+        &response(ORGANIZATIONAL_PERMISSION_PROFILE, "/other"),
+    )
+    .is_err());
+}
+
+#[test]
+fn organizational_config_requires_one_enabled_internal_mcp_server() {
+    let config = |extra_enabled: bool| ConfigReadResponse {
+        config: json!({
+            "default_permissions": ORGANIZATIONAL_PERMISSION_PROFILE,
+            "allow_login_shell": false,
+            "web_search": "disabled",
+            "shell_environment_policy": {
+                "inherit": "core",
+                "ignore_default_excludes": false,
+                "experimental_use_profile": false,
+                "set": {}
+            },
+            "permissions": {
+                (ORGANIZATIONAL_PERMISSION_PROFILE): {
+                    "filesystem": {
+                        ":minimal": "read",
+                        ":workspace_roots": { ".": "write" }
+                    },
+                    "network": { "enabled": false }
+                }
+            },
+            "features": {
+                "apps": false,
+                "artifact": false,
+                "auth_elicitation": false,
+                "browser_use": false,
+                "browser_use_external": false,
+                "browser_use_full_cdp_access": false,
+                "code_mode": { "enabled": false },
+                "code_mode_host": false,
+                "computer_use": false,
+                "enable_mcp_apps": false,
+                "external_agent_memory_import": false,
+                "hooks": false,
+                "image_generation": false,
+                "in_app_browser": false,
+                "memories": false,
+                "multi_agent": false,
+                "multi_agent_v2": false,
+                "network_proxy": false,
+                "plugin_sharing": false,
+                "plugins": false,
+                "recommended_plugins": false,
+                "remote_plugin": false,
+                "request_permissions_tool": false,
+                "respect_system_proxy": false,
+                "shell_snapshot": false,
+                "skill_mcp_dependency_install": false,
+                "skill_search": false,
+                "standalone_web_search": false,
+                "use_agent_identity": false,
+                "workspace_dependencies": false
+            },
+            "mcp_servers": {
+                "ganbaru-chat": {
+                    "enabled": true,
+                    "required": true,
+                    "url": "http://127.0.0.1:41827/mcp",
+                    "bearer_token_env_var": "GANBARU_CHAT_MCP_TOKEN"
+                },
+                "user-server": { "enabled": extra_enabled }
+            }
+        }),
+    };
+
+    let expected = Some(("ganbaru-chat", "http://127.0.0.1:41827/mcp"));
+    assert!(verify_organizational_effective_config(config(false), expected).is_ok());
+    assert!(verify_organizational_effective_config(config(true), expected).is_err());
+}
+
+#[test]
+fn organizational_mcp_status_ignores_disabled_inherited_servers() {
+    let status = |user_server_enabled| McpStatusRead {
+        servers: vec![
+            McpServerStatusRead {
+                name: "user-server".to_string(),
+                auth_status: None,
+                enabled: user_server_enabled,
+                runtime_status: None,
+            },
+            McpServerStatusRead {
+                name: "ganbaru-chat".to_string(),
+                auth_status: Some("bearerToken".to_string()),
+                enabled: true,
+                runtime_status: Some("ready".to_string()),
+            },
+        ],
+    };
+
+    assert!(verify_organizational_mcp_status(&status(false), "ganbaru-chat").is_ok());
+    assert!(verify_organizational_mcp_status(&status(true), "ganbaru-chat").is_err());
 }
 
 #[test]
@@ -90,6 +302,7 @@ fn turn_builder_preserves_model_traits_modes_and_verified_images() {
         "fallback-model",
         &request,
         None,
+        false,
     )
     .unwrap();
 
@@ -125,6 +338,7 @@ fn turn_builder_preserves_model_traits_modes_and_verified_images() {
         "fallback-model",
         &standard_request,
         None,
+        false,
     )
     .unwrap();
     assert!(standard_params.get("serviceTier").is_none());
@@ -144,6 +358,7 @@ fn turn_builder_preserves_model_traits_modes_and_verified_images() {
         "fallback-model",
         &custom_request,
         Some(&custom_safety),
+        false,
     )
     .unwrap();
     assert_eq!(custom_params["permissions"], "project-edit");
@@ -157,6 +372,7 @@ fn turn_builder_preserves_model_traits_modes_and_verified_images() {
         "fallback-model",
         &escaping,
         None,
+        false,
     )
     .is_err());
 }

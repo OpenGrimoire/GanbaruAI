@@ -102,6 +102,8 @@ function threadShell(): ChatThreadShellRead {
   return {
     id: "thread-1",
     workingFolderId: "working-folder-1",
+    executionEnvironmentId: "current-folder:working-folder-1",
+    scratchGenerationId: null,
     projectId: "project-1",
     title: "Thread",
     providerFamilyId: "codex",

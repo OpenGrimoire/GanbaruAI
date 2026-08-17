@@ -7,14 +7,14 @@ use crate::chat::models::*;
 use crate::chat::repository::receipts::{CommandReceiptRead, CommandReceiptState};
 use crate::chat::repository::{attachments, reads};
 use crate::chat::send_commands::{SendChatTurnCommand, SendChatTurnResult, SteerChatTurnCommand};
-use crate::chat::workspace::ProjectWorkingFolder;
 use crate::vault;
 use serde_json::json;
 use sqlx::{Row, SqlitePool};
 
 #[derive(Clone, Debug)]
 pub(super) struct ThreadRuntimeData {
-    pub(super) working_folder_id: ProjectWorkingFolderId,
+    pub(super) working_folder_id: Option<ProjectWorkingFolderId>,
+    pub(super) scratch_generation_id: Option<String>,
     pub(super) provider_instance_id: ProviderInstanceId,
     pub(super) continuation_group_id: ContinuationGroupId,
     pub(super) provider_thread_id: Option<ProviderThreadId>,
@@ -30,7 +30,7 @@ pub(super) async fn read_thread_runtime_data(
     let row = sqlx::query(
         "SELECT working_folder_id, provider_instance_id, continuation_group_id,
                 provider_thread_id, resume_cursor_schema_version, resume_cursor_data, revision,
-                execution_environment_id
+                execution_environment_id, scratch_generation_id
          FROM chat_threads WHERE id = ? AND archived_at IS NULL AND state != 'closed'",
     )
     .bind(thread_id.as_str())
@@ -52,11 +52,15 @@ pub(super) async fn read_thread_runtime_data(
         _ => return Err(corrupt_data()),
     };
     Ok(ThreadRuntimeData {
-        working_folder_id: ProjectWorkingFolderId::new(
-            row.try_get::<String, _>("working_folder_id")
-                .map_err(persistence_error)?,
-        )
-        .map_err(|_| corrupt_data())?,
+        working_folder_id: row
+            .try_get::<Option<String>, _>("working_folder_id")
+            .map_err(persistence_error)?
+            .map(ProjectWorkingFolderId::new)
+            .transpose()
+            .map_err(|_| corrupt_data())?,
+        scratch_generation_id: row
+            .try_get("scratch_generation_id")
+            .map_err(persistence_error)?,
         provider_instance_id: ProviderInstanceId::new(
             row.try_get::<String, _>("provider_instance_id")
                 .map_err(persistence_error)?,
@@ -88,7 +92,7 @@ pub(super) async fn read_thread_runtime_data(
 pub(super) async fn read_attachment_references(
     app: &tauri::AppHandle,
     pool: &SqlitePool,
-    working_folder_id: &ProjectWorkingFolderId,
+    working_folder_id: Option<&ProjectWorkingFolderId>,
     attachment_ids: &[ChatAttachmentId],
 ) -> ChatResult<Vec<PromptAttachmentReference>> {
     if attachment_ids.len() > 8 {
@@ -116,7 +120,9 @@ pub(super) async fn read_attachment_references(
                     true,
                 )
             })?;
-        if &attachment.working_folder_id != working_folder_id {
+        if working_folder_id
+            .is_some_and(|working_folder_id| &attachment.working_folder_id != working_folder_id)
+        {
             return Err(ChatError::new(
                 ChatErrorCode::Permission,
                 "Chat attachment belongs to another workspace",
@@ -179,7 +185,7 @@ pub(super) async fn read_attachment_references(
 
 pub(super) struct PersistUserTurnContext<'a> {
     pub(super) pool: &'a SqlitePool,
-    pub(super) workspace: &'a ProjectWorkingFolder,
+    pub(super) target: &'a TurnPersistenceTarget,
     pub(super) thread_id: &'a ChatThreadId,
     pub(super) existing: Option<&'a ThreadRuntimeData>,
     pub(super) continuation_group_id: &'a ContinuationGroupId,
@@ -190,10 +196,18 @@ pub(super) struct PersistUserTurnContext<'a> {
     pub(super) now: &'a UtcTimestamp,
 }
 
+#[derive(Clone, Debug)]
+pub(super) struct TurnPersistenceTarget {
+    pub(super) project_id: String,
+    pub(super) working_folder_id: Option<ProjectWorkingFolderId>,
+    pub(super) scratch_generation_id: Option<String>,
+    pub(super) execution_environment_id: String,
+}
+
 pub(super) async fn persist_user_turn(context: PersistUserTurnContext<'_>) -> ChatResult<()> {
     let PersistUserTurnContext {
         pool,
-        workspace,
+        target,
         thread_id,
         existing,
         continuation_group_id,
@@ -258,16 +272,23 @@ pub(super) async fn persist_user_turn(context: PersistUserTurnContext<'_>) -> Ch
         let title = prompt_title(&request.prompt);
         sqlx::query(
             "INSERT INTO chat_threads
-                (id, working_folder_id, execution_environment_id, project_id, title, provider_family_id,
+                (id, working_folder_id, execution_environment_id, scratch_generation_id,
+                 project_id, title, provider_family_id,
                  provider_instance_id, continuation_group_id, model_selection_data,
                  safety_mode, interaction_mode, state, latest_turn_state,
                  last_activity_at, created_at, updated_at)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', 'pending', ?, ?, ?)",
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', 'pending', ?, ?, ?)",
         )
         .bind(thread_id.as_str())
-        .bind(workspace.id.as_str())
-        .bind(request.execution_environment_id.as_deref())
-        .bind(&workspace.project_id)
+        .bind(
+            target
+                .working_folder_id
+                .as_ref()
+                .map(ProjectWorkingFolderId::as_str),
+        )
+        .bind(&target.execution_environment_id)
+        .bind(&target.scratch_generation_id)
+        .bind(&target.project_id)
         .bind(title)
         .bind(provider_family_id.as_str())
         .bind(request.provider_instance_id.as_str())
@@ -385,8 +406,6 @@ pub(super) async fn persist_user_turn(context: PersistUserTurnContext<'_>) -> Ch
             &mut transaction,
             StartingAgentRun {
                 binding,
-                project_id: &workspace.project_id,
-                working_folder_id: &workspace.id,
                 provider_turn_id: &request.turn_id,
                 provider_thread_id: thread_id,
                 now,

@@ -108,9 +108,17 @@ pub struct CodexHomeLayout {
 
 impl CodexHomeLayout {
     pub fn continuation_group(&self) -> ChatResult<ContinuationGroupId> {
+        self.continuation_group_with_authority(false)
+    }
+
+    pub fn continuation_group_with_authority(
+        &self,
+        organizational_authority: bool,
+    ) -> ChatResult<ContinuationGroupId> {
         let mut digest = Sha256::new();
-        digest.update(b"ganbaru-chat-codex-home-v1\0");
+        digest.update(b"ganbaru-chat-codex-home-v2\0");
         digest.update(path_identity_bytes(&self.shared_home));
+        digest.update([u8::from(organizational_authority)]);
         ContinuationGroupId::new(format!("codex-home-{:x}", digest.finalize()))
             .map_err(identifier_error)
     }

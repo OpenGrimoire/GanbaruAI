@@ -41,6 +41,16 @@ export interface ProviderCapabilities {
   entries: ProviderCapabilitySupport[];
 }
 
+export interface ProviderAuthoritySupport {
+  internalHostTools: boolean;
+  denyShell: boolean;
+  readOnlyRoot: boolean;
+  writableRoot: boolean;
+  confinedCommands: boolean;
+  networkBoundary: boolean;
+  classifiedPublish: boolean;
+}
+
 export interface ProviderFamilyMetadataRead {
   familyId: ProviderFamilyId;
   displayName: string;
@@ -62,6 +72,7 @@ export interface ProviderProbeResult {
   negotiatedProtocolVersion: string | null;
   accountLabel: string | null;
   capabilities: ProviderCapabilities;
+  authoritySupport: ProviderAuthoritySupport;
   checkedAt: UtcTimestamp;
   detail: string | null;
 }

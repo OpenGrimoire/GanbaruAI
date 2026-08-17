@@ -7,7 +7,8 @@ use super::support::*;
 use crate::chat::events::*;
 use crate::chat::models::*;
 use crate::chat::providers::{
-    DriverFuture, DriverOperationContext, ProviderDriver, ProviderEventSink,
+    DriverFuture, DriverOperationContext, ProviderAuthoritySupport, ProviderDriver,
+    ProviderEventSink,
 };
 use std::sync::{atomic::Ordering, Arc};
 
@@ -22,6 +23,21 @@ impl ProviderDriver for OpenCodeProviderDriver {
 
     fn capabilities(&self) -> ProviderCapabilities {
         capabilities()
+    }
+
+    fn authority_support(&self) -> ProviderAuthoritySupport {
+        if self.settings.external() {
+            return ProviderAuthoritySupport::default();
+        }
+        ProviderAuthoritySupport {
+            internal_host_tools: true,
+            deny_shell: false,
+            read_only_root: false,
+            writable_root: false,
+            confined_commands: false,
+            network_boundary: false,
+            classified_publish: false,
+        }
     }
 
     fn cached_model_catalog(&self) -> Option<ProviderModelCatalog> {
@@ -72,6 +88,7 @@ impl ProviderDriver for OpenCodeProviderDriver {
                         negotiated_protocol_version,
                         account_label: snapshot.account_label,
                         capabilities: capabilities(),
+                        authority_support: self.authority_support(),
                         checked_at,
                         detail: Some(snapshot.toolchain_detail),
                     })
@@ -84,6 +101,7 @@ impl ProviderDriver for OpenCodeProviderDriver {
                     negotiated_protocol_version: None,
                     account_label: None,
                     capabilities: capabilities(),
+                    authority_support: self.authority_support(),
                     checked_at,
                     detail: Some(probe_detail(error.code).to_string()),
                 }),

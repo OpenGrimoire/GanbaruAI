@@ -1,29 +1,62 @@
 import {
-  CHAT_APPROVAL_POLICIES,
+  CHAT_ACCESS_ISSUE_CODES,
+  CHAT_ACCESS_PROFILE_BUILTIN_KEYS,
+  CHAT_ASSIGNMENT_TARGET_BINDING_STATES,
+  CHAT_ASSIGNMENT_TARGET_KINDS,
+  CHAT_ASSIGNMENT_TARGET_LIFECYCLE_STATES,
+  CHAT_FOLDER_CAPABILITIES,
   CHAT_PARTICIPANT_KINDS,
+  CHAT_RUNTIME_APPROVAL_POLICIES,
+  CHAT_SCRATCH_CLEANUP_JOB_STATES,
+  CHAT_SCRATCH_DEVICE_AVAILABILITIES,
+  CHAT_SCRATCH_DIRECTORY_ENTRY_KINDS,
+  CHAT_SCRATCH_GENERATION_LIFECYCLE_STATES,
+  CHAT_SCRATCH_SCOPE_LIFECYCLE_STATES,
   CHAT_SCHEDULED_MESSAGE_STATES,
   CHAT_TEAMMATE_CONFIGURATION_STATES,
   CHAT_WORK_ASSIGNMENT_STATES,
   type ChatAgentRunRead,
+  type ChatAccessProfileRead,
+  type ChatAccessProfileImpactPreviewRead,
+  type ChatAccessProfileRevision,
   type ChatAiTeammateRead,
+  type ChatAssignmentTargetRead,
   type ChatChannelPageRead,
+  type ChatChannelMembershipRemovalPreview,
+  type ChatChannelRosterAiSummary,
+  type ChatChannelRosterRead,
   type ChatConversationMembershipRead,
+  type ChatFolderGrant,
+  type ChatExecutionTarget,
+  type ChatHistoryBoundary,
   type ChatMessageRead,
+  type ChatMessageReference,
   type ChatMessageSearchResultRead,
-  type ChatParticipantMentionRead,
   type ChatParticipantRead,
   type ChatProjectPrimaryWorkingFolderRead,
   type ChatReplyThreadPageRead,
   type ChatReplyThreadSummaryRead,
-  type ChatResourceReferenceRead,
   type ChatScheduledMessageDispatchRead,
   type ChatScheduledMessageRead,
+  type ChatScratchCleanupPreviewRead,
+  type ChatScratchCleanupResultRead,
+  type ChatScratchDirectoryEntryRead,
+  type ChatScratchDirectoryPageRead,
+  type ChatScratchGenerationRead,
+  type ChatScratchPromotionDestinationRead,
+  type ChatScratchPromotionResultRead,
+  type ChatScratchScopeRead,
+  type ChatScratchSourceSummaryRead,
   type ChatTeammatePolicyRead,
+  type ChatTeammateAccessPreviewRead,
+  type ChatTeammateAccessPreviewIssue,
+  type ChatTeammateAccessRead,
+  type ChatTeammateChannelAccess,
   type ChatWorkAssignmentRead,
-  type ChatWorkingFolderGrantRead,
   type PostChatMessageResult,
 } from "../contracts";
 import { parseModelOptionSelection } from "./provider";
+import { normalizeChatMessageReferences } from "../message-references";
 import {
   readArray,
   readBoolean,
@@ -40,6 +73,33 @@ import {
 const AGENT_RUN_STATES = [
   "queued", "starting", "working", "waiting", "completed", "failed", "cancelled",
 ] as const;
+const MAX_SCRATCH_DIRECTORY_PAGE_ENTRIES = 50;
+const MAX_SCRATCH_RELATIVE_PATH_BYTES = 4_096;
+
+function readScratchRelativePath(value: unknown, label: string, allowEmpty = false): string {
+  const path = readString(value, label);
+  if (allowEmpty && path.length === 0) return path;
+  if (
+    path.length === 0
+    || new TextEncoder().encode(path).byteLength > MAX_SCRATCH_RELATIVE_PATH_BYTES
+    || path.startsWith("/")
+    || path.includes("\\")
+    || path.split("/").some((segment) => segment === "." || segment === "..")
+    || [...path].some((character) => {
+      const point = character.codePointAt(0) ?? 0;
+      return point <= 0x1f || (point >= 0x7f && point <= 0x9f);
+    })
+  ) {
+    throw new Error(`${label} must be a bounded relative path`);
+  }
+  return path;
+}
+
+function readSha256(value: unknown, label: string): string {
+  const digest = readString(value, label);
+  if (!/^[0-9a-f]{64}$/i.test(digest)) throw new Error(`${label} must be a SHA-256 digest`);
+  return digest;
+}
 
 export function parseChatParticipant(value: unknown, label = "Chat participant"): ChatParticipantRead {
   const record = readRecord(value, label);
@@ -95,15 +155,6 @@ export function parseChatAiTeammates(value: unknown, label = "Chat AI teammates"
   return readArray(value, label, parseChatAiTeammate);
 }
 
-function parseWorkingFolderGrant(value: unknown, label: string): ChatWorkingFolderGrantRead {
-  const record = readRecord(value, label);
-  return {
-    workingFolderId: readIdentifier(record.workingFolderId, `${label}.workingFolderId`),
-    displayName: readString(record.displayName, `${label}.displayName`),
-    isDefault: readBoolean(record.isDefault, `${label}.isDefault`),
-  };
-}
-
 export function parseChatConversationMembership(
   value: unknown,
   label = "Chat conversation membership",
@@ -112,13 +163,7 @@ export function parseChatConversationMembership(
   return {
     conversationId: readIdentifier(record.conversationId, `${label}.conversationId`),
     participant: parseChatParticipant(record.participant, `${label}.participant`),
-    addressable: readBoolean(record.addressable, `${label}.addressable`),
-    approvalPolicy: readEnum(record.approvalPolicy, CHAT_APPROVAL_POLICIES, `${label}.approvalPolicy`),
-    workingFolderGrants: readArray(
-      record.workingFolderGrants,
-      `${label}.workingFolderGrants`,
-      parseWorkingFolderGrant,
-    ),
+    aiAccess: readNullable(record.aiAccess, `${label}.aiAccess`, parseChatChannelRosterAiSummary),
     revision: readNonNegativeSafeInteger(record.revision, `${label}.revision`),
     removedAt: readNullable(record.removedAt, `${label}.removedAt`, readUtcTimestamp),
   };
@@ -129,6 +174,283 @@ export function parseChatConversationMemberships(
   label = "Chat conversation memberships",
 ): ChatConversationMembershipRead[] {
   return readArray(value, label, parseChatConversationMembership);
+}
+
+function parseChatHistoryBoundary(value: unknown, label: string): ChatHistoryBoundary {
+  const record = readRecord(value, label);
+  const kind = readEnum(record.kind, ["entire", "fromGrant"] as const, `${label}.kind`);
+  if (kind === "entire") return { kind };
+  return record.lowerOrdinal === undefined
+    ? { kind }
+    : { kind, lowerOrdinal: readNonNegativeSafeInteger(record.lowerOrdinal, `${label}.lowerOrdinal`) };
+}
+
+function parseChatFolderGrant(value: unknown, label: string): ChatFolderGrant {
+  const record = readRecord(value, label);
+  return {
+    workingFolderId: readIdentifier(record.workingFolderId, `${label}.workingFolderId`),
+    displayName: readString(record.displayName, `${label}.displayName`),
+    capability: readEnum(record.capability, CHAT_FOLDER_CAPABILITIES, `${label}.capability`),
+    isDefault: readBoolean(record.isDefault, `${label}.isDefault`),
+    runtimeApprovalOverride: readNullable(
+      record.runtimeApprovalOverride,
+      `${label}.runtimeApprovalOverride`,
+      (entry, entryLabel) => readEnum(entry, CHAT_RUNTIME_APPROVAL_POLICIES, entryLabel),
+    ),
+    revision: readNonNegativeSafeInteger(record.revision, `${label}.revision`),
+    revokedAt: readNullable(record.revokedAt, `${label}.revokedAt`, readUtcTimestamp),
+  };
+}
+
+function parseChatChannelRosterAiSummary(
+  value: unknown,
+  label: string,
+): ChatChannelRosterAiSummary {
+  const record = readRecord(value, label);
+  const capabilities = readRecord(record.capabilities, `${label}.capabilities`);
+  return {
+    accessProfileId: readIdentifier(record.accessProfileId, `${label}.accessProfileId`),
+    accessProfileRevision: readNonNegativeSafeInteger(
+      record.accessProfileRevision,
+      `${label}.accessProfileRevision`,
+    ),
+    accessProfileBuiltinKey: readNullable(
+      record.accessProfileBuiltinKey,
+      `${label}.accessProfileBuiltinKey`,
+      (entry, entryLabel) => readEnum(entry, CHAT_ACCESS_PROFILE_BUILTIN_KEYS, entryLabel),
+    ),
+    accessProfileName: readString(record.accessProfileName, `${label}.accessProfileName`),
+    capabilities: {
+      readHistory: readBoolean(capabilities.readHistory, `${label}.capabilities.readHistory`),
+      participate: readBoolean(capabilities.participate, `${label}.capabilities.participate`),
+    },
+    historyBoundary: parseChatHistoryBoundary(record.historyBoundary, `${label}.historyBoundary`),
+    runtimeApprovalOverride: readNullable(
+      record.runtimeApprovalOverride,
+      `${label}.runtimeApprovalOverride`,
+      (entry, entryLabel) => readEnum(entry, CHAT_RUNTIME_APPROVAL_POLICIES, entryLabel),
+    ),
+    scratchRuntimeApprovalOverride: readNullable(
+      record.scratchRuntimeApprovalOverride,
+      `${label}.scratchRuntimeApprovalOverride`,
+      (entry, entryLabel) => readEnum(entry, CHAT_RUNTIME_APPROVAL_POLICIES, entryLabel),
+    ),
+    folderGrants: readArray(record.folderGrants, `${label}.folderGrants`, parseChatFolderGrant),
+  };
+}
+
+export function parseChatChannelRoster(
+  value: unknown,
+  label = "Chat channel roster",
+): ChatChannelRosterRead {
+  const record = readRecord(value, label);
+  return {
+    channelId: readIdentifier(record.channelId, `${label}.channelId`),
+    conversationId: readIdentifier(record.conversationId, `${label}.conversationId`),
+    audienceRevision: readNonNegativeSafeInteger(record.audienceRevision, `${label}.audienceRevision`),
+    memberships: readArray(record.memberships, `${label}.memberships`, parseChatConversationMembership),
+  };
+}
+
+export function parseChatChannelMembershipRemovalPreview(
+  value: unknown,
+  label = "Chat channel membership removal preview",
+): ChatChannelMembershipRemovalPreview {
+  const record = readRecord(value, label);
+  return {
+    teammateId: readIdentifier(record.teammateId, `${label}.teammateId`),
+    channelId: readIdentifier(record.channelId, `${label}.channelId`),
+    activeAssignmentCount: readNonNegativeSafeInteger(
+      record.activeAssignmentCount,
+      `${label}.activeAssignmentCount`,
+    ),
+    activeAuthorizationCount: readNonNegativeSafeInteger(
+      record.activeAuthorizationCount,
+      `${label}.activeAuthorizationCount`,
+    ),
+    willRevokeActiveWork: readBoolean(record.willRevokeActiveWork, `${label}.willRevokeActiveWork`),
+    proposedAccess: parseChatTeammateAccess(record.proposedAccess, `${label}.proposedAccess`),
+  };
+}
+
+export function parseChatTeammateChannelAccess(
+  value: unknown,
+  label = "Chat teammate channel access",
+): ChatTeammateChannelAccess {
+  const record = readRecord(value, label);
+  const capabilities = readRecord(record.capabilities, `${label}.capabilities`);
+  return {
+    channelId: readIdentifier(record.channelId, `${label}.channelId`),
+    conversationId: readIdentifier(record.conversationId, `${label}.conversationId`),
+    projectId: readIdentifier(record.projectId, `${label}.projectId`),
+    groupId: readIdentifier(record.groupId, `${label}.groupId`),
+    channelName: readString(record.channelName, `${label}.channelName`),
+    accessProfileId: readIdentifier(record.accessProfileId, `${label}.accessProfileId`),
+    accessProfileRevision: readNonNegativeSafeInteger(
+      record.accessProfileRevision,
+      `${label}.accessProfileRevision`,
+    ),
+    capabilities: {
+      readHistory: readBoolean(capabilities.readHistory, `${label}.capabilities.readHistory`),
+      participate: readBoolean(capabilities.participate, `${label}.capabilities.participate`),
+    },
+    historyBoundary: parseChatHistoryBoundary(record.historyBoundary, `${label}.historyBoundary`),
+    runtimeApprovalOverride: readNullable(
+      record.runtimeApprovalOverride,
+      `${label}.runtimeApprovalOverride`,
+      (entry, entryLabel) => readEnum(entry, CHAT_RUNTIME_APPROVAL_POLICIES, entryLabel),
+    ),
+    scratchRuntimeApprovalOverride: readNullable(
+      record.scratchRuntimeApprovalOverride,
+      `${label}.scratchRuntimeApprovalOverride`,
+      (entry, entryLabel) => readEnum(entry, CHAT_RUNTIME_APPROVAL_POLICIES, entryLabel),
+    ),
+    folderGrants: readArray(record.folderGrants, `${label}.folderGrants`, parseChatFolderGrant),
+    membershipRevision: readNonNegativeSafeInteger(
+      record.membershipRevision,
+      `${label}.membershipRevision`,
+    ),
+    removedAt: readNullable(record.removedAt, `${label}.removedAt`, readUtcTimestamp),
+  };
+}
+
+export function parseChatTeammateAccess(
+  value: unknown,
+  label = "Chat teammate access",
+): ChatTeammateAccessRead {
+  const record = readRecord(value, label);
+  return {
+    teammateId: readIdentifier(record.teammateId, `${label}.teammateId`),
+    accessRevision: readNonNegativeSafeInteger(record.accessRevision, `${label}.accessRevision`),
+    teammateDefaultRuntimeApproval: readEnum(
+      record.teammateDefaultRuntimeApproval,
+      CHAT_RUNTIME_APPROVAL_POLICIES,
+      `${label}.teammateDefaultRuntimeApproval`,
+    ),
+    channels: readArray(record.channels, `${label}.channels`, parseChatTeammateChannelAccess),
+  };
+}
+
+export function parseChatAccessProfileRevision(
+  value: unknown,
+  label = "Chat access profile revision",
+): ChatAccessProfileRevision {
+  const record = readRecord(value, label);
+  return {
+    id: readIdentifier(record.id, `${label}.id`),
+    accessProfileId: readIdentifier(record.accessProfileId, `${label}.accessProfileId`),
+    revision: readNonNegativeSafeInteger(record.revision, `${label}.revision`),
+    defaultChannelCapabilities: (() => {
+      const capabilities = readRecord(
+        record.defaultChannelCapabilities,
+        `${label}.defaultChannelCapabilities`,
+      );
+      return {
+        readHistory: readBoolean(
+          capabilities.readHistory,
+          `${label}.defaultChannelCapabilities.readHistory`,
+        ),
+        participate: readBoolean(
+          capabilities.participate,
+          `${label}.defaultChannelCapabilities.participate`,
+        ),
+      };
+    })(),
+    defaultHistoryBoundary: parseChatHistoryBoundary(
+      record.defaultHistoryBoundary,
+      `${label}.defaultHistoryBoundary`,
+    ),
+    maximumFolderCapability: readEnum(
+      record.maximumFolderCapability,
+      CHAT_FOLDER_CAPABILITIES,
+      `${label}.maximumFolderCapability`,
+    ),
+    createdAt: readUtcTimestamp(record.createdAt, `${label}.createdAt`),
+  };
+}
+
+export function parseChatAccessProfile(
+  value: unknown,
+  label = "Chat access profile",
+): ChatAccessProfileRead {
+  const record = readRecord(value, label);
+  return {
+    id: readIdentifier(record.id, `${label}.id`),
+    builtinKey: readNullable(
+      record.builtinKey,
+      `${label}.builtinKey`,
+      (entry, entryLabel) => readEnum(
+        entry,
+        CHAT_ACCESS_PROFILE_BUILTIN_KEYS,
+        entryLabel,
+      ),
+    ),
+    displayName: readString(record.displayName, `${label}.displayName`),
+    latestRevision: parseChatAccessProfileRevision(record.latestRevision, `${label}.latestRevision`),
+    revision: readNonNegativeSafeInteger(record.revision, `${label}.revision`),
+    archivedAt: readNullable(record.archivedAt, `${label}.archivedAt`, readUtcTimestamp),
+  };
+}
+
+export function parseChatAccessProfiles(
+  value: unknown,
+  label = "Chat access profiles",
+): ChatAccessProfileRead[] {
+  return readArray(value, label, parseChatAccessProfile);
+}
+
+function parseChatTeammateAccessPreviewIssue(
+  value: unknown,
+  label: string,
+): ChatTeammateAccessPreviewIssue {
+  const record = readRecord(value, label);
+  return {
+    code: readEnum(record.code, CHAT_ACCESS_ISSUE_CODES, `${label}.code`),
+    fieldPath: readString(record.fieldPath, `${label}.fieldPath`),
+    message: readString(record.message, `${label}.message`),
+  };
+}
+
+export function parseChatTeammateAccessPreview(
+  value: unknown,
+  label = "Chat teammate access preview",
+): ChatTeammateAccessPreviewRead {
+  const record = readRecord(value, label);
+  return {
+    proposed: readNullable(record.proposed, `${label}.proposed`, parseChatTeammateAccess),
+    isExpansion: readBoolean(record.isExpansion, `${label}.isExpansion`),
+    addedChannelIds: readArray(record.addedChannelIds, `${label}.addedChannelIds`, readIdentifier),
+    removedChannelIds: readArray(record.removedChannelIds, `${label}.removedChannelIds`, readIdentifier),
+    issues: readArray(record.issues, `${label}.issues`, parseChatTeammateAccessPreviewIssue),
+  };
+}
+
+export function parseChatAccessProfileImpactPreview(
+  value: unknown,
+  label = "Chat access profile impact preview",
+): ChatAccessProfileImpactPreviewRead {
+  const record = readRecord(value, label);
+  return {
+    accessProfileId: readIdentifier(record.accessProfileId, `${label}.accessProfileId`),
+    currentRevision: parseChatAccessProfileRevision(record.currentRevision, `${label}.currentRevision`),
+    isExpansion: readBoolean(record.isExpansion, `${label}.isExpansion`),
+    isReduction: readBoolean(record.isReduction, `${label}.isReduction`),
+    affectedTeammateIds: readArray(
+      record.affectedTeammateIds,
+      `${label}.affectedTeammateIds`,
+      readIdentifier,
+    ),
+    affectedChannelIds: readArray(
+      record.affectedChannelIds,
+      `${label}.affectedChannelIds`,
+      readIdentifier,
+    ),
+    activeAuthorizationCount: readNonNegativeSafeInteger(
+      record.activeAuthorizationCount,
+      `${label}.activeAuthorizationCount`,
+    ),
+    issues: readArray(record.issues, `${label}.issues`, parseChatTeammateAccessPreviewIssue),
+  };
 }
 
 export function parseChatProjectPrimaryWorkingFolder(
@@ -143,24 +465,386 @@ export function parseChatProjectPrimaryWorkingFolder(
   };
 }
 
-function parseParticipantMention(value: unknown, label: string): ChatParticipantMentionRead {
+function parseChatExecutionTarget(value: unknown, label: string): ChatExecutionTarget {
   const record = readRecord(value, label);
+  const kind = readEnum(record.kind, ["scratch", "workingFolder"] as const, `${label}.kind`);
+  if (kind === "scratch") {
+    return {
+      kind,
+      scratchScopeId: readIdentifier(record.scratchScopeId, `${label}.scratchScopeId`),
+      scratchGenerationId: readIdentifier(
+        record.scratchGenerationId,
+        `${label}.scratchGenerationId`,
+      ),
+      executionEnvironmentId: readIdentifier(
+        record.executionEnvironmentId,
+        `${label}.executionEnvironmentId`,
+      ),
+    };
+  }
   return {
-    participantId: readIdentifier(record.participantId, `${label}.participantId`),
-    participantKind: readEnum(record.participantKind, CHAT_PARTICIPANT_KINDS, `${label}.participantKind`),
-    labelSnapshot: readString(record.labelSnapshot, `${label}.labelSnapshot`),
-    startOffset: readNonNegativeSafeInteger(record.startOffset, `${label}.startOffset`),
-    endOffset: readNonNegativeSafeInteger(record.endOffset, `${label}.endOffset`),
+    kind,
+    workingFolderId: readIdentifier(record.workingFolderId, `${label}.workingFolderId`),
+    executionEnvironmentId: readIdentifier(
+      record.executionEnvironmentId,
+      `${label}.executionEnvironmentId`,
+    ),
   };
 }
 
-function parseResourceReference(value: unknown, label: string): ChatResourceReferenceRead {
+export function parseChatMessageReference(
+  value: unknown,
+  label = "Chat message reference",
+): ChatMessageReference {
+  const record = readRecord(value, label);
+  const kind = readEnum(
+    record.kind,
+    ["participant", "channel", "workingFolder", "workspacePath", "executionEnvironment"] as const,
+    `${label}.kind`,
+  );
+  const metadataRecord = readRecord(record.metadata, `${label}.metadata`);
+  const metadata = {
+    referenceId: readIdentifier(metadataRecord.referenceId, `${label}.metadata.referenceId`),
+    labelSnapshot: readString(metadataRecord.labelSnapshot, `${label}.metadata.labelSnapshot`),
+    startOffset: readNonNegativeSafeInteger(metadataRecord.startOffset, `${label}.metadata.startOffset`),
+    endOffset: readNonNegativeSafeInteger(metadataRecord.endOffset, `${label}.metadata.endOffset`),
+    plainTextProjection: readString(
+      metadataRecord.plainTextProjection,
+      `${label}.metadata.plainTextProjection`,
+    ),
+  };
+  switch (kind) {
+    case "participant":
+      return {
+        kind,
+        metadata,
+        participantId: readIdentifier(record.participantId, `${label}.participantId`),
+        participantKind: readEnum(
+          record.participantKind,
+          CHAT_PARTICIPANT_KINDS,
+          `${label}.participantKind`,
+        ),
+      };
+    case "channel":
+      return { kind, metadata, channelId: readIdentifier(record.channelId, `${label}.channelId`) };
+    case "workingFolder":
+      return {
+        kind,
+        metadata,
+        workingFolderId: readIdentifier(record.workingFolderId, `${label}.workingFolderId`),
+      };
+    case "workspacePath":
+      return {
+        kind,
+        metadata,
+        workingFolderId: readIdentifier(record.workingFolderId, `${label}.workingFolderId`),
+        pathKind: readEnum(record.pathKind, ["file", "folder"] as const, `${label}.pathKind`),
+        relativePath: readString(record.relativePath, `${label}.relativePath`),
+      };
+    case "executionEnvironment":
+      return {
+        kind,
+        metadata,
+        executionEnvironmentId: readIdentifier(
+          record.executionEnvironmentId,
+          `${label}.executionEnvironmentId`,
+        ),
+      };
+  }
+}
+
+export function parseChatAssignmentTarget(
+  value: unknown,
+  label = "Chat assignment target",
+): ChatAssignmentTargetRead {
   const record = readRecord(value, label);
   return {
-    workingFolderId: readIdentifier(record.workingFolderId, `${label}.workingFolderId`),
-    kind: readEnum(record.kind, ["file", "folder"] as const, `${label}.kind`),
-    relativePath: readString(record.relativePath, `${label}.relativePath`),
-    displayLabel: readString(record.displayLabel, `${label}.displayLabel`),
+    executionTarget: readNullable(
+      record.executionTarget,
+      `${label}.executionTarget`,
+      parseChatExecutionTarget,
+    ),
+    kind: readEnum(record.kind, CHAT_ASSIGNMENT_TARGET_KINDS, `${label}.kind`),
+    displayName: readString(record.displayName, `${label}.displayName`),
+    folderCapability: readNullable(
+      record.folderCapability,
+      `${label}.folderCapability`,
+      (entry, entryLabel) => readEnum(entry, CHAT_FOLDER_CAPABILITIES, entryLabel),
+    ),
+    effectiveRuntimeApproval: readEnum(
+      record.effectiveRuntimeApproval,
+      CHAT_RUNTIME_APPROVAL_POLICIES,
+      `${label}.effectiveRuntimeApproval`,
+    ),
+    isDefault: readBoolean(record.isDefault, `${label}.isDefault`),
+    bindingState: readEnum(
+      record.bindingState,
+      CHAT_ASSIGNMENT_TARGET_BINDING_STATES,
+      `${label}.bindingState`,
+    ),
+    lifecycleState: readEnum(
+      record.lifecycleState,
+      CHAT_ASSIGNMENT_TARGET_LIFECYCLE_STATES,
+      `${label}.lifecycleState`,
+    ),
+    isBusy: readBoolean(record.isBusy, `${label}.isBusy`),
+    isDirty: readNullable(record.isDirty, `${label}.isDirty`, readBoolean),
+    eligible: readBoolean(record.eligible, `${label}.eligible`),
+    unavailableReason: readNullable(record.unavailableReason, `${label}.unavailableReason`, readString),
+  };
+}
+
+export function parseChatAssignmentTargets(
+  value: unknown,
+  label = "Chat assignment targets",
+): ChatAssignmentTargetRead[] {
+  return readArray(value, label, parseChatAssignmentTarget);
+}
+
+function parseChatScratchSourceSummary(
+  value: unknown,
+  label: string,
+): ChatScratchSourceSummaryRead {
+  const record = readRecord(value, label);
+  const lowerOrdinal = readNonNegativeSafeInteger(record.lowerOrdinal, `${label}.lowerOrdinal`);
+  const highOrdinal = readNonNegativeSafeInteger(record.highOrdinal, `${label}.highOrdinal`);
+  if (highOrdinal < lowerOrdinal) {
+    throw new Error(`${label}.highOrdinal must not precede lowerOrdinal`);
+  }
+  return {
+    channelId: readIdentifier(record.channelId, `${label}.channelId`),
+    channelName: readString(record.channelName, `${label}.channelName`),
+    lowerOrdinal,
+    highOrdinal,
+    audienceRevision: readNonNegativeSafeInteger(
+      record.audienceRevision,
+      `${label}.audienceRevision`,
+    ),
+  };
+}
+
+function parseChatScratchGeneration(
+  value: unknown,
+  label: string,
+): ChatScratchGenerationRead {
+  const record = readRecord(value, label);
+  return {
+    id: readIdentifier(record.id, `${label}.id`),
+    executionEnvironmentId: readIdentifier(
+      record.executionEnvironmentId,
+      `${label}.executionEnvironmentId`,
+    ),
+    generation: readNonNegativeSafeInteger(record.generation, `${label}.generation`),
+    lifecycleState: readEnum(
+      record.lifecycleState,
+      CHAT_SCRATCH_GENERATION_LIFECYCLE_STATES,
+      `${label}.lifecycleState`,
+    ),
+    byteSize: readNonNegativeSafeInteger(record.byteSize, `${label}.byteSize`),
+    entryCount: readNonNegativeSafeInteger(record.entryCount, `${label}.entryCount`),
+    sizeTruncated: readBoolean(record.sizeTruncated, `${label}.sizeTruncated`),
+    deviceAvailability: readEnum(
+      record.deviceAvailability,
+      CHAT_SCRATCH_DEVICE_AVAILABILITIES,
+      `${label}.deviceAvailability`,
+    ),
+    retainedSources: readArray(
+      record.retainedSources,
+      `${label}.retainedSources`,
+      parseChatScratchSourceSummary,
+    ),
+    createdAt: readUtcTimestamp(record.createdAt, `${label}.createdAt`),
+    updatedAt: readUtcTimestamp(record.updatedAt, `${label}.updatedAt`),
+  };
+}
+
+export function parseChatScratchScope(
+  value: unknown,
+  label = "Chat scratch scope",
+): ChatScratchScopeRead {
+  const record = readRecord(value, label);
+  return {
+    id: readIdentifier(record.id, `${label}.id`),
+    replyThreadId: readIdentifier(record.replyThreadId, `${label}.replyThreadId`),
+    teammateId: readIdentifier(record.teammateId, `${label}.teammateId`),
+    teammateName: readString(record.teammateName, `${label}.teammateName`),
+    channelId: readIdentifier(record.channelId, `${label}.channelId`),
+    channelName: readString(record.channelName, `${label}.channelName`),
+    projectId: readIdentifier(record.projectId, `${label}.projectId`),
+    projectName: readString(record.projectName, `${label}.projectName`),
+    groupId: readIdentifier(record.groupId, `${label}.groupId`),
+    groupName: readString(record.groupName, `${label}.groupName`),
+    lifecycleState: readEnum(
+      record.lifecycleState,
+      CHAT_SCRATCH_SCOPE_LIFECYCLE_STATES,
+      `${label}.lifecycleState`,
+    ),
+    revision: readNonNegativeSafeInteger(record.revision, `${label}.revision`),
+    generations: readArray(
+      record.generations,
+      `${label}.generations`,
+      parseChatScratchGeneration,
+    ),
+    createdAt: readUtcTimestamp(record.createdAt, `${label}.createdAt`),
+    updatedAt: readUtcTimestamp(record.updatedAt, `${label}.updatedAt`),
+  };
+}
+
+export function parseChatScratchScopes(
+  value: unknown,
+  label = "Chat scratch scopes",
+): ChatScratchScopeRead[] {
+  return readArray(value, label, parseChatScratchScope);
+}
+
+function parseChatScratchDirectoryEntry(
+  value: unknown,
+  label: string,
+): ChatScratchDirectoryEntryRead {
+  const record = readRecord(value, label);
+  return {
+    relativePath: readScratchRelativePath(record.relativePath, `${label}.relativePath`),
+    displayName: readString(record.displayName, `${label}.displayName`),
+    kind: readEnum(record.kind, CHAT_SCRATCH_DIRECTORY_ENTRY_KINDS, `${label}.kind`),
+    byteSize: readNullable(record.byteSize, `${label}.byteSize`, readNonNegativeSafeInteger),
+    contentRevision: readNullable(record.contentRevision, `${label}.contentRevision`, readSha256),
+    promotable: readBoolean(record.promotable, `${label}.promotable`),
+  };
+}
+
+export function parseChatScratchDirectoryPage(
+  value: unknown,
+  label = "Chat scratch directory page",
+): ChatScratchDirectoryPageRead {
+  const record = readRecord(value, label);
+  const entries = readArray(
+    record.entries,
+    `${label}.entries`,
+    parseChatScratchDirectoryEntry,
+  );
+  if (entries.length > MAX_SCRATCH_DIRECTORY_PAGE_ENTRIES) {
+    throw new Error(`${label}.entries exceeds the bounded page size`);
+  }
+  return {
+    scratchGenerationId: readIdentifier(
+      record.scratchGenerationId,
+      `${label}.scratchGenerationId`,
+    ),
+    relativePath: readScratchRelativePath(
+      record.relativePath,
+      `${label}.relativePath`,
+      true,
+    ),
+    entries,
+    nextCursor: readNullable(record.nextCursor, `${label}.nextCursor`, readString),
+  };
+}
+
+function parseChatScratchPromotionDestination(
+  value: unknown,
+  label: string,
+): ChatScratchPromotionDestinationRead {
+  const record = readRecord(value, label);
+  const kind = readEnum(
+    record.kind,
+    ["workingFolder", "managedAttachment"] as const,
+    `${label}.kind`,
+  );
+  if (kind === "workingFolder") {
+    return {
+      kind,
+      workingFolderId: readIdentifier(record.workingFolderId, `${label}.workingFolderId`),
+      relativePath: readScratchRelativePath(record.relativePath, `${label}.relativePath`),
+    };
+  }
+  return {
+    kind,
+    channelId: readIdentifier(record.channelId, `${label}.channelId`),
+    attachmentId: readIdentifier(record.attachmentId, `${label}.attachmentId`),
+  };
+}
+
+export function parseChatScratchPromotionResult(
+  value: unknown,
+  label = "Chat scratch promotion result",
+): ChatScratchPromotionResultRead {
+  const record = readRecord(value, label);
+  return {
+    id: readIdentifier(record.id, `${label}.id`),
+    scratchGenerationId: readIdentifier(
+      record.scratchGenerationId,
+      `${label}.scratchGenerationId`,
+    ),
+    sourceRelativePath: readScratchRelativePath(
+      record.sourceRelativePath,
+      `${label}.sourceRelativePath`,
+    ),
+    sourceSha256: readSha256(record.sourceSha256, `${label}.sourceSha256`),
+    destination: parseChatScratchPromotionDestination(
+      record.destination,
+      `${label}.destination`,
+    ),
+    createdAt: readUtcTimestamp(record.createdAt, `${label}.createdAt`),
+  };
+}
+
+export function parseChatScratchCleanupPreview(
+  value: unknown,
+  label = "Chat scratch cleanup preview",
+): ChatScratchCleanupPreviewRead {
+  const record = readRecord(value, label);
+  return {
+    scratchScopeId: readIdentifier(record.scratchScopeId, `${label}.scratchScopeId`),
+    scratchGenerationId: readIdentifier(
+      record.scratchGenerationId,
+      `${label}.scratchGenerationId`,
+    ),
+    expectedScopeRevision: readNonNegativeSafeInteger(
+      record.expectedScopeRevision,
+      `${label}.expectedScopeRevision`,
+    ),
+    lifecycleState: readEnum(
+      record.lifecycleState,
+      CHAT_SCRATCH_GENERATION_LIFECYCLE_STATES,
+      `${label}.lifecycleState`,
+    ),
+    byteSize: readNonNegativeSafeInteger(record.byteSize, `${label}.byteSize`),
+    entryCount: readNonNegativeSafeInteger(record.entryCount, `${label}.entryCount`),
+    sizeTruncated: readBoolean(record.sizeTruncated, `${label}.sizeTruncated`),
+    deviceAvailability: readEnum(
+      record.deviceAvailability,
+      CHAT_SCRATCH_DEVICE_AVAILABILITIES,
+      `${label}.deviceAvailability`,
+    ),
+    activeRunCount: readNonNegativeSafeInteger(
+      record.activeRunCount,
+      `${label}.activeRunCount`,
+    ),
+    willRemoveScope: readBoolean(record.willRemoveScope, `${label}.willRemoveScope`),
+  };
+}
+
+export function parseChatScratchCleanupResult(
+  value: unknown,
+  label = "Chat scratch cleanup result",
+): ChatScratchCleanupResultRead {
+  const record = readRecord(value, label);
+  return {
+    jobId: readIdentifier(record.jobId, `${label}.jobId`),
+    scratchScopeId: readIdentifier(record.scratchScopeId, `${label}.scratchScopeId`),
+    scratchGenerationId: readIdentifier(
+      record.scratchGenerationId,
+      `${label}.scratchGenerationId`,
+    ),
+    scopeRevision: readNonNegativeSafeInteger(record.scopeRevision, `${label}.scopeRevision`),
+    state: readEnum(record.state, CHAT_SCRATCH_CLEANUP_JOB_STATES, `${label}.state`),
+    removedBytes: readNonNegativeSafeInteger(record.removedBytes, `${label}.removedBytes`),
+    deviceAvailability: readEnum(
+      record.deviceAvailability,
+      CHAT_SCRATCH_DEVICE_AVAILABILITIES,
+      `${label}.deviceAvailability`,
+    ),
+    completedAt: readNullable(record.completedAt, `${label}.completedAt`, readUtcTimestamp),
   };
 }
 
@@ -185,6 +869,7 @@ export function parseChatReplyThreadSummary(
 
 export function parseChatMessage(value: unknown, label = "Chat message"): ChatMessageRead {
   const record = readRecord(value, label);
+  const normalizedMarkdown = readString(record.normalizedMarkdown, `${label}.normalizedMarkdown`);
   return {
     itemId: readIdentifier(record.itemId, `${label}.itemId`),
     conversationId: readIdentifier(record.conversationId, `${label}.conversationId`),
@@ -192,11 +877,15 @@ export function parseChatMessage(value: unknown, label = "Chat message"): ChatMe
     revisionId: readIdentifier(record.revisionId, `${label}.revisionId`),
     revision: readNonNegativeSafeInteger(record.revision, `${label}.revision`),
     author: parseChatParticipant(record.author, `${label}.author`),
-    normalizedMarkdown: readString(record.normalizedMarkdown, `${label}.normalizedMarkdown`),
+    authorLabelSnapshot: readString(record.authorLabelSnapshot, `${label}.authorLabelSnapshot`),
+    normalizedMarkdown,
     richContent: readVersionedJson(record.richContent, `${label}.richContent`),
-    mentions: readArray(record.mentions, `${label}.mentions`, parseParticipantMention),
     attachmentIds: readArray(record.attachmentIds, `${label}.attachmentIds`, readIdentifier),
-    resourceReferences: readArray(record.resourceReferences, `${label}.resourceReferences`, parseResourceReference),
+    references: parseChatMessageReferencesForText(
+      record.references,
+      normalizedMarkdown,
+      `${label}.references`,
+    ),
     replyThread: readNullable(record.replyThread, `${label}.replyThread`, parseChatReplyThreadSummary),
     ordinal: readNonNegativeSafeInteger(record.ordinal, `${label}.ordinal`),
     editedAt: readNullable(record.editedAt, `${label}.editedAt`, readUtcTimestamp),
@@ -240,7 +929,16 @@ function parseAgentRun(value: unknown, label: string): ChatAgentRunRead {
     id: readIdentifier(record.id, `${label}.id`),
     assignmentId: readIdentifier(record.assignmentId, `${label}.assignmentId`),
     projectId: readIdentifier(record.projectId, `${label}.projectId`),
-    workingFolderId: readIdentifier(record.workingFolderId, `${label}.workingFolderId`),
+    workingFolderId: readNullable(record.workingFolderId, `${label}.workingFolderId`, readIdentifier),
+    executionEnvironmentId: readIdentifier(
+      record.executionEnvironmentId,
+      `${label}.executionEnvironmentId`,
+    ),
+    scratchGenerationId: readNullable(
+      record.scratchGenerationId,
+      `${label}.scratchGenerationId`,
+      readIdentifier,
+    ),
     teammatePolicyRevisionId: readIdentifier(record.teammatePolicyRevisionId, `${label}.teammatePolicyRevisionId`),
     effort: readNullable(record.effort, `${label}.effort`, readString),
     providerExecutionTurnId: readIdentifier(record.providerExecutionTurnId, `${label}.providerExecutionTurnId`),
@@ -290,22 +988,18 @@ export function parseChatScheduledMessage(
   label = "Chat scheduled message",
 ): ChatScheduledMessageRead {
   const record = readRecord(value, label);
+  const normalizedMarkdown = readString(record.normalizedMarkdown, `${label}.normalizedMarkdown`);
   return {
     id: readIdentifier(record.id, `${label}.id`),
     channelId: readIdentifier(record.channelId, `${label}.channelId`),
     replyThreadId: readNullable(record.replyThreadId, `${label}.replyThreadId`, readIdentifier),
-    normalizedMarkdown: readString(record.normalizedMarkdown, `${label}.normalizedMarkdown`),
+    normalizedMarkdown,
     richContent: readVersionedJson(record.richContent, `${label}.richContent`),
     attachmentIds: readArray(record.attachmentIds, `${label}.attachmentIds`, readIdentifier),
-    participantMentions: readArray(
-      record.participantMentions,
-      `${label}.participantMentions`,
-      parseParticipantMention,
-    ),
-    resourceReferences: readArray(
-      record.resourceReferences,
-      `${label}.resourceReferences`,
-      parseResourceReference,
+    references: parseChatMessageReferencesForText(
+      record.references,
+      normalizedMarkdown,
+      `${label}.references`,
     ),
     alsoSendToChannel: readBoolean(record.alsoSendToChannel, `${label}.alsoSendToChannel`),
     state: readEnum(record.state, CHAT_SCHEDULED_MESSAGE_STATES, `${label}.state`),
@@ -313,6 +1007,19 @@ export function parseChatScheduledMessage(
     lastError: readNullable(record.lastError, `${label}.lastError`, readString),
     createdAt: readUtcTimestamp(record.createdAt, `${label}.createdAt`),
   };
+}
+
+function parseChatMessageReferencesForText(
+  value: unknown,
+  text: string,
+  label: string,
+): ChatMessageReference[] {
+  const parsed = readArray(value, label, parseChatMessageReference);
+  const normalized = normalizeChatMessageReferences(text, parsed);
+  if (normalized.length !== parsed.length) {
+    throw new Error(`${label} contains an invalid, overlapping, or duplicate reference`);
+  }
+  return normalized;
 }
 
 export function parseChatScheduledMessages(

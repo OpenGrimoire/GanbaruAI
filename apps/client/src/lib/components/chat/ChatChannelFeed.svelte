@@ -157,7 +157,11 @@
     </div>
   </div>
   {#if channel && !channel.archivedAt}
-    <div class="channel-composer-dock"><ChatMessageComposer {destination} placeholder={t("chat.organization.messageChannel", channel.name)} onRequestScrollToBottom={scrollToBottomForUserAction} /></div>
+    <div class="channel-composer-dock">
+      {#key destination}
+        <ChatMessageComposer {destination} placeholder={t("chat.organization.messageChannel", channel.name)} onRequestScrollToBottom={scrollToBottomForUserAction} />
+      {/key}
+    </div>
   {/if}
 </section>
 

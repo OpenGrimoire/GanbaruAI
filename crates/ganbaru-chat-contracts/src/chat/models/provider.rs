@@ -12,6 +12,11 @@ pub struct ProviderInternalMcpConfig {
     pub name: String,
     pub url: String,
     pub bearer_token: String,
+    /// Enables the provider's fail-closed organizational authority boundary.
+    ///
+    /// The internal MCP endpoint also serves personal Chat resources, so its
+    /// presence alone must never imply an organizational assignment.
+    pub organizational_authority: bool,
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
@@ -58,6 +63,22 @@ impl ProviderCapabilities {
     }
 }
 
+/// Enforcement boundaries a provider adapter can prove for organizational work.
+///
+/// These declarations are distinct from protocol feature flags. A false value
+/// is a hard enforcement limit, not an indication that discovery is incomplete.
+#[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProviderAuthoritySupport {
+    pub internal_host_tools: bool,
+    pub deny_shell: bool,
+    pub read_only_root: bool,
+    pub writable_root: bool,
+    pub confined_commands: bool,
+    pub network_boundary: bool,
+    pub classified_publish: bool,
+}
+
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ProviderFamilyMetadataRead {
@@ -83,6 +104,8 @@ pub struct ProviderProbeResult {
     pub negotiated_protocol_version: Option<String>,
     pub account_label: Option<String>,
     pub capabilities: ProviderCapabilities,
+    #[serde(default)]
+    pub authority_support: ProviderAuthoritySupport,
     pub checked_at: UtcTimestamp,
     pub detail: Option<String>,
 }

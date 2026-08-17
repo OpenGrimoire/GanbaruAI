@@ -149,7 +149,7 @@ pub(in crate::chat::workspace_files) fn workspace_regular_file_permissions(
 pub(in crate::chat::workspace_files) fn create_workspace_file_exclusively(
     root: &Path,
     relative_path: &str,
-    contents: &str,
+    bytes: &[u8],
     permissions: Option<fs::Permissions>,
     conflict_message: &str,
 ) -> ChatResult<()> {
@@ -179,11 +179,7 @@ pub(in crate::chat::workspace_files) fn create_workspace_file_exclusively(
             workspace_file_write_error()
         }
     })?;
-    if file
-        .write_all(contents.as_bytes())
-        .and_then(|_| file.sync_all())
-        .is_err()
-    {
+    if file.write_all(bytes).and_then(|_| file.sync_all()).is_err() {
         drop(file);
         if fs::remove_file(&target).is_err() {
             return Err(workspace_file_recovery_error());
@@ -200,6 +196,44 @@ pub(in crate::chat::workspace_files) fn create_workspace_file_exclusively(
         }
     }
     Ok(())
+}
+
+#[cfg(windows)]
+pub(in crate::chat::workspace_files) fn delete_workspace_file_atomically(
+    root: &Path,
+    relative_path: &str,
+    expected_revision: &str,
+) -> ChatResult<()> {
+    let relative = Path::new(relative_path);
+    let parent_relative = relative.parent().unwrap_or_else(|| Path::new(""));
+    let parent_relative = parent_relative
+        .to_str()
+        .ok_or_else(|| ChatError::validation("relativePath", "Workspace path is unsupported"))?;
+    let (parent, parent_handles) = windows_workspace_directory_chain(root, parent_relative)?;
+    let target = parent.join(
+        relative
+            .file_name()
+            .ok_or_else(|| ChatError::validation("relativePath", "Workspace path is invalid"))?,
+    );
+    let (_current_parents, mut current) = windows_open_regular_file(root, relative_path)?;
+    let (current_revision, _) = revision_and_permissions(&mut current, relative_path)?;
+    if current_revision != expected_revision {
+        return Err(stale_workspace_file_error());
+    }
+    drop(current);
+    let (_, backup, _) = windows_replacement_paths(&parent);
+    fs::rename(&target, &backup).map_err(|_| workspace_file_write_error())?;
+    let displaced_matches = windows_revision_for_path(&backup, relative_path)
+        .is_ok_and(|revision| revision == expected_revision);
+    if !displaced_matches {
+        if fs::symlink_metadata(&target).is_err() && fs::rename(&backup, &target).is_ok() {
+            return Err(stale_workspace_file_error());
+        }
+        return Err(workspace_file_recovery_error());
+    }
+    let removed = fs::remove_file(&backup).map_err(|_| workspace_file_recovery_error());
+    drop(parent_handles);
+    removed
 }
 
 #[cfg(windows)]

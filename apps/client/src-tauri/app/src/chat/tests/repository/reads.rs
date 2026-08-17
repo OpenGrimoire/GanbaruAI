@@ -95,6 +95,82 @@ fn thread_shell_window_limits_recent_navigation_rows() {
 }
 
 #[test]
+fn scratch_thread_shells_are_exactly_readable_but_hidden_from_direct_navigation() {
+    tauri::async_runtime::block_on(async {
+        let pool = pool_with_thread().await;
+        sqlx::raw_sql("PRAGMA foreign_keys=OFF")
+            .execute(&pool)
+            .await
+            .unwrap();
+        sqlx::query(
+            "INSERT INTO chat_scratch_generations
+                (id, scratch_scope_id, generation, created_at, updated_at)
+             VALUES ('scratch-generation:shell', 'scratch-scope:shell', 1, ?, ?)",
+        )
+        .bind(NOW)
+        .bind(NOW)
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            "INSERT INTO chat_execution_environments
+                (id, scratch_generation_id, kind, display_name,
+                 lifecycle_state, created_at, updated_at)
+             VALUES ('scratch-environment:shell', 'scratch-generation:shell',
+                     'scratch', 'Private scratch', 'available', ?, ?)",
+        )
+        .bind(NOW)
+        .bind(NOW)
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            "INSERT INTO chat_threads
+                (id, project_id, execution_environment_id, scratch_generation_id,
+                 title, provider_family_id, provider_instance_id,
+                 continuation_group_id, safety_mode, interaction_mode, state,
+                 last_activity_at, created_at, updated_at)
+             VALUES ('thread-scratch', 'project-chat', 'scratch-environment:shell',
+                     'scratch-generation:shell', 'Private scratch execution',
+                     'codex', 'codex-personal', 'continuation-scratch',
+                     'ask_for_approval', 'build', 'idle', ?, ?, ?)",
+        )
+        .bind(NOW)
+        .bind(NOW)
+        .bind(NOW)
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::raw_sql("PRAGMA foreign_keys=ON")
+            .execute(&pool)
+            .await
+            .unwrap();
+
+        let scratch = read_thread_shell(&pool, &ChatThreadId::new("thread-scratch").unwrap())
+            .await
+            .unwrap();
+        assert!(scratch.working_folder_id.is_none());
+        assert_eq!(
+            scratch.execution_environment_id.as_str(),
+            "scratch-environment:shell"
+        );
+        assert_eq!(
+            scratch.scratch_generation_id.as_ref().map(|id| id.as_str()),
+            Some("scratch-generation:shell")
+        );
+
+        let listed = read_thread_shells(&pool, None, false).await.unwrap();
+        assert!(listed
+            .iter()
+            .all(|thread| thread.id.as_str() != "thread-scratch"));
+        let searched = search_thread_titles(&pool, "scratch", Some(false), 20)
+            .await
+            .unwrap();
+        assert!(searched.is_empty());
+    });
+}
+
+#[test]
 fn timeline_cursor_does_not_skip_rows_that_share_a_sequence() {
     tauri::async_runtime::block_on(async {
         let pool = pool_with_thread().await;

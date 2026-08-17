@@ -547,7 +547,7 @@ All AI features are opt-in. The app is fully functional with no provider configu
 
 Chat channels, direct messages, reply threads, task discussions, persistent AI teammates, work assignments, manager proposals, context packages, agent runs, reviews, budgets, and provenance are structured SQLite data. Projects owns accepted work. Notes owns durable knowledge. Calendar owns time and capacity. The coordination layer chooses an authorized execution path but is not itself a provider protocol.
 
-The first persistent AI teammate is the Ganbaru manager. Its durable memory comes from canonical records, selected Notes, bounded conversation context, scoped memory, decisions, and run summaries. It does not depend on one infinite provider conversation. A manager proposal applies only to exact source revisions and becomes canonical work through typed Rust commands after the applicable approval.
+The base system seeds no AI teammate. Future teammate templates instantiate ordinary identities under the same access model. Durable teammate context comes from canonical records, selected Notes, bounded conversation context, future scoped memory, decisions, and run summaries rather than one infinite provider conversation. A planning proposal applies only to exact source and authorization revisions and becomes canonical work through typed Rust commands after the applicable approval.
 
 ### Local coding-agent path
 
@@ -566,13 +566,13 @@ xterm.js renders thread-scoped terminal sessions created by narrow Rust commands
 
 ### Organizational conversations and execution sessions
 
-A channel or future DM is a durable organizational conversation. A provider thread is replaceable execution machinery. `chat_conversations` and `chat_channels` own organizational identity, while messages and reply threads link to work assignments and exact agent runs. An agent run optionally links to a hidden `chat_thread`, and every run remains permanently bound to one project working folder and immutable teammate policy revision. No channel owns a provider, model, folder, or current provider session.
+A channel or future DM is a durable organizational conversation. A provider thread is replaceable execution machinery. `chat_conversations` and `chat_channels` own organizational identity, while messages and reply threads link to work assignments and exact agent runs. An agent run optionally links to a hidden `chat_thread`, and every run remains permanently bound to one folder or private-scratch execution target plus an immutable teammate policy and authorization revision. No channel owns a provider, model, folder, or current provider session.
 
 Calendar can select the linked project and suggest a channel or task while preserving drafts, reviews, and live execution. It never retargets a running provider continuation. Working folders remain execution resources selected by a task, teammate policy, or direct-agent action instead of the left-rail hierarchy.
 
 ### Context packages and agent runs
 
-Every manager action and delegated run receives a versioned context package with exact task and requirement revisions, selected Notes or files, dependencies, Calendar constraints, relevant conversation context, prior summaries, instructions, effective permissions, and budgets. Package construction is permission-aware and auditable.
+Every approved planning action and delegated run receives a versioned context package with exact task and requirement revisions, selected Notes or files, dependencies, Calendar constraints, relevant conversation context, prior summaries, instructions, effective permissions, and budgets. Package construction is permission-aware and auditable.
 
 An agent run records the objective, teammate or task-agent identity, role-policy revision, provider, model, workspace, execution environment, context package, authority, budgets, lifecycle state, usage, deliverables, review state, and provider continuation. Parallel mutable work uses separate worktrees or execution environments. Work-in-progress, review capacity, dependencies, quotas, and cost ceilings constrain scheduling.
 
@@ -584,7 +584,7 @@ Credentials stay in the operating-system credential store behind opaque referenc
 
 ### CLI as the local data bridge
 
-The planned `ganbaru-ai` CLI exposes typed Projects, Calendar, Notes, and workspace operations to authorized local agents and scripts. Ganbaru-owned manager actions can call the same Rust services without starting a shell. Agents never gain permission merely because they can guess a row ID, and exported Markdown remains derivative.
+The planned `ganbaru-ai` CLI exposes typed Projects, Calendar, Notes, and workspace operations to separately authorized local agents and scripts. Application-owned coordination services can call the same Rust services without starting a shell. Neither the CLI nor an internal service is a participant identity. Agents never gain permission merely because they can guess a row ID, and exported Markdown remains derivative.
 
 ### MCP boundaries
 

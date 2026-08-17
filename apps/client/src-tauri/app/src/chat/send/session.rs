@@ -4,13 +4,15 @@ use super::checkpoints::ensure_post_turn_checkpoint;
 use super::persistence::ThreadRuntimeData;
 use super::support::{now_timestamp, operation_context, PROVIDER_START_TIMEOUT};
 use super::validation::validate_modes;
+use crate::chat::agent_runs::AgentRunBinding;
 use crate::chat::credentials::{materialize_provider_environment, PlatformCredentialStore};
 use crate::chat::events::{CanonicalEvent, CanonicalRuntimeEvent, ChangedFileSummary};
 use crate::chat::ingestion::{ChatEventIngestor, TauriChatChangeEmitter};
 use crate::chat::models::{
-    ChatError, ChatErrorCode, ChatResult, ChatThreadId, ContinuationGroupId,
-    ProviderInstanceConfig, ProviderSessionSnapshot, ProviderSessionState, ResumeSessionRequest,
-    StartSessionRequest, VerifiedWorkspaceContext,
+    ChatAgentRunId, ChatAuthorizationRevisionId, ChatError, ChatErrorCode, ChatResult,
+    ChatTeammatePolicyRevisionId, ChatThreadId, ChatTurnId, ChatWorkAssignmentId,
+    ContinuationGroupId, ProviderInstanceConfig, ProviderSessionSnapshot, ProviderSessionState,
+    ResumeSessionRequest, StartSessionRequest, VerifiedWorkspaceContext,
 };
 use crate::chat::providers::{
     DriverFuture, ProviderDriver, ProviderDriverFactory, ProviderDriverRegistry, ProviderEventSink,
@@ -19,7 +21,7 @@ use crate::chat::repository::events::AppendCanonicalEventRequest;
 use crate::chat::runtime::ThreadRuntimeOwner;
 use crate::chat::send_commands::SendChatTurnCommand;
 use crate::chat::workspace::AuthorizedWorkingFolder;
-use sqlx::SqlitePool;
+use sqlx::{Row, SqlitePool};
 use std::sync::Arc;
 use tauri::Manager;
 use tokio::sync::Mutex;
@@ -38,6 +40,7 @@ pub(super) struct EnsureSessionContext<'a> {
     pub(super) existing: Option<&'a ThreadRuntimeData>,
     pub(super) continuation_group_id: &'a ContinuationGroupId,
     pub(super) request: &'a SendChatTurnCommand,
+    pub(super) authorization: Option<&'a AgentRunBinding>,
 }
 
 pub(super) async fn ensure_session_with_executable_recovery(
@@ -54,6 +57,7 @@ pub(super) async fn ensure_session_with_executable_recovery(
         existing,
         continuation_group_id,
         request,
+        authorization,
     } = context;
     let internal_mcp = configuration.internal_mcp.clone();
     let initial = ensure_session(EnsureSessionContext {
@@ -67,6 +71,7 @@ pub(super) async fn ensure_session_with_executable_recovery(
         existing,
         continuation_group_id,
         request,
+        authorization,
     })
     .await;
     let error = match initial {
@@ -103,6 +108,7 @@ pub(super) async fn ensure_session_with_executable_recovery(
         existing,
         continuation_group_id,
         request,
+        authorization,
     })
     .await;
     if retry
@@ -132,6 +138,7 @@ pub(super) async fn ensure_session(
         existing,
         continuation_group_id,
         request,
+        authorization,
     } = context;
     let snapshot = owner.snapshot()?;
     if reuse_existing_session(snapshot.session_id.is_some(), snapshot.session_state)? {
@@ -175,6 +182,7 @@ pub(super) async fn ensure_session(
         pool.clone(),
         Arc::new(TauriChatChangeEmitter::new(app.clone())),
         workspace.clone(),
+        authorization.cloned(),
     ));
     if let Some(existing) = existing {
         if let (Some(provider_thread_id), Some(resume_cursor)) = (
@@ -254,6 +262,7 @@ struct DurableChatEventSink {
     app: tauri::AppHandle,
     pool: SqlitePool,
     workspace: AuthorizedWorkingFolder,
+    organizational: bool,
     ingestor: Mutex<ChatEventIngestor>,
 }
 
@@ -263,12 +272,14 @@ impl DurableChatEventSink {
         pool: SqlitePool,
         emitter: Arc<dyn crate::chat::ingestion::ChatChangeEmitter>,
         workspace: AuthorizedWorkingFolder,
+        authorization: Option<AgentRunBinding>,
     ) -> Self {
         Self {
             app,
             ingestor: Mutex::new(ChatEventIngestor::new(pool.clone(), emitter)),
             pool,
             workspace,
+            organizational: authorization.is_some(),
         }
     }
 }
@@ -276,6 +287,18 @@ impl DurableChatEventSink {
 impl ProviderEventSink for DurableChatEventSink {
     fn emit<'a>(&'a self, mut event: CanonicalRuntimeEvent) -> DriverFuture<'a, ()> {
         Box::pin(async move {
+            if self.organizational {
+                if let Err(error) =
+                    require_live_authorization(&self.pool, &event.thread_id, event.turn_id.as_ref())
+                        .await
+                {
+                    self.app
+                        .state::<crate::chat::internal_mcp::InternalMcpRegistry>()
+                        .revoke_run_scope(&event.thread_id)
+                        .await;
+                    return Err(error);
+                }
+            }
             normalize_changed_file_paths(&mut event.event, &self.workspace.canonical_path);
             let settled_turn = matches!(
                 &event.event,
@@ -330,6 +353,112 @@ impl ProviderEventSink for DurableChatEventSink {
     fn flush(&self) -> DriverFuture<'_, ()> {
         Box::pin(async move { self.ingestor.lock().await.flush().await })
     }
+}
+
+async fn require_live_authorization(
+    pool: &SqlitePool,
+    thread_id: &ChatThreadId,
+    turn_id: Option<&ChatTurnId>,
+) -> ChatResult<()> {
+    let active = sqlx::query(
+        "SELECT run.id, run.assignment_id, run.project_id, run.working_folder_id,
+                run.execution_environment_id, run.scratch_generation_id,
+                run.teammate_policy_revision_id, run.authorization_revision_id,
+                run.authorization_scope_digest, run.run_ordinal
+         FROM chat_agent_runs run
+         JOIN chat_assignment_authorization_revisions authorization
+           ON authorization.id = run.authorization_revision_id
+          AND authorization.assignment_id = run.assignment_id
+          AND authorization.scope_digest = run.authorization_scope_digest
+         JOIN chat_work_assignments assignment ON assignment.id = run.assignment_id
+         JOIN chat_conversation_memberships membership
+           ON membership.conversation_id = authorization.destination_conversation_id
+          AND membership.participant_id = assignment.teammate_id
+          AND membership.removed_at IS NULL
+         JOIN chat_ai_channel_memberships channel_access
+           ON channel_access.conversation_id = membership.conversation_id
+          AND channel_access.teammate_id = membership.participant_id
+         JOIN chat_access_profiles profile ON profile.id = channel_access.access_profile_id
+         JOIN chat_access_profile_revisions profile_revision
+           ON profile_revision.access_profile_id = profile.id
+          AND profile_revision.revision = profile.latest_revision
+         WHERE run.provider_thread_id = ?
+           AND (? IS NULL OR run.provider_turn_id = ?)
+           AND run.state IN ('starting', 'working', 'waiting')
+           AND authorization.decision_state = 'allowed'
+           AND authorization.revoked_at IS NULL
+           AND CASE
+                 WHEN channel_access.participate_inherits_profile = 1
+                   THEN profile_revision.default_participate
+                 ELSE channel_access.participate AND profile_revision.default_participate
+               END = 1
+         ORDER BY run.created_at DESC, run.id DESC
+         LIMIT 1",
+    )
+    .bind(thread_id.as_str())
+    .bind(turn_id.map(ChatTurnId::as_str))
+    .bind(turn_id.map(ChatTurnId::as_str))
+    .fetch_optional(pool)
+    .await
+    .map_err(|_| live_authorization_error())?;
+    let active = active.ok_or_else(live_authorization_error)?;
+    let binding = AgentRunBinding {
+        run_id: ChatAgentRunId::new(
+            active
+                .try_get::<String, _>("id")
+                .map_err(|_| live_authorization_error())?,
+        )
+        .map_err(|_| live_authorization_error())?,
+        assignment_id: ChatWorkAssignmentId::new(
+            active
+                .try_get::<String, _>("assignment_id")
+                .map_err(|_| live_authorization_error())?,
+        )
+        .map_err(|_| live_authorization_error())?,
+        project_id: active
+            .try_get("project_id")
+            .map_err(|_| live_authorization_error())?,
+        teammate_policy_revision_id: ChatTeammatePolicyRevisionId::new(
+            active
+                .try_get::<String, _>("teammate_policy_revision_id")
+                .map_err(|_| live_authorization_error())?,
+        )
+        .map_err(|_| live_authorization_error())?,
+        authorization_revision_id: ChatAuthorizationRevisionId::new(
+            active
+                .try_get::<String, _>("authorization_revision_id")
+                .map_err(|_| live_authorization_error())?,
+        )
+        .map_err(|_| live_authorization_error())?,
+        authorization_scope_digest: active
+            .try_get("authorization_scope_digest")
+            .map_err(|_| live_authorization_error())?,
+        working_folder_id: active
+            .try_get("working_folder_id")
+            .map_err(|_| live_authorization_error())?,
+        scratch_generation_id: active
+            .try_get("scratch_generation_id")
+            .map_err(|_| live_authorization_error())?,
+        execution_environment_id: active
+            .try_get("execution_environment_id")
+            .map_err(|_| live_authorization_error())?,
+        run_ordinal: u64::try_from(
+            active
+                .try_get::<i64, _>("run_ordinal")
+                .map_err(|_| live_authorization_error())?,
+        )
+        .map_err(|_| live_authorization_error())?,
+    };
+    let scope = super::coordinator::load_internal_mcp_scope(pool, thread_id, &binding).await?;
+    crate::chat::internal_mcp_tools::verify_publication_scope(pool, thread_id, &scope).await
+}
+
+fn live_authorization_error() -> ChatError {
+    ChatError::new(
+        ChatErrorCode::Permission,
+        "The organizational run authorization is no longer active",
+        false,
+    )
 }
 
 pub(super) fn normalize_changed_file_paths(

@@ -2,10 +2,10 @@
 
 use super::super::coordination::contracts::*;
 use super::super::models::*;
-use super::common::{new_id, serialization_error, validate_message_request};
+use super::common::{new_id, serialization_error, validate_message_request, wire_participant_kind};
 use super::{
-    chat_pool, chat_post_message, identifier_error, now_timestamp, persistence_error,
-    require_reply_thread, resolve_invoked_teammate,
+    chat_pool, chat_post_message, i64_value, identifier_error, now_timestamp, persistence_error,
+    require_continuation_scope_is_unchanged, require_reply_thread, resolve_invoked_teammate,
 };
 use chrono::{DateTime, Duration, SecondsFormat, Utc};
 use sqlx::{Row, Sqlite, SqlitePool, Transaction};
@@ -36,13 +36,20 @@ pub(super) async fn schedule_message(
     if let Some(reply_thread_id) = request.message.reply_thread_id.as_ref() {
         require_reply_thread(&pool, reply_thread_id, &channel.conversation_id).await?;
     }
-    resolve_invoked_teammate(
+    let resolved_invocation = resolve_invoked_teammate(
         &pool,
         &channel.conversation_id,
         request.message.reply_thread_id.as_ref(),
-        &request.message.participant_mentions,
+        &request.message.references,
     )
     .await?;
+    require_continuation_scope_is_unchanged(
+        resolved_invocation
+            .as_ref()
+            .and_then(|invocation| invocation.active_assignment.as_ref())
+            .is_some(),
+        &request.message.references,
+    )?;
     validate_scheduled_attachments(&pool, &request.message.attachment_ids).await?;
     let serialized = serde_json::to_string(&request.message).map_err(serialization_error)?;
     if let Some(existing) =
@@ -106,21 +113,150 @@ pub(super) async fn schedule_message(
         .await
         .map_err(persistence_error)?;
     }
-    for (index, resource) in request.message.resource_references.iter().enumerate() {
-        sqlx::query(
-            "INSERT INTO chat_scheduled_message_resource_references
-                (scheduled_message_id, working_folder_id, ordinal)
-             VALUES (?, ?, ?)",
+    for (index, reference) in request.message.references.iter().enumerate() {
+        insert_scheduled_reference(
+            &mut transaction,
+            &request.scheduled_message_id,
+            reference,
+            index,
         )
-        .bind(request.scheduled_message_id.as_str())
-        .bind(resource.working_folder_id.as_str())
-        .bind(i64::try_from(index).unwrap_or(i64::MAX))
-        .execute(&mut *transaction)
-        .await
-        .map_err(persistence_error)?;
+        .await?;
     }
     transaction.commit().await.map_err(persistence_error)?;
     read_scheduled_message(&pool, &request.scheduled_message_id).await
+}
+
+async fn insert_scheduled_reference(
+    transaction: &mut Transaction<'_, Sqlite>,
+    scheduled_message_id: &ChatScheduledMessageId,
+    reference: &ChatMessageReference,
+    ordinal: usize,
+) -> ChatResult<()> {
+    let metadata = reference.metadata();
+    let (
+        reference_kind,
+        participant_id,
+        participant_kind,
+        channel_id,
+        working_folder_id,
+        path_kind,
+        relative_path,
+        execution_environment_id,
+    ) = match reference {
+        ChatMessageReference::Participant {
+            participant_id,
+            participant_kind,
+            ..
+        } => {
+            let stored_kind = sqlx::query_scalar::<_, String>(
+                "SELECT participant_kind FROM chat_participants WHERE id = ?",
+            )
+            .bind(participant_id.as_str())
+            .fetch_optional(&mut **transaction)
+            .await
+            .map_err(persistence_error)?
+            .ok_or_else(|| {
+                ChatError::validation("references", "Referenced participant was not found")
+            })?;
+            let expected_kind = wire_participant_kind(*participant_kind);
+            if stored_kind != expected_kind {
+                return Err(ChatError::validation(
+                    "references",
+                    "Referenced participant identity is stale",
+                ));
+            }
+            (
+                "participant",
+                Some(participant_id.as_str()),
+                Some(expected_kind),
+                None,
+                None,
+                None,
+                None,
+                None,
+            )
+        }
+        ChatMessageReference::Channel { channel_id, .. } => (
+            "channel",
+            None,
+            None,
+            Some(channel_id.as_str()),
+            None,
+            None,
+            None,
+            None,
+        ),
+        ChatMessageReference::WorkingFolder {
+            working_folder_id, ..
+        } => (
+            "working_folder",
+            None,
+            None,
+            None,
+            Some(working_folder_id.as_str()),
+            None,
+            None,
+            None,
+        ),
+        ChatMessageReference::WorkspacePath {
+            working_folder_id,
+            path_kind,
+            relative_path,
+            ..
+        } => (
+            "workspace_path",
+            None,
+            None,
+            None,
+            Some(working_folder_id.as_str()),
+            Some(match path_kind {
+                ChatWorkspacePathKind::File => "file",
+                ChatWorkspacePathKind::Folder => "folder",
+            }),
+            Some(relative_path.as_str()),
+            None,
+        ),
+        ChatMessageReference::ExecutionEnvironment {
+            execution_environment_id,
+            ..
+        } => (
+            "execution_environment",
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            Some(execution_environment_id.as_str()),
+        ),
+    };
+    sqlx::query(
+        "INSERT INTO chat_scheduled_message_references
+            (id, scheduled_message_id, reference_kind, label_snapshot,
+             plain_text_projection, start_offset, end_offset, participant_id,
+             participant_kind, channel_id, working_folder_id, path_kind,
+             relative_path, execution_environment_id, ordinal)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+    )
+    .bind(metadata.reference_id.as_str())
+    .bind(scheduled_message_id.as_str())
+    .bind(reference_kind)
+    .bind(&metadata.label_snapshot)
+    .bind(&metadata.plain_text_projection)
+    .bind(i64_value(metadata.start_offset)?)
+    .bind(i64_value(metadata.end_offset)?)
+    .bind(participant_id)
+    .bind(participant_kind)
+    .bind(channel_id)
+    .bind(working_folder_id)
+    .bind(path_kind)
+    .bind(relative_path)
+    .bind(execution_environment_id)
+    .bind(i64::try_from(ordinal).unwrap_or(i64::MAX))
+    .execute(&mut **transaction)
+    .await
+    .map_err(persistence_error)?;
+    Ok(())
 }
 
 pub(super) async fn list_scheduled_messages(
@@ -558,27 +694,6 @@ async fn read_scheduled_message(
             false,
         ));
     }
-    let participant_mentions = request
-        .participant_mentions
-        .into_iter()
-        .map(|mention| ChatParticipantMentionRead {
-            participant_id: mention.participant_id,
-            participant_kind: mention.participant_kind,
-            label_snapshot: mention.label_snapshot,
-            start_offset: mention.start_offset,
-            end_offset: mention.end_offset,
-        })
-        .collect();
-    let resource_references = request
-        .resource_references
-        .into_iter()
-        .map(|reference| ChatResourceReferenceRead {
-            working_folder_id: reference.working_folder_id,
-            kind: reference.kind,
-            relative_path: reference.relative_path,
-            display_label: reference.display_label,
-        })
-        .collect();
     Ok(ChatScheduledMessageRead {
         id: ChatScheduledMessageId::new(row.try_get::<String, _>("id").map_err(persistence_error)?)
             .map_err(identifier_error)?,
@@ -596,8 +711,7 @@ async fn read_scheduled_message(
         normalized_markdown: request.normalized_markdown,
         rich_content: request.rich_content,
         attachment_ids: request.attachment_ids,
-        participant_mentions,
-        resource_references,
+        references: request.references,
         also_send_to_channel: request.also_send_to_channel,
         state,
         scheduled_for: UtcTimestamp::new(

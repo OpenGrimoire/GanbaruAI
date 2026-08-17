@@ -26,9 +26,9 @@ const localParticipant: ChatParticipantRead = {
 };
 
 const agentParticipant: ChatParticipantRead = {
-  id: "participant:ganbaru",
+  id: "participant:atlas",
   kind: "ai_teammate",
-  displayName: "Ganbaru",
+  displayName: "Atlas",
   avatar: { schemaVersion: 1, value: {} },
   revision: 1,
   archivedAt: null,
@@ -89,7 +89,7 @@ describe("ChatParticipantAvatar", () => {
       instructions: "",
       configurationState: "healthy",
       latestPolicy: {
-        id: "policy:ganbaru:1",
+        id: "policy:atlas:1",
         teammateId: agentParticipant.id,
         revision: 1,
         providerInstanceId: "codex-local",
@@ -126,7 +126,7 @@ describe("ChatParticipantAvatar", () => {
       instructions: "",
       configurationState: "healthy",
       latestPolicy: {
-        id: "policy:ganbaru:1",
+        id: "policy:atlas:1",
         teammateId: agentParticipant.id,
         revision: 1,
         providerInstanceId: "codex-local",

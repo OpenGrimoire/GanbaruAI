@@ -208,6 +208,8 @@ function thread(
   return {
     id,
     workingFolderId: "working-folder:test",
+    executionEnvironmentId: "current-folder:working-folder:test",
+    scratchGenerationId: null,
     projectId: "project:test",
     title: "Test thread",
     providerFamilyId: "codex",

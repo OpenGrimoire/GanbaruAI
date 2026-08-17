@@ -3,11 +3,10 @@
   import LockKeyhole from "@lucide/svelte/icons/lock-keyhole";
   import Settings from "@lucide/svelte/icons/settings";
   import Zap from "@lucide/svelte/icons/zap";
-  import type { ChatApprovalPolicy, ChatParticipantRead } from "$lib/chat/contracts";
+  import type { ChatParticipantRead, ChatRuntimeApprovalPolicy } from "$lib/chat/contracts";
   import { chatParticipantDisplayName } from "$lib/chat/participant-display";
   import type { ChatModelParticipant } from "$lib/chat/participant-identity";
   import { compactModelName, compactModelOptionLabel } from "$lib/chat/model-picker-model";
-  import { providerPermissionFileName } from "$lib/chat/permission-modes";
   import { teammateExecutionSummary } from "$lib/chat/teammate-draft";
   import { chatTeammateModelParticipant } from "$lib/chat/teammate-identity";
   import { getLocalization } from "$lib/i18n/translator.svelte";
@@ -98,9 +97,9 @@
     return teammateExecutionSummary(policy.modelOptions, modelDefinition).speed === "fast";
   });
   const approvalPolicy = $derived(participant?.kind === "ai_teammate"
-    ? chat.selectedChannel?.memberships.find((membership) => (
+      ? chat.selectedChannel?.memberships.find((membership) => (
         membership.participant.id === participant.id && membership.removedAt === null
-      ))?.approvalPolicy ?? null
+      ))?.aiAccess?.runtimeApprovalOverride ?? null
     : null);
   const approvalLabel = $derived(approvalPolicy ? approvalPolicyLabel(approvalPolicy) : null);
 
@@ -222,14 +221,11 @@
     return t("chat.organization.needsSetup");
   }
 
-  function approvalPolicyLabel(policy: ChatApprovalPolicy): string {
-    if (policy === "ask_for_approval") return t("chat.hero.askForApproval");
-    if (policy === "approve_for_me") return t("chat.hero.approveForMe");
-    if (policy === "full_access") return t("chat.hero.fullAccess");
-    return t(
-      "chat.hero.customPermissions",
-      providerPermissionFileName(teammateProvider?.configuration.familyId ?? null),
-    );
+  function approvalPolicyLabel(policy: ChatRuntimeApprovalPolicy): string {
+    if (policy === "ask") return t("settings.chat.teammates.runtime.ask");
+    if (policy === "autoApprove") return t("settings.chat.teammates.runtime.autoApprove");
+    if (policy === "unattended") return t("settings.chat.teammates.runtime.unattended");
+    return t("settings.chat.teammates.runtime.providerCustom");
   }
 
   function teammateReasoning(): string | null {
@@ -328,7 +324,7 @@
             {#if formattedReasoning}<span class="identity-effort-name">{formattedReasoning}</span>{/if}
             {#if approvalLabel}
               <span class="identity-model-divider" aria-hidden="true">|</span>
-              <span class="identity-approval" class:full-access={approvalPolicy === "full_access"}>{approvalLabel}</span>
+              <span class="identity-approval">{approvalLabel}</span>
             {/if}
           </div>
         </div>
@@ -371,8 +367,6 @@
   .identity-effort-name { flex:0 0 auto; }
   .identity-model-divider { flex:0 0 auto; color:var(--muted-foreground); }
   .identity-approval { overflow:hidden; min-width:0; color:var(--foreground); text-overflow:ellipsis; white-space:nowrap; }
-  .identity-approval.full-access { color:color-mix(in srgb,color-mix(in srgb,var(--status-tentative) 55%,var(--destructive)) 72%,var(--foreground)); }
-  :global(.dark) .identity-approval.full-access { color:var(--status-tentative); }
   .privacy-note { display:grid; grid-template-columns:1rem minmax(0,1fr); gap:0.55rem; align-items:start; color:var(--muted-foreground); }
   .privacy-note :global(svg) { margin-top:0.1rem; color:color-mix(in srgb,var(--primary) 70%,var(--foreground)); }
   .privacy-note span { font-size:calc(0.7rem * var(--type-scale)); line-height:1rem; }

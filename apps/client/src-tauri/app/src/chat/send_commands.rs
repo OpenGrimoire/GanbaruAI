@@ -13,10 +13,13 @@ use serde::{Deserialize, Serialize};
 #[serde(rename_all = "camelCase")]
 pub struct SendChatTurnCommand {
     pub command: ChatCommandContext,
-    pub working_folder_id: ProjectWorkingFolderId,
+    #[serde(default)]
+    pub working_folder_id: Option<ProjectWorkingFolderId>,
     pub thread_id: Option<ChatThreadId>,
     pub new_thread_id: Option<ChatThreadId>,
     pub execution_environment_id: Option<String>,
+    #[serde(default)]
+    pub scratch_generation_id: Option<String>,
     pub turn_id: ChatTurnId,
     pub message_id: ChatMessageId,
     pub provider_instance_id: ProviderInstanceId,

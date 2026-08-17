@@ -26,11 +26,11 @@ function message(itemId: string, kind: ChatParticipantKind): ChatMessageRead {
       revision: 1,
       archivedAt: null,
     },
+    authorLabelSnapshot: itemId,
     normalizedMarkdown: itemId,
     richContent: { schemaVersion: 1, value: {} },
-    mentions: [],
     attachmentIds: [],
-    resourceReferences: [],
+    references: [],
     replyThread: null,
     ordinal: 1,
     editedAt: null,
@@ -75,7 +75,7 @@ describe("organizational unread messages", () => {
 
 describe("local message reactions", () => {
   const localParticipant = { participantId: "participant:local-owner", displayName: "Victor" };
-  const teammate = { participantId: "participant:teammate", displayName: "Ganbaru" };
+  const teammate = { participantId: "participant:teammate", displayName: "Atlas" };
 
   it("accepts only Unicode and custom emoji picker values", () => {
     expect(isChatMessageReactionValue("emoji:✅")).toBe(true);

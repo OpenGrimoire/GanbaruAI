@@ -1,4 +1,8 @@
-use super::models::{ChatError, ChatErrorCode, ChatResult, ChatThreadId};
+use super::models::{
+    ChatAgentRunId, ChatAuthorizationRevisionId, ChatConversationId, ChatError, ChatErrorCode,
+    ChatFolderCapability, ChatResult, ChatRuntimeApprovalPolicy, ChatThreadId, ChatTurnId,
+    ChatWorkAssignmentId, ProjectWorkingFolderId,
+};
 use super::repository::resources::{self, ChatResourceKind};
 use axum::body::Body;
 use axum::extract::DefaultBodyLimit;
@@ -13,28 +17,143 @@ use rmcp::model::{
     ReadResourceResult, Resource, ResourceContents, ServerCapabilities, ServerInfo, Tool,
     ToolAnnotations,
 };
-use rmcp::service::{RequestContext, RoleServer};
+use rmcp::service::{NotificationContext, RequestContext, RoleServer};
 use rmcp::transport::streamable_http_server::{
     session::local::LocalSessionManager, StreamableHttpServerConfig, StreamableHttpService,
 };
 use rmcp::{ErrorData as McpError, ServerHandler};
 use sqlx::SqlitePool;
-use std::collections::{hash_map::RandomState, HashMap};
-use std::hash::{BuildHasher, Hasher};
+use std::collections::HashMap;
+use std::future::Future;
 use std::path::PathBuf;
 use std::sync::{
-    atomic::{AtomicU64, Ordering},
+    atomic::{AtomicBool, Ordering},
     Arc,
 };
 use std::time::Duration;
 use tauri::Manager;
-use tokio::sync::{oneshot, Mutex, Semaphore};
+use tokio::sync::{oneshot, Mutex, Notify, RwLock, Semaphore};
 
 const MAX_MCP_REQUEST_BYTES: usize = 1024 * 1024;
 const MAX_MCP_CONCURRENCY: usize = 8;
 const MCP_REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
+const MCP_INITIALIZATION_TIMEOUT: Duration = Duration::from_secs(15);
 const RESOURCE_URI_PREFIX: &str = "ganbaru://chat/resource/";
-static MCP_TOKEN_GENERATION: AtomicU64 = AtomicU64::new(0);
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct InternalMcpChannelSource {
+    pub source_handle: String,
+    pub message_reference_id: String,
+    pub conversation_id: String,
+    pub label_snapshot: String,
+    pub lower_ordinal: u64,
+    pub high_ordinal: u64,
+    pub source_revision_cutoff_id: String,
+    pub destination_audience_revision: u64,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct InternalMcpFolderSource {
+    pub root_handle: String,
+    pub working_folder_id: ProjectWorkingFolderId,
+    pub capability: ChatFolderCapability,
+    pub is_execution_target: bool,
+    pub runtime_approval_policy: ChatRuntimeApprovalPolicy,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct InternalMcpRunScope {
+    pub run_id: ChatAgentRunId,
+    pub provider_turn_id: ChatTurnId,
+    pub assignment_id: ChatWorkAssignmentId,
+    pub authorization_revision_id: ChatAuthorizationRevisionId,
+    pub destination_conversation_id: ChatConversationId,
+    pub authorization_scope_digest: String,
+    pub execution_environment_id: Option<String>,
+    pub scratch_generation_id: Option<String>,
+    pub runtime_approval_policy: ChatRuntimeApprovalPolicy,
+    pub channel_sources: Vec<InternalMcpChannelSource>,
+    pub folder_sources: Vec<InternalMcpFolderSource>,
+}
+
+#[derive(Default)]
+struct EndpointState {
+    initialized: AtomicBool,
+    initialized_notify: Notify,
+    access: RwLock<EndpointAccessState>,
+    tools: super::internal_mcp_tools::InternalMcpToolRuntime,
+}
+
+#[derive(Clone, Debug, Default)]
+enum EndpointAccessState {
+    #[default]
+    DirectUnscoped,
+    OrganizationalPending,
+    OrganizationalActive(Box<InternalMcpRunScope>),
+    OrganizationalRevoked,
+}
+
+impl EndpointState {
+    fn new(organizational_pending: bool) -> Self {
+        Self {
+            initialized: AtomicBool::new(false),
+            initialized_notify: Notify::new(),
+            access: RwLock::new(if organizational_pending {
+                EndpointAccessState::OrganizationalPending
+            } else {
+                EndpointAccessState::DirectUnscoped
+            }),
+            tools: super::internal_mcp_tools::InternalMcpToolRuntime::default(),
+        }
+    }
+
+    fn mark_initialized(&self) {
+        self.initialized.store(true, Ordering::Release);
+        self.initialized_notify.notify_waiters();
+    }
+
+    async fn wait_until_initialized(&self) -> ChatResult<()> {
+        let initialized = self.initialized_notify.notified();
+        if self.initialized.load(Ordering::Acquire) {
+            return Ok(());
+        }
+        tokio::time::timeout(MCP_INITIALIZATION_TIMEOUT, initialized)
+            .await
+            .map_err(|_| {
+                ChatError::new(
+                    ChatErrorCode::Timeout,
+                    "The provider did not authenticate its internal host tools in time",
+                    true,
+                )
+            })?;
+        if self.initialized.load(Ordering::Acquire) {
+            Ok(())
+        } else {
+            Err(ChatError::new(
+                ChatErrorCode::TransportUnavailable,
+                "The provider internal host tools are unavailable",
+                true,
+            ))
+        }
+    }
+
+    async fn active_scope(&self) -> ChatResult<Option<InternalMcpRunScope>> {
+        match &*self.access.read().await {
+            EndpointAccessState::DirectUnscoped => Ok(None),
+            EndpointAccessState::OrganizationalPending => Err(ChatError::new(
+                ChatErrorCode::Permission,
+                "The requested organizational context is unavailable",
+                false,
+            )),
+            EndpointAccessState::OrganizationalActive(scope) => Ok(Some(scope.as_ref().clone())),
+            EndpointAccessState::OrganizationalRevoked => Err(ChatError::new(
+                ChatErrorCode::Permission,
+                "The requested organizational context is unavailable",
+                false,
+            )),
+        }
+    }
+}
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct InternalMcpEndpoint {
@@ -44,6 +163,7 @@ pub struct InternalMcpEndpoint {
 
 struct RunningEndpoint {
     descriptor: InternalMcpEndpoint,
+    state: Arc<EndpointState>,
     shutdown: oneshot::Sender<()>,
 }
 
@@ -59,20 +179,23 @@ impl InternalMcpRegistry {
         pool: SqlitePool,
         vault_root: PathBuf,
         thread_id: ChatThreadId,
+        organizational_pending: bool,
     ) -> ChatResult<InternalMcpEndpoint> {
         if let Some(endpoint) = self.endpoints.lock().await.get(&thread_id) {
             return Ok(endpoint.descriptor.clone());
         }
-        let token = generate_bearer_token();
+        let token = generate_bearer_token()?;
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
             .await
             .map_err(endpoint_error)?;
         let address = listener.local_addr().map_err(endpoint_error)?;
+        let state = Arc::new(EndpointState::new(organizational_pending));
         let handler = ThreadMcpHandler {
             app,
             pool,
             vault_root,
             thread_id: thread_id.clone(),
+            state: Arc::clone(&state),
         };
         let service: StreamableHttpService<ThreadMcpHandler, LocalSessionManager> =
             StreamableHttpService::new(
@@ -111,10 +234,88 @@ impl InternalMcpRegistry {
             thread_id,
             RunningEndpoint {
                 descriptor: descriptor.clone(),
+                state,
                 shutdown,
             },
         );
         Ok(descriptor)
+    }
+
+    pub async fn activate_run_scope(
+        &self,
+        thread_id: &ChatThreadId,
+        scope: InternalMcpRunScope,
+    ) -> ChatResult<()> {
+        let state = self
+            .endpoints
+            .lock()
+            .await
+            .get(thread_id)
+            .map(|endpoint| Arc::clone(&endpoint.state))
+            .ok_or_else(|| {
+                ChatError::new(
+                    ChatErrorCode::InvalidStateTransition,
+                    "The internal host-tool endpoint is unavailable",
+                    true,
+                )
+            })?;
+        state.tools.reset_cursors().await;
+        *state.access.write().await = EndpointAccessState::OrganizationalActive(Box::new(scope));
+        Ok(())
+    }
+
+    pub async fn wait_until_ready(&self, thread_id: &ChatThreadId) -> ChatResult<()> {
+        let state = self
+            .endpoints
+            .lock()
+            .await
+            .get(thread_id)
+            .map(|endpoint| Arc::clone(&endpoint.state))
+            .ok_or_else(|| {
+                ChatError::new(
+                    ChatErrorCode::InvalidStateTransition,
+                    "The internal host-tool endpoint is unavailable",
+                    true,
+                )
+            })?;
+        state.wait_until_initialized().await
+    }
+
+    pub async fn revoke_run_scope(&self, thread_id: &ChatThreadId) {
+        if let Some(endpoint) = self.endpoints.lock().await.remove(thread_id) {
+            *endpoint.state.access.write().await = EndpointAccessState::OrganizationalRevoked;
+            let _ = endpoint.shutdown.send(());
+        }
+    }
+
+    pub async fn revoke_matching_run_scope(
+        &self,
+        thread_id: &ChatThreadId,
+        run_id: &ChatAgentRunId,
+        turn_id: &ChatTurnId,
+        authorization_revision_id: &ChatAuthorizationRevisionId,
+    ) -> bool {
+        let mut endpoints = self.endpoints.lock().await;
+        let Some(endpoint) = endpoints.get(thread_id) else {
+            return false;
+        };
+        let matches = matches!(
+            &*endpoint.state.access.read().await,
+            EndpointAccessState::OrganizationalActive(scope)
+                if scope.run_id == *run_id
+                    && scope.provider_turn_id == *turn_id
+                    && scope.authorization_revision_id == *authorization_revision_id
+        );
+        if !matches {
+            return false;
+        }
+        let Some(endpoint) = endpoints.remove(thread_id) else {
+            return false;
+        };
+        drop(endpoints);
+        *endpoint.state.access.write().await = EndpointAccessState::OrganizationalRevoked;
+        let _ = endpoint.shutdown.send(());
+        true
     }
 
     pub async fn stop_thread_endpoint(&self, thread_id: &ChatThreadId) {
@@ -139,6 +340,7 @@ struct ThreadMcpHandler {
     pool: SqlitePool,
     vault_root: PathBuf,
     thread_id: ChatThreadId,
+    state: Arc<EndpointState>,
 }
 
 impl ServerHandler for ThreadMcpHandler {
@@ -152,16 +354,33 @@ impl ServerHandler for ThreadMcpHandler {
         .with_instructions("Thread-scoped Ganbaru Chat resources and workspace preview tools")
     }
 
+    fn on_initialized(
+        &self,
+        _context: NotificationContext<RoleServer>,
+    ) -> impl Future<Output = ()> + Send + '_ {
+        self.state.mark_initialized();
+        std::future::ready(())
+    }
+
     async fn list_resources(
         &self,
         request: Option<PaginatedRequestParams>,
         _context: RequestContext<RoleServer>,
     ) -> Result<ListResourcesResult, McpError> {
+        let organizational_scope = self.state.active_scope().await.map_err(mcp_error)?;
+        if let Some(scope) = organizational_scope.as_ref() {
+            super::internal_mcp_tools::verify_scope(&self.pool, &self.thread_id, scope)
+                .await
+                .map_err(mcp_error)?;
+        }
         if request.and_then(|value| value.cursor).is_some() {
             return Err(McpError::invalid_params(
                 "Ganbaru Chat resources fit in one bounded page",
                 None,
             ));
+        }
+        if organizational_scope.is_some() {
+            return Ok(ListResourcesResult::with_all_items(Vec::new()));
         }
         let resources = resources::list_thread_resources(&self.pool, &self.thread_id)
             .await
@@ -182,6 +401,19 @@ impl ServerHandler for ThreadMcpHandler {
         request: ReadResourceRequestParams,
         _context: RequestContext<RoleServer>,
     ) -> Result<ReadResourceResponse, McpError> {
+        if self
+            .state
+            .active_scope()
+            .await
+            .map_err(mcp_error)?
+            .is_some()
+        {
+            return Err(mcp_error(ChatError::new(
+                ChatErrorCode::Permission,
+                "The requested organizational context is unavailable",
+                false,
+            )));
+        }
         let resource_id = request
             .uri
             .strip_prefix(RESOURCE_URI_PREFIX)
@@ -220,13 +452,23 @@ impl ServerHandler for ThreadMcpHandler {
         request: Option<PaginatedRequestParams>,
         _context: RequestContext<RoleServer>,
     ) -> Result<ListToolsResult, McpError> {
+        let organizational_scope = self.state.active_scope().await.map_err(mcp_error)?;
+        if let Some(scope) = organizational_scope.as_ref() {
+            super::internal_mcp_tools::verify_scope(&self.pool, &self.thread_id, scope)
+                .await
+                .map_err(mcp_error)?;
+        }
         if request.and_then(|value| value.cursor).is_some() {
             return Err(McpError::invalid_params(
                 "Ganbaru preview tools fit in one bounded page",
                 None,
             ));
         }
-        Ok(ListToolsResult::with_all_items(preview_tools()))
+        let tools = match organizational_scope {
+            Some(scope) => super::internal_mcp_tools::definitions(&scope),
+            None => preview_tools(),
+        };
+        Ok(ListToolsResult::with_all_items(tools))
     }
 
     async fn call_tool(
@@ -235,9 +477,39 @@ impl ServerHandler for ThreadMcpHandler {
         _context: RequestContext<RoleServer>,
     ) -> Result<CallToolResponse, McpError> {
         let arguments = request.arguments.unwrap_or_default();
-        let result = self
-            .call_preview_tool(request.name.as_ref(), &arguments)
-            .await;
+        let name = request.name.as_ref();
+        let result = if name.starts_with("chat_") {
+            match self.state.active_scope().await {
+                Ok(Some(scope)) => {
+                    super::internal_mcp_tools::call(
+                        super::internal_mcp_tools::HostToolContext {
+                            app: &self.app,
+                            pool: &self.pool,
+                            thread_id: &self.thread_id,
+                            scope: &scope,
+                            runtime: &self.state.tools,
+                        },
+                        name,
+                        &arguments,
+                    )
+                    .await
+                }
+                Ok(None) | Err(_) => Err(ChatError::new(
+                    ChatErrorCode::Permission,
+                    "The requested organizational context is unavailable",
+                    false,
+                )),
+            }
+        } else {
+            match self.state.active_scope().await {
+                Ok(None) => self.call_preview_tool(name, &arguments).await,
+                Ok(Some(_)) | Err(_) => Err(ChatError::new(
+                    ChatErrorCode::Permission,
+                    "The requested organizational context is unavailable",
+                    false,
+                )),
+            }
+        };
         Ok(match result {
             Ok(value) => CallToolResult::structured(value).into(),
             Err(error) => CallToolResult::error(vec![ContentBlock::text(error.message)]).into(),
@@ -621,17 +893,49 @@ fn constant_time_equal(left: &[u8], right: &[u8]) -> bool {
     difference == 0
 }
 
-fn generate_bearer_token() -> String {
-    let generation = MCP_TOKEN_GENERATION.fetch_add(1, Ordering::Relaxed);
-    let mut token = String::with_capacity(64);
-    for part in 0..4_u64 {
-        let mut hasher = RandomState::new().build_hasher();
-        hasher.write_u64(generation);
-        hasher.write_u64(part);
-        hasher.write_u32(std::process::id());
-        token.push_str(&format!("{:016x}", hasher.finish()));
+fn generate_bearer_token() -> ChatResult<String> {
+    secure_random_hex(32)
+}
+
+pub(crate) fn generate_opaque_handle(prefix: &str) -> ChatResult<String> {
+    if prefix.is_empty()
+        || prefix.len() > 32
+        || !prefix
+            .bytes()
+            .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'-')
+    {
+        return Err(ChatError::validation(
+            "handlePrefix",
+            "Internal handle prefix is invalid",
+        ));
     }
-    token
+    Ok(format!("{prefix}:{}", secure_random_hex(32)?))
+}
+
+fn secure_random_hex(byte_count: usize) -> ChatResult<String> {
+    let mut bytes = vec![0_u8; byte_count];
+    rustls::crypto::ring::default_provider()
+        .secure_random
+        .fill(&mut bytes)
+        .map_err(|_| {
+            ChatError::new(
+                ChatErrorCode::Internal,
+                "Operating-system secure randomness is unavailable",
+                false,
+            )
+        })?;
+    let mut encoded = String::with_capacity(byte_count.saturating_mul(2));
+    for byte in bytes {
+        use std::fmt::Write as _;
+        write!(&mut encoded, "{byte:02x}").map_err(|_| {
+            ChatError::new(
+                ChatErrorCode::Internal,
+                "Secure token encoding failed",
+                false,
+            )
+        })?;
+    }
+    Ok(encoded)
 }
 
 fn mcp_error(error: ChatError) -> McpError {
@@ -657,8 +961,8 @@ mod tests {
 
     #[test]
     fn bearer_tokens_are_bounded_unique_and_compared_without_prefix_matches() {
-        let first = generate_bearer_token();
-        let second = generate_bearer_token();
+        let first = generate_bearer_token().expect("first token");
+        let second = generate_bearer_token().expect("second token");
         assert_eq!(first.len(), 64);
         assert_eq!(second.len(), 64);
         assert_ne!(first, second);
@@ -668,6 +972,14 @@ mod tests {
             first.as_bytes(),
             &first.as_bytes()[..63]
         ));
+    }
+
+    #[test]
+    fn opaque_handles_use_validated_namespaces_and_256_bits_of_randomness() {
+        let handle = generate_opaque_handle("channel-source").expect("opaque handle");
+        assert!(handle.starts_with("channel-source:"));
+        assert_eq!(handle.len(), "channel-source:".len() + 64);
+        assert!(generate_opaque_handle("Channel Source").is_err());
     }
 
     #[test]
@@ -690,5 +1002,34 @@ mod tests {
             .body(Body::empty())
             .unwrap();
         assert!(!request_targets_loopback(&remote_origin));
+    }
+
+    #[tokio::test]
+    async fn pending_organizational_endpoint_denies_tools_until_scope_activation() {
+        let state = EndpointState::new(true);
+        assert!(state.active_scope().await.is_err());
+    }
+
+    #[tokio::test]
+    async fn revoked_organizational_endpoint_never_falls_back_to_direct_access() {
+        let state = EndpointState::default();
+        *state.access.write().await =
+            EndpointAccessState::OrganizationalActive(Box::new(InternalMcpRunScope {
+                run_id: ChatAgentRunId::new("run-1").unwrap(),
+                provider_turn_id: ChatTurnId::new("turn-1").unwrap(),
+                assignment_id: ChatWorkAssignmentId::new("assignment-1").unwrap(),
+                authorization_revision_id: ChatAuthorizationRevisionId::new("authorization-1")
+                    .unwrap(),
+                destination_conversation_id: ChatConversationId::new("conversation-1").unwrap(),
+                authorization_scope_digest: "a".repeat(64),
+                execution_environment_id: Some("environment-1".to_string()),
+                scratch_generation_id: None,
+                runtime_approval_policy: ChatRuntimeApprovalPolicy::Ask,
+                channel_sources: Vec::new(),
+                folder_sources: Vec::new(),
+            }));
+        assert!(state.active_scope().await.unwrap().is_some());
+        *state.access.write().await = EndpointAccessState::OrganizationalRevoked;
+        assert!(state.active_scope().await.is_err());
     }
 }

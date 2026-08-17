@@ -10,6 +10,7 @@ import {
   type ModelOptionSelection,
   type ModelOptionValue,
   type ProviderCapabilities,
+  type ProviderAuthoritySupport,
   type ProviderCapabilitySupport,
   type ProviderFamilyMetadataRead,
   type ProviderFamilyId,
@@ -47,6 +48,22 @@ export function parseProviderCapabilitySupport(value: unknown, label = "provider
 export function parseProviderCapabilities(value: unknown, label = "provider capabilities"): ProviderCapabilities {
   const record = readRecord(value, label);
   return { entries: readArray(record.entries, `${label}.entries`, parseProviderCapabilitySupport) };
+}
+
+export function parseProviderAuthoritySupport(
+  value: unknown,
+  label = "provider authority support",
+): ProviderAuthoritySupport {
+  const record = readRecord(value, label);
+  return {
+    internalHostTools: readBoolean(record.internalHostTools, `${label}.internalHostTools`),
+    denyShell: readBoolean(record.denyShell, `${label}.denyShell`),
+    readOnlyRoot: readBoolean(record.readOnlyRoot, `${label}.readOnlyRoot`),
+    writableRoot: readBoolean(record.writableRoot, `${label}.writableRoot`),
+    confinedCommands: readBoolean(record.confinedCommands, `${label}.confinedCommands`),
+    networkBoundary: readBoolean(record.networkBoundary, `${label}.networkBoundary`),
+    classifiedPublish: readBoolean(record.classifiedPublish, `${label}.classifiedPublish`),
+  };
 }
 
 export function parseProviderFamilyMetadata(value: unknown, label = "provider metadata"): ProviderFamilyMetadataRead {
@@ -99,6 +116,10 @@ export function parseProviderProbeResult(value: unknown, label = "provider probe
     negotiatedProtocolVersion: readNullable(record.negotiatedProtocolVersion, `${label}.negotiatedProtocolVersion`, readString),
     accountLabel: readNullable(record.accountLabel, `${label}.accountLabel`, readString),
     capabilities: parseProviderCapabilities(record.capabilities, `${label}.capabilities`),
+    authoritySupport: parseProviderAuthoritySupport(
+      record.authoritySupport,
+      `${label}.authoritySupport`,
+    ),
     checkedAt: readUtcTimestamp(record.checkedAt, `${label}.checkedAt`),
     detail: readNullable(record.detail, `${label}.detail`, readString),
   };

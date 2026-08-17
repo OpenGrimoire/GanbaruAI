@@ -180,10 +180,8 @@ async fn seed_projects_and_workspaces(tx: &mut Transaction<'_, Sqlite>) -> Resul
             .await?;
             sqlx::query(
                 "INSERT INTO chat_conversation_memberships
-                    (conversation_id, participant_id, membership_role, addressable,
-                     approval_policy, created_at, updated_at)
-                 VALUES (?, 'participant:local-owner', 'owner', 0,
-                         'ask_for_approval', ?, ?)",
+                    (conversation_id, participant_id, membership_role, created_at, updated_at)
+                 VALUES (?, 'participant:local-owner', 'owner', ?, ?)",
             )
             .bind(&conversation_id)
             .bind(&created_at)
@@ -305,8 +303,14 @@ async fn insert_organizational_message(
     .await?;
     sqlx::query(
         "INSERT INTO chat_communication_messages
-            (item_id, author_participant_id, created_at)
-         VALUES (?, 'participant:local-owner', ?)",
+            (item_id, author_participant_id, author_label_snapshot, created_at)
+         VALUES (
+            ?,
+            'participant:local-owner',
+            (SELECT display_name FROM chat_participants
+             WHERE id = 'participant:local-owner'),
+            ?
+         )",
     )
     .bind(item_id)
     .bind(created_at)

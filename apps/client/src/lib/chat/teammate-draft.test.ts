@@ -1,14 +1,12 @@
 import { describe, expect, it } from "vitest";
 import {
-  teammateMembershipDraftSnapshot,
   teammateExecutionSummary,
   teammateProfileDraftSnapshot,
-  type TeammateMembershipDraftSnapshotInput,
   type TeammateProfileDraftSnapshotInput,
 } from "./teammate-draft";
 
 const PROFILE: TeammateProfileDraftSnapshotInput = {
-  displayName: "Ganbaru",
+  displayName: "Atlas",
   role: "Plan work",
   instructions: "Stay focused",
   providerId: "codex-default",
@@ -22,18 +20,11 @@ const PROFILE: TeammateProfileDraftSnapshotInput = {
   speed: "standard",
 };
 
-const MEMBERSHIP: TeammateMembershipDraftSnapshotInput = {
-  channelId: "channel-1",
-  approvalPolicy: "ask_for_approval",
-  folderIds: ["folder-1", "folder-2"],
-  defaultFolderId: "folder-1",
-};
-
 describe("teammate draft snapshots", () => {
   it("ignores whitespace that is removed when saving a profile", () => {
     expect(teammateProfileDraftSnapshot({
       ...PROFILE,
-      displayName: " Ganbaru ",
+      displayName: " Atlas ",
       role: " Plan work ",
     })).toBe(teammateProfileDraftSnapshot(PROFILE));
   });
@@ -79,17 +70,4 @@ describe("teammate draft snapshots", () => {
     ], null)).toEqual({ effort: null, speed: "standard" });
   });
 
-  it("treats folder grants as an unordered set", () => {
-    expect(teammateMembershipDraftSnapshot({
-      ...MEMBERSHIP,
-      folderIds: ["folder-2", "folder-1", "folder-2"],
-    })).toBe(teammateMembershipDraftSnapshot(MEMBERSHIP));
-  });
-
-  it("includes the default folder in the saved grant set", () => {
-    expect(teammateMembershipDraftSnapshot({
-      ...MEMBERSHIP,
-      folderIds: ["folder-2"],
-    })).toBe(teammateMembershipDraftSnapshot(MEMBERSHIP));
-  });
 });
