@@ -26,6 +26,8 @@
     buildFavoriteModelEntries,
     buildModelCompanySections,
     buildQuickEffortChoices,
+    compactModelName,
+    compactModelOptionLabel,
     isKnownModelOption,
     modelEffortStopPosition,
     modelOptionRole,
@@ -86,14 +88,12 @@
   let pickerRoot: HTMLDivElement | undefined = $state();
   let pickerPanel: HTMLDivElement | undefined = $state();
   let pickerTrigger: HTMLButtonElement | undefined = $state();
-  let pickerTriggerContent: HTMLSpanElement | undefined = $state();
   let overviewPanel: HTMLDivElement | undefined = $state();
   let advancedPanel: HTMLDivElement | undefined = $state();
   let advancedToggle: HTMLButtonElement | undefined = $state();
   let advancedHeading: HTMLButtonElement | undefined = $state();
   let flyoutPanel: HTMLDivElement | undefined = $state();
   let pickerStageHeight = $state<number | null>(null);
-  let modelControlWidth = $state<number | null>(null);
   let pickerPosition = $state<FlyoutPosition | null>(null);
   let pickerLayoutReady = $state(false);
   let pickerPlacement = $state<"above" | "below">("above");
@@ -118,7 +118,6 @@
   let optionViewKey = $state<string | null>(null);
   let quickAnchorModelId = $state<string | null>(null);
   let activeFlyoutTrigger: HTMLElement | null = null;
-  let modelControlResetTimer: ReturnType<typeof setTimeout> | null = null;
   let effortClickResetTimer: ReturnType<typeof setTimeout> | null = null;
   let effortPointerId: number | null = null;
   let effortPointerOrigin: { x: number; y: number } | null = null;
@@ -128,7 +127,6 @@
   const flyoutViewportInsetPx = 8;
   const pickerGapPx = 7;
   const pickerBoundaryInsetPx = 8;
-  const modelControlResizeMs = 280;
   const effortDragThresholdPx = 5;
   const effortTrackHeightRem = 1.75;
   const effortEndpointInsetRem = effortTrackHeightRem / 2;
@@ -196,7 +194,6 @@
   const selectedQuickEffortIndex = $derived(quickEffortChoices.findIndex((choice) => choice.modelId === selection.modelId && choice.effortValue === selectedEffortValue()));
 
   onDestroy(() => {
-    cancelModelControlReset();
     cancelEffortClickReset();
   });
 
@@ -328,7 +325,6 @@
     effortHandleHovered = false;
     resetEffortPointerState();
     closeFlyout();
-    void tick().then(collapseModelControl);
   }
 
   function modelSectionCollapsed(sectionId: string): boolean {
@@ -362,54 +358,14 @@
     modelListScrollFrame = requestAnimationFrame(refreshModelListScrollState);
   }
 
-  function numericStyleValue(value: string): number {
-    const parsed = Number.parseFloat(value);
-    return Number.isFinite(parsed) ? parsed : 0;
-  }
-
-  function compactModelControlWidth(): number {
-    if (!pickerTrigger || !pickerTriggerContent) return pickerRoot?.getBoundingClientRect().width ?? 0;
-    const style = getComputedStyle(pickerTrigger);
-    const horizontalChrome = numericStyleValue(style.paddingLeft)
-      + numericStyleValue(style.paddingRight)
-      + numericStyleValue(style.borderLeftWidth)
-      + numericStyleValue(style.borderRightWidth);
-    const naturalWidth = pickerTriggerContent.scrollWidth + horizontalChrome;
-    const maximumWidth = numericStyleValue(style.maxWidth);
-    return Math.ceil(maximumWidth > 0 ? Math.min(naturalWidth, maximumWidth) : naturalWidth);
-  }
-
-  function cancelModelControlReset(): void {
-    if (modelControlResetTimer === null) return;
-    clearTimeout(modelControlResetTimer);
-    modelControlResetTimer = null;
-  }
-
   function openPicker(): void {
-    cancelModelControlReset();
-    const measuredWidth = pickerRoot?.getBoundingClientRect().width ?? 0;
-    const currentWidth = measuredWidth > 0 ? measuredWidth : compactModelControlWidth();
-    modelControlWidth = Math.ceil(currentWidth);
     pickerPosition = null;
     pickerLayoutReady = false;
     pickerOpen = true;
     void tick().then(() => {
-      const compactWidth = compactModelControlWidth();
-      const panelWidth = pickerPanel?.getBoundingClientRect().width ?? compactWidth;
-      pickerRoot?.getBoundingClientRect();
-      modelControlWidth = Math.ceil(Math.max(compactWidth, panelWidth));
       pickerLayoutReady = true;
       positionPicker();
     });
-  }
-
-  function collapseModelControl(): void {
-    cancelModelControlReset();
-    modelControlWidth = compactModelControlWidth();
-    modelControlResetTimer = setTimeout(() => {
-      modelControlResetTimer = null;
-      if (!pickerOpen) modelControlWidth = null;
-    }, modelControlResizeMs);
   }
 
   function clamp(value: number, minimum: number, maximum: number): number {
@@ -454,7 +410,7 @@
       ? aboveTop
       : belowTop;
     const maximumTop = Math.max(topBound, bottomBound - panel.height);
-    const targetControlWidth = Math.max(modelControlWidth ?? 0, trigger.width, panel.width);
+    const targetControlWidth = Math.max(trigger.width, panel.width);
     const maximumLeft = Math.max(leftBound, rightBound - panel.width);
     pickerPlacement = preferredTop === belowTop ? "below" : "above";
     pickerPosition = {
@@ -821,17 +777,17 @@
   }
 
   function humanizeOptionLabel(label: string): string {
-    const normalized = label.replaceAll("_", " ").trim();
-    if (provider?.configuration.familyId === "codex" && normalized.toLowerCase() === "low") return t("chat.composer.light");
-    if (["xhigh", "extra high"].includes(normalized.toLowerCase())) return t("chat.composer.extraHigh");
-    if (!normalized || normalized !== normalized.toLowerCase()) return normalized;
-    return `${normalized[0]?.toUpperCase() ?? ""}${normalized.slice(1)}`;
+    return compactModelOptionLabel(
+      label,
+      provider?.configuration.familyId ?? null,
+      t("chat.composer.light"),
+      t("chat.composer.extraHigh"),
+    );
   }
 
   function displayModelName(model: ProviderModel | null): string {
     if (!model) return provider?.configuration.label ?? t("chat.hero.chooseProvider");
-    if (provider?.configuration.familyId !== "codex") return model.displayName;
-    return model.displayName.replace(/^GPT-/i, "").replaceAll("-", " ");
+    return compactModelName(model.displayName, provider?.configuration.familyId ?? null);
   }
 
   function choiceDescription(
@@ -879,13 +835,13 @@
   }
 </script>
 
-<div bind:this={pickerRoot} class="model-control" class:measured={modelControlWidth !== null} style:width={modelControlWidth === null ? undefined : `${modelControlWidth}px`}>
+<div bind:this={pickerRoot} class="model-control" class:controlled>
   <button bind:this={pickerTrigger} type="button" class="model-trigger" data-chat-model-trigger aria-expanded={pickerOpen} disabled={disabled || (value === undefined && chat.composer.loading)} onclick={togglePicker}>
-    <span bind:this={pickerTriggerContent} class="model-trigger-content">
+    <span class="model-trigger-content">
       <span class="fast-indicator" class:active={isFastSelected()} aria-hidden="true">{#if chat.providerDiscoveryLoading && !provider}<LoaderCircle size={13} class="animate-spin" />{:else}<Zap size={13} fill="currentColor" />{/if}</span>
       <span class="model-name">{chat.providerDiscoveryLoading && !provider ? t("chat.composer.detectingProviders") : selection.providerManaged ? provider?.configuration.label ?? t("chat.composer.providerManagedModel") : displayModelName(selectedModel)}</span>
       {#if selectedOptionLabel(effortDefinition)}<span class="effort-name" class:ultra={isUltraSelected()}>{selectedOptionLabel(effortDefinition)}</span>{/if}
-      <ChevronDown size={13} class="model-chevron" />
+      <ChevronDown size={13} class={pickerOpen ? "model-chevron open" : "model-chevron"} />
     </span>
   </button>
 
@@ -1064,19 +1020,21 @@
 {/if}
 
 <style>
-  .model-control { position: relative; min-width: 0; flex: 0 1 auto; user-select: none; transition: width 280ms cubic-bezier(0.22, 0.75, 0.18, 1); will-change: width; }
+  .model-control { position: relative; min-width: 0; flex: 0 1 auto; user-select: none; }
   .model-trigger { display: flex; width: auto; height: 2rem; max-width: 17rem; align-items: center; justify-content: center; border-radius: 999px; background: transparent; padding: 0.3rem 0.55rem; color: var(--foreground); font-size: calc(0.766667rem * var(--type-scale)); }
-  .model-control.measured .model-trigger { width: 100%; max-width: none; }
+  .model-control.controlled .model-trigger { background: color-mix(in srgb, var(--accent) 52%, transparent); }
   .model-trigger-content { display: inline-flex; min-width: 0; max-width: 100%; align-items: center; gap: 0.3rem; }
   .model-trigger:hover, .model-trigger[aria-expanded="true"] { background: color-mix(in srgb, var(--accent) 52%, transparent); }
   .model-trigger:disabled { cursor: not-allowed; opacity: 0.5; }
   .model-trigger:focus-visible { outline: 1px solid color-mix(in srgb, var(--ring) 50%, transparent); outline-offset: 1px; }
   .model-trigger :global(svg) { flex: 0 0 auto; }
-  .model-trigger :global(.model-chevron) { margin-left: 0.2rem; color: var(--muted-foreground); }
+  .model-trigger :global(.model-chevron) { margin-left: 0.2rem; color: var(--muted-foreground); transition: transform 120ms ease; }
+  .model-trigger :global(.model-chevron.open) { transform: rotate(180deg); }
   .fast-indicator { display: grid; width: 0; flex: 0 0 auto; place-items: center; overflow: hidden; opacity: 0; transform: scale(0.72); transition: width 180ms cubic-bezier(0.2, 0.8, 0.2, 1), opacity 140ms ease, transform 180ms cubic-bezier(0.2, 0.8, 0.2, 1); }
   .fast-indicator.active { width: 0.9rem; opacity: 1; transform: scale(1); }
   .model-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .effort-name { flex: 0 0 auto; color: var(--primary); transition: color 260ms ease; }
+  .model-control.controlled .effort-name:not(.ultra) { color: var(--foreground); }
   .effort-name.ultra { color: #7c3aed; }
   .model-popover { position: absolute; right: 0; bottom: calc(100% + 0.45rem); z-index: 45; width: min(18.5rem, calc(100vw - 1rem)); overflow: visible; border: 1px solid var(--border); border-radius: 0.8rem; background: var(--popover); padding: 0.65rem 0.6rem 0.5rem; color: var(--popover-foreground); font-size: calc(0.875rem * var(--type-scale)); box-shadow: 0 2px 6px rgb(0 0 0 / 0.06); }
   .model-popover.portaled { position: fixed; right: auto; bottom: auto; z-index: 80; }
@@ -1203,5 +1161,5 @@
   @keyframes model-popover-enter { from { opacity: 0; transform: translateY(var(--model-popover-enter-y, 0.25rem)); } to { opacity: 1; transform: translateY(0); } }
   @container chat-composer (max-width: 460px) { .model-trigger { max-width: 11rem; } .effort-name { display: none; } }
   @container chat-composer (max-width: 330px) { .model-trigger { max-width: 7.5rem; padding-inline: 0.45rem; } }
-  @media (prefers-reduced-motion: reduce) { .model-control, .picker-stage, .picker-view, .quick-actions, .effort-guidance, .model-company-content, .model-list { transition-duration: 0.01ms; } .model-popover.portaled.positioned { animation: none; } .effort-fill::before, .effort-particles { animation: none; background-position: 50% 0; } }
+  @media (prefers-reduced-motion: reduce) { .picker-stage, .picker-view, .quick-actions, .effort-guidance, .model-company-content, .model-list { transition-duration: 0.01ms; } .model-popover.portaled.positioned { animation: none; } .effort-fill::before, .effort-particles { animation: none; background-position: 50% 0; } }
 </style>

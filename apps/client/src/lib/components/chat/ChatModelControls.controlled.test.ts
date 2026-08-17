@@ -109,6 +109,38 @@ describe("ChatModelControls controlled mode", () => {
     expect(document.querySelector(".model-popover")).toBeNull();
   });
 
+  it("opens without resizing the trigger and rotates its chevron", async () => {
+    const target = document.createElement("div");
+    document.body.append(target);
+    const component = mount(ChatModelControls, {
+      target,
+      props: {
+        value: {
+          providerInstanceId: "codex-local",
+          modelId: "gpt-5.6-sol",
+          providerManaged: false,
+          options: [],
+        },
+      },
+    });
+    mounted.push({ component, target });
+    const control = target.querySelector<HTMLElement>(".model-control");
+    const trigger = target.querySelector<HTMLButtonElement>("[data-chat-model-trigger]");
+    const chevron = trigger?.querySelector<SVGElement>(".model-chevron");
+
+    trigger?.click();
+    await tick();
+
+    expect(control?.style.width).toBe("");
+    expect(chevron?.classList.contains("open")).toBe(true);
+
+    trigger?.click();
+    await tick();
+
+    expect(control?.style.width).toBe("");
+    expect(chevron?.classList.contains("open")).toBe(false);
+  });
+
   it("ports the main picker and opens it below when the upper boundary is too close", async () => {
     const target = document.createElement("div");
     document.body.append(target);

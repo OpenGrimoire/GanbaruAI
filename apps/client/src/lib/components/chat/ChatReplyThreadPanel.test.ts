@@ -309,6 +309,9 @@ describe("ChatReplyThreadPanel", () => {
     expect(target.textContent).not.toContain("Projected first answer");
     expect(target.textContent).not.toContain("Projected second answer");
     expect(target.querySelectorAll(".chat-execution-timeline")).toHaveLength(2);
+    const identityTriggers = [...target.querySelectorAll(".chat-execution-timeline .name-trigger")];
+    expect(identityTriggers).toHaveLength(2);
+    expect(identityTriggers.map((trigger) => trigger.textContent)).toEqual(["Ganbaru", "Ganbaru"]);
     expect(target.querySelector(".agent-badge")).toBeNull();
   });
 });

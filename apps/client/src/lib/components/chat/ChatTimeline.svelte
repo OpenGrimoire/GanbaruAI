@@ -42,14 +42,13 @@
 
   interface TimelineModelIdentity {
     model: ChatModelParticipant;
-    providerLabel: string | null;
   }
 
   const {
     bottomInsetPx = 0,
     embedded = false,
     hideUserMessages = false,
-    teammateName = null,
+    teammate = null,
     turnId = null,
     timelinePage = null,
     executionThread = null,
@@ -57,7 +56,7 @@
     bottomInsetPx?: number;
     embedded?: boolean;
     hideUserMessages?: boolean;
-    teammateName?: string | null;
+    teammate?: ChatParticipantRead | null;
     turnId?: ChatTurnId | null;
     timelinePage?: ChatTimelinePageRead | null;
     executionThread?: ChatThreadShellRead | null;
@@ -728,7 +727,6 @@
       ?? "opencode";
     return {
       model: chatModelParticipant(familyId, modelId, sourceProvider?.modelCatalog ?? null),
-      providerLabel: sourceProvider?.configuration.label ?? null,
     };
   }
 
@@ -935,8 +933,8 @@
               {@const identity = modelIdentityForRow(row)}
               {@const actionMessage = row.turnId ? assistantActionMessages.get(row.turnId) : undefined}
               <div class="chat-participant-row">
-                <ChatIdentityButton model={identity.model} presentation="avatar" size={embedded ? 32 : 36} {teammateName} providerLabel={identity.providerLabel} />
-                <div class="chat-participant-content"><div class="chat-participant-header"><strong><ChatIdentityButton model={identity.model} presentation="name" triggerLabel={teammateName ?? identity.model.displayName} {teammateName} providerLabel={identity.providerLabel} /></strong><span>{timestampLabel(row.createdAt)}</span></div>{#if actionMessage}<ChatMessageActionToolbar target={executionMessageActionTarget(actionMessage)} visible={hoveredActionTurnId === row.turnId} onError={reportError} />{/if}{@render modelRowContent(row)}</div>
+                <ChatIdentityButton participant={teammate} model={identity.model} presentation="avatar" size={embedded ? 34 : 36} currentResponseSettings={embedded} />
+                <div class="chat-participant-content"><div class="chat-participant-header"><strong><ChatIdentityButton participant={teammate} model={identity.model} presentation="name" triggerLabel={teammate?.displayName ?? identity.model.displayName} currentResponseSettings={embedded} /></strong><span>{timestampLabel(row.createdAt)}</span></div>{#if actionMessage}<ChatMessageActionToolbar target={executionMessageActionTarget(actionMessage)} visible={hoveredActionTurnId === row.turnId} onError={reportError} />{/if}{@render modelRowContent(row)}</div>
               </div>
             {:else}
               <div class="chat-participant-followup">{@render modelRowContent(row)}</div>
@@ -946,8 +944,8 @@
               {@const identity = modelIdentityForRow(row)}
               {@const actionMessage = row.turnId ? assistantActionMessages.get(row.turnId) : undefined}
               <div class="chat-participant-row">
-                <ChatIdentityButton model={identity.model} presentation="avatar" size={embedded ? 32 : 36} {teammateName} providerLabel={identity.providerLabel} />
-                <div class="chat-participant-content"><div class="chat-participant-header"><strong><ChatIdentityButton model={identity.model} presentation="name" triggerLabel={teammateName ?? identity.model.displayName} {teammateName} providerLabel={identity.providerLabel} /></strong><span>{timestampLabel(row.createdAt)}</span></div>{#if actionMessage}<ChatMessageActionToolbar target={executionMessageActionTarget(actionMessage)} visible={hoveredActionTurnId === row.turnId} onError={reportError} />{/if}{@render modelRowContent(row)}</div>
+                <ChatIdentityButton participant={teammate} model={identity.model} presentation="avatar" size={embedded ? 34 : 36} currentResponseSettings={embedded} />
+                <div class="chat-participant-content"><div class="chat-participant-header"><strong><ChatIdentityButton participant={teammate} model={identity.model} presentation="name" triggerLabel={teammate?.displayName ?? identity.model.displayName} currentResponseSettings={embedded} /></strong><span>{timestampLabel(row.createdAt)}</span></div>{#if actionMessage}<ChatMessageActionToolbar target={executionMessageActionTarget(actionMessage)} visible={hoveredActionTurnId === row.turnId} onError={reportError} />{/if}{@render modelRowContent(row)}</div>
               </div>
             {:else}
               <div class="chat-participant-followup">{@render modelRowContent(row)}</div>
@@ -991,8 +989,8 @@
   .chat-execution-timeline.embedded .chat-timeline-content { width:100%; min-height:0; justify-content:flex-start; }
   .chat-execution-timeline.embedded .chat-timeline-row { --chat-participant-gap:0.65rem; margin:0; padding:0 1rem; }
   .chat-execution-timeline.embedded .chat-timeline-row.participant-start { margin-top:0; }
-  .chat-execution-timeline.embedded .chat-participant-row { grid-template-columns:32px minmax(0,1fr); }
-  .chat-execution-timeline.embedded .chat-participant-followup { margin-left:calc(32px + var(--chat-participant-gap)); }
+  .chat-execution-timeline.embedded .chat-participant-row { grid-template-columns:34px minmax(0,1fr); }
+  .chat-execution-timeline.embedded .chat-participant-followup { margin-left:calc(34px + var(--chat-participant-gap)); }
   .chat-execution-timeline.embedded .chat-participant-header span { font-size:var(--chat-organizational-time-font-size,calc(0.6875rem * var(--type-scale))); }
   .chat-timeline-content { width:min(calc(100% - var(--chat-conversation-gutter,1rem) - var(--chat-conversation-gutter,1rem)),var(--chat-conversation-max-width,60rem)); }
   .chat-timeline-scroller { overflow-anchor: none; scrollbar-width: none; }
@@ -1006,7 +1004,7 @@
   .chat-timeline-row.participant-start { margin-top: 1.1rem; }
   .chat-timeline-row:first-child { margin-top: 0; }
   .chat-participant-row { display: grid; min-width: 0; grid-template-columns: 36px minmax(0, 1fr); align-items: start; gap: var(--chat-participant-gap); }
-  .chat-participant-content { --chat-message-action-anchor-bottom:1.25rem; position:relative; min-width:0; }
+  .chat-participant-content { --chat-message-action-anchor-bottom:1.25rem; position:relative; min-width:0; transform:translateY(-4px); }
   .chat-participant-followup { min-width: 0; margin-left: calc(36px + var(--chat-participant-gap)); }
   .chat-participant-header { display: flex; min-height: 1.25rem; min-width: 0; align-items: baseline; gap: 0.45rem; margin-bottom: 0.12rem; line-height: calc(1.25rem * var(--type-scale)); }
   .chat-participant-header strong { min-width: 0; overflow: hidden; color: var(--foreground); font-size: var(--chat-conversation-font-size, calc(0.875rem * var(--type-scale))); font-weight: 650; text-overflow: ellipsis; white-space: nowrap; }

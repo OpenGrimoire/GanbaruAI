@@ -10,7 +10,7 @@ const catalog: ProviderModelCatalog = {
   models: [{
     id: "anthropic/claude-sonnet-5",
     displayName: "Claude Sonnet 5",
-    description: null,
+    description: "Ultra-fast coding model.",
     contextLimit: null,
     availability: "available",
     capabilities: [],
@@ -40,6 +40,7 @@ describe("Chat participant identity", () => {
     expect(participant.company.id).toBe("anthropic");
     expect(participant.company.iconFamilyId).toBe("claude");
     expect(participant.defaultReasoning).toBe("Medium");
+    expect(participant).not.toHaveProperty("description");
   });
 
   it("infers a company from a historical model ID after catalog removal", () => {

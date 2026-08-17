@@ -780,7 +780,7 @@
   .execution-model-field :global(.model-control) { z-index:2; max-width:100%; justify-self:start; }
   .execution-model-field :global(.model-trigger) { min-width:12rem; }
   .execution-approval-field :global(.access-control) { justify-self:start; }
-  .execution-approval-field :global(.control-trigger) { max-width:100%; }
+  .execution-approval-field :global(.control-trigger) { min-width:12rem; max-width:100%; justify-content:center; }
   .field-grid input,.field-grid textarea { box-sizing:border-box; width:100%; min-width:0; appearance:none; border:1px solid var(--border); border-radius:0.375rem; background:var(--background); background-clip:padding-box; padding:0.45rem 0.55rem; color:var(--foreground); outline:none; font-weight:400; }
   .field-grid input:disabled,.field-grid textarea:disabled { cursor:not-allowed; background:color-mix(in srgb,var(--muted) 35%,var(--background)); color:var(--muted-foreground); }
   .field-grid input:focus,.field-grid textarea:focus { border-color:var(--ring); }

@@ -1,4 +1,4 @@
-import type { ModelId, ProviderModel, ProviderModelCatalog } from "$lib/chat/contracts";
+import type { ModelId, ProviderFamilyId, ProviderModel, ProviderModelCatalog } from "$lib/chat/contracts";
 import {
   modelCompany,
   modelCompanyForIdentity,
@@ -8,9 +8,8 @@ import {
 export interface ChatModelParticipant {
   displayName: string;
   company: ModelCompanyIdentity;
+  providerFamilyId: ProviderFamilyId;
   modelId: ModelId | null;
-  description: string | null;
-  contextLimit: number | null;
   defaultReasoning: string | null;
 }
 
@@ -28,7 +27,7 @@ export function modelDefaultReasoning(model: ProviderModel | null): string | nul
 
 /** Resolves the visible model identity for one historical Chat turn. */
 export function chatModelParticipant(
-  providerFamilyId: string,
+  providerFamilyId: ProviderFamilyId,
   modelId: ModelId | null,
   catalog: ProviderModelCatalog | null,
 ): ChatModelParticipant {
@@ -41,9 +40,8 @@ export function chatModelParticipant(
   return {
     displayName: model?.displayName ?? modelId ?? company.name,
     company,
+    providerFamilyId,
     modelId: model?.id ?? modelId,
-    description: model?.description ?? null,
-    contextLimit: model?.contextLimit ?? null,
     defaultReasoning: modelDefaultReasoning(model),
   };
 }

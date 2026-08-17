@@ -47,6 +47,29 @@ export interface ModelCatalogSelection {
   providerManaged: boolean;
 }
 
+/** Formats a model name for the compact Chat model control. */
+export function compactModelName(
+  displayName: string,
+  familyId: ProviderFamilyId | null,
+): string {
+  if (familyId !== "codex") return displayName;
+  return displayName.replace(/^GPT-/i, "").replaceAll("-", " ");
+}
+
+/** Formats an option label for the compact Chat model control. */
+export function compactModelOptionLabel(
+  label: string,
+  familyId: ProviderFamilyId | null,
+  lightLabel: string,
+  extraHighLabel: string,
+): string {
+  const normalized = label.replaceAll("_", " ").trim();
+  if (familyId === "codex" && normalized.toLowerCase() === "low") return lightLabel;
+  if (["xhigh", "extra high"].includes(normalized.toLowerCase())) return extraHighLabel;
+  if (!normalized || normalized !== normalized.toLowerCase()) return normalized;
+  return `${normalized[0]?.toUpperCase() ?? ""}${normalized.slice(1)}`;
+}
+
 export function visibleProviderModels(
   provider: ProviderInstanceRead | null,
   selection: ModelCatalogSelection,

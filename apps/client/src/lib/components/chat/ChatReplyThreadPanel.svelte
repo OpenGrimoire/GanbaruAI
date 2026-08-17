@@ -49,6 +49,9 @@
   let restoredDestination: string | null = null;
   const page = $derived(chat.replyThread);
   const assignment = $derived(page?.assignment ?? null);
+  const executionTeammate = $derived(assignment?.teammate
+    ?? page?.thread.participants.find((participant) => participant.kind === "ai_teammate")
+    ?? null);
   const executionRun = $derived(latestRenderableAgentRun(page?.agentRuns ?? []));
   const loadedExecutionTurnIds = $derived(new Set([
     ...chat.timelineItems.flatMap((item) => item.turnId ? [item.turnId] : []),
@@ -276,7 +279,7 @@
     {#if page && executionPresentationReady}
       {#if page.previousCursor}<button type="button" class="load-older" onclick={() => void chat.loadOlderReplyThreadMessages()}>{t("chat.organization.loadOlder")}</button>{/if}
       <div class="date-divider"><span>{formatDateTime(localization.locale, Date.parse(page.rootMessage.createdAt), { dateStyle: "full" })}</span></div>
-      <ChatOrganizationalMessage message={page.rootMessage} showReplyStrip={false} />
+      <ChatOrganizationalMessage message={page.rootMessage} showReplyStrip={false} currentResponseSettings />
       {#each renderEntries as entry, index (entry.key)}
         {@const previousEntry = renderEntries[index - 1]}
         {@const previousCreatedAt = previousEntry ? entryCreatedAt(previousEntry) : page.rootMessage.createdAt}
@@ -287,6 +290,7 @@
           <ChatOrganizationalMessage
             message={entry.message}
             showReplyStrip={false}
+            currentResponseSettings
             grouped={previousEntry?.kind === "message" && shouldGroupReplyMessages(previousEntry.message, entry.message)}
           />
         {:else}
@@ -294,7 +298,7 @@
           <ChatExecutionTimeline
             embedded
             hideUserMessages
-            teammateName={assignment?.teammate.displayName ?? null}
+            teammate={executionTeammate}
             turnId={entry.run.providerExecutionTurnId}
             timelinePage={exactExecution?.timelinePage ?? null}
             executionThread={exactExecution?.thread ?? null}

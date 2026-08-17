@@ -2,11 +2,14 @@
   import { onDestroy, tick } from "svelte";
   import LockKeyhole from "@lucide/svelte/icons/lock-keyhole";
   import Settings from "@lucide/svelte/icons/settings";
-  import type { ChatParticipantRead } from "$lib/chat/contracts";
+  import Zap from "@lucide/svelte/icons/zap";
+  import type { ChatApprovalPolicy, ChatParticipantRead } from "$lib/chat/contracts";
   import { chatParticipantDisplayName } from "$lib/chat/participant-display";
   import type { ChatModelParticipant } from "$lib/chat/participant-identity";
+  import { compactModelName, compactModelOptionLabel } from "$lib/chat/model-picker-model";
+  import { providerPermissionFileName } from "$lib/chat/permission-modes";
+  import { teammateExecutionSummary } from "$lib/chat/teammate-draft";
   import { chatTeammateModelParticipant } from "$lib/chat/teammate-identity";
-  import { formatNumber } from "$lib/i18n/formatters";
   import { getLocalization } from "$lib/i18n/translator.svelte";
   import { getChat } from "$lib/stores/chat.svelte";
   import { getPreferences } from "$lib/stores/preferences.svelte";
@@ -22,8 +25,7 @@
     model = null,
     presentation,
     triggerLabel = null,
-    teammateName = null,
-    providerLabel = null,
+    currentResponseSettings = false,
     size = 34,
     shape = "default",
   }: {
@@ -31,14 +33,12 @@
     model?: ChatModelParticipant | null;
     presentation: IdentityPresentation;
     triggerLabel?: string | null;
-    teammateName?: string | null;
-    providerLabel?: string | null;
+    currentResponseSettings?: boolean;
     size?: number;
     shape?: "default" | "compact";
   } = $props();
 
-  const localization = getLocalization();
-  const { t } = localization;
+  const { t } = getLocalization();
   const chat = getChat();
   const preferences = getPreferences();
   const settings = getSettingsLauncher();
@@ -74,7 +74,35 @@
     )
     : model?.displayName ?? "");
   const visibleTriggerLabel = $derived(triggerLabel
-    ?? (presentation === "mention" ? `@${displayName}` : teammateName ?? displayName));
+    ?? (presentation === "mention" ? `@${displayName}` : displayName));
+  const cardModel = $derived(teammateModel ?? model);
+  const cardReasoning = $derived(teammateReasoning() ?? cardModel?.defaultReasoning ?? null);
+  const formattedModelName = $derived(cardModel
+    ? compactModelName(cardModel.displayName, cardModel.providerFamilyId)
+    : null);
+  const formattedReasoning = $derived(cardReasoning
+    ? compactModelOptionLabel(
+        cardReasoning,
+        cardModel?.providerFamilyId ?? null,
+        t("chat.composer.light"),
+        t("chat.composer.extraHigh"),
+      )
+    : null);
+  const fastEnabled = $derived.by(() => {
+    const policy = teammate?.latestPolicy;
+    if (!policy) return false;
+    if (policy.speed !== null) return policy.speed === "fast";
+    const modelDefinition = teammateProvider?.modelCatalog?.models.find((candidate) => (
+      candidate.id === policy.modelId
+    )) ?? null;
+    return teammateExecutionSummary(policy.modelOptions, modelDefinition).speed === "fast";
+  });
+  const approvalPolicy = $derived(participant?.kind === "ai_teammate"
+    ? chat.selectedChannel?.memberships.find((membership) => (
+        membership.participant.id === participant.id && membership.removedAt === null
+      ))?.approvalPolicy ?? null
+    : null);
+  const approvalLabel = $derived(approvalPolicy ? approvalPolicyLabel(approvalPolicy) : null);
 
   onDestroy(() => {
     cancelPreview();
@@ -180,9 +208,7 @@
     const top = availableBelow >= cardHeight + cardGapPx
       ? triggerBounds.bottom + cardGapPx
       : Math.max(viewportInsetPx, triggerBounds.top - cardHeight - cardGapPx);
-    const idealLeft = presentation === "avatar"
-      ? triggerBounds.left
-      : triggerBounds.left + triggerBounds.width / 2 - cardWidth / 2;
+    const idealLeft = triggerBounds.left;
     const left = Math.min(
       Math.max(viewportInsetPx, idealLeft),
       Math.max(viewportInsetPx, window.innerWidth - cardWidth - viewportInsetPx),
@@ -194,6 +220,16 @@
     if (participant?.archivedAt) return t("chat.organization.archivedParticipant");
     if (teammate?.configurationState === "healthy") return t("chat.organization.availableParticipant");
     return t("chat.organization.needsSetup");
+  }
+
+  function approvalPolicyLabel(policy: ChatApprovalPolicy): string {
+    if (policy === "ask_for_approval") return t("chat.hero.askForApproval");
+    if (policy === "approve_for_me") return t("chat.hero.approveForMe");
+    if (policy === "full_access") return t("chat.hero.fullAccess");
+    return t(
+      "chat.hero.customPermissions",
+      providerPermissionFileName(teammateProvider?.configuration.familyId ?? null),
+    );
   }
 
   function teammateReasoning(): string | null {
@@ -263,33 +299,39 @@
       {#if participant}<ChatParticipantAvatar {participant} size={40} />
       {:else if model}<ChatModelAvatar familyId={model.company.iconFamilyId} label={model.company.name} size={40} />{/if}
       <div class="identity-heading">
-        <strong>{displayName}</strong>
+        <div class="identity-name-line">
+          <strong>{displayName}</strong>
+          {#if participant?.kind === "ai_teammate"}
+            <span
+              class="identity-status-dot"
+              class:available={teammate?.configurationState === "healthy"}
+              role="img"
+              aria-label={teammateStatus()}
+            ></span>
+          {/if}
+        </div>
         {#if participant?.kind === "local_user"}<small>{t("chat.organization.localProfile")}</small>
         {:else if participant?.kind === "ai_teammate" && teammate?.role}<small>{teammate.role}</small>
-        {:else if model}<small>{model.company.name}{#if teammateName} · {t("chat.organization.workingAs", teammateName)}{/if}</small>{/if}
+        {/if}
       </div>
-      {#if participant?.kind === "ai_teammate"}
-        <span class="identity-status"><i class:available={teammate?.configurationState === "healthy"}></i>{teammateStatus()}</span>
-      {/if}
     </div>
 
     <div class="identity-body">
       {#if participant?.kind === "local_user"}
         <div class="privacy-note"><LockKeyhole size={14} /><span>{t("chat.organization.localProfileDetail")}</span></div>
-      {:else if participant?.kind === "ai_teammate"}
-        <dl class="identity-facts">
-          {#if teammateModel}<div><dt>{t("chat.organization.model")}</dt><dd>{teammateModel.displayName}</dd></div>{/if}
-          {#if teammateReasoning()}<div><dt>{t("chat.organization.reasoning")}</dt><dd>{teammateReasoning()}</dd></div>{/if}
-          {#if teammateProvider}<div><dt>{t("chat.organization.provider")}</dt><dd>{teammateProvider.configuration.label}</dd></div>{/if}
-        </dl>
-      {:else if model}
-        {#if model.description}<p class="identity-description">{model.description}</p>{/if}
-        <dl class="identity-facts">
-          {#if model.defaultReasoning}<div><dt>{t("chat.organization.defaultReasoning")}</dt><dd>{model.defaultReasoning}</dd></div>{/if}
-          {#if providerLabel}<div><dt>{t("chat.organization.provider")}</dt><dd>{providerLabel}</dd></div>{/if}
-          {#if model.contextLimit !== null}<div><dt>{t("chat.organization.contextWindow")}</dt><dd>{t("chat.organization.tokenCount", formatNumber(localization.locale, model.contextLimit))}</dd></div>{/if}
-          {#if model.modelId}<div class="wide-fact"><dt>{t("chat.organization.modelId")}</dt><dd class="technical-value">{model.modelId}</dd></div>{/if}
-        </dl>
+      {:else if cardModel}
+        <div class="identity-settings-summary">
+          <span class="identity-settings-label">{currentResponseSettings ? t("chat.organization.currentResponseSettings") : t("chat.organization.defaultSettings")}</span>
+          <div class="identity-model-row">
+            {#if fastEnabled}<span class="identity-fast-indicator" aria-label={t("chat.composer.fastEnabled")}><Zap size={13} fill="currentColor" /></span>{/if}
+            <span class="identity-model-name">{formattedModelName}</span>
+            {#if formattedReasoning}<span class="identity-effort-name">{formattedReasoning}</span>{/if}
+            {#if approvalLabel}
+              <span class="identity-model-divider" aria-hidden="true">|</span>
+              <span class="identity-approval" class:full-access={approvalPolicy === "full_access"}>{approvalLabel}</span>
+            {/if}
+          </div>
+        </div>
       {:else}
         <p class="identity-description">{t("chat.organization.collaboratorIdentity")}</p>
       {/if}
@@ -312,28 +354,30 @@
   .mention-trigger { display:inline; border-radius:0.28rem; background:color-mix(in srgb,var(--primary) 14%,transparent); padding:0.05em 0.22em; color:color-mix(in srgb,var(--primary) 76%,var(--foreground)); font:inherit; font-weight:650; line-height:inherit; box-decoration-break:clone; -webkit-box-decoration-break:clone; }
   .mention-trigger:hover,.mention-trigger[aria-expanded="true"] { background:color-mix(in srgb,var(--primary) 23%,transparent); color:var(--foreground); }
   .identity-card { position:fixed; z-index:140; width:min(22rem,calc(100vw - 1rem)); max-height:calc(100vh - 1rem); overflow:auto; overscroll-behavior:contain; border:1px solid color-mix(in srgb,var(--border) 92%,var(--foreground)); border-radius:0.7rem; background:var(--popover); color:var(--foreground); }
-  .identity-header { display:grid; grid-template-columns:40px minmax(0,1fr) auto; align-items:center; gap:0.65rem; padding:0.75rem 0.8rem 0.65rem; }
+  .identity-header { display:grid; grid-template-columns:40px minmax(0,1fr); align-items:center; gap:0.65rem; padding:0.75rem 0.8rem 0.4rem; }
   .identity-heading { display:grid; min-width:0; }
+  .identity-name-line { display:flex; min-width:0; align-items:center; gap:0.38rem; }
   .identity-heading strong { overflow:hidden; font-size:calc(0.9rem * var(--type-scale)); font-weight:650; line-height:1.2rem; text-overflow:ellipsis; white-space:nowrap; }
   .identity-heading small { overflow:hidden; color:var(--muted-foreground); font-size:calc(0.7rem * var(--type-scale)); text-overflow:ellipsis; white-space:nowrap; }
-  .identity-status { display:flex; align-items:center; gap:0.32rem; color:var(--muted-foreground); font-size:calc(0.65rem * var(--type-scale)); white-space:nowrap; }
-  .identity-status i { width:0.42rem; height:0.42rem; border-radius:999px; background:var(--status-tentative); }
-  .identity-status i.available { background:var(--action-confirm); }
-  .identity-body { display:grid; gap:0.65rem; border-top:1px solid color-mix(in srgb,var(--border) 72%,transparent); padding:0.65rem 0.8rem 0.7rem; }
+  .identity-status-dot { width:0.42rem; height:0.42rem; flex:0 0 auto; border-radius:999px; background:var(--status-tentative); }
+  .identity-status-dot.available { background:var(--action-confirm); }
+  .identity-body { display:grid; gap:0.65rem; padding:0.3rem 0.8rem 0.7rem; }
   .identity-description { overflow-wrap:anywhere; font-size:calc(0.75rem * var(--type-scale)); line-height:1.1rem; }
+  .identity-settings-summary { display:grid; min-width:0; gap:0.18rem; }
+  .identity-settings-label { color:var(--muted-foreground); font-size:calc(0.62rem * var(--type-scale)); }
+  .identity-model-row { display:flex; min-width:0; align-items:center; gap:0.3rem; color:var(--foreground); font-size:calc(0.766667rem * var(--type-scale)); }
+  .identity-fast-indicator { display:grid; flex:0 0 auto; place-items:center; }
+  .identity-model-name { overflow:hidden; min-width:0; text-overflow:ellipsis; white-space:nowrap; }
+  .identity-effort-name { flex:0 0 auto; }
+  .identity-model-divider { flex:0 0 auto; color:var(--muted-foreground); }
+  .identity-approval { overflow:hidden; min-width:0; color:var(--foreground); text-overflow:ellipsis; white-space:nowrap; }
+  .identity-approval.full-access { color:color-mix(in srgb,color-mix(in srgb,var(--status-tentative) 55%,var(--destructive)) 72%,var(--foreground)); }
+  :global(.dark) .identity-approval.full-access { color:var(--status-tentative); }
   .privacy-note { display:grid; grid-template-columns:1rem minmax(0,1fr); gap:0.55rem; align-items:start; color:var(--muted-foreground); }
   .privacy-note :global(svg) { margin-top:0.1rem; color:color-mix(in srgb,var(--primary) 70%,var(--foreground)); }
   .privacy-note span { font-size:calc(0.7rem * var(--type-scale)); line-height:1rem; }
-  dl { display:grid; }
-  .identity-facts { grid-template-columns:repeat(2,minmax(0,1fr)); gap:0.55rem 1rem; }
-  dl > div { display:grid; min-width:0; align-content:start; gap:0.08rem; }
-  dl > div.wide-fact { grid-column:1/-1; }
-  dt { color:var(--muted-foreground); font-size:calc(0.62rem * var(--type-scale)); }
-  dd { min-width:0; overflow-wrap:anywhere; font-size:calc(0.7rem * var(--type-scale)); }
-  .technical-value { font-family:var(--font-mono,monospace); font-size:calc(0.65rem * var(--type-scale)); }
-  footer { display:flex; justify-content:flex-end; border-top:1px solid color-mix(in srgb,var(--border) 72%,transparent); padding:0.45rem 0.65rem 0.5rem; }
+  footer { display:flex; justify-content:flex-end; padding:0.25rem 0.65rem 0.5rem; }
   footer button { display:inline-flex; min-height:1.75rem; align-items:center; gap:0.35rem; border-radius:0.4rem; padding:0.25rem 0.45rem; color:var(--muted-foreground); font-size:calc(0.68rem * var(--type-scale)); }
   footer button:hover,footer button:focus-visible { background:var(--accent); color:var(--foreground); }
-  @media (max-width:360px) { .identity-status { display:none; } .identity-facts { grid-template-columns:1fr; } dl > div.wide-fact { grid-column:auto; } }
   @media (forced-colors:active) { .identity-card { border-color:CanvasText; } }
 </style>

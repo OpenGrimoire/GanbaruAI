@@ -36,7 +36,7 @@
     place-items: center;
     overflow: hidden;
     border-radius: var(--chat-participant-avatar-radius, 22%);
-    background: #ffffff;
+    background: #f2f2f2;
   }
 
   .model-avatar.claude { background: #D97656; }

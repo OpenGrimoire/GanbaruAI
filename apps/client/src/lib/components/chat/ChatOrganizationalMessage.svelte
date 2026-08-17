@@ -17,11 +17,13 @@
     message,
     grouped = false,
     showReplyStrip = true,
+    currentResponseSettings = false,
     onOpenThread = () => undefined,
   }: {
     message: ChatMessageRead;
     grouped?: boolean;
     showReplyStrip?: boolean;
+    currentResponseSettings?: boolean;
     onOpenThread?: (trigger: HTMLElement) => void;
   } = $props();
 
@@ -73,16 +75,16 @@
   }}
 >
   <div class="avatar-cell">
-    {#if !grouped}<ChatIdentityButton participant={message.author} presentation="avatar" size={34} />{/if}
+    {#if !grouped}<ChatIdentityButton participant={message.author} presentation="avatar" size={34} {currentResponseSettings} />{/if}
   </div>
   <div class="message-body">
     {#if !grouped}
       <header>
-        <strong><ChatIdentityButton participant={message.author} presentation="name" triggerLabel={authorDisplayName} /></strong>
+        <strong><ChatIdentityButton participant={message.author} presentation="name" triggerLabel={authorDisplayName} {currentResponseSettings} /></strong>
         <time datetime={message.createdAt}>{formatDateTime(localization.locale, Date.parse(message.createdAt), { timeStyle: "short" })}</time>
       </header>
     {/if}
-    <div class="message-copy">{#each messageSegments as segment, index (`${segment.kind}:${index}`)}{#if segment.kind === "mention"}<ChatIdentityButton participant={participantForMention(segment.mention)} presentation="mention" triggerLabel={segment.text} />{:else}{segment.text}{/if}{/each}</div>
+    <div class="message-copy">{#each messageSegments as segment, index (`${segment.kind}:${index}`)}{#if segment.kind === "mention"}<ChatIdentityButton participant={participantForMention(segment.mention)} presentation="mention" triggerLabel={segment.text} {currentResponseSettings} />{:else}{segment.text}{/if}{/each}</div>
     {#if message.resourceReferences.length > 0 || message.attachmentIds.length > 0}
       <div class="message-context">
         {#each message.resourceReferences as reference (`${reference.kind}:${reference.relativePath}`)}<span>{reference.kind === "folder" ? "▣" : "▤"} {reference.displayLabel}</span>{/each}
@@ -114,7 +116,7 @@
   .message-row.grouped { padding-top:0.08rem; }
   .avatar-cell { min-height:1px; }
   .message-body { --chat-message-action-anchor-bottom:1.3rem; --chat-message-reaction-margin-top:0.35rem; position:relative; min-width:0; }
-  .message-row:not(.grouped) .message-body { transform:translateY(-2px); }
+  .message-row:not(.grouped) .message-body { transform:translateY(-4px); }
   header { display:flex; min-height:1.3rem; align-items:baseline; gap:0.4rem; }
   header strong { font-size:var(--chat-organizational-font-size,calc(0.875rem * var(--type-scale))); } header time { color:var(--muted-foreground); font-size:var(--chat-organizational-time-font-size,calc(0.6875rem * var(--type-scale))); }
   .message-copy { white-space:pre-wrap; overflow-wrap:anywhere; color:var(--foreground); font-size:var(--chat-organizational-font-size,calc(0.875rem * var(--type-scale))); line-height:var(--chat-organizational-line-height,calc(1.3125rem * var(--type-scale))); }

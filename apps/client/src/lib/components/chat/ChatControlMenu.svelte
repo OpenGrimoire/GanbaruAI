@@ -38,6 +38,7 @@
   export interface ChatControlOption {
     value: string;
     label: string;
+    triggerLabel?: string;
     description?: string;
     icon: ChatControlIcon;
     disabled?: boolean;
@@ -214,7 +215,7 @@
   data-app-tooltip-disabled={showTooltip ? undefined : "true"}
 >
   {@render controlIcon(current?.icon ?? "sliders")}
-  <span class="control-label">{current?.label ?? ariaLabel}</span>
+  <span class="control-label">{current?.triggerLabel ?? current?.label ?? ariaLabel}</span>
   {#if !minimal}<ChevronDown size={12} class={open ? "open" : ""} />{/if}
 </button>
 
@@ -223,6 +224,8 @@
     bind:this={popover}
     use:portal
     class="control-popover"
+    class:below={geometry.placement === "below"}
+    class:positioned={ready}
     role="listbox"
     tabindex="-1"
     aria-label={ariaLabel}
@@ -256,16 +259,20 @@
   .control-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
   .control-trigger :global(svg:last-child) { flex: 0 0 auto; transition: transform 120ms ease; }
   .control-trigger :global(svg.open:last-child) { transform: rotate(180deg); }
-  .control-popover { position: fixed; z-index: 80; overflow-y: auto; border: 1px solid var(--border); border-radius: 0.65rem; background: var(--popover); padding: 0.3rem; color: var(--popover-foreground); box-shadow: 0 14px 36px rgb(0 0 0 / 0.2); }
+  .control-popover { position: fixed; z-index: 80; overflow-y: auto; border: 1px solid var(--border); border-radius: 0.65rem; background: var(--popover); padding: 0.3rem; color: var(--popover-foreground); box-shadow: 0 2px 6px rgb(0 0 0 / 0.06); }
+  .control-popover.positioned { animation: control-popover-enter 180ms cubic-bezier(0.22, 0.75, 0.18, 1); }
+  .control-popover.below { --control-popover-enter-y: -0.25rem; }
   .control-popover button { display: grid; width: 100%; grid-template-columns: 1.5rem minmax(0, 1fr) 1rem; align-items: center; gap: 0.45rem; border-radius: 0.4rem; padding: 0.45rem 0.5rem; text-align: left; }
   .control-popover button:hover, .control-popover button:focus-visible { background: var(--accent); outline: none; }
   .control-popover button:disabled { cursor: not-allowed; opacity: 0.45; }
-  .option-icon { display: grid; place-items: center; color: var(--muted-foreground); }
+  .option-icon { display: grid; place-items: center; color: inherit; }
   .option-copy { min-width: 0; }
   .option-copy strong, .option-copy small { display: block; overflow: hidden; text-overflow: ellipsis; }
   .option-copy strong { font-size: calc(0.8rem * var(--type-scale)); font-weight: 500; }
   .option-copy small { margin-top: 0.1rem; color: var(--muted-foreground); font-size: calc(0.733333rem * var(--type-scale)); line-height: calc(1.05rem * var(--type-scale)); white-space: normal; }
   .control-popover button > :global(svg:last-child) { visibility: hidden; }
   .control-popover button > :global(svg.visible:last-child) { visibility: visible; }
+  @keyframes control-popover-enter { from { opacity: 0; transform: translateY(var(--control-popover-enter-y, 0.25rem)); } to { opacity: 1; transform: translateY(0); } }
   @container chat-composer (max-width: 520px) { .control-trigger.compact { width: 1.9rem; padding-inline: 0; justify-content: center; } .control-trigger.compact .control-label, .control-trigger.compact :global(svg:last-child) { display: none; } }
+  @media (prefers-reduced-motion: reduce) { .control-popover.positioned { animation: none; } }
 </style>
