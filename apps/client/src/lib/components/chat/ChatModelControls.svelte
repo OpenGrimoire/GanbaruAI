@@ -652,8 +652,8 @@
     const anchor = activeFlyoutTrigger.getBoundingClientRect();
     const parent = pickerPanel.getBoundingClientRect();
     const panel = flyoutPanel.getBoundingClientRect();
-    const rightPosition = parent.right + flyoutGapPx;
-    const leftPosition = parent.left - panel.width - flyoutGapPx;
+    const rightPosition = anchor.right + flyoutGapPx;
+    const leftPosition = anchor.left - panel.width - flyoutGapPx;
     const rightFits = rightPosition + panel.width <= window.innerWidth - flyoutViewportInsetPx;
     const leftFits = leftPosition >= flyoutViewportInsetPx;
     const maximumLeft = Math.max(flyoutViewportInsetPx, window.innerWidth - panel.width - flyoutViewportInsetPx);
@@ -1086,7 +1086,7 @@
   .advanced-heading { width: 100%; }
   .advanced-chevron { display: grid; width: 0.95rem; height: 0.95rem; flex: 0 0 0.95rem; place-items: center; transform: rotate(0deg); transition: transform 240ms cubic-bezier(0.22, 0.75, 0.18, 1); }
   .advanced-chevron.expanded { transform: rotate(90deg); }
-  .fast-button { display: flex; width: 2rem; height: 2rem; flex: 0 0 auto; align-items: center; justify-content: flex-end; border-radius: 0.55rem; color: var(--muted-foreground); transition: color 240ms ease, background-color 240ms ease, transform 180ms cubic-bezier(0.2, 0.8, 0.2, 1); }
+  .fast-button { display: flex; width: 2rem; height: 2rem; flex: 0 0 auto; align-items: center; justify-content: center; margin-inline: 0.375rem -0.375rem; border-radius: 0.55rem; color: var(--muted-foreground); transition: color 240ms ease, background-color 240ms ease, transform 180ms cubic-bezier(0.2, 0.8, 0.2, 1); }
   .fast-button :global(svg) { fill: transparent; transform: scale(0.94); transition: fill 200ms ease, transform 220ms cubic-bezier(0.2, 0.8, 0.2, 1); }
   .fast-button.active :global(svg) { fill: currentColor; transform: scale(1); }
   .fast-button:hover { background: color-mix(in srgb, var(--accent) 65%, transparent); color: var(--foreground); }

@@ -220,7 +220,7 @@ describe("ChatModelControls controlled mode", () => {
     window.dispatchEvent(new Event("resize"));
     await tick();
 
-    expect(flyout.style.left).toBe("706px");
+    expect(flyout.style.left).toBe("696px");
     expect(flyout.style.top).toBe("96px");
   });
 });

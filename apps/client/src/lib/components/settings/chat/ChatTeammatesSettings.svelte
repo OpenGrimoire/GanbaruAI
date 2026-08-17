@@ -627,7 +627,7 @@
       <section class="editor-section">
         <div class="section-heading"><h4>{t("settings.chat.teammates.executionSection")}</h4></div>
         <div class="field-grid">
-          <div class="field full execution-model-field"><span>{t("settings.chat.teammates.model")}<i class="required-marker" aria-hidden="true">*</i></span><ChatModelControls value={{ providerInstanceId: providerId || null, modelId: modelId || null, providerManaged: providerManagedModel, options: modelOptions }} disabled={archivedMode} onChange={selectExecution} /></div>
+          <div class="field execution-model-field"><span>{t("settings.chat.teammates.model")}<i class="required-marker" aria-hidden="true">*</i></span><ChatModelControls value={{ providerInstanceId: providerId || null, modelId: modelId || null, providerManaged: providerManagedModel, options: modelOptions }} disabled={archivedMode} onChange={selectExecution} /></div>
           <div class="field execution-approval-field"><span>{t("settings.chat.teammates.approval")}</span><ChatAccessControl value={approvalPolicy} providerInstanceId={providerId || null} workingFolderId={defaultFolderId || null} disabled={archivedMode} onChange={(value) => { approvalPolicy = value; }} /></div>
         </div>
       </section>
