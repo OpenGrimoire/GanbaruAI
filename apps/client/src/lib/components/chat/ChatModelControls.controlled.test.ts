@@ -141,7 +141,7 @@ describe("ChatModelControls controlled mode", () => {
     expect(chevron?.classList.contains("open")).toBe(false);
   });
 
-  it("ports the main picker and opens it below when the upper boundary is too close", async () => {
+  it("prefers opening the main picker below and flips above when needed", async () => {
     const target = document.createElement("div");
     document.body.append(target);
     const component = mount(ChatModelControls, {
@@ -163,7 +163,7 @@ describe("ChatModelControls controlled mode", () => {
     const picker = document.querySelector<HTMLElement>(".model-popover");
     expect(picker?.parentElement).toBe(document.body);
     if (!trigger || !picker) throw new Error("Main model picker did not render");
-    const triggerRect = vi.spyOn(trigger, "getBoundingClientRect").mockReturnValue(domRect(400, 20, 120, 32));
+    const triggerRect = vi.spyOn(trigger, "getBoundingClientRect").mockReturnValue(domRect(400, 200, 120, 32));
     vi.spyOn(picker, "getBoundingClientRect").mockReturnValue(domRect(0, 0, 296, 180));
     vi.stubGlobal("innerWidth", 1024);
     vi.stubGlobal("innerHeight", 768);
@@ -172,13 +172,16 @@ describe("ChatModelControls controlled mode", () => {
     await tick();
 
     expect(picker.style.left).toBe("400px");
-    expect(picker.style.top).toBe("59px");
+    expect(picker.style.top).toBe("239px");
+    expect(picker.classList.contains("below")).toBe(true);
 
-    triggerRect.mockReturnValue(domRect(400, 20, 220, 32));
+    triggerRect.mockReturnValue(domRect(400, 650, 220, 32));
     window.dispatchEvent(new Event("resize"));
     await tick();
 
     expect(picker.style.left).toBe("400px");
+    expect(picker.style.top).toBe("463px");
+    expect(picker.classList.contains("below")).toBe(false);
   });
 
   it("ports advanced flyouts above scroll containers and prefers the right side", async () => {

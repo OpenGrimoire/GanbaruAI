@@ -406,9 +406,9 @@
     const belowFits = belowTop + panel.height <= bottomBound;
     const availableAbove = Math.max(0, trigger.top - pickerGapPx - topBound);
     const availableBelow = Math.max(0, bottomBound - belowTop);
-    const preferredTop = aboveFits || (!belowFits && availableAbove >= availableBelow)
-      ? aboveTop
-      : belowTop;
+    const preferredTop = belowFits || (!aboveFits && availableBelow >= availableAbove)
+      ? belowTop
+      : aboveTop;
     const maximumTop = Math.max(topBound, bottomBound - panel.height);
     const targetControlWidth = Math.max(trigger.width, panel.width);
     const maximumLeft = Math.max(leftBound, rightBound - panel.width);
