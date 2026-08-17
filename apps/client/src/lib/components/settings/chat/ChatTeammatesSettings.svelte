@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount, untrack } from "svelte";
+  import { onMount, tick, untrack } from "svelte";
   import Archive from "@lucide/svelte/icons/archive";
   import ArchiveRestore from "@lucide/svelte/icons/archive-restore";
   import Check from "@lucide/svelte/icons/check";
@@ -7,6 +7,7 @@
   import EyeOff from "@lucide/svelte/icons/eye-off";
   import Plus from "@lucide/svelte/icons/plus";
   import Trash2 from "@lucide/svelte/icons/trash-2";
+  import X from "@lucide/svelte/icons/x";
   import * as chatApi from "$lib/api/chat";
   import {
     copyModelOptionSelections,
@@ -36,7 +37,13 @@
   import ChatModelControls from "$lib/components/chat/ChatModelControls.svelte";
   import ChatParticipantAvatar from "$lib/components/chat/ChatParticipantAvatar.svelte";
 
-  let { initialTeammateId }: { initialTeammateId?: string } = $props();
+  let {
+    initialTeammateId,
+    onDraftStateChange = () => {},
+  }: {
+    initialTeammateId?: string;
+    onDraftStateChange?: (open: boolean) => void;
+  } = $props();
 
   const chat = getChat();
   const { t } = getLocalization();
@@ -63,6 +70,7 @@
   let folderIds = $state<string[]>([]);
   let defaultFolderId = $state("");
   let directoryScrollElement = $state<HTMLElement>();
+  let draftRowElement = $state<HTMLButtonElement>();
   let detailScrollElement = $state<HTMLElement>();
   let membershipRevision = $state<number | null>(null);
   let loadingMembership = $state(false);
@@ -89,6 +97,11 @@
   const selectedProvider = $derived(providers.find((provider) => provider.configuration.instanceId === providerId) ?? null);
   const models = $derived(selectedProvider?.modelCatalog?.models.filter((model) => model.availability !== "deprecated") ?? []);
   const selectedModel = $derived(models.find((model) => model.id === modelId) ?? null);
+
+  $effect(() => {
+    onDraftStateChange(creating);
+    return () => onDraftStateChange(false);
+  });
   const channel = $derived(chat.activeChannels.find((entry) => entry.id === channelId) ?? chat.selectedChannel);
   const projectFolders = $derived(chat.workingFolders.filter((entry) => (
     entry.workingFolder.projectId === channel?.projectId && entry.workingFolder.archivedAt === null
@@ -256,6 +269,7 @@
     savedNotice = false;
     profileBaselineSnapshot = currentProfileSnapshot();
     membershipBaselineSnapshot = currentMembershipSnapshot();
+    void tick().then(() => draftRowElement?.scrollIntoView?.({ block: "nearest" }));
   }
 
   function cancelCreate(): void {
@@ -547,17 +561,6 @@
           <div>
             {#if creating || directoryTeammates.length > 0}
               <nav class="teammate-directory" aria-label={t("settings.chat.teammates.directoryLabel")}>
-                {#if creating}
-                  <button type="button" class="active draft-row" aria-current="page">
-                    {#if draftCompany}
-                      <span class="directory-avatar"><ChatModelAvatar familyId={draftCompany.iconFamilyId} label={draftCompany.name} size={32} /></span>
-                    {:else}<span class="draft-avatar"><Plus size={15} /></span>{/if}
-                    <span class="directory-summary">
-                      <strong>{displayName.trim() || t("settings.chat.teammates.name")}</strong>
-                      <small>{role.trim() || t("settings.chat.teammates.role")}</small>
-                    </span>
-                  </button>
-                {/if}
                 {#each directoryTeammates as teammate (teammate.participant.id)}
                   {@const active = !creating && selectedId === teammate.participant.id}
                   {@const archived = teammate.participant.archivedAt !== null}
@@ -572,6 +575,17 @@
                     </span>
                   </button>
                 {/each}
+                {#if creating}
+                  <button bind:this={draftRowElement} type="button" class="active draft-row" aria-current="page">
+                    {#if draftCompany}
+                      <span class="directory-avatar"><ChatModelAvatar familyId={draftCompany.iconFamilyId} label={draftCompany.name} size={32} /></span>
+                    {:else}<span class="draft-avatar"><Plus size={15} /></span>{/if}
+                    <span class="directory-summary">
+                      <strong>{displayName.trim() || t("settings.chat.teammates.name")}</strong>
+                      <small>{role.trim() || t("settings.chat.teammates.role")}</small>
+                    </span>
+                  </button>
+                {/if}
               </nav>
             {:else if showArchived && archivedLoading}
               <p class="directory-empty">{t("settings.chat.teammates.loadingArchived")}</p>
@@ -663,7 +677,7 @@
       <footer>
         <div class="footer-leading">
           {#if creating}
-            <button type="button" class="settings-button" disabled={saving} onclick={cancelCreate}>{t("settings.chat.teammates.cancelDraft")}</button>
+            <button type="button" class="settings-button" disabled={saving} onclick={cancelCreate}><X size={13} />{t("settings.chat.teammates.cancelDraft")}</button>
           {:else if selected && archivedMode}
             {#if selected.hasDurableHistory}
               <span class="footer-note">{t("settings.chat.teammates.historyPreserved")}</span>

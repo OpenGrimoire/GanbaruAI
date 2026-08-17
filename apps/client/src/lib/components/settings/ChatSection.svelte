@@ -15,11 +15,15 @@
     initialChatTeammateId,
     onOpenProviderSetup = () => {},
     onSubsectionChange = () => {},
+    onRequestNavigation = (navigate) => navigate(),
+    onTeammateDraftStateChange = () => {},
   }: {
     initialSubsection?: ChatSettingsSubsection;
     initialChatTeammateId?: string;
     onOpenProviderSetup?: (target: ChatProviderSetupTarget) => void;
     onSubsectionChange?: (subsection: ChatSettingsSubsection) => void;
+    onRequestNavigation?: (navigate: () => void) => void;
+    onTeammateDraftStateChange?: (open: boolean) => void;
   } = $props();
 
   const { t } = getLocalization();
@@ -60,6 +64,14 @@
       initializing = false;
     }
   }
+
+  function selectTab(tab: ChatSettingsSubsection): void {
+    if (tab === activeTab) return;
+    onRequestNavigation(() => {
+      activeTab = tab;
+      onSubsectionChange(tab);
+    });
+  }
 </script>
 
 <div
@@ -84,10 +96,7 @@
           "flex min-h-8 items-center justify-center rounded-sm px-2 text-center text-[0.8rem] font-medium text-muted-foreground",
           active && "bg-background text-foreground dark:bg-foreground/5",
         )}
-        onclick={() => {
-          activeTab = tab.id;
-          onSubsectionChange(tab.id);
-        }}
+        onclick={() => selectTab(tab.id)}
       >
         <span>{tab.label()}</span>
       </button>
@@ -102,7 +111,7 @@
       <button type="button" class="chat-settings-button" onclick={() => void initialize()}>{t("common.retry")}</button>
     </div>
   {:else if activeTab === "teammates"}
-    <ChatTeammatesSettings initialTeammateId={initialChatTeammateId} />
+    <ChatTeammatesSettings initialTeammateId={initialChatTeammateId} onDraftStateChange={onTeammateDraftStateChange} />
   {:else if activeTab === "providers"}
     <ChatProvidersSettings {onOpenProviderSetup} />
   {:else if activeTab === "permissions"}

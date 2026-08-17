@@ -42,6 +42,7 @@
   import UpdatesSection from "./UpdatesSection.svelte";
   import ShortcutsSection from "./ShortcutsSection.svelte";
   import AboutSection from "./AboutSection.svelte";
+  import ConfirmDialog from "$lib/components/ui/ConfirmDialog.svelte";
 
   const SECTION_COMPONENTS = {
     appearance: AppearanceSection,
@@ -85,7 +86,7 @@
   // When the user opens a theme in the floating editor, step out of the way
   // so the modal backdrop does not block clicking through to the app.
   $effect(() => {
-    if (themeEditor.editingId) onClose();
+    if (themeEditor.editingId) requestSettingsClose();
   });
 
   const SECTIONS = SETTINGS_SECTIONS;
@@ -94,6 +95,8 @@
   const initialActiveChatSubsection = untrack(() => initialChatSubsection ?? "teammates");
   let activeSection = $state<SectionId>(initialActiveSection);
   let activeChatSubsection = $state<ChatSettingsSubsection>(initialActiveChatSubsection);
+  let teammateDraftOpen = $state(false);
+  let pendingDraftNavigation = $state<(() => void) | null>(null);
   let detailView = $state<SettingsDetailView | null>(null);
   let detailLoadState = $state<LazyComponentLoadState<
     SettingsDetailKind,
@@ -115,6 +118,35 @@
   const chatTeammatesUsesInternalScroll = $derived(
     activeSection === "chat" && activeChatSubsection === "teammates",
   );
+
+  function requestSettingsNavigation(navigate: () => void): void {
+    if (!teammateDraftOpen) {
+      navigate();
+      return;
+    }
+    pendingDraftNavigation = navigate;
+  }
+
+  function requestSettingsClose(): void {
+    requestSettingsNavigation(onClose);
+  }
+
+  function cancelDraftNavigation(): void {
+    pendingDraftNavigation = null;
+  }
+
+  function discardDraftAndContinue(): void {
+    const navigate = pendingDraftNavigation;
+    pendingDraftNavigation = null;
+    teammateDraftOpen = false;
+    navigate?.();
+  }
+
+  function updateTeammateDraftState(open: boolean): void {
+    teammateDraftOpen = open;
+    if (!open) pendingDraftNavigation = null;
+  }
+
   function requestSettingsDetail(kind: SettingsDetailKind, retry = false): void {
     if (!retry && detailLoadState?.key === kind) return;
     const loadingState = beginLazyComponentLoad(detailLoadState, kind);
@@ -190,13 +222,16 @@
   }
 
   function selectSection(section: SectionId): void {
-    activeSection = section;
-    detailView = null;
-    detailLoadState = null;
-    detailScrollEl = undefined;
-    detailScrollbarInsetTop = 0;
-    detailScrollbarInsetBottom = 0;
-    scrollSettingsToTop();
+    if (section === activeSection && !detailView) return;
+    requestSettingsNavigation(() => {
+      activeSection = section;
+      detailView = null;
+      detailLoadState = null;
+      detailScrollEl = undefined;
+      detailScrollbarInsetTop = 0;
+      detailScrollbarInsetBottom = 0;
+      scrollSettingsToTop();
+    });
   }
 
   function openDoomscrollingLimitEditor(target: DoomscrollingLimitEditorTarget): void {
@@ -248,11 +283,12 @@
       (first ?? modalPanel)?.focus();
     });
     function handleKeydown(e: KeyboardEvent) {
+      if (pendingDraftNavigation) return;
       trapModalFocus(e);
       if (hasOnlyShortcutModifier(e) && e.key === ",") {
         e.preventDefault();
         e.stopPropagation();
-        onClose();
+        requestSettingsClose();
         return;
       }
       if (activeSection === "shortcuts" && hasOnlyShortcutModifier(e) && e.key.toLowerCase() === "f") {
@@ -274,7 +310,7 @@
           closeDetailView();
           return;
         }
-        onClose();
+        requestSettingsClose();
         return;
       }
       // Keep the modal from leaking shortcuts to underlying panels
@@ -299,7 +335,7 @@
   )}
   onclick={(e) => {
     e.stopPropagation();
-    onClose();
+    requestSettingsClose();
   }}
 >
   <div class="absolute inset-0 bg-black/50"></div>
@@ -344,7 +380,7 @@
         </nav>
         <button
           type="button"
-          onclick={onClose}
+          onclick={requestSettingsClose}
           aria-label={t("settings.close")}
           data-app-tooltip-disabled="true"
           class="flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
@@ -369,7 +405,7 @@
           {/if}
           <button
             type="button"
-            onclick={onClose}
+            onclick={requestSettingsClose}
             aria-label={t("settings.close")}
             data-app-tooltip-disabled="true"
             class="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
@@ -506,6 +542,8 @@
                 activeChatSubsection = subsection;
                 scrollSettingsToTop();
               }}
+              onRequestNavigation={requestSettingsNavigation}
+              onTeammateDraftStateChange={updateTeammateDraftState}
             />
         {:else}
           {@const SectionComponent = activeSectionComponent}
@@ -530,3 +568,14 @@
     </div>
   </div>
 </div>
+
+{#if pendingDraftNavigation}
+  <ConfirmDialog
+    title={t("settings.chat.teammates.discardDraftTitle")}
+    message={t("settings.chat.teammates.discardDraftMessage")}
+    confirmLabel={t("settings.chat.teammates.discardDraft")}
+    cancelLabel={t("settings.chat.teammates.keepEditing")}
+    onConfirm={discardDraftAndContinue}
+    onCancel={cancelDraftNavigation}
+  />
+{/if}
