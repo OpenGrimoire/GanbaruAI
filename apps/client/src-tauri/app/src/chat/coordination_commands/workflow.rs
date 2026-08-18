@@ -4,8 +4,8 @@ use super::super::coordination::contracts::*;
 use super::super::models::*;
 use super::common::{
     conversation_item_id, has_thread_eligible_mention, json_object, message_revision_id, new_id,
-    parse_participant_kind, reply_thread_id, serialization_error, wire_participant_kind,
-    wire_work_state, work_assignment_id,
+    parse_participant_kind, reply_thread_id, serialization_error, wire_approval_policy,
+    wire_participant_kind, wire_work_state, work_assignment_id,
 };
 use super::context::freeze_context_package;
 use super::reads::{
@@ -988,15 +988,17 @@ pub(super) async fn insert_policy_revision(
     sqlx::query(
         "INSERT INTO chat_teammate_policy_revisions
             (id, teammate_id, revision, provider_instance_id,
+             safety_mode,
              model_selection_schema_version, model_selection_data, effort, speed,
              provider_options_schema_version, provider_options_data,
              interaction_mode, created_at)
-         VALUES (?, ?, ?, ?, 1, ?, ?, ?, ?, ?, 'build', ?)",
+         VALUES (?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, 'build', ?)",
     )
     .bind(new_id("teammate-policy"))
     .bind(teammate_id.as_str())
     .bind(i64_value(revision)?)
     .bind(policy.provider_instance_id.as_str())
+    .bind(wire_approval_policy(policy.safety_mode))
     .bind(selection)
     .bind(policy.effort.as_deref())
     .bind(policy.speed.as_deref())

@@ -29,6 +29,7 @@ function draft(overrides: Partial<ChatTeammateStudioDraft> = {}): ChatTeammateSt
       role: "Engineer",
       instructions: "Build carefully",
       providerId: "provider:codex",
+      safetyMode: "ask_for_approval",
       modelId: "gpt-5",
       providerManagedModel: false,
       modelOptions: [],

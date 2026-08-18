@@ -96,6 +96,11 @@
   async function confirmFullAccess(): Promise<void> {
     const folderId = selectedWorkingFolderId;
     const providerId = selectedProviderInstanceId;
+    if (controlled && (!folderId || !providerId)) {
+      setSafetyMode(pendingTrustedMode ?? "full_access");
+      closeDialog();
+      return;
+    }
     if (!folderId || !providerId) return;
     error = null;
     try {

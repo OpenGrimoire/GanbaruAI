@@ -51,6 +51,7 @@ const teammate: ChatAiTeammateRead = {
     teammateId: teammateParticipant.id,
     revision: 1,
     providerInstanceId: "codex-local",
+    safetyMode: "ask_for_approval",
     providerManagedModel: false,
     modelId: "gpt-5.6-terra",
     modelOptions: [{ key: "service_tier", value: { kind: "choice", value: "fast" } }],

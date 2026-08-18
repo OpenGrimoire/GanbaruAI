@@ -1,4 +1,4 @@
-import type { ModelOptionSelection, ProviderModel } from "$lib/chat/contracts";
+import type { ModelOptionSelection, ProviderModel, SafetyMode } from "$lib/chat/contracts";
 import { isKnownModelOption, modelOptionRole } from "$lib/chat/model-picker-model";
 
 export interface TeammateProfileDraftSnapshotInput {
@@ -6,6 +6,7 @@ export interface TeammateProfileDraftSnapshotInput {
   role: string;
   instructions: string;
   providerId: string;
+  safetyMode: SafetyMode;
   modelId: string;
   providerManagedModel: boolean;
   modelOptions: readonly ModelOptionSelection[];
@@ -71,6 +72,7 @@ export function teammateProfileDraftSnapshot(
     role: input.role.trim(),
     instructions: input.instructions.trim(),
     providerId: input.providerId,
+    safetyMode: input.safetyMode,
     modelId: input.modelId,
     providerManagedModel: input.providerManagedModel,
     modelOptions,

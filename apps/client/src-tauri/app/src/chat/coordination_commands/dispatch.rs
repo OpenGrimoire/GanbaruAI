@@ -423,9 +423,6 @@ async fn dispatch_claimed_assignment(
     .fetch_one(pool)
     .await
     .map_err(persistence_error)?;
-    let runtime_approval_policy: String = row
-        .try_get("resolved_runtime_approval_policy")
-        .map_err(persistence_error)?;
     let developer_instructions: String = row.try_get("instructions").map_err(persistence_error)?;
     let project_id: String = row.try_get("project_id").map_err(persistence_error)?;
     let request = super::super::send_commands::SendChatTurnCommand {
@@ -450,7 +447,7 @@ async fn dispatch_claimed_assignment(
         model_id: policy.model_id,
         model_options: policy.model_options,
         modes: TurnModeSnapshot {
-            safety_mode: runtime_approval_to_safety(&runtime_approval_policy)?,
+            safety_mode: teammate_cli_safety_mode(policy.safety_mode),
             interaction_mode: InteractionMode::Build,
         },
         prompt: row.try_get("serialized_text").map_err(persistence_error)?,
@@ -846,15 +843,11 @@ pub(super) async fn deliver_assignment_input(
     Ok(())
 }
 
-fn runtime_approval_to_safety(value: &str) -> ChatResult<SafetyMode> {
+fn teammate_cli_safety_mode(value: ChatApprovalPolicy) -> SafetyMode {
     match value {
-        "ask" => Ok(SafetyMode::AskForApproval),
-        "auto_approve" | "unattended" => Ok(SafetyMode::ApproveForMe),
-        "provider_custom" => Ok(SafetyMode::Custom),
-        _ => Err(ChatError::new(
-            ChatErrorCode::Persistence,
-            "The assignment runtime approval policy is invalid",
-            false,
-        )),
+        ChatApprovalPolicy::AskForApproval => SafetyMode::AskForApproval,
+        ChatApprovalPolicy::ApproveForMe => SafetyMode::ApproveForMe,
+        ChatApprovalPolicy::FullAccess => SafetyMode::FullAccess,
+        ChatApprovalPolicy::Custom => SafetyMode::Custom,
     }
 }

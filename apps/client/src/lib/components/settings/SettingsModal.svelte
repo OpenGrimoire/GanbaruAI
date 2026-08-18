@@ -355,19 +355,9 @@
       "relative z-10 flex overflow-hidden border border-border bg-card shadow-2xl dark:bg-background",
       useTopNav
         ? "h-[calc(100dvh-0.5rem)] w-full flex-col rounded-md"
-        : chatTeammatesUsesInternalScroll
-          ? "h-[90dvh] rounded-lg"
-          : "h-[80vh] rounded-lg",
-      !useTopNav && useIconRail
-        ? chatTeammatesUsesInternalScroll
-          ? "w-[min(1040px,96vw)]"
-          : "w-[min(760px,94vw)]"
-        : "",
-      !useTopNav && !useIconRail
-        ? chatTeammatesUsesInternalScroll
-          ? "w-[min(1180px,96vw)]"
-          : "w-[min(900px,90vw)]"
-        : "",
+        : "h-[80vh] rounded-lg",
+      !useTopNav && useIconRail ? "w-[min(760px,94vw)]" : "",
+      !useTopNav && !useIconRail ? "w-[min(900px,90vw)]" : "",
     )}
     onclick={(e) => e.stopPropagation()}
   >

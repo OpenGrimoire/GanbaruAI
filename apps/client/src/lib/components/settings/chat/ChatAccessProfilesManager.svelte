@@ -12,6 +12,8 @@
     ChatFolderCapability,
   } from "$lib/chat/contracts";
   import { chatErrorMessage } from "$lib/chat/error-presentation";
+  import CustomSelect from "$lib/components/settings/CustomSelect.svelte";
+  import SettingsCheckbox from "$lib/components/settings/SettingsCheckbox.svelte";
   import { getLocalization } from "$lib/i18n/translator.svelte";
   import ConfirmDialog from "$lib/components/ui/ConfirmDialog.svelte";
 
@@ -302,12 +304,12 @@
           <label><span>{t("settings.chat.teammates.profileManager.name")}</span><input bind:value={displayName} maxlength="160" disabled={mode === "existing"} /></label>
           <fieldset disabled={!editableRevision || mode === "duplicate"}>
             <legend>{t("settings.chat.teammates.profileManager.channelDefaults")}</legend>
-            <label class="check-row"><input type="checkbox" bind:checked={readHistory} /><span><strong>{t("settings.chat.teammates.readHistory")}</strong><small>{t("settings.chat.teammates.readHistoryDescription")}</small></span></label>
-            <label class="check-row"><input type="checkbox" bind:checked={participate} /><span><strong>{t("settings.chat.teammates.participate")}</strong><small>{t("settings.chat.teammates.participateDescription")}</small></span></label>
+            <div class="check-row"><SettingsCheckbox checked={readHistory} label={t("settings.chat.teammates.readHistory")} onChange={(checked) => { readHistory = checked; }} /><span><strong>{t("settings.chat.teammates.readHistory")}</strong><small>{t("settings.chat.teammates.readHistoryDescription")}</small></span></div>
+            <div class="check-row"><SettingsCheckbox checked={participate} label={t("settings.chat.teammates.participate")} onChange={(checked) => { participate = checked; }} /><span><strong>{t("settings.chat.teammates.participate")}</strong><small>{t("settings.chat.teammates.participateDescription")}</small></span></div>
           </fieldset>
           <div class="profile-fields">
-            <label><span>{t("settings.chat.teammates.history")}</span><select bind:value={historyBoundary} disabled={!editableRevision || mode === "duplicate" || !readHistory}><option value="entire">{t("settings.chat.teammates.historyEntire")}</option><option value="fromGrant">{t("settings.chat.teammates.historyFromGrant")}</option></select></label>
-            <label><span>{t("settings.chat.teammates.profileManager.maximumFolderCapability")}</span><select bind:value={maximumFolderCapability} disabled={!editableRevision || mode === "duplicate"}><option value="none">{t("settings.chat.teammates.folderCapabilities.none")}</option><option value="read">{t("settings.chat.teammates.folderCapabilities.read")}</option><option value="edit">{t("settings.chat.teammates.folderCapabilities.edit")}</option><option value="execute">{t("settings.chat.teammates.folderCapabilities.execute")}</option><option value="publish">{t("settings.chat.teammates.folderCapabilities.publish")}</option></select></label>
+            <div class="select-field"><span>{t("settings.chat.teammates.history")}</span><CustomSelect value={historyBoundary} options={[{ value: "entire", label: t("settings.chat.teammates.historyEntire") }, { value: "fromGrant", label: t("settings.chat.teammates.historyFromGrant") }]} onChange={(value) => { historyBoundary = value === "fromGrant" ? "fromGrant" : "entire"; }} disabled={!editableRevision || mode === "duplicate" || !readHistory} class="w-full" /></div>
+            <div class="select-field"><span>{t("settings.chat.teammates.profileManager.maximumFolderCapability")}</span><CustomSelect value={maximumFolderCapability} options={[{ value: "none", label: t("settings.chat.teammates.folderCapabilities.none") }, { value: "read", label: t("settings.chat.teammates.folderCapabilities.read") }, { value: "edit", label: t("settings.chat.teammates.folderCapabilities.edit") }, { value: "execute", label: t("settings.chat.teammates.folderCapabilities.execute") }, { value: "publish", label: t("settings.chat.teammates.folderCapabilities.publish") }]} onChange={(value) => { if (value === "none" || value === "read" || value === "edit" || value === "execute" || value === "publish") maximumFolderCapability = value; }} disabled={!editableRevision || mode === "duplicate"} class="w-full" /></div>
           </div>
           <p class="profile-note">{t("settings.chat.teammates.profileManager.ceilingNote")}</p>
           {#if impact}
@@ -338,7 +340,7 @@
 
 <style>
   .profile-manager-backdrop { position:fixed; z-index:110; inset:0; display:grid; place-items:center; background:color-mix(in srgb,#000 48%,transparent); padding:1rem; }
-  .profile-manager { display:grid; width:min(58rem,96vw); height:min(42rem,88dvh); grid-template-rows:auto minmax(0,1fr); border:1px solid var(--border); border-radius:0.75rem; background:var(--card); color:var(--card-foreground); box-shadow:0 24px 70px color-mix(in srgb,#000 35%,transparent); overflow:hidden; outline:0; }
+  .profile-manager { display:grid; width:min(56rem,90vw); height:min(40rem,80dvh); grid-template-rows:auto minmax(0,1fr); border:1px solid var(--border); border-radius:0.75rem; background:var(--card); color:var(--card-foreground); box-shadow:0 24px 70px color-mix(in srgb,#000 35%,transparent); overflow:hidden; outline:0; }
   .profile-manager > header { display:flex; align-items:center; justify-content:space-between; gap:1rem; border-bottom:1px solid var(--border); padding:0.8rem 0.95rem; }
   .profile-manager > header h3 { font-size:calc(0.9rem * var(--type-scale)); font-weight:650; }
   .profile-manager > header p,.profile-heading p,.profile-note { margin-top:0.15rem; color:var(--muted-foreground); font-size:calc(0.67rem * var(--type-scale)); line-height:1rem; }
@@ -362,16 +364,16 @@
   .quiet-button:hover { background:var(--accent); }
   .archive-button { color:var(--destructive); }
   .archive-button:hover { background:color-mix(in srgb,var(--destructive) 12%,transparent); }
-  .profile-editor-scroll > label,.profile-fields label { display:grid; gap:0.3rem; color:var(--muted-foreground); font-size:calc(0.67rem * var(--type-scale)); font-weight:550; }
-  .profile-editor-scroll input:not([type="checkbox"]),.profile-editor-scroll select { min-height:2.1rem; border:1px solid var(--border); border-radius:0.42rem; background:var(--background); padding:0.42rem 0.55rem; color:var(--foreground); font-weight:400; }
+  .profile-editor-scroll > label,.select-field { display:grid; gap:0.3rem; color:var(--muted-foreground); font-size:calc(0.67rem * var(--type-scale)); font-weight:550; }
+  .profile-editor-scroll input { min-height:2.1rem; border:1px solid var(--border); border-radius:0.42rem; background:var(--background); padding:0.42rem 0.55rem; color:var(--foreground); font-weight:400; }
   .profile-editor-scroll fieldset { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:0.55rem; }
   .profile-editor-scroll legend { grid-column:1/-1; margin-bottom:0.15rem; font-size:calc(0.7rem * var(--type-scale)); font-weight:650; }
-  .check-row { display:grid; grid-template-columns:auto minmax(0,1fr); gap:0.5rem; border:1px solid var(--border); border-radius:0.5rem; padding:0.6rem; }
+  .check-row { display:grid; grid-template-columns:auto minmax(0,1fr); gap:0.5rem; padding-block:0.35rem; }
   .check-row span { display:grid; }
   .check-row strong { font-size:calc(0.68rem * var(--type-scale)); }
   .check-row small { margin-top:0.12rem; color:var(--muted-foreground); font-size:calc(0.6rem * var(--type-scale)); line-height:0.9rem; }
   .profile-fields { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:0.7rem; }
-  .profile-impact { border:1px solid var(--border); border-radius:0.55rem; background:color-mix(in srgb,var(--muted) 45%,transparent); padding:0.7rem; }
+  .profile-impact { border-left:2px solid var(--ring); padding:0.25rem 0.7rem; }
   .profile-impact strong { font-size:calc(0.7rem * var(--type-scale)); }
   .profile-impact p,.profile-impact small { display:block; margin-top:0.15rem; color:var(--muted-foreground); font-size:calc(0.64rem * var(--type-scale)); }
   .profile-error { color:var(--destructive); font-size:calc(0.67rem * var(--type-scale)); }
@@ -381,6 +383,6 @@
   .primary-button { background:var(--primary); color:var(--primary-foreground); }
   .secondary-button { border:1px solid var(--border); background:var(--background); }
   button:disabled,fieldset:disabled { opacity:0.55; }
-  @media (pointer:coarse) { button,.profile-editor-scroll input,.profile-editor-scroll select { min-height:2.75rem; } }
+  @media (pointer:coarse) { button,.profile-editor-scroll input { min-height:2.75rem; } }
   @media (max-width:700px) { .profile-manager { width:100%; height:94dvh; }.profile-manager-body { grid-template-columns:1fr; grid-template-rows:minmax(7rem,28%) minmax(0,1fr); }.profile-manager-body > aside { border-right:0; border-bottom:1px solid var(--border); }.profile-manager nav { grid-template-columns:repeat(auto-fill,minmax(10rem,1fr)); }.profile-fields,.profile-editor-scroll fieldset { grid-template-columns:1fr; } }
 </style>

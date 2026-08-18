@@ -98,6 +98,8 @@ Logical folder identity is vault data. External absolute paths, executable paths
 
 ## Runtime approvals
 
+Provider CLI permissions and organizational access are separate. Every teammate policy stores the harness permission mode: Ask for approval, Approve for me, Full access, or Custom. The provider adapter maps that mode to Codex, Claude Code, Cursor, OpenCode, or another supported harness. Channel membership does not choose or replace this provider setting.
+
 Organizational runtime policies are:
 
 - `ask`
@@ -211,7 +213,9 @@ An expansion never reactivates an old run, source handle, continuation, or quara
 
 ## Settings and review
 
-The Teammates settings studio is the primary complete access editor. It presents a searchable vault-wide identity directory, Overview and Access views, Group, Project, and Channel navigation, capability presets, history boundaries, profile ceilings, teammate, channel, folder, and scratch approval layers, folder tiers, local binding state, target selection, and scratch fallback. Its access-profile manager exposes immutable localized built-ins plus creation, duplication, impact-reviewed revision, and safe archival for custom profiles.
+Teammates is the primary complete access editor, but it keeps the same dimensions and visual grammar as every other Settings area. A quiet identity directory and one continuous editor restore the established master-detail layout. The editor leads with the teammate avatar, identity, model, and approval behavior, then presents channel access as a flat list in the same form. It does not introduce a wider administration surface, nested decorative cards, count pills, or a separate Overview and Access dashboard.
+
+Adding channels uses a searchable Group, Project, and Channel drill-down inside the editor. It shows one hierarchy level at a time, retains a clear back path, uses the shared checkbox treatment, and never creates a second selection tray or grants future channels. A channel row gives a short plain-text summary. Expanding it reveals the common preset, profile, applicable history boundary, and folders. Per-channel and per-folder approval overrides remain under one Advanced access disclosure. All select controls use the shared Settings dropdown. The access-profile manager exposes immutable localized built-ins plus creation, duplication, impact-reviewed revision, and safe archival for custom profiles.
 
 One atomic Apply action replaces the complete editable teammate draft: display profile, role, instructions, provider policy, teammate runtime default, channel memberships, folder grants, and scratch overrides. It binds the expected teammate-profile revision, teammate-access revision, and immutable revision of every linked access profile. A concurrent teammate or profile change makes the preview or save stale instead of partially committing or silently widening authority. The studio preserves the local draft, reloads current durable state for comparison, and lets the person explicitly rebase the draft or discard it in favor of the current version. Dirty navigation is protected. Expansions show an impact preview. Reductions identify work that will stop.
 

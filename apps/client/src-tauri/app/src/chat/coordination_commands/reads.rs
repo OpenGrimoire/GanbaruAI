@@ -2,8 +2,9 @@
 
 use super::super::models::*;
 use super::common::{
-    parse_access_profile_builtin_key, parse_folder_capability, parse_history_boundary, parse_json,
-    parse_participant_kind, parse_runtime_approval_policy, parse_work_state, u32_value,
+    parse_access_profile_builtin_key, parse_approval_policy, parse_folder_capability,
+    parse_history_boundary, parse_json, parse_participant_kind, parse_runtime_approval_policy,
+    parse_work_state, u32_value,
 };
 use super::workflow::{parse_model_selection, read_message_references};
 use super::{
@@ -368,7 +369,7 @@ pub(super) async fn read_policy(
     revision: u64,
 ) -> ChatResult<ChatTeammatePolicyRead> {
     let row = sqlx::query(
-        "SELECT id, provider_instance_id, model_selection_schema_version,
+        "SELECT id, provider_instance_id, safety_mode, model_selection_schema_version,
                 model_selection_data, effort, speed, provider_options_schema_version,
                 provider_options_data, created_at
          FROM chat_teammate_policy_revisions
@@ -402,6 +403,11 @@ pub(super) async fn read_policy(
                 .map_err(persistence_error)?,
         )
         .map_err(identifier_error)?,
+        safety_mode: parse_approval_policy(
+            row.try_get::<String, _>("safety_mode")
+                .map_err(persistence_error)?
+                .as_str(),
+        )?,
         provider_managed_model: selection.provider_managed_model,
         model_id: selection.model_id,
         model_options: selection.model_options,

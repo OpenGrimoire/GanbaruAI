@@ -24,6 +24,7 @@ import type {
   ModelId,
   ProjectWorkingFolderId,
   ProviderInstanceId,
+  SafetyMode,
   UtcTimestamp,
   VersionedJson,
 } from "./common";
@@ -481,6 +482,7 @@ export interface ChatTeammatePolicyRead {
   teammateId: ChatParticipantId;
   revision: number;
   providerInstanceId: ProviderInstanceId;
+  safetyMode: SafetyMode;
   providerManagedModel: boolean;
   modelId: ModelId | null;
   modelOptions: ModelOptionSelection[];
@@ -681,6 +683,7 @@ export interface ChatMessageSearchResultRead {
 
 export interface ChatTeammatePolicyInput {
   providerInstanceId: ProviderInstanceId;
+  safetyMode: SafetyMode;
   providerManagedModel: boolean;
   modelId: ModelId | null;
   modelOptions: ModelOptionSelection[];

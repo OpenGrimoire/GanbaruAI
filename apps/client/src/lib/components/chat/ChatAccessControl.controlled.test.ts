@@ -68,6 +68,28 @@ describe("ChatAccessControl controlled mode", () => {
     expect(changes).toEqual(["full_access"]);
   });
 
+  it("stores a teammate permission preference before a channel target exists", async () => {
+    const changes: SafetyMode[] = [];
+    ({ target, component } = setup({
+      value: "ask_for_approval",
+      workingFolderId: null,
+      onChange: (value) => changes.push(value),
+    }));
+
+    target.querySelector<HTMLButtonElement>("[data-chat-field='safety']")?.click();
+    await tick();
+    [...document.body.querySelectorAll<HTMLButtonElement>("[role='listbox'] button")]
+      .find((button) => button.textContent?.includes("Full access"))
+      ?.click();
+    await tick();
+    [...document.body.querySelectorAll<HTMLButtonElement>(".confirm-dialog button")]
+      .find((button) => button.textContent?.includes("Allow Full access"))
+      ?.click();
+    await tick();
+
+    expect(changes).toEqual(["full_access"]);
+  });
+
   it("prevents editing an archived teammate", async () => {
     ({ target, component } = setup({
       value: "ask_for_approval",
@@ -80,11 +102,19 @@ describe("ChatAccessControl controlled mode", () => {
     await tick();
     expect(document.body.querySelector("[role='listbox'][aria-label='Safety']")).toBeNull();
   });
+
+  it("preserves the historical Full access visual state", () => {
+    ({ target, component } = setup({ value: "full_access" }));
+
+    expect(target.querySelector(".access-control.controlled.full-access")).not.toBeNull();
+    expect(target.querySelector(".control-trigger")?.textContent).toContain("Full access");
+  });
 });
 
 function setup(props: {
   value: SafetyMode;
   disabled?: boolean;
+  workingFolderId?: string | null;
   onChange?: (value: SafetyMode) => void;
 }): { target: HTMLDivElement; component: ReturnType<typeof mount> } {
   const target = document.createElement("div");
@@ -94,7 +124,9 @@ function setup(props: {
     props: {
       ...props,
       providerInstanceId: "codex-local",
-      workingFolderId: "teammate-folder",
+      workingFolderId: props.workingFolderId === undefined
+        ? "teammate-folder"
+        : props.workingFolderId,
     },
   });
   return { target, component };

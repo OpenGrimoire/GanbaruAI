@@ -10,6 +10,7 @@ const PROFILE: TeammateProfileDraftSnapshotInput = {
   role: "Plan work",
   instructions: "Stay focused",
   providerId: "codex-default",
+  safetyMode: "ask_for_approval",
   modelId: "gpt-5.5",
   providerManagedModel: false,
   modelOptions: [

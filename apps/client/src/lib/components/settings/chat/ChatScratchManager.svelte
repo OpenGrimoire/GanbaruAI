@@ -22,6 +22,7 @@
     ProjectWorkingFolderId,
   } from "$lib/chat/contracts";
   import { chatErrorMessage } from "$lib/chat/error-presentation";
+  import CustomSelect from "$lib/components/settings/CustomSelect.svelte";
   import { formatNumber } from "$lib/i18n/formatters";
   import { getLocalization } from "$lib/i18n/translator.svelte";
   import ConfirmDialog from "$lib/components/ui/ConfirmDialog.svelte";
@@ -313,6 +314,15 @@
       || grant.capability === "publish";
   }
 
+  function selectPromotionKind(value: string): void {
+    promotionKind = value === "managedAttachment" ? "managedAttachment" : "workingFolder";
+  }
+
+  function selectPromotionFolder(value: string): void {
+    promotionFolderId = editableFolders.find((folder) => folder.workingFolderId === value)
+      ?.workingFolderId ?? null;
+  }
+
   function generationStatus(generation: ChatScratchGenerationRead): string {
     if (generation.lifecycleState === "quarantined") {
       return t("settings.chat.teammates.scratchManager.quarantined");
@@ -417,9 +427,9 @@
             <form class="promotion" onsubmit={(event) => { event.preventDefault(); void promote(); }}>
               <header><div><h4>{t("settings.chat.teammates.scratchManager.promoteHeading")}</h4><p>{promotionEntry.relativePath}</p></div><button type="button" aria-label={t("common.close")} onclick={() => { promotionEntry = null; }}><X size={15} /></button></header>
               <div class="promotion-fields">
-                <label><span>{t("settings.chat.teammates.scratchManager.destination")}</span><select bind:value={promotionKind}><option value="workingFolder">{t("settings.chat.teammates.scratchManager.projectFolder")}</option><option value="managedAttachment">{t("settings.chat.teammates.scratchManager.managedAttachment")}</option></select></label>
+                <div class="select-field"><span>{t("settings.chat.teammates.scratchManager.destination")}</span><CustomSelect value={promotionKind} options={[{ value: "workingFolder", label: t("settings.chat.teammates.scratchManager.projectFolder") }, { value: "managedAttachment", label: t("settings.chat.teammates.scratchManager.managedAttachment") }]} onChange={selectPromotionKind} class="w-full" /></div>
                 {#if promotionKind === "workingFolder"}
-                  {#if editableFolders.length === 0}<p class="alert full" role="alert">{t("settings.chat.teammates.scratchManager.chooseFolder")}</p>{:else}<label><span>{t("settings.chat.teammates.scratchManager.chooseFolder")}</span><select bind:value={promotionFolderId}>{#each editableFolders as folder (folder.workingFolderId)}<option value={folder.workingFolderId}>{folder.displayName}</option>{/each}</select></label><label class="full"><span>{t("settings.chat.teammates.scratchManager.targetPath")}</span><input bind:value={promotionTargetPath} maxlength="4096" /></label>{/if}
+                  {#if editableFolders.length === 0}<p class="alert full" role="alert">{t("settings.chat.teammates.scratchManager.chooseFolder")}</p>{:else}<div class="select-field"><span>{t("settings.chat.teammates.scratchManager.chooseFolder")}</span><CustomSelect value={promotionFolderId ?? ""} options={editableFolders.map((folder) => ({ value: folder.workingFolderId, label: folder.displayName }))} onChange={selectPromotionFolder} class="w-full" /></div><label class="full"><span>{t("settings.chat.teammates.scratchManager.targetPath")}</span><input bind:value={promotionTargetPath} maxlength="4096" /></label>{/if}
                 {:else}
                   <label class="full"><span>{t("settings.chat.teammates.scratchManager.attachmentName")}</span><input bind:value={promotionDisplayName} maxlength="1000" /></label>
                 {/if}
@@ -446,7 +456,7 @@
 
 <style>
   .scratch-manager-backdrop { position:fixed; z-index:110; inset:0; display:grid; place-items:center; background:color-mix(in srgb,#000 48%,transparent); padding:1rem; }
-  .scratch-manager { display:grid; width:min(74rem,96vw); height:min(50rem,90dvh); grid-template-rows:auto minmax(0,1fr); border:1px solid var(--border); border-radius:0.8rem; background:var(--card); color:var(--card-foreground); box-shadow:0 24px 70px color-mix(in srgb,#000 35%,transparent); overflow:hidden; outline:0; }
+  .scratch-manager { display:grid; width:min(56rem,90vw); height:min(40rem,80dvh); grid-template-rows:auto minmax(0,1fr); border:1px solid var(--border); border-radius:0.8rem; background:var(--card); color:var(--card-foreground); box-shadow:0 24px 70px color-mix(in srgb,#000 35%,transparent); overflow:hidden; outline:0; }
   .scratch-manager > header { display:flex; align-items:center; justify-content:space-between; gap:1rem; border-bottom:1px solid var(--border); padding:0.8rem 0.95rem; }
   .scratch-manager h3 { font-size:calc(0.92rem * var(--type-scale)); font-weight:650; }
   .scratch-manager > header p,.scope-heading p,.promotion header p { margin-top:0.15rem; color:var(--muted-foreground); font-size:calc(0.67rem * var(--type-scale)); }
@@ -464,14 +474,15 @@
   .scratch-manager nav strong,.scratch-manager nav small { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
   .scratch-manager nav strong { font-size:calc(0.72rem * var(--type-scale)); }
   .scratch-manager nav small,.count { color:var(--muted-foreground); font-size:calc(0.61rem * var(--type-scale)); }
-  .count { border-radius:999px; background:var(--muted); padding:0.08rem 0.35rem; }
+  .count { padding-inline:0.2rem; }
   .scratch-manager main { display:grid; min-height:0; align-content:start; gap:0.8rem; padding:0.9rem; overflow-y:auto; }
   .scope-heading { display:flex; align-items:center; justify-content:space-between; gap:1rem; border-bottom:1px solid var(--border); padding-bottom:0.7rem; }
   .scope-heading h4,.promotion h4 { font-size:calc(0.82rem * var(--type-scale)); font-weight:650; }
-  .scope-heading > span { display:flex; align-items:center; gap:0.3rem; border-radius:999px; background:var(--muted); padding:0.2rem 0.45rem; font-size:calc(0.62rem * var(--type-scale)); }
-  .generation-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(16rem,1fr)); gap:0.55rem; }
-  .generation-grid article { display:grid; gap:0.45rem; border:1px solid var(--border); border-radius:0.6rem; padding:0.6rem; }
-  .generation-grid article.selected { border-color:var(--ring); box-shadow:0 0 0 1px var(--ring); }
+  .scope-heading > span { display:flex; align-items:center; gap:0.3rem; color:var(--muted-foreground); font-size:calc(0.62rem * var(--type-scale)); }
+  .generation-grid { display:grid; }
+  .generation-grid article { display:grid; gap:0.45rem; border-bottom:1px solid var(--border); padding:0.7rem 0.2rem; }
+  .generation-grid article:first-child { border-top:1px solid var(--border); }
+  .generation-grid article.selected { background:color-mix(in srgb,var(--accent) 45%,transparent); }
   .generation-grid article.quarantined { background:color-mix(in srgb,var(--destructive) 5%,var(--card)); }
   .generation-select { display:flex; min-height:2.8rem; align-items:flex-start; justify-content:space-between; gap:0.6rem; border-radius:0.42rem; text-align:left; }
   .generation-title,.generation-meta,.source-summary { display:grid; gap:0.12rem; }
@@ -483,7 +494,7 @@
   .generation-actions .cleanup { color:var(--destructive); }
   .source-summary { border-top:1px solid var(--border); padding-top:0.4rem; }
   .source-summary strong { font-size:calc(0.61rem * var(--type-scale)); }
-  .browser,.promotion { display:grid; gap:0.55rem; border:1px solid var(--border); border-radius:0.65rem; background:var(--background); padding:0.65rem; }
+  .browser,.promotion { display:grid; gap:0.55rem; border-block:1px solid var(--border); padding:0.65rem 0; }
   .browser > header,.promotion > header { display:flex; align-items:center; justify-content:space-between; gap:0.55rem; }
   .browser > header > span { display:flex; min-width:0; align-items:center; gap:0.4rem; }
   .browser > header strong { overflow:hidden; font-size:calc(0.7rem * var(--type-scale)); text-overflow:ellipsis; white-space:nowrap; }
@@ -498,16 +509,16 @@
   .promote-button { margin-right:0.35rem; }
   .load-more { justify-self:center; }
   .promotion-fields { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:0.55rem; }
-  .promotion-fields label { display:grid; gap:0.28rem; color:var(--muted-foreground); font-size:calc(0.64rem * var(--type-scale)); }
+  .promotion-fields label,.promotion-fields .select-field { display:grid; gap:0.28rem; color:var(--muted-foreground); font-size:calc(0.64rem * var(--type-scale)); }
   .promotion-fields .full { grid-column:1/-1; }
-  .promotion-fields input,.promotion-fields select { min-height:2.25rem; border:1px solid var(--border); border-radius:0.42rem; background:var(--card); padding:0.4rem 0.5rem; color:var(--foreground); }
+  .promotion-fields input { min-height:2.25rem; border:1px solid var(--border); border-radius:0.42rem; background:var(--card); padding:0.4rem 0.5rem; color:var(--foreground); }
   .promotion footer { display:flex; justify-content:flex-end; gap:0.4rem; }
   .promotion footer .primary { background:var(--primary); color:var(--primary-foreground); }
   .empty,.alert,.notice { padding:0.65rem; border-radius:0.5rem; font-size:calc(0.67rem * var(--type-scale)); }
   .empty { color:var(--muted-foreground); }
   .alert { background:color-mix(in srgb,var(--destructive) 10%,transparent); color:var(--destructive); }
   .notice { background:color-mix(in srgb,var(--primary) 10%,transparent); color:var(--foreground); }
-  @media (pointer:coarse) { .scratch-manager button,.scratch-manager input,.scratch-manager select { min-height:2.75rem; } }
+  @media (pointer:coarse) { .scratch-manager button,.scratch-manager input { min-height:2.75rem; } }
   @media (max-width:760px) { .scratch-manager-backdrop { align-items:end; padding:0; }.scratch-manager { width:100%; height:94dvh; border-radius:0.85rem 0.85rem 0 0; }.scratch-manager-body { grid-template-columns:1fr; grid-template-rows:minmax(7rem,27%) minmax(0,1fr); }.scratch-manager-body > aside { border-right:0; border-bottom:1px solid var(--border); }.scratch-manager nav { grid-template-columns:repeat(auto-fill,minmax(12rem,1fr)); }.promotion-fields { grid-template-columns:1fr; }.promotion-fields .full { grid-column:auto; } }
   @media (prefers-reduced-motion:reduce) { * { scroll-behavior:auto; transition:none; } }
 </style>

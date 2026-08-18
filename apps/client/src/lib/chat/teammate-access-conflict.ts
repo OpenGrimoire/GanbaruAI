@@ -2,6 +2,7 @@ import type {
   ChatRuntimeApprovalPolicy,
   ChatTeammateChannelAccessInput,
   ModelOptionSelection,
+  SafetyMode,
   VersionedJson,
 } from "$lib/chat/contracts";
 import { teammateAccessDraftSnapshot } from "$lib/chat/teammate-access";
@@ -11,6 +12,7 @@ export interface ChatTeammateStudioProfileDraft {
   role: string;
   instructions: string;
   providerId: string;
+  safetyMode: SafetyMode;
   modelId: string;
   providerManagedModel: boolean;
   modelOptions: ModelOptionSelection[];
@@ -102,6 +104,11 @@ export function rebaseChatTeammateStudioDraft(
       role: chooseField(baseline.profile.role, local.profile.role, durable.profile.role, trimmedEqual),
       instructions: chooseField(baseline.profile.instructions, local.profile.instructions, durable.profile.instructions, trimmedEqual),
       providerId: chooseField(baseline.profile.providerId, local.profile.providerId, durable.profile.providerId),
+      safetyMode: chooseField(
+        baseline.profile.safetyMode,
+        local.profile.safetyMode,
+        durable.profile.safetyMode,
+      ),
       modelId: chooseField(baseline.profile.modelId, local.profile.modelId, durable.profile.modelId),
       providerManagedModel: chooseField(
         baseline.profile.providerManagedModel,
@@ -159,6 +166,7 @@ function policyEqual(
   right: ChatTeammateStudioProfileDraft,
 ): boolean {
   return left.providerId === right.providerId
+    && left.safetyMode === right.safetyMode
     && left.modelId === right.modelId
     && left.providerManagedModel === right.providerManagedModel
     && modelOptionsEqual(left.modelOptions, right.modelOptions)

@@ -7,6 +7,7 @@ use serde::{Deserialize, Serialize};
 #[serde(rename_all = "camelCase")]
 pub struct ChatTeammatePolicyInput {
     pub provider_instance_id: ProviderInstanceId,
+    pub safety_mode: ChatApprovalPolicy,
     #[serde(default)]
     pub provider_managed_model: bool,
     pub model_id: Option<ModelId>,
@@ -268,6 +269,7 @@ mod tests {
             "instructions": "",
             "policy": {
                 "providerInstanceId": "provider:test",
+                "safetyMode": "ask_for_approval",
                 "providerManagedModel": true,
                 "modelId": null,
                 "modelOptions": [],
@@ -332,6 +334,7 @@ mod tests {
             },
             "policy": {
                 "providerInstanceId": "provider:test",
+                "safetyMode": "ask_for_approval",
                 "providerManagedModel": true,
                 "modelId": null,
                 "modelOptions": [],

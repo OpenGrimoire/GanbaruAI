@@ -616,6 +616,7 @@ pub struct ChatTeammatePolicyRead {
     pub teammate_id: ChatParticipantId,
     pub revision: u64,
     pub provider_instance_id: ProviderInstanceId,
+    pub safety_mode: ChatApprovalPolicy,
     pub provider_managed_model: bool,
     pub model_id: Option<ModelId>,
     pub model_options: Vec<ModelOptionSelection>,
