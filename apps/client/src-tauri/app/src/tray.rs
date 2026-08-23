@@ -706,7 +706,7 @@ mod tests {
     }
 
     fn has_ring_pixel_with_color(pixels: &[u8], color: (u8, u8, u8)) -> bool {
-        pixels.chunks_exact(4).any(|pixel| {
+        pixels.as_chunks::<4>().0.iter().any(|pixel| {
             pixel[3] > 0 && pixel[0] == color.0 && pixel[1] == color.1 && pixel[2] == color.2
         })
     }

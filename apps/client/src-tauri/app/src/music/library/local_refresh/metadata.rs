@@ -413,11 +413,11 @@ fn decode_utf16(bytes: &[u8], big_endian: Option<bool>) -> Result<String, String
     if payload.len() % 2 != 0 {
         return Err("ID3 UTF-16 text has an incomplete code unit".to_string());
     }
-    let units = payload.chunks_exact(2).map(|pair| {
+    let units = payload.as_chunks::<2>().0.iter().map(|pair| {
         if big_endian {
-            u16::from_be_bytes([pair[0], pair[1]])
+            u16::from_be_bytes(*pair)
         } else {
-            u16::from_le_bytes([pair[0], pair[1]])
+            u16::from_le_bytes(*pair)
         }
     });
     String::from_utf16(&units.collect::<Vec<_>>())

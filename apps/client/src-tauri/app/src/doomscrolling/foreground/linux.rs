@@ -201,9 +201,11 @@ struct WaylandToplevelState {
 #[cfg(target_os = "linux")]
 fn wayland_state_is_activated(state: &[u8]) -> bool {
     const ACTIVATED_STATE: u32 = 2;
-    state.chunks_exact(4).any(|chunk| {
-        u32::from_ne_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]) == ACTIVATED_STATE
-    })
+    state
+        .as_chunks::<4>()
+        .0
+        .iter()
+        .any(|chunk| u32::from_ne_bytes(*chunk) == ACTIVATED_STATE)
 }
 
 #[cfg(target_os = "linux")]

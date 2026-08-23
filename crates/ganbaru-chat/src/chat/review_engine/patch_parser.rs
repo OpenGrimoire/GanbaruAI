@@ -72,13 +72,13 @@ pub fn hunk_id(file_id: &str, text: &str, old_start: u64, new_start: u64) -> Str
             new_line = new_line.saturating_add(1);
             let _ = content;
         } else if let Some(content) = line.strip_prefix('-') {
-            hasher.update([b'-']);
+            hasher.update(b"-");
             hasher.update(old_line.to_le_bytes());
             hasher.update(content);
             hasher.update([0]);
             old_line = old_line.saturating_add(1);
         } else if let Some(content) = line.strip_prefix('+') {
-            hasher.update([b'+']);
+            hasher.update(b"+");
             hasher.update(new_line.to_le_bytes());
             hasher.update(content);
             hasher.update([0]);

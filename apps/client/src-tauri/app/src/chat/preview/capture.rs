@@ -166,10 +166,11 @@ pub(super) fn capture_platform_png(
 pub(super) fn read_windows_stream(
     stream: &windows::Win32::System::Com::IStream,
 ) -> ChatResult<Vec<u8>> {
-    use windows::Win32::System::Com::{STATFLAG_NONAME, STREAM_SEEK_SET};
+    use windows::Win32::System::Com::{STATFLAG_NONAME, STATSTG, STREAM_SEEK_SET};
     unsafe {
-        let stat = stream
-            .Stat(STATFLAG_NONAME)
+        let mut stat = STATSTG::default();
+        stream
+            .Stat(&mut stat, STATFLAG_NONAME)
             .map_err(|_| preview_unavailable())?;
         let length = usize::try_from(stat.cbSize).map_err(|_| preview_unavailable())?;
         if length == 0 || length > MAX_CAPTURE_BYTES {
@@ -182,6 +183,7 @@ pub(super) fn read_windows_stream(
         let mut read = 0_u32;
         stream
             .Read(bytes.as_mut_ptr().cast(), length as u32, Some(&mut read))
+            .ok()
             .map_err(|_| preview_unavailable())?;
         bytes.truncate(read as usize);
         Ok(bytes)

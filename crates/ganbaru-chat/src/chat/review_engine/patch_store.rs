@@ -346,13 +346,13 @@ impl SpoolHunkBuilder {
             self.old_line = self.old_line.saturating_add(1);
             self.new_line = self.new_line.saturating_add(1);
         } else if let Some(content) = line.strip_prefix('-') {
-            self.hasher.update([b'-']);
+            self.hasher.update(b"-");
             self.hasher.update(self.old_line.to_le_bytes());
             self.hasher.update(content);
             self.hasher.update([0]);
             self.old_line = self.old_line.saturating_add(1);
         } else if let Some(content) = line.strip_prefix('+') {
-            self.hasher.update([b'+']);
+            self.hasher.update(b"+");
             self.hasher.update(self.new_line.to_le_bytes());
             self.hasher.update(content);
             self.hasher.update([0]);
