@@ -98,15 +98,15 @@ A Notes folder belongs to exactly one project, folder parents stay inside that p
 
 **Enforced by:** SQLite foreign keys and placement triggers, folder create and update validation, the atomic page move command, defensive mixed-tree planning, migration invariant tests, and focused folder and page-movement tests.
 
-## 9. Every Chat run has one native execution target
+## 9. Native Chat work has one execution target
 
-**Statement:** every provider run resolves exactly one current-folder, existing-worktree, or private-scratch native execution target. A target stays locked during an active continuation. A run may read or edit other explicitly granted project folders only through application-brokered tools, and a communication surface never inherits an execution target.
+**Statement:** an organizational conversation run may have no native filesystem target. A run that uses native files or commands resolves exactly one current-folder, existing-worktree, or explicitly selected private-scratch target. A target stays locked during an active continuation. A run may read or edit other explicitly granted project folders only through application-brokered tools, and a communication surface never inherits an execution target.
 
 **Why:** commands and native provider filesystem access need one stable root, while communication and bounded context may span several separately authorized resources. Keeping those identities separate prevents provider convenience from becoming an organizational permission boundary.
 
 **What would break:** a provider continuation could resume in another repository, folder-specific trust could leak across contexts, concurrent runs could collide, a channel could become unreadable when one folder disappears, or changing a membership default could retarget active work.
 
-**Enforced by:** typed execution-target records, assignment authorization revisions, one-target dispatch resolution, continuation scope digests, folder grants, private scratch scopes, execution-environment reservations, and focused target-inference tests. No conversation row owns or inherits an execution folder.
+**Enforced by:** optional typed execution-target records, assignment authorization revisions, one-target dispatch resolution for native work, continuation scope digests, folder grants, explicit private scratch scopes, execution-environment reservations, and focused target-inference tests. No conversation row owns or inherits an execution folder.
 
 ## 10. Working-folder filesystem access stays bounded
 

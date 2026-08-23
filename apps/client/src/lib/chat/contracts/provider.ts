@@ -42,6 +42,7 @@ export interface ProviderCapabilities {
 }
 
 export interface ProviderAuthoritySupport {
+  isolatedConversation: boolean;
   internalHostTools: boolean;
   denyShell: boolean;
   readOnlyRoot: boolean;

@@ -30,6 +30,7 @@ impl ProviderDriver for OpenCodeProviderDriver {
             return ProviderAuthoritySupport::default();
         }
         ProviderAuthoritySupport {
+            isolated_conversation: true,
             internal_host_tools: true,
             deny_shell: false,
             read_only_root: false,

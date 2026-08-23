@@ -174,7 +174,10 @@ fn user_intent_and_receipt_commit_before_provider_dispatch() {
             project_id: workspace.project_id.clone(),
             working_folder_id: Some(working_folder_id.clone()),
             scratch_generation_id: None,
-            execution_environment_id: format!("current-folder:{}", working_folder_id.as_str()),
+            execution_environment_id: Some(format!(
+                "current-folder:{}",
+                working_folder_id.as_str()
+            )),
         };
         persist_user_turn(PersistUserTurnContext {
             pool: &pool,

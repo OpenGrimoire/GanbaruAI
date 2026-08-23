@@ -8,10 +8,11 @@ This document is the normative authorization specification for organizational Ch
 2. The local owner is the only required seeded participant. The base system has no default or privileged AI teammate.
 3. An AI teammate is an ordinary vault-wide identity. Provider, model, role, instructions, and runtime defaults are replaceable configuration.
 4. Future default teammates are templates. Instantiating a template creates an ordinary identity with no hidden ID, membership, provider preference, or access-control exemption.
-5. Access profiles are reusable ceilings and defaults. They are configuration, not principals, and cannot grant access without an explicit channel membership.
-6. Authority is closed world. Missing, stale, fabricated, revoked, or unsupported authority is denied.
-7. A reference identifies context. It never embeds or transfers authority.
-8. Denial and revocation win over every convenience default.
+5. Channel presence, readable context, and work resources are separate decisions. A teammate can participate without receiving a folder, shell, persistent scratch, or another channel's history.
+6. Access profiles are reusable resource ceilings and defaults. They are configuration, not principals, and cannot grant access without an explicit channel membership and an exact resource grant.
+7. Authority is closed world. Missing, stale, fabricated, revoked, or unsupported authority is denied.
+8. A reference identifies context. It never embeds or transfers authority.
+9. Denial and revocation win over every convenience default.
 
 References to application-owned behavior mean trusted services such as authorization, internal host tools, folder brokering, and Git operations. They never identify an AI teammate.
 
@@ -32,14 +33,14 @@ intersection teammate policy and access-profile ceiling
 intersection destination channel membership
 intersection referenced source-channel membership
 intersection exact folder grants
-intersection assignment references and execution target
+intersection assignment references and any selected execution target
 intersection runtime approval policy
 intersection verified provider enforcement
 ```
 
 The database is canonical. Settings previews, assignment creation, scheduling, provider dispatch, internal host tools, continuations, result publication, and revocation call the same reusable authorization service. A cached in-memory scope may guard lifecycle and concurrency, but it does not replace a database check.
 
-A teammate needs `Participate` in the destination before it can be addressed or publish there. It needs `Read history` in every channel whose messages it may query. A project folder is invisible until an exact folder grant exists. Authority enters a run only through the triggering assignment, structured references, and the selected execution target.
+A teammate needs `Participate` in the destination before it can be addressed or publish there. It needs `Read history` in every channel whose messages it may query. A project folder is invisible until an exact folder grant exists. Authority enters a run only through the triggering assignment, structured references, and any explicitly authorized resources. Conversation work does not require a native execution target.
 
 ## Channel capabilities
 
@@ -47,9 +48,9 @@ Channel access exposes independent capabilities:
 
 | Preset | Read history | Participate |
 |---|---:|---:|
-| Context source | Yes | No |
-| Isolated responder | No | Yes |
-| Collaborator | Yes | Yes |
+| Use as context | Yes | No |
+| Respond when tagged | No | Yes |
+| Read and respond | Yes | Yes |
 
 Any other manual combination is `Custom`. `Participate` does not imply history access. `Read history` does not allow assignment or publication.
 
@@ -74,7 +75,7 @@ The built-in profiles are localized, immutable, and duplicable:
 | Build and test | `execute` |
 | Publish changes | `publish` |
 
-No profile is attached automatically when a standalone teammate is created. A channel-scoped creation flow may prepare a conservative proposal containing Conversation only, Isolated responder, Ask me, no history, no project folders, and private scratch as the fallback. It creates the inert identity first, then requires a second explicit access review and save.
+No profile is attached automatically when a standalone teammate is created. A channel-scoped creation flow may prepare a conservative proposal containing Conversation only, Respond when tagged, no history, and no project resources. The form shows the exact proposed membership before its final Save. The backend creates the identity first and then saves the reviewed access revision. If access persistence fails, the ordinary identity remains inert instead of receiving partial authority.
 
 Membership overrides may narrow but never widen the linked profile. Reductions apply immediately and interrupt incompatible work. Expansions require impact preview, create a new authorization revision, and affect only new work. Active and queued work never widens automatically. Built-in profiles cannot be edited. A custom profile can be duplicated and revised, but cannot be archived while a membership still uses it.
 
@@ -92,7 +93,7 @@ Folder grants use an ordered capability model:
 | `execute` | Adds local commands in the one selected execution target. Network remains denied. |
 | `publish` | Adds application-brokered Git push and pull-request operations. Arbitrary network remains denied. |
 
-A membership may grant several logical working folders owned by its channel's project. Each grant stores its capability, optional runtime-approval override, optional default-target state, logical repository identity, device binding state, revision, and revocation state. More than one default is invalid. A default is optional because execution can fall back to private scratch. Read and edit grants may be default native roots when the selected provider proves the matching root enforcement.
+A membership may grant several logical working folders owned by its channel's project. Each grant stores its capability, optional runtime-approval override, optional default-target state, logical repository identity, device binding state, revision, and revocation state. More than one default is invalid. A default is optional because ordinary conversation work has no native target. Read and edit grants may be default native roots when the selected provider proves the matching root enforcement.
 
 Logical folder identity is vault data. External absolute paths, executable paths, and device availability remain device-local and never enter vault SQLite. The UI distinguishes authorization from binding with states such as Ready, Locate, Relink, Clone, Missing, and Unavailable on this device.
 
@@ -117,6 +118,7 @@ Protocol feature support and authority enforcement are different contracts. Each
 
 ```text
 ProviderAuthoritySupport {
+  isolatedConversation
   internalHostTools
   denyShell
   readOnlyRoot
@@ -127,19 +129,22 @@ ProviderAuthoritySupport {
 }
 ```
 
-The settings studio explains unsupported effective grants before save. Dispatch repeats the check and fails before sending the prompt. A provider with a high-capability profile but no corresponding folder grant is not rejected. A granted native target is rejected when its required root or command boundary cannot be proven.
+`isolatedConversation` means the adapter can run an organizational response from an application-managed neutral directory without treating that directory as a granted resource. It does not turn the directory into persistent scratch or a project folder. The provider's native permission mode remains visible and is subject to any more restrictive organizational result.
+
+The settings studio explains unsupported effective resource grants before save. Ordinary channel participation does not show a folder-enforcement error. Dispatch repeats the check and fails before sending a prompt that requires unsupported resources. A provider with a high-capability profile but no corresponding folder grant is not rejected. A granted native target is rejected when its required root or command boundary cannot be proven.
 
 Codex app-server, Claude native, Cursor ACP, and application-owned local OpenCode may receive scoped internal MCP injection through their existing integration paths. External OpenCode cannot receive loopback tokens and is ineligible for work that requires internal channel-history or folder tools.
 
 ## Execution targets and secondary folders
 
-Every run has exactly one native execution target. Resolution uses this order:
+An organizational conversation run may have no native execution target. A run that uses native files or commands has exactly one target. Target resolution uses this order only when the assignment requires native work:
 
 1. Retain the locked target during an active compatible continuation.
 2. Use the target explicitly selected in assignment review.
 3. Infer a target when executable references resolve to one eligible environment.
 4. Use the membership's optional default folder.
-5. Use private scratch.
+
+If none of those choices produces an authorized target, the assignment remains conversation-only. Dispatch does not create scratch automatically.
 
 A channel reference or read-only resource never changes the target. Shell commands run only in the selected target. Existing managed worktrees may be selected, but dispatch never creates one automatically.
 
@@ -147,9 +152,9 @@ Secondary folders remain behind application-brokered tools. Those tools list aut
 
 ## Private scratch
 
-A folderless assignment lazily receives a private scratch scope identified by vault, reply thread, and teammate. Provider, model, and provider process are not part of its identity.
+Private scratch is an explicit persistent work resource identified by vault, reply thread, and teammate. Provider, model, and provider process are not part of its identity. Folderless conversation does not create scratch.
 
-Scratch is available only after explicit membership and assignment. It survives assignment completion, restart, provider replacement, and channel archive. It is private to one teammate in one reply thread, absent from the general resource palette, and deleted only by explicit confirmed cleanup. Artifacts can be promoted only into an authorized project folder or managed attachment.
+Scratch is available only after explicit membership and explicit selection for an assignment that needs persistent artifacts. It survives assignment completion, restart, provider replacement, and channel archive. It is private to one teammate in one reply thread, absent from the general resource palette, and deleted only by explicit confirmed cleanup. Artifacts can be promoted only into an authorized project folder or managed attachment.
 
 SQLite stores logical identity, generation, lifecycle, size, and provenance. Bytes live in a vault-namespaced device-local managed directory whose absolute path is not stored in vault data. A missing directory appears as Unavailable on this device.
 
@@ -215,7 +220,11 @@ An expansion never reactivates an old run, source handle, continuation, or quara
 
 Teammates is the primary complete access editor, but it keeps the same dimensions and visual grammar as every other Settings area. A quiet identity directory and one continuous editor restore the established master-detail layout. The editor leads with the teammate avatar, identity, model, and approval behavior, then presents channel access as a flat list in the same form. It does not introduce a wider administration surface, nested decorative cards, count pills, or a separate Overview and Access dashboard.
 
-Adding channels uses a searchable Group, Project, and Channel drill-down inside the editor. It shows one hierarchy level at a time, retains a clear back path, uses the shared checkbox treatment, and never creates a second selection tray or grants future channels. A channel row gives a short plain-text summary. Expanding it reveals the common preset, profile, applicable history boundary, and folders. Per-channel and per-folder approval overrides remain under one Advanced access disclosure. All select controls use the shared Settings dropdown. The access-profile manager exposes immutable localized built-ins plus creation, duplication, impact-reviewed revision, and safe archival for custom profiles.
+Add channel opens the same floating Group, Project, and Channel hierarchy used by the main workspace navigator, with the shared checkbox treatment added to each row. Hover, focus, or activation reveals the next panel. Group and project checkboxes select only their current active descendant channels, never channels created later. Search returns exact channels with their ancestry. Selection updates the draft without opening configuration or creating a separate selection tray.
+
+Selected memberships are grouped again by Group and Project. A collapsed group row applies one channel behavior to every explicitly selected descendant, so a large group does not require opening every project or channel. The three primary labels are Respond when tagged, Read and respond, and Use as context. Expanding a group reveals project exceptions, and a project reveals individual channels only when needed. This is bulk editing of exact memberships, not inherited group authority.
+
+Tools and folders are optional channel-level details behind the edit control. They are not a second primary control beside every membership. Provider incompatibility appears only when the user selects an effective resource grant that the provider cannot enforce. Conversation-only memberships remain usable. History boundaries and organizational runtime overrides also remain channel-level details. Access-profile management is an advanced teammate utility. Persistent scratch management belongs to the reply-thread or storage lifecycle after scratch has been explicitly created, not to the primary teammate access flow.
 
 One atomic Apply action replaces the complete editable teammate draft: display profile, role, instructions, provider policy, teammate runtime default, channel memberships, folder grants, and scratch overrides. It binds the expected teammate-profile revision, teammate-access revision, and immutable revision of every linked access profile. A concurrent teammate or profile change makes the preview or save stale instead of partially committing or silently widening authority. The studio preserves the local draft, reloads current durable state for comparison, and lets the person explicitly rebase the draft or discard it in favor of the current version. Dirty navigation is protected. Expansions show an impact preview. Reductions identify work that will stop.
 

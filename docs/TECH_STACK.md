@@ -566,7 +566,7 @@ xterm.js renders thread-scoped terminal sessions created by narrow Rust commands
 
 ### Organizational conversations and execution sessions
 
-A channel or future DM is a durable organizational conversation. A provider thread is replaceable execution machinery. `chat_conversations` and `chat_channels` own organizational identity, while messages and reply threads link to work assignments and exact agent runs. An agent run optionally links to a hidden `chat_thread`, and every run remains permanently bound to one folder or private-scratch execution target plus an immutable teammate policy and authorization revision. No channel owns a provider, model, folder, or current provider session.
+A channel or future DM is a durable organizational conversation. A provider thread is replaceable execution machinery. `chat_conversations` and `chat_channels` own organizational identity, while messages and reply threads link to work assignments and exact agent runs. An agent run optionally links to a hidden `chat_thread` and always binds an immutable teammate policy and authorization revision. A conversation run has no native filesystem target. A run that uses native files or commands binds one folder or explicit private-scratch target. No channel owns a provider, model, folder, or current provider session.
 
 Calendar can select the linked project and suggest a channel or task while preserving drafts, reviews, and live execution. It never retargets a running provider continuation. Working folders remain execution resources selected by a task, teammate policy, or direct-agent action instead of the left-rail hierarchy.
 

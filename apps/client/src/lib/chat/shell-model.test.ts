@@ -66,6 +66,7 @@ function provider(state: ProviderInstanceRead["lastProbe"] extends infer _Probe 
       accountLabel: null,
       capabilities: { entries: [] },
       authoritySupport: {
+        isolatedConversation: true,
         internalHostTools: true,
         denyShell: true,
         readOnlyRoot: true,

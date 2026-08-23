@@ -203,9 +203,11 @@ pub(crate) async fn send_turn(
     })
     .await;
     persistence?;
-    if let Some(binding) = origin.run() {
-        let scope = load_internal_mcp_scope(&pool, &thread_id, binding).await?;
-        mcp_registry.activate_run_scope(&thread_id, scope).await?;
+    if authority_support.internal_host_tools {
+        if let Some(binding) = origin.run() {
+            let scope = load_internal_mcp_scope(&pool, &thread_id, binding).await?;
+            mcp_registry.activate_run_scope(&thread_id, scope).await?;
+        }
     }
     if request.working_folder_id.is_some() {
         ensure_pre_turn_checkpoint(
@@ -233,7 +235,7 @@ pub(crate) async fn send_turn(
             authorization: origin.run(),
         })
         .await?;
-        if origin.run().is_some() {
+        if origin.run().is_some() && authority_support.internal_host_tools {
             mcp_registry.wait_until_ready(&thread_id).await?;
         }
         let reservation = reservation.handoff_to_runtime()?;
@@ -344,7 +346,7 @@ async fn resolve_turn_target(
                 if binding.working_folder_id.as_deref() != Some(working_folder_id.as_str())
                     || binding.scratch_generation_id.is_some()
                     || request.execution_environment_id.as_deref()
-                        != Some(binding.execution_environment_id.as_str())
+                        != binding.execution_environment_id.as_deref()
                 {
                     return Err(ChatError::new(
                         ChatErrorCode::Permission,
@@ -392,11 +394,11 @@ async fn resolve_turn_target(
                     project_id: logical_workspace.project_id,
                     working_folder_id: Some(working_folder_id.clone()),
                     scratch_generation_id: None,
-                    execution_environment_id: selected_environment
-                        .map(str::to_string)
-                        .unwrap_or_else(|| {
+                    execution_environment_id: Some(
+                        selected_environment.map(str::to_string).unwrap_or_else(|| {
                             format!("current-folder:{}", working_folder_id.as_str())
                         }),
+                    ),
                 },
                 authorized,
             ))
@@ -411,7 +413,7 @@ async fn resolve_turn_target(
             })?;
             if binding.scratch_generation_id.as_deref() != Some(scratch_generation_id)
                 || request.execution_environment_id.as_deref()
-                    != Some(binding.execution_environment_id.as_str())
+                    != binding.execution_environment_id.as_deref()
                 || !request.mentions.is_empty()
             {
                 return Err(ChatError::new(
@@ -420,11 +422,19 @@ async fn resolve_turn_target(
                     false,
                 ));
             }
+            let execution_environment_id =
+                binding.execution_environment_id.as_deref().ok_or_else(|| {
+                    ChatError::new(
+                        ChatErrorCode::Permission,
+                        "Private scratch assignment has no execution environment",
+                        false,
+                    )
+                })?;
             let authorized = crate::chat::scratch::authorize_scratch_target(
                 app,
                 pool,
                 scratch_generation_id,
-                &binding.execution_environment_id,
+                execution_environment_id,
             )
             .await?;
             Ok((
@@ -437,9 +447,43 @@ async fn resolve_turn_target(
                 authorized,
             ))
         }
-        _ => Err(ChatError::validation(
+        (None, None) => {
+            let binding = origin.run().ok_or_else(|| {
+                ChatError::validation("executionTarget", "Direct Chat requires a working folder")
+            })?;
+            if binding.working_folder_id.is_some()
+                || binding.scratch_generation_id.is_some()
+                || binding.execution_environment_id.is_some()
+                || request.execution_environment_id.is_some()
+                || !request.mentions.is_empty()
+            {
+                return Err(ChatError::new(
+                    ChatErrorCode::Permission,
+                    "The conversation assignment does not authorize a native workspace",
+                    false,
+                ));
+            }
+            let thread_id = request
+                .thread_id
+                .as_ref()
+                .or(request.new_thread_id.as_ref())
+                .ok_or_else(|| {
+                    ChatError::validation("newThreadId", "A provider thread is required")
+                })?;
+            let authorized = crate::chat::scratch::authorize_conversation_runtime(app, thread_id)?;
+            Ok((
+                TurnPersistenceTarget {
+                    project_id: binding.project_id.clone(),
+                    working_folder_id: None,
+                    scratch_generation_id: None,
+                    execution_environment_id: None,
+                },
+                authorized,
+            ))
+        }
+        (Some(_), Some(_)) => Err(ChatError::validation(
             "executionTarget",
-            "Select exactly one working folder or private scratch target",
+            "Select at most one native execution target",
         )),
     }
 }
@@ -476,23 +520,50 @@ async fn validate_organizational_authority(
     let authorization_environment_id: Option<String> = authorization
         .try_get("execution_environment_id")
         .map_err(|_| provider_authority_error("Assignment authority is invalid"))?;
+    let has_native_target = binding.execution_environment_id.is_some();
+    let target_shape_is_valid = matches!(
+        (
+            binding.working_folder_id.is_some(),
+            binding.scratch_generation_id.is_some(),
+            has_native_target,
+        ),
+        (false, false, false) | (true, false, true) | (false, true, true)
+    );
     if authorization_folder_id != binding.working_folder_id
-        || authorization_environment_id.as_deref()
-            != Some(binding.execution_environment_id.as_str())
-        || binding.working_folder_id.is_some() == binding.scratch_generation_id.is_some()
+        || authorization_environment_id != binding.execution_environment_id
+        || !target_shape_is_valid
     {
         return Err(provider_authority_error(
             "Assignment execution target does not match its authorization",
         ));
     }
-    if runtime_approval_policy == "provider_custom" {
+    if has_native_target && runtime_approval_policy == "provider_custom" {
         return Err(provider_authority_error(
             "Provider-custom approval cannot prove this assignment's exact authority",
         ));
     }
-    if !support.internal_host_tools || !support.network_boundary {
+    let host_tools_required: bool = sqlx::query_scalar(
+        "SELECT EXISTS(
+            SELECT 1 FROM chat_assignment_authorized_channel_sources
+            WHERE authorization_revision_id = ?
+            UNION ALL
+            SELECT 1 FROM chat_assignment_authorized_folder_sources
+            WHERE authorization_revision_id = ?
+         )",
+    )
+    .bind(binding.authorization_revision_id.as_str())
+    .bind(binding.authorization_revision_id.as_str())
+    .fetch_one(pool)
+    .await
+    .map_err(|_| provider_authority_error("Assignment sources could not be verified"))?;
+    if !has_native_target && !support.isolated_conversation {
         return Err(provider_authority_error(
-            "This provider cannot prove the required internal tools and network boundary",
+            "This provider cannot run an isolated organizational conversation",
+        ));
+    }
+    if host_tools_required && !support.internal_host_tools {
+        return Err(provider_authority_error(
+            "This provider cannot use the assignment's scoped host tools",
         ));
     }
     let target_capability: Option<String> = sqlx::query_scalar(
@@ -504,7 +575,7 @@ async fn validate_organizational_authority(
     .await
     .map_err(|_| provider_authority_error("Assignment authority could not be verified"))?;
     if binding.scratch_generation_id.is_some()
-        && (!support.writable_root || !support.confined_commands)
+        && (!support.writable_root || !support.confined_commands || !support.network_boundary)
     {
         return Err(provider_authority_error(
             "This provider cannot confine writable private scratch work",
@@ -512,11 +583,16 @@ async fn validate_organizational_authority(
     }
     if let Some(capability) = target_capability.as_deref() {
         let supported = match capability {
-            "read" => support.read_only_root && support.deny_shell,
-            "edit" => support.writable_root && support.deny_shell,
-            "execute" => support.writable_root && support.confined_commands,
+            "read" => support.read_only_root && support.deny_shell && support.network_boundary,
+            "edit" => support.writable_root && support.deny_shell && support.network_boundary,
+            "execute" => {
+                support.writable_root && support.confined_commands && support.network_boundary
+            }
             "publish" => {
-                support.writable_root && support.confined_commands && support.classified_publish
+                support.writable_root
+                    && support.confined_commands
+                    && support.network_boundary
+                    && support.classified_publish
             }
             _ => false,
         };

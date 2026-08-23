@@ -252,16 +252,24 @@ async fn dispatch_claimed_assignment(
     let scratch_generation_id: Option<String> = row
         .try_get("scratch_generation_id")
         .map_err(persistence_error)?;
-    if working_folder_id.is_some() == scratch_generation_id.is_some() {
+    let has_native_target = working_folder_id.is_some() || scratch_generation_id.is_some();
+    if working_folder_id.is_some() && scratch_generation_id.is_some() {
         return Err(ChatError::new(
             ChatErrorCode::Permission,
             "The assignment execution target is invalid",
             false,
         ));
     }
-    let execution_environment_id: String = row
+    let execution_environment_id: Option<String> = row
         .try_get("execution_environment_id")
         .map_err(persistence_error)?;
+    if has_native_target != execution_environment_id.is_some() {
+        return Err(ChatError::new(
+            ChatErrorCode::Permission,
+            "The assignment execution target is invalid",
+            false,
+        ));
+    }
     let destination_conversation_id: String = row
         .try_get("destination_conversation_id")
         .map_err(persistence_error)?;
@@ -330,7 +338,7 @@ async fn dispatch_claimed_assignment(
            AND run.state = 'completed'
            AND run.working_folder_id IS ?
            AND run.scratch_generation_id IS ?
-           AND run.execution_environment_id = ?
+           AND run.execution_environment_id IS ?
            AND run.authorization_scope_digest = ?
            AND thread.provider_instance_id = ?
            AND thread.archived_at IS NULL
@@ -438,7 +446,7 @@ async fn dispatch_claimed_assignment(
         working_folder_id: working_folder_id.clone(),
         thread_id: existing_thread_id,
         new_thread_id: (continuation.is_none()).then_some(provider_execution_thread_id),
-        execution_environment_id: Some(execution_environment_id.clone()),
+        execution_environment_id: execution_environment_id.clone(),
         scratch_generation_id: scratch_generation_id.clone(),
         turn_id: ChatTurnId::new(new_id("provider-turn")).map_err(identifier_error)?,
         message_id: ChatMessageId::new(new_id("provider-message")).map_err(identifier_error)?,
@@ -446,10 +454,7 @@ async fn dispatch_claimed_assignment(
         provider_managed_model: policy.provider_managed_model,
         model_id: policy.model_id,
         model_options: policy.model_options,
-        modes: TurnModeSnapshot {
-            safety_mode: teammate_cli_safety_mode(policy.safety_mode),
-            interaction_mode: InteractionMode::Build,
-        },
+        modes: assignment_turn_modes(policy.safety_mode, has_native_target),
         prompt: row.try_get("serialized_text").map_err(persistence_error)?,
         attachment_ids,
         mentions,
@@ -849,5 +854,40 @@ fn teammate_cli_safety_mode(value: ChatApprovalPolicy) -> SafetyMode {
         ChatApprovalPolicy::ApproveForMe => SafetyMode::ApproveForMe,
         ChatApprovalPolicy::FullAccess => SafetyMode::FullAccess,
         ChatApprovalPolicy::Custom => SafetyMode::Custom,
+    }
+}
+
+fn assignment_turn_modes(
+    teammate_approval: ChatApprovalPolicy,
+    has_native_target: bool,
+) -> TurnModeSnapshot {
+    if has_native_target {
+        return TurnModeSnapshot {
+            safety_mode: teammate_cli_safety_mode(teammate_approval),
+            interaction_mode: InteractionMode::Build,
+        };
+    }
+    TurnModeSnapshot {
+        safety_mode: SafetyMode::AskForApproval,
+        interaction_mode: InteractionMode::Build,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{assignment_turn_modes, ChatApprovalPolicy, InteractionMode, SafetyMode};
+
+    #[test]
+    fn targetless_assignments_use_a_narrow_conversation_mode() {
+        let modes = assignment_turn_modes(ChatApprovalPolicy::FullAccess, false);
+        assert_eq!(modes.safety_mode, SafetyMode::AskForApproval);
+        assert_eq!(modes.interaction_mode, InteractionMode::Build);
+    }
+
+    #[test]
+    fn native_assignments_keep_the_teammate_cli_approval_behavior() {
+        let modes = assignment_turn_modes(ChatApprovalPolicy::FullAccess, true);
+        assert_eq!(modes.safety_mode, SafetyMode::FullAccess);
+        assert_eq!(modes.interaction_mode, InteractionMode::Build);
     }
 }

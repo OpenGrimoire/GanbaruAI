@@ -1212,6 +1212,72 @@ mod tests {
     }
 
     #[test]
+    fn legacy_provider_probe_defaults_isolated_conversation_support() {
+        let path = unique_path("legacy-provider-probe-app-state.json");
+        fs::write(
+            &path,
+            r#"{
+  "deviceId": "device-test",
+  "activeVaultPath": null,
+  "recentVaultPaths": [],
+  "chat": {
+    "schemaVersion": 1,
+    "vaults": {
+      "vault-test": {
+        "device-test": {
+          "providerInstances": {
+            "codex": {
+              "executablePath": null,
+              "providerHomePath": null,
+              "lastProbe": {
+                "instanceId": "codex",
+                "state": "healthy",
+                "version": "1.0.0",
+                "negotiatedProtocolVersion": null,
+                "accountLabel": null,
+                "capabilities": { "entries": [] },
+                "authoritySupport": {
+                  "internalHostTools": true,
+                  "denyShell": true,
+                  "readOnlyRoot": true,
+                  "writableRoot": true,
+                  "confinedCommands": true,
+                  "networkBoundary": true,
+                  "classifiedPublish": true
+                },
+                "checkedAt": "2026-08-22T00:00:00Z",
+                "detail": null
+              },
+              "lastSuccessfulProbeAt": null,
+              "modelCatalog": null
+            }
+          }
+        }
+      }
+    }
+  }
+}"#,
+        )
+        .expect("write legacy provider probe state");
+
+        let state = read_app_state_from_path(&path).expect("read legacy provider probe state");
+        let provider = state
+            .chat
+            .scope("vault-test", "device-test")
+            .and_then(|scope| scope.provider_instances.values().next())
+            .expect("provider device state");
+        let support = provider
+            .last_probe
+            .as_ref()
+            .expect("provider probe")
+            .authority_support;
+
+        assert!(!support.isolated_conversation);
+        assert!(support.internal_host_tools);
+        let _ = fs::remove_file(&path);
+    }
+
+    #[test]
     fn read_plain_ics_entry_rejects_wrong_extensions() {
         let path = unique_path("calendar.txt");
         fs::write(&path, "BEGIN:VCALENDAR\r\nEND:VCALENDAR\r\n").expect("seed file");

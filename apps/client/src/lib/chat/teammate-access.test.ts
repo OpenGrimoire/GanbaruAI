@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import type { ChatTeammateChannelAccessInput } from "$lib/chat/contracts";
 import {
+  applyAccessProfileToScope,
+  applyChannelPresetToScope,
   capabilitiesForPreset,
   channelCapabilityPreset,
   folderCapabilityFits,
@@ -53,6 +55,38 @@ describe("teammate access", () => {
     expect([...next].sort()).toEqual(["channel:a", "channel:b", "channel:elsewhere"]);
     expect(selectionState(["channel:a", "channel:b"], next)).toBe("all");
     expect(selectionState(["channel:a", "channel:c"], next)).toBe("some");
+  });
+
+  it("applies one behavior to an exact selected scope", () => {
+    const outside = access("channel:outside");
+    const next = applyChannelPresetToScope(
+      [access("channel:a"), access("channel:b"), outside],
+      new Set(["channel:a", "channel:b"]),
+      "isolatedResponder",
+    );
+
+    expect(next.slice(0, 2).map((entry) => channelCapabilityPreset(entry.capabilities)))
+      .toEqual(["isolatedResponder", "isolatedResponder"]);
+    expect(next[2]).toBe(outside);
+  });
+
+  it("applies a profile to a scope and removes grants above its ceiling", () => {
+    const inside = access("channel:a");
+    inside.folderGrants = [
+      { workingFolderId: "folder:read", capability: "read", isDefault: false, runtimeApprovalOverride: null },
+      { workingFolderId: "folder:build", capability: "execute", isDefault: true, runtimeApprovalOverride: null },
+    ];
+    const outside = access("channel:outside");
+    const next = applyAccessProfileToScope(
+      [inside, outside],
+      new Set(["channel:a"]),
+      { id: "profile:read", revision: 4, maximumFolderCapability: "read" },
+    );
+
+    expect(next[0]?.accessProfileId).toBe("profile:read");
+    expect(next[0]?.accessProfileRevision).toBe(4);
+    expect(next[0]?.folderGrants.map((grant) => grant.workingFolderId)).toEqual(["folder:read"]);
+    expect(next[1]).toBe(outside);
   });
 
   it("creates order-independent atomic snapshots", () => {

@@ -70,6 +70,10 @@ impl ProviderCapabilities {
 #[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ProviderAuthoritySupport {
+    /// The adapter can run a teammate from an application-managed neutral
+    /// directory without receiving project-folder or persistent-scratch grants.
+    #[serde(default)]
+    pub isolated_conversation: bool,
     pub internal_host_tools: bool,
     pub deny_shell: bool,
     pub read_only_root: bool,

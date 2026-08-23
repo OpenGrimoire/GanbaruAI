@@ -67,6 +67,7 @@ pub(super) struct PermissionProfileSummary {
 
 pub(super) fn organizational_authority_support() -> ProviderAuthoritySupport {
     ProviderAuthoritySupport {
+        isolated_conversation: true,
         internal_host_tools: true,
         deny_shell: false,
         read_only_root: false,

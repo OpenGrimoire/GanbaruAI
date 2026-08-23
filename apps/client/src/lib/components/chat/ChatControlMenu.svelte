@@ -1,11 +1,14 @@
 <script lang="ts">
   import { tick } from "svelte";
   import Bot from "@lucide/svelte/icons/bot";
+  import BookOpen from "@lucide/svelte/icons/book-open";
   import Brain from "@lucide/svelte/icons/brain";
   import Check from "@lucide/svelte/icons/check";
   import ChevronDown from "@lucide/svelte/icons/chevron-down";
   import FilePenLine from "@lucide/svelte/icons/file-pen-line";
   import Folder from "@lucide/svelte/icons/folder";
+  import GitPullRequest from "@lucide/svelte/icons/git-pull-request";
+  import MessagesSquare from "@lucide/svelte/icons/messages-square";
   import PencilRuler from "@lucide/svelte/icons/pencil-ruler";
   import Settings from "@lucide/svelte/icons/settings";
   import Shield from "@lucide/svelte/icons/shield";
@@ -23,9 +26,12 @@
 
   export type ChatControlIcon =
     | "bot"
+    | "book-open"
     | "brain"
     | "file-pen"
     | "folder"
+    | "git-pull-request"
+    | "messages-square"
     | "pencil-ruler"
     | "shield"
     | "shield-alert"
@@ -185,9 +191,12 @@
 
 {#snippet controlIcon(icon: ChatControlIcon, size = 14)}
   {#if icon === "bot"}<Bot {size} />
+  {:else if icon === "book-open"}<BookOpen {size} />
   {:else if icon === "brain"}<Brain {size} />
   {:else if icon === "file-pen"}<FilePenLine {size} />
   {:else if icon === "folder"}<Folder {size} />
+  {:else if icon === "git-pull-request"}<GitPullRequest {size} />
+  {:else if icon === "messages-square"}<MessagesSquare {size} />
   {:else if icon === "pencil-ruler"}<PencilRuler {size} />
   {:else if icon === "settings"}<Settings {size} />
   {:else if icon === "shield-alert"}<ShieldAlert {size} />

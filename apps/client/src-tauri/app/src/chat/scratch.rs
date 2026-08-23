@@ -1,7 +1,9 @@
 //! Device-local private scratch targets for organizational assignments.
 
 use super::device_state::{read_active_device_scope, update_active_device_scope};
-use super::models::{ChatError, ChatErrorCode, ChatResult, ProjectWorkingFolderId, RepositoryKind};
+use super::models::{
+    ChatError, ChatErrorCode, ChatResult, ChatThreadId, ProjectWorkingFolderId, RepositoryKind,
+};
 use super::workspace::AuthorizedWorkingFolder;
 use crate::vault;
 use sha2::{Digest, Sha256};
@@ -11,12 +13,43 @@ use std::path::{Path, PathBuf};
 use tauri::Manager;
 
 const SCRATCH_DIRECTORY: &str = "chat-scratch";
+const CONVERSATION_RUNTIME_DIRECTORY: &str = "chat-conversation-runtime";
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) struct BoundedScratchSize {
     pub(crate) bytes: u64,
     pub(crate) entries: u64,
     pub(crate) truncated: bool,
+}
+
+/// Authorizes a neutral, application-managed provider workspace for a
+/// conversation assignment that has no organizational execution target.
+pub(crate) fn authorize_conversation_runtime(
+    app: &tauri::AppHandle,
+    thread_id: &ChatThreadId,
+) -> ChatResult<AuthorizedWorkingFolder> {
+    let local_root = app
+        .path()
+        .app_local_data_dir()
+        .map_err(device_state_error)?;
+    let vault_id = vault::active_vault_id(app).map_err(device_state_error)?;
+    let runtime_root = local_root
+        .join(CONVERSATION_RUNTIME_DIRECTORY)
+        .join(hex_digest(&vault_id, 24))
+        .join(hex_digest(thread_id.as_str(), 32));
+    prepare_managed_directory(&local_root, CONVERSATION_RUNTIME_DIRECTORY, &runtime_root)?;
+    let synthetic_id = ProjectWorkingFolderId::new(format!(
+        "conversation-runtime:{}",
+        hex_digest(thread_id.as_str(), 32)
+    ))
+    .map_err(|_| scratch_unavailable())?;
+    Ok(AuthorizedWorkingFolder {
+        working_folder_id: synthetic_id,
+        canonical_path: runtime_root,
+        repository_kind: RepositoryKind::None,
+        repository_identity: None,
+        repository_storage_identity: None,
+    })
 }
 
 pub(crate) async fn authorize_scratch_target(
@@ -554,11 +587,18 @@ fn prepare_scratch_directory(app: &tauri::AppHandle, target: &Path) -> ChatResul
         .path()
         .app_local_data_dir()
         .map_err(device_state_error)?;
-    fs::create_dir_all(&local_root).map_err(io_error)?;
-    ensure_plain_directory(&local_root)?;
-    let root = local_root.join(SCRATCH_DIRECTORY);
+    prepare_managed_directory(&local_root, SCRATCH_DIRECTORY, target)
+}
+
+fn prepare_managed_directory(local_root: &Path, category: &str, target: &Path) -> ChatResult<()> {
+    fs::create_dir_all(local_root).map_err(io_error)?;
+    ensure_plain_directory(local_root)?;
+    let root = local_root.join(category);
     create_plain_directory(&root)?;
     let vault_root = target.parent().ok_or_else(scratch_unavailable)?;
+    if vault_root.parent() != Some(root.as_path()) {
+        return Err(scratch_unavailable());
+    }
     create_plain_directory(vault_root)?;
     create_plain_directory(target)?;
     #[cfg(unix)]

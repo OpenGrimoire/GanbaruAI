@@ -56,6 +56,7 @@ export function parseProviderAuthoritySupport(
 ): ProviderAuthoritySupport {
   const record = readRecord(value, label);
   return {
+    isolatedConversation: readBoolean(record.isolatedConversation, `${label}.isolatedConversation`),
     internalHostTools: readBoolean(record.internalHostTools, `${label}.internalHostTools`),
     denyShell: readBoolean(record.denyShell, `${label}.denyShell`),
     readOnlyRoot: readBoolean(record.readOnlyRoot, `${label}.readOnlyRoot`),

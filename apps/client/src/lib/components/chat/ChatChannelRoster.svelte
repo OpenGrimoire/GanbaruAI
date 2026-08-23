@@ -101,9 +101,12 @@
     const health = teammate?.configurationState === "healthy" && !missingBinding
       ? t("settings.chat.teammates.available")
       : t("settings.chat.teammates.needsSetup");
-    return `${t(`settings.chat.teammates.presets.${preset}`)} · ${folderCount
+    const behavior = preset === "custom"
+      ? t("settings.chat.teammates.presets.custom")
+      : t(`settings.chat.teammates.presetControls.${preset}.label`);
+    return `${behavior} · ${folderCount
       ? t("settings.chat.teammates.folderCount", folderCount)
-      : t("settings.chat.teammates.scratchFallback")} · ${providerLabel} · ${health}`;
+      : t("settings.chat.teammates.noWorkResources")} · ${providerLabel} · ${health}`;
   }
 
   function configure(participantId: string): void {

@@ -81,6 +81,44 @@ export function toggleSelectionGroup(
   return next;
 }
 
+/** Applies one channel behavior to an exact, already selected scope. */
+export function applyChannelPresetToScope(
+  channels: readonly ChatTeammateChannelAccessInput[],
+  channelIds: ReadonlySet<string>,
+  preset: Exclude<ChatChannelCapabilityPreset, "custom">,
+): ChatTeammateChannelAccessInput[] {
+  return channels.map((channel) => channelIds.has(channel.channelId)
+    ? {
+        ...channel,
+        capabilities: capabilitiesForPreset(preset),
+        historyBoundary: { kind: "entire" },
+      }
+    : channel);
+}
+
+/** Applies one profile ceiling to an exact scope and removes grants above it. */
+export function applyAccessProfileToScope(
+  channels: readonly ChatTeammateChannelAccessInput[],
+  channelIds: ReadonlySet<string>,
+  profile: {
+    id: string;
+    revision: number;
+    maximumFolderCapability: ChatFolderCapability;
+  },
+): ChatTeammateChannelAccessInput[] {
+  return channels.map((channel) => channelIds.has(channel.channelId)
+    ? {
+        ...channel,
+        accessProfileId: profile.id,
+        accessProfileRevision: profile.revision,
+        folderGrants: channel.folderGrants.filter((grant) => folderCapabilityFits(
+          grant.capability,
+          profile.maximumFolderCapability,
+        )),
+      }
+    : channel);
+}
+
 /** Creates a stable access snapshot for dirty checks and optimistic replacement. */
 export function teammateAccessDraftSnapshot(
   channels: readonly ChatTeammateChannelAccessInput[],

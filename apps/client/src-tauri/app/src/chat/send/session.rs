@@ -176,6 +176,9 @@ pub(super) async fn ensure_session(
         repository_kind: workspace.repository_kind,
         repository_identity: workspace.repository_identity.clone(),
     };
+    let native_workspace_authorized =
+        request.working_folder_id.is_some() || request.scratch_generation_id.is_some();
+    let checkpoint_enabled = request.working_folder_id.is_some();
     crate::chat::diagnostics_commands::prune_expired_diagnostics(pool).await?;
     let sink: Arc<dyn ProviderEventSink> = Arc::new(DurableChatEventSink::new(
         app.clone(),
@@ -183,6 +186,8 @@ pub(super) async fn ensure_session(
         Arc::new(TauriChatChangeEmitter::new(app.clone())),
         workspace.clone(),
         authorization.cloned(),
+        native_workspace_authorized,
+        checkpoint_enabled,
     ));
     if let Some(existing) = existing {
         if let (Some(provider_thread_id), Some(resume_cursor)) = (
@@ -263,6 +268,8 @@ struct DurableChatEventSink {
     pool: SqlitePool,
     workspace: AuthorizedWorkingFolder,
     organizational: bool,
+    native_workspace_authorized: bool,
+    checkpoint_enabled: bool,
     ingestor: Mutex<ChatEventIngestor>,
 }
 
@@ -273,6 +280,8 @@ impl DurableChatEventSink {
         emitter: Arc<dyn crate::chat::ingestion::ChatChangeEmitter>,
         workspace: AuthorizedWorkingFolder,
         authorization: Option<AgentRunBinding>,
+        native_workspace_authorized: bool,
+        checkpoint_enabled: bool,
     ) -> Self {
         Self {
             app,
@@ -280,6 +289,8 @@ impl DurableChatEventSink {
             pool,
             workspace,
             organizational: authorization.is_some(),
+            native_workspace_authorized,
+            checkpoint_enabled,
         }
     }
 }
@@ -297,6 +308,13 @@ impl ProviderEventSink for DurableChatEventSink {
                         .revoke_run_scope(&event.thread_id)
                         .await;
                     return Err(error);
+                }
+                if !self.native_workspace_authorized && event_changes_files(&event.event) {
+                    return Err(ChatError::new(
+                        ChatErrorCode::Permission,
+                        "Conversation assignments cannot change workspace files",
+                        false,
+                    ));
                 }
             }
             normalize_changed_file_paths(&mut event.event, &self.workspace.canonical_path);
@@ -325,7 +343,7 @@ impl ProviderEventSink for DurableChatEventSink {
             }
             .await;
             if let Some((thread_id, turn_id)) = settled_turn {
-                if ingestion.is_ok() {
+                if ingestion.is_ok() && self.checkpoint_enabled {
                     if let Ok(settled_at) = now_timestamp() {
                         ensure_post_turn_checkpoint(
                             &self.pool,
@@ -352,6 +370,14 @@ impl ProviderEventSink for DurableChatEventSink {
 
     fn flush(&self) -> DriverFuture<'_, ()> {
         Box::pin(async move { self.ingestor.lock().await.flush().await })
+    }
+}
+
+fn event_changes_files(event: &CanonicalEvent) -> bool {
+    match event {
+        CanonicalEvent::DiffUpdated(event) => !event.files.is_empty(),
+        CanonicalEvent::TurnCompleted(event) => !event.changed_files.is_empty(),
+        _ => false,
     }
 }
 

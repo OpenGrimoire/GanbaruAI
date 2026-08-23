@@ -222,7 +222,6 @@ pub(super) async fn freeze_context_package(
             grants: &grants,
             referenced_folder_ids: &referenced_folder_ids,
             referenced_execution_environments: &referenced_execution_environments,
-            now,
         },
     )
     .await?;
@@ -413,7 +412,7 @@ struct FrozenChannelSource {
 }
 
 struct ResolvedExecutionTarget {
-    execution_environment_id: String,
+    execution_environment_id: Option<String>,
     working_folder_id: Option<String>,
     scratch_generation_id: Option<String>,
 }
@@ -433,7 +432,6 @@ struct ResolveExecutionTargetInput<'a> {
     grants: &'a [FolderGrant],
     referenced_folder_ids: &'a [String],
     referenced_execution_environments: &'a [ReferencedExecutionEnvironment],
-    now: &'a UtcTimestamp,
 }
 
 struct ChannelDisclosureInput<'a> {
@@ -730,7 +728,6 @@ async fn resolve_execution_target(
         grants,
         referenced_folder_ids,
         referenced_execution_environments,
-        now,
     } = input;
     let referenced_execution_environment =
         unique_referenced_execution_environment(referenced_execution_environments)?;
@@ -748,7 +745,7 @@ async fn resolve_execution_target(
                 )
                 .await?;
                 Ok(ResolvedExecutionTarget {
-                    execution_environment_id: execution_environment_id.as_str().to_string(),
+                    execution_environment_id: Some(execution_environment_id.as_str().to_string()),
                     working_folder_id: Some(working_folder_id.as_str().to_string()),
                     scratch_generation_id: None,
                 })
@@ -783,7 +780,7 @@ async fn resolve_execution_target(
                     ));
                 }
                 Ok(ResolvedExecutionTarget {
-                    execution_environment_id: execution_environment_id.as_str().to_string(),
+                    execution_environment_id: Some(execution_environment_id.as_str().to_string()),
                     working_folder_id: None,
                     scratch_generation_id: Some(scratch_generation_id.as_str().to_string()),
                 })
@@ -800,7 +797,7 @@ async fn resolve_execution_target(
             )
             .await?;
             return Ok(ResolvedExecutionTarget {
-                execution_environment_id: environment.execution_environment_id.clone(),
+                execution_environment_id: Some(environment.execution_environment_id.clone()),
                 working_folder_id: Some(environment.working_folder_id.clone()),
                 scratch_generation_id: None,
             });
@@ -831,20 +828,16 @@ async fn resolve_execution_target(
         verify_folder_environment(transaction, &working_folder_id, &execution_environment_id)
             .await?;
         return Ok(ResolvedExecutionTarget {
-            execution_environment_id,
+            execution_environment_id: Some(execution_environment_id),
             working_folder_id: Some(working_folder_id),
             scratch_generation_id: None,
         });
     }
-    ensure_scratch_target(
-        transaction,
-        reply_thread_id,
-        destination_conversation_id,
-        teammate_id,
-        requester_participant_id,
-        now,
-    )
-    .await
+    Ok(ResolvedExecutionTarget {
+        execution_environment_id: None,
+        working_folder_id: None,
+        scratch_generation_id: None,
+    })
 }
 
 fn capability_can_select_native_target(capability: &str) -> bool {
@@ -902,147 +895,6 @@ mod target_inference_tests {
         .unwrap_err();
         assert_eq!(error.code, ChatErrorCode::Validation);
     }
-}
-
-async fn ensure_scratch_target(
-    transaction: &mut Transaction<'_, Sqlite>,
-    reply_thread_id: &ChatReplyThreadId,
-    destination_conversation_id: &ChatConversationId,
-    teammate_id: &ChatParticipantId,
-    requester_participant_id: &ChatParticipantId,
-    now: &UtcTimestamp,
-) -> ChatResult<ResolvedExecutionTarget> {
-    let existing = sqlx::query(
-        "SELECT scope.id AS scope_id, generation.id AS generation_id,
-                environment.id AS environment_id
-         FROM chat_scratch_scopes scope
-         JOIN chat_scratch_generations generation
-           ON generation.scratch_scope_id = scope.id
-          AND generation.lifecycle_state = 'active'
-          AND generation.removed_at IS NULL
-         JOIN chat_execution_environments environment
-           ON environment.scratch_generation_id = generation.id
-          AND environment.kind = 'scratch'
-          AND environment.archived_at IS NULL
-          AND environment.lifecycle_state = 'available'
-         WHERE scope.reply_thread_id = ? AND scope.teammate_id = ?
-           AND scope.removed_at IS NULL",
-    )
-    .bind(reply_thread_id.as_str())
-    .bind(teammate_id.as_str())
-    .fetch_optional(&mut **transaction)
-    .await
-    .map_err(persistence_error)?;
-    if let Some(row) = existing {
-        let generation_id: String = row.try_get("generation_id").map_err(persistence_error)?;
-        if super::super::scratch::generation_constraints_hold_in_connection(
-            transaction,
-            &generation_id,
-            destination_conversation_id.as_str(),
-            teammate_id.as_str(),
-            requester_participant_id.as_str(),
-        )
-        .await?
-        {
-            return Ok(ResolvedExecutionTarget {
-                execution_environment_id: row
-                    .try_get("environment_id")
-                    .map_err(persistence_error)?,
-                working_folder_id: None,
-                scratch_generation_id: Some(generation_id),
-            });
-        }
-        quarantine_scratch_generation(transaction, &generation_id, now).await?;
-    }
-    let scope_id = match sqlx::query_scalar::<_, String>(
-        "SELECT id FROM chat_scratch_scopes
-         WHERE reply_thread_id = ? AND teammate_id = ? AND removed_at IS NULL",
-    )
-    .bind(reply_thread_id.as_str())
-    .bind(teammate_id.as_str())
-    .fetch_optional(&mut **transaction)
-    .await
-    .map_err(persistence_error)?
-    {
-        Some(id) => id,
-        None => {
-            let id = new_id("scratch-scope");
-            sqlx::query(
-                "INSERT INTO chat_scratch_scopes
-                    (id, reply_thread_id, teammate_id, lifecycle_state,
-                     revision, created_at, updated_at)
-                 VALUES (?, ?, ?, 'active', 1, ?, ?)",
-            )
-            .bind(&id)
-            .bind(reply_thread_id.as_str())
-            .bind(teammate_id.as_str())
-            .bind(now.as_str())
-            .bind(now.as_str())
-            .execute(&mut **transaction)
-            .await
-            .map_err(persistence_error)?;
-            id
-        }
-    };
-    let generation: i64 = sqlx::query_scalar(
-        "SELECT coalesce(max(generation), 0) + 1
-         FROM chat_scratch_generations WHERE scratch_scope_id = ?",
-    )
-    .bind(&scope_id)
-    .fetch_one(&mut **transaction)
-    .await
-    .map_err(persistence_error)?;
-    let generation_id = new_id("scratch-generation");
-    let environment_id = new_id("scratch-environment");
-    sqlx::query(
-        "INSERT INTO chat_scratch_generations
-            (id, scratch_scope_id, generation, lifecycle_state, created_at, updated_at)
-         VALUES (?, ?, ?, 'active', ?, ?)",
-    )
-    .bind(&generation_id)
-    .bind(&scope_id)
-    .bind(generation)
-    .bind(now.as_str())
-    .bind(now.as_str())
-    .execute(&mut **transaction)
-    .await
-    .map_err(persistence_error)?;
-    sqlx::query(
-        "INSERT INTO chat_execution_environments
-            (id, scratch_generation_id, kind, display_name,
-             lifecycle_state, created_at, updated_at)
-         VALUES (?, ?, 'scratch', 'Private scratch', 'available', ?, ?)",
-    )
-    .bind(&environment_id)
-    .bind(&generation_id)
-    .bind(now.as_str())
-    .bind(now.as_str())
-    .execute(&mut **transaction)
-    .await
-    .map_err(persistence_error)?;
-    Ok(ResolvedExecutionTarget {
-        execution_environment_id: environment_id,
-        working_folder_id: None,
-        scratch_generation_id: Some(generation_id),
-    })
-}
-
-async fn quarantine_scratch_generation(
-    transaction: &mut Transaction<'_, Sqlite>,
-    scratch_generation_id: &str,
-    now: &UtcTimestamp,
-) -> ChatResult<()> {
-    sqlx::query(
-        "UPDATE chat_scratch_generations
-         SET lifecycle_state = 'quarantined', updated_at = ?
-         WHERE id = ? AND lifecycle_state = 'active' AND removed_at IS NULL",
-    )
-    .bind(now.as_str())
-    .bind(scratch_generation_id)
-    .execute(&mut **transaction)
-    .await
-    .map_err(persistence_error)?;
-    Ok(())
 }
 
 async fn verify_explicit_scratch(

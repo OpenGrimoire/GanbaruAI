@@ -201,7 +201,7 @@ pub(super) struct TurnPersistenceTarget {
     pub(super) project_id: String,
     pub(super) working_folder_id: Option<ProjectWorkingFolderId>,
     pub(super) scratch_generation_id: Option<String>,
-    pub(super) execution_environment_id: String,
+    pub(super) execution_environment_id: Option<String>,
 }
 
 pub(super) async fn persist_user_turn(context: PersistUserTurnContext<'_>) -> ChatResult<()> {

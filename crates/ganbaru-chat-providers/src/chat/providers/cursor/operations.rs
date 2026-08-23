@@ -43,6 +43,7 @@ impl ProviderDriver for CursorProviderDriver {
 
     fn authority_support(&self) -> ProviderAuthoritySupport {
         ProviderAuthoritySupport {
+            isolated_conversation: true,
             internal_host_tools: true,
             deny_shell: false,
             read_only_root: false,

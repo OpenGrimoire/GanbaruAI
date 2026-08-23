@@ -685,7 +685,7 @@ fn live_profile_expansion_preserves_active_access_revision_and_membership_intent
 }
 
 #[test]
-fn organizational_access_schema_has_one_authority_path_and_folder_or_scratch_targets() {
+fn organizational_access_schema_has_one_authority_path_and_optional_native_targets() {
     super::block_on(async {
         let pool = migrated_memory_pool().await;
         let legacy_authorization: Option<i64> = sqlx::query_scalar(
@@ -736,8 +736,12 @@ fn organizational_access_schema_has_one_authority_path_and_folder_or_scratch_tar
             .iter()
             .any(|column| column == "approval_policy"));
         assert!(thread_sql.contains("scratch_generation_id"));
+        assert!(
+            thread_sql.contains("working_folder_id IS NULL AND execution_environment_id IS NULL")
+        );
         assert!(run_sql.contains("authorization_revision_id"));
         assert!(run_sql.contains("scratch_generation_id"));
+        assert!(run_sql.contains("working_folder_id IS NULL AND execution_environment_id IS NULL"));
     });
 }
 

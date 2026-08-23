@@ -18,7 +18,7 @@ pub struct AgentRunBinding {
     pub authorization_scope_digest: String,
     pub working_folder_id: Option<String>,
     pub scratch_generation_id: Option<String>,
-    pub execution_environment_id: String,
+    pub execution_environment_id: Option<String>,
     pub run_ordinal: u64,
 }
 

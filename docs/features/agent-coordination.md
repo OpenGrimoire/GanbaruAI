@@ -137,7 +137,7 @@ The package is inspectable and records its source identities and revisions. A ru
 
 ## Delegation and execution
 
-An agent run is a bounded execution record linked to a task or other explicit objective. It records the teammate or task-agent identity, role-policy revision, provider, model, one folder or private-scratch execution target, context package, authority revision, budgets, lifecycle state, deliverables, usage, and relevant provider continuation.
+An agent run is a bounded response or execution record linked to a task or other explicit objective. It records the teammate or task-agent identity, role-policy revision, provider, model, optional native execution target, context package, authority revision, budgets, lifecycle state, deliverables, usage, and relevant provider continuation. Conversation runs have no native target. File or command runs bind one folder or explicit private-scratch target.
 
 Parallel execution is allowed only when workspace ownership, dependencies, budgets, and review capacity permit it. Two agents do not mutate the same execution environment concurrently. Coding work uses isolated worktrees or otherwise separate environments when safe parallelism is required.
 

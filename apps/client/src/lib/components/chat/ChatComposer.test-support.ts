@@ -295,6 +295,7 @@ export function modelSettings(): ChatSettingsRead {
         accountLabel: null,
         capabilities: { entries: [{ capability: "native_plan", supported: true, explanation: null }] },
         authoritySupport: {
+          isolatedConversation: true,
           internalHostTools: true,
           denyShell: true,
           readOnlyRoot: true,

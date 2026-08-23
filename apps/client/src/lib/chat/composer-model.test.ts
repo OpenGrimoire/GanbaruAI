@@ -60,6 +60,7 @@ function provider(
       accountLabel: null,
       capabilities: capabilities(),
       authoritySupport: {
+        isolatedConversation: true,
         internalHostTools: true,
         denyShell: true,
         readOnlyRoot: true,

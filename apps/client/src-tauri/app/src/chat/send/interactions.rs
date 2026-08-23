@@ -83,6 +83,17 @@ pub(crate) async fn resolve_approval(
     )
     .await?;
     validate_approval_decision(&pool, &request.request_id, &request.decision).await?;
+    if matches!(
+        request.decision.kind,
+        ApprovalDecisionKind::AllowOnce | ApprovalDecisionKind::AllowSession
+    ) && organizational_conversation_is_active(&pool, &request.thread_id).await?
+    {
+        return Err(ChatError::new(
+            ChatErrorCode::Permission,
+            "Conversation assignments cannot approve provider tool execution",
+            false,
+        ));
+    }
     let owner = app
         .state::<ChatRuntimeRegistry>()
         .owner(request.thread_id.clone())?;
@@ -117,6 +128,26 @@ pub(crate) async fn resolve_approval(
         )
         .await;
     complete_driver_operation(&pool, &command_id, result).await
+}
+
+async fn organizational_conversation_is_active(
+    pool: &sqlx::SqlitePool,
+    thread_id: &ChatThreadId,
+) -> ChatResult<bool> {
+    sqlx::query_scalar(
+        "SELECT EXISTS(
+            SELECT 1 FROM chat_agent_runs
+            WHERE provider_thread_id = ?
+              AND state IN ('starting', 'working', 'waiting')
+              AND working_folder_id IS NULL
+              AND scratch_generation_id IS NULL
+              AND execution_environment_id IS NULL
+         )",
+    )
+    .bind(thread_id.as_str())
+    .fetch_one(pool)
+    .await
+    .map_err(persistence_error)
 }
 
 pub(crate) async fn resolve_user_input(
