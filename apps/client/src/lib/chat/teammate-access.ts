@@ -14,6 +14,14 @@ export type ChatChannelCapabilityPreset =
 
 export type SelectionState = "none" | "some" | "all";
 
+export interface ChatTeammateAccessConfirmationImpact {
+  historyChannelIds: string[];
+  entireHistoryChannelIds: string[];
+  executeFolderIds: string[];
+  publishFolderIds: string[];
+  removedChannelIds: string[];
+}
+
 const CAPABILITY_RANK: Record<ChatFolderCapability, number> = {
   none: 0,
   read: 1,
@@ -138,6 +146,76 @@ export function teammateAccessDraftSnapshot(
       }))
       .sort((left, right) => left.channelId.localeCompare(right.channelId)),
   );
+}
+
+/**
+ * Returns only access changes that benefit from a separate human confirmation.
+ * Exact responder membership and participation changes remain ordinary draft edits.
+ */
+export function teammateAccessConfirmationImpact(
+  current: readonly ChatTeammateChannelAccessInput[],
+  proposed: readonly ChatTeammateChannelAccessInput[],
+): ChatTeammateAccessConfirmationImpact {
+  const currentByChannel = new Map(current.map((channel) => [channel.channelId, channel]));
+  const proposedByChannel = new Map(proposed.map((channel) => [channel.channelId, channel]));
+  const historyChannelIds = new Set<string>();
+  const entireHistoryChannelIds = new Set<string>();
+  const executeFolderIds = new Set<string>();
+  const publishFolderIds = new Set<string>();
+
+  for (const channel of proposed) {
+    const prior = currentByChannel.get(channel.channelId);
+    if (channel.capabilities.readHistory && !prior?.capabilities.readHistory) {
+      if (channel.historyBoundary.kind === "entire") {
+        entireHistoryChannelIds.add(channel.channelId);
+      } else {
+        historyChannelIds.add(channel.channelId);
+      }
+    } else if (
+      channel.capabilities.readHistory
+      && prior?.capabilities.readHistory
+      && prior.historyBoundary.kind === "fromGrant"
+      && channel.historyBoundary.kind === "entire"
+    ) {
+      entireHistoryChannelIds.add(channel.channelId);
+    }
+
+    const priorGrants = new Map(
+      prior?.folderGrants.map((grant) => [grant.workingFolderId, grant]) ?? [],
+    );
+    for (const grant of channel.folderGrants) {
+      const priorCapability = priorGrants.get(grant.workingFolderId)?.capability ?? "none";
+      if (grant.capability === "publish" && !folderCapabilityFits("publish", priorCapability)) {
+        publishFolderIds.add(grant.workingFolderId);
+      } else if (
+        grant.capability === "execute"
+        && !folderCapabilityFits("execute", priorCapability)
+      ) {
+        executeFolderIds.add(grant.workingFolderId);
+      }
+    }
+  }
+
+  return {
+    historyChannelIds: [...historyChannelIds],
+    entireHistoryChannelIds: [...entireHistoryChannelIds],
+    executeFolderIds: [...executeFolderIds],
+    publishFolderIds: [...publishFolderIds],
+    removedChannelIds: current
+      .filter((channel) => !proposedByChannel.has(channel.channelId))
+      .map((channel) => channel.channelId),
+  };
+}
+
+/** Returns whether the impact contains a change that deserves separate confirmation. */
+export function teammateAccessNeedsConfirmation(
+  impact: ChatTeammateAccessConfirmationImpact,
+): boolean {
+  return impact.historyChannelIds.length > 0
+    || impact.entireHistoryChannelIds.length > 0
+    || impact.executeFolderIds.length > 0
+    || impact.publishFolderIds.length > 0
+    || impact.removedChannelIds.length > 0;
 }
 
 function normalizeHistoryBoundary(boundary: ChatHistoryBoundary): ChatHistoryBoundary {

@@ -26,7 +26,6 @@
     ChatRuntimeApprovalPolicy,
     ChatTeammatePolicyInput,
     ChatTeammateAccessRead,
-    ChatTeammateAccessPreviewRead,
     ChatTeammateChannelAccessInput,
     ModelOptionSelection,
     ReplaceChatTeammateAccessRequest,
@@ -42,9 +41,12 @@
     capabilitiesForPreset,
     channelCapabilityPreset,
     folderCapabilityFits,
+    teammateAccessConfirmationImpact,
     teammateAccessDraftErrors,
     teammateAccessDraftSnapshot,
+    teammateAccessNeedsConfirmation,
     toggleSelectionGroup,
+    type ChatTeammateAccessConfirmationImpact,
     type ChatChannelCapabilityPreset,
   } from "$lib/chat/teammate-access";
   import {
@@ -57,6 +59,7 @@
     rebaseChatTeammateStudioDraft,
     type ChatTeammateStudioDraft,
   } from "$lib/chat/teammate-access-conflict";
+  import { formatList } from "$lib/i18n/formatters";
   import { getLocalization } from "$lib/i18n/translator.svelte";
   import { getChat } from "$lib/stores/chat.svelte";
   import { getProjects } from "$lib/stores/projects.svelte";
@@ -122,7 +125,8 @@
 
   const chat = getChat();
   const projects = getProjects();
-  const { t } = getLocalization();
+  const localization = getLocalization();
+  const { t } = localization;
 
   let selectedId = $state<string | null>(null);
   let creating = $state(false);
@@ -163,8 +167,8 @@
   let profileBaseline = $state<string | null>(null);
   let accessBaseline = $state<string | null>(null);
   let studioDraftBaseline = $state<ChatTeammateStudioDraft | null>(null);
-  let accessPreview = $state<ChatTeammateAccessPreviewRead | null>(null);
-  let accessPreviewSnapshot = $state<string | null>(null);
+  let accessConfirmationImpact = $state<ChatTeammateAccessConfirmationImpact | null>(null);
+  let accessConfirmationSnapshot = $state<string | null>(null);
   let accessConflict = $state<TeammateAccessConflictState | null>(null);
   let conflictPendingDraft = $state<ChatTeammateStudioDraft | null>(null);
   let conflictLoading = $state(false);
@@ -372,9 +376,8 @@
 
   $effect(() => {
     const snapshot = currentDraftSnapshot;
-    if (accessPreview && accessPreviewSnapshot !== snapshot) {
-      accessPreview = null;
-      accessPreviewSnapshot = null;
+    if (accessConfirmationImpact && accessConfirmationSnapshot !== snapshot) {
+      clearAccessConfirmation();
     }
   });
 
@@ -598,6 +601,11 @@
     conflictRecoveryNotice = null;
   }
 
+  function clearAccessConfirmation(): void {
+    accessConfirmationImpact = null;
+    accessConfirmationSnapshot = null;
+  }
+
   function beginCreate(channelId: string | null = null): void {
     clearAccessConflict();
     accessDialogReturnFocusElement = null;
@@ -623,8 +631,7 @@
     accessRevision = 0;
     accessDraft = channelId ? [defaultChannelAccess(channelId)] : [];
     setStudioDraftBaseline(captureStudioDraft());
-    accessPreview = null;
-    accessPreviewSnapshot = null;
+    clearAccessConfirmation();
     error = null;
     errorField = null;
     accessDialogOpen = Boolean(channelId);
@@ -637,8 +644,7 @@
     profileBaseline = null;
     accessBaseline = null;
     studioDraftBaseline = null;
-    accessPreview = null;
-    accessPreviewSnapshot = null;
+    clearAccessConfirmation();
     accessDialogOpen = false;
   }
 
@@ -667,8 +673,7 @@
     profileBaseline = null;
     accessBaseline = null;
     studioDraftBaseline = null;
-    accessPreview = null;
-    accessPreviewSnapshot = null;
+    clearAccessConfirmation();
     error = null;
     errorField = null;
     accessDraft = [];
@@ -738,8 +743,7 @@
     accessConflict = null;
     conflictError = null;
     conflictRecoveryNotice = null;
-    accessPreview = null;
-    accessPreviewSnapshot = null;
+    clearAccessConfirmation();
     conflictLoading = true;
     try {
       const [durableTeammate, durableAccess] = await Promise.all([
@@ -815,8 +819,7 @@
     conflictLoading = false;
     conflictError = null;
     conflictRecoveryNotice = notice;
-    accessPreview = null;
-    accessPreviewSnapshot = null;
+    clearAccessConfirmation();
     error = null;
     errorField = null;
     void tick().then(() => recoveryNoticeElement?.focus());
@@ -933,21 +936,70 @@
     return `${group?.name ?? t("settings.chat.teammates.unknownGroup")} / ${project?.name ?? t("settings.chat.teammates.unknownProject")}`;
   }
 
+  function compactChannelList(channelIds: readonly string[]): string {
+    const visibleNames = channelIds.slice(0, 3).map((channelId) => (
+      `#${channelById(channelId)?.name ?? channelId}`
+    ));
+    const formatted = formatList(localization.locale, visibleNames);
+    const hiddenCount = channelIds.length - visibleNames.length;
+    return hiddenCount > 0
+      ? t("settings.chat.teammates.accessConfirmation.listWithMore", formatted, hiddenCount)
+      : formatted;
+  }
+
+  function accessConfirmationMessage(impact: ChatTeammateAccessConfirmationImpact): string {
+    const teammateName = displayName.trim();
+    const consequences: string[] = [];
+    if (impact.historyChannelIds.length > 0) {
+      consequences.push(t(
+        "settings.chat.teammates.accessConfirmation.history",
+        teammateName,
+        compactChannelList(impact.historyChannelIds),
+      ));
+    }
+    if (impact.entireHistoryChannelIds.length > 0) {
+      consequences.push(t(
+        "settings.chat.teammates.accessConfirmation.entireHistory",
+        teammateName,
+        compactChannelList(impact.entireHistoryChannelIds),
+      ));
+    }
+    if (impact.executeFolderIds.length > 0) {
+      consequences.push(t(
+        "settings.chat.teammates.accessConfirmation.executeFolders",
+        teammateName,
+        impact.executeFolderIds.length,
+      ));
+    }
+    if (impact.publishFolderIds.length > 0) {
+      consequences.push(t(
+        "settings.chat.teammates.accessConfirmation.publishFolders",
+        teammateName,
+        impact.publishFolderIds.length,
+      ));
+    }
+    if (impact.removedChannelIds.length > 0) {
+      consequences.push(t(
+        "settings.chat.teammates.accessConfirmation.removeChannels",
+        compactChannelList(impact.removedChannelIds),
+      ));
+    }
+    return consequences.join("\n");
+  }
+
   function updateAccessChannel(
     channelId: string,
     update: (channel: ChatTeammateChannelAccessInput) => ChatTeammateChannelAccessInput,
   ): void {
     accessDraft = accessDraft.map((channel) => channel.channelId === channelId ? update(channel) : channel);
-    accessPreview = null;
-    accessPreviewSnapshot = null;
+    clearAccessConfirmation();
   }
 
   function setBoundedSelection(channelIds: readonly string[], selectedValue: boolean): void {
     const next = toggleSelectionGroup([...channelIds], selectedChannelIds, selectedValue);
     const byId = new Map(accessDraft.map((channel) => [channel.channelId, channel]));
     accessDraft = [...next].map((channelId) => byId.get(channelId) ?? defaultChannelAccess(channelId));
-    accessPreview = null;
-    accessPreviewSnapshot = null;
+    clearAccessConfirmation();
   }
 
   function handleChannelSelection(channelIds: readonly string[], selectedValue: boolean): void {
@@ -1031,8 +1083,7 @@
     preset: Exclude<ChatChannelCapabilityPreset, "custom">,
   ): void {
     accessDraft = applyChannelPresetToScope(accessDraft, new Set(channelIds), preset);
-    accessPreview = null;
-    accessPreviewSnapshot = null;
+    clearAccessConfirmation();
   }
 
   function folderCapabilityOptions(ceiling: ChatFolderCapability) {
@@ -1081,8 +1132,7 @@
         };
       });
     }
-    accessPreview = null;
-    accessPreviewSnapshot = null;
+    clearAccessConfirmation();
   }
 
   function foldersForChannel(channelId: string) {
@@ -1255,24 +1305,16 @@
     };
   }
 
-  function accessPreviewNeedsConfirmation(preview: ChatTeammateAccessPreviewRead): boolean {
-    return preview.issues.length > 0
-      || preview.isExpansion
-      || preview.addedChannelIds.length > 0
-      || preview.removedChannelIds.length > 0;
-  }
-
   async function save(confirmAccess = false): Promise<void> {
     if (saving || !canSave) return;
     if (confirmAccess && (
-      !accessPreview
-      || accessPreview.issues.length > 0
-      || accessPreviewSnapshot !== currentDraftSnapshot
+      !accessConfirmationImpact
+      || accessConfirmationSnapshot !== currentDraftSnapshot
     )) {
-      accessPreview = null;
-      accessPreviewSnapshot = null;
+      clearAccessConfirmation();
       return;
     }
+    if (confirmAccess) clearAccessConfirmation();
     const creatingAtStart = creating;
     let requestDraft = captureStudioDraft();
     let includeProfile = !creatingAtStart && profileDirty;
@@ -1318,18 +1360,27 @@
         const request = accessReplacementRequest(teammateId, policy, requestDraft, includeProfile);
         const requestSnapshot = draftSnapshotForDraft(requestDraft);
         if (!creatingAtStart && !confirmAccess && includesAccessChange) {
-          accessPreview = await chatApi.previewChatTeammateAccess(request);
-          accessPreviewSnapshot = requestSnapshot;
-          if (accessPreviewNeedsConfirmation(accessPreview)) {
-            openAccessDialog(saveButtonElement ?? null);
+          const impact = teammateAccessConfirmationImpact(
+            studioDraftBaseline?.channels ?? [],
+            requestDraft.channels,
+          );
+          if (teammateAccessNeedsConfirmation(impact)) {
+            const preview = await chatApi.previewChatTeammateAccess(request);
+            const issue = preview.issues[0];
+            if (issue) {
+              error = issue.message;
+              errorField = issue.fieldPath;
+              return;
+            }
+            accessConfirmationImpact = impact;
+            accessConfirmationSnapshot = requestSnapshot;
             return;
           }
         }
         const replaced = await chatApi.replaceChatTeammateAccess(request);
         accessRevision = replaced.accessRevision;
         savedDraft = requestDraft;
-        accessPreview = null;
-        accessPreviewSnapshot = null;
+        clearAccessConfirmation();
       }
       if (!teammateId || !savedDraft) return;
       preserveStudioDraftForId = teammateId;
@@ -1658,7 +1709,7 @@
             <CalendarScrollbar scrollContainer={detailScrollElement} wheelPassthrough />
           </div>
 
-          <footer class="editor-footer"><div>{#if creating}<button type="button" class="secondary-button" onclick={cancelCreate}><X size={14} />{t("common.cancel")}</button>{:else if selected && archivedMode}<button type="button" class="danger-button" disabled={selected.hasDurableHistory} onclick={() => requestLifecycle("delete")}><Trash2 size={14} />{t("settings.chat.teammates.deletePermanently")}</button>{:else if selected}<button type="button" class="secondary-button" disabled={selected.activeAssignmentCount > 0} onclick={() => requestLifecycle("archive")}><Archive size={14} />{t("settings.chat.teammates.archive")}</button>{/if}{#if lifecycleError}<span class="field-error" role="alert">{lifecycleError}</span>{/if}</div><div class="save-area">{#if error && errorField !== "displayName" && errorField !== "role"}<span class="field-error" role="alert">{error}</span>{/if}{#if archivedMode}<button type="button" class="primary-button" onclick={() => void restoreSelected()}><ArchiveRestore size={14} />{t("settings.chat.teammates.restore")}</button>{:else}<button bind:this={saveButtonElement} type="submit" class="primary-button" disabled={saving || !canSave}>{saving ? t("settings.chat.teammates.saving") : creating ? t("settings.chat.teammates.createInert") : t("settings.chat.teammates.save")}</button>{/if}</div></footer>
+          <footer class="editor-footer"><div>{#if creating}<button type="button" class="secondary-button" onclick={cancelCreate}><X size={14} />{t("common.cancel")}</button>{:else if selected && archivedMode}<button type="button" class="danger-button" disabled={selected.hasDurableHistory} onclick={() => requestLifecycle("delete")}><Trash2 size={14} />{t("settings.chat.teammates.deletePermanently")}</button>{:else if selected}<button type="button" class="secondary-button" disabled={selected.activeAssignmentCount > 0} onclick={() => requestLifecycle("archive")}><Archive size={14} />{t("settings.chat.teammates.archive")}</button>{/if}{#if lifecycleError}<span class="field-error" role="alert">{lifecycleError}</span>{/if}</div><div class="save-area">{#if error && errorField !== "displayName" && errorField !== "role"}<span class="field-error" role="alert">{error}</span>{:else if providerResourceBlockers[0]}<span class="field-error" role="alert">{providerResourceBlockers[0]}</span>{/if}{#if archivedMode}<button type="button" class="primary-button" onclick={() => void restoreSelected()}><ArchiveRestore size={14} />{t("settings.chat.teammates.restore")}</button>{:else}<button bind:this={saveButtonElement} type="submit" class="primary-button" disabled={saving || !canSave}>{saving ? t("settings.chat.teammates.saving") : creating ? t("settings.chat.teammates.createInert") : t("settings.chat.teammates.save")}</button>{/if}</div></footer>
         </form>
       {:else}
         <div class="empty-detail"><Bot size={24} /><p>{t("settings.chat.teammates.selectPrompt")}</p></div>
@@ -1703,9 +1754,6 @@
                 </div>
                 {#if focusedAccessDraft}
                   {@render channelDetails(focusedAccessDraft)}
-                  {#if providerResourceIssuesForChannel(focusedAccessDraft)[0]}
-                    <p class="resource-summary-error" role="alert">{providerResourceIssuesForChannel(focusedAccessDraft)[0]}</p>
-                  {/if}
                 {:else}
                   <p class="empty-access">{t("settings.chat.teammates.selectChannelAccess")}</p>
                 {/if}
@@ -1714,9 +1762,6 @@
               <p class="empty-access">{t("settings.chat.teammates.noChannels")}</p>
             {/if}
 
-              {#if accessPreview}
-                <aside class="impact-preview" role={accessPreview.issues.length ? "alert" : "status"}><div><strong>{accessPreview.issues.length ? t("settings.chat.teammates.accessIssuesTitle") : accessPreview.isExpansion ? t("settings.chat.teammates.expansionTitle") : t("settings.chat.teammates.reductionTitle")}</strong><p>{t("settings.chat.teammates.impactSummary", accessPreview.addedChannelIds.length, accessPreview.removedChannelIds.length)}</p>{#each accessPreview.issues as issue}<small>{issue.message}</small>{/each}</div>{#if accessPreview.issues.length === 0}<button type="button" class="primary-button" disabled={saving || !canSave || accessPreviewSnapshot !== currentDraftSnapshot} onclick={() => void save(true)}>{t("settings.chat.teammates.applyAccessChanges")}</button>{/if}</aside>
-              {/if}
             </div>
             <CalendarScrollbar scrollContainer={accessDialogScrollElement} wheelPassthrough />
           </div>
@@ -1730,6 +1775,21 @@
       </footer>
     </div>
   </div>
+{/if}
+
+{#if accessConfirmationImpact}
+  <ConfirmDialog
+    title={t("settings.chat.teammates.accessConfirmation.title")}
+    message={accessConfirmationMessage(accessConfirmationImpact)}
+    confirmLabel={t("settings.chat.teammates.accessConfirmation.confirm")}
+    cancelLabel={t("common.cancel")}
+    danger={accessConfirmationImpact.removedChannelIds.length > 0}
+    onConfirm={() => void save(true)}
+    onCancel={() => {
+      clearAccessConfirmation();
+      void tick().then(() => saveButtonElement?.focus());
+    }}
+  />
 {/if}
 
 {#if lifecycleAction && lifecycleTarget}
@@ -1802,9 +1862,6 @@
   .field input:focus,.field textarea:focus { border-color:var(--ring); }
   .field textarea { resize:vertical; }
   .field small { color:var(--muted-foreground); font-weight:400; line-height:1rem; }
-  .impact-preview { display:flex; align-items:flex-start; gap:0.6rem; }
-  .impact-preview strong { font-size:calc(0.733333rem * var(--type-scale)); }
-  .impact-preview p,.impact-preview small { display:block; margin-top:0.12rem; color:var(--muted-foreground); font-size:calc(0.68rem * var(--type-scale)); line-height:1rem; }
   .conflict-panel { display:grid; grid-template-columns:minmax(0,1fr) auto; align-items:start; gap:0.8rem; margin-bottom:1rem; border:1px solid color-mix(in srgb,var(--destructive) 45%,var(--border)); border-radius:0.6rem; background:color-mix(in srgb,var(--destructive) 7%,var(--background)); padding:0.8rem; outline:0; }
   .conflict-panel:focus-visible,.conflict-recovery-notice:focus-visible { box-shadow:0 0 0 2px color-mix(in srgb,var(--primary) 55%,transparent); }
   .conflict-copy { min-width:0; }
@@ -1824,7 +1881,6 @@
   .membership-controls :global(.scope-controls) { justify-content:flex-start; }
   .membership-controls :global(.control-trigger) { width:100%; max-width:11.5rem; justify-content:flex-start; border:1px solid var(--border); border-radius:0.45rem; background:var(--background); color:var(--foreground); }
   .history-field { width:min(14rem,100%); }
-  .resource-summary-error { max-width:34rem; color:var(--destructive); font-size:calc(0.64rem * var(--type-scale)); line-height:0.95rem; }
   fieldset { display:grid; gap:0.4rem; }
   fieldset legend { margin-bottom:0.15rem; font-size:calc(0.7rem * var(--type-scale)); font-weight:650; }
   .capability-switches { grid-template-columns:repeat(2,minmax(0,1fr)); }
@@ -1840,7 +1896,6 @@
   .folder-name small[data-status="available"] { color:var(--action-confirm); }
   .default-target { display:flex; align-items:center; gap:0.25rem; color:var(--muted-foreground); font-size:calc(0.6rem * var(--type-scale)); }
   .link-button { color:var(--primary); font-size:calc(0.64rem * var(--type-scale)); font-weight:600; }
-  .impact-preview { justify-content:space-between; }
   .editor-footer { justify-content:space-between; gap:0.75rem; border-top:1px solid var(--border); padding:0.65rem 0.85rem; }
   .editor-footer > div { display:flex; min-width:0; align-items:center; gap:0.5rem; }
   .field-error { color:var(--destructive); font-size:calc(0.65rem * var(--type-scale)); }
@@ -1892,7 +1947,6 @@
   .access-summary-row > strong { min-width:0; overflow:hidden; color:var(--muted-foreground); font-size:calc(0.696667rem * var(--type-scale)); font-weight:600; text-overflow:ellipsis; white-space:nowrap; }
   .access-summary-values { display:flex; min-width:0; flex-wrap:wrap; align-items:center; gap:0.15rem 0.55rem; color:var(--muted-foreground); font-size:calc(0.636667rem * var(--type-scale)); line-height:0.95rem; }
   .access-summary-empty { grid-column:1/-1; padding-inline:0.25rem; color:var(--muted-foreground); font-size:calc(0.66rem * var(--type-scale)); }
-  .impact-preview { display:flex; align-items:flex-start; justify-content:space-between; gap:0.75rem; border:0; border-left:2px solid var(--destructive); border-radius:0; background:transparent; padding:0.15rem 0 0.15rem 0.65rem; }
   .access-details { border:0; }
   .capability-switches { gap:0; }
   .capability-switches > div { display:grid; grid-template-columns:auto minmax(0,1fr); gap:0.5rem; border:0; border-bottom:1px solid color-mix(in srgb,var(--border) 55%,transparent); border-radius:0; padding:0.55rem 0.15rem; }

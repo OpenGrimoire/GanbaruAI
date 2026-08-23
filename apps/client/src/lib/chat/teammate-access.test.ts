@@ -8,8 +8,10 @@ import {
   folderCapabilityFits,
   resolveRuntimeApproval,
   selectionState,
+  teammateAccessConfirmationImpact,
   teammateAccessDraftErrors,
   teammateAccessDraftSnapshot,
+  teammateAccessNeedsConfirmation,
   toggleSelectionGroup,
 } from "./teammate-access";
 
@@ -92,6 +94,46 @@ describe("teammate access", () => {
   it("creates order-independent atomic snapshots", () => {
     expect(teammateAccessDraftSnapshot([access("channel:b"), access("channel:a")]))
       .toBe(teammateAccessDraftSnapshot([access("channel:a"), access("channel:b")]));
+  });
+
+  it("does not require another confirmation for ordinary responder membership", () => {
+    const responder = access("channel:a");
+    responder.capabilities = capabilitiesForPreset("isolatedResponder");
+
+    const impact = teammateAccessConfirmationImpact([], [responder]);
+
+    expect(teammateAccessNeedsConfirmation(impact)).toBe(false);
+  });
+
+  it("identifies history, executable folder, publishing, and removal consequences", () => {
+    const retained = access("channel:retained");
+    retained.historyBoundary = { kind: "fromGrant" };
+    retained.folderGrants = [
+      { workingFolderId: "folder:build", capability: "read", isDefault: false, runtimeApprovalOverride: null },
+      { workingFolderId: "folder:publish", capability: "execute", isDefault: true, runtimeApprovalOverride: null },
+    ];
+    const removed = access("channel:removed");
+    const nextRetained = access("channel:retained");
+    nextRetained.folderGrants = [
+      { workingFolderId: "folder:build", capability: "execute", isDefault: true, runtimeApprovalOverride: null },
+      { workingFolderId: "folder:publish", capability: "publish", isDefault: false, runtimeApprovalOverride: null },
+    ];
+    const boundedHistory = access("channel:bounded");
+    boundedHistory.historyBoundary = { kind: "fromGrant" };
+
+    const impact = teammateAccessConfirmationImpact(
+      [retained, removed],
+      [nextRetained, boundedHistory],
+    );
+
+    expect(impact).toEqual({
+      historyChannelIds: ["channel:bounded"],
+      entireHistoryChannelIds: ["channel:retained"],
+      executeFolderIds: ["folder:build"],
+      publishFolderIds: ["folder:publish"],
+      removedChannelIds: ["channel:removed"],
+    });
+    expect(teammateAccessNeedsConfirmation(impact)).toBe(true);
   });
 
   it("keeps scratch approval overrides in atomic drafts", () => {
