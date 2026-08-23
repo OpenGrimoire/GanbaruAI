@@ -2,6 +2,7 @@ import type { MessageCatalog } from "../en";
 import type { MessageShape } from "../types";
 import { benchmark } from "./benchmark";
 import { calendar } from "./calendar";
+import { chat } from "./chat";
 import { common } from "./common";
 import { diagnostics } from "./diagnostics";
 import { focusDialog, pomodoroOverlay } from "./focus";
@@ -26,6 +27,7 @@ export const es = {
   focusDialog,
   pomodoroOverlay,
   calendar,
+  chat,
   settings,
   updates,
   diagnostics,

@@ -1,6 +1,6 @@
 # Edge panel
 
-A narrow, auto-hiding panel anchored to the right edge of the screen on desktop. Shows live, glanceable context: the current pomodoro timer, quick-add for tasks, music controls, and the active environment name. Designed to minimize clicks to common actions.
+A narrow, auto-hiding panel anchored to the right edge of the screen on desktop. Shows live, glanceable context: the current pomodoro timer, quick-add for tasks, music controls, the active environment name, and the current work context. Designed to minimize clicks to common actions.
 
 This doc is a placeholder. Deeper design comes in a later pass.
 
@@ -25,6 +25,8 @@ Detection uses global mouse position via Rust (`rdev` or platform-specific APIs)
 | Active environment name | Shows which work environment is currently active. |
 | Quick-add task | Single text field; types a title and presses Enter to create a project task in the current project. |
 | Current session tasks | Checkboxes for tasks linked to the active session block. Click to mark done. |
+| Work context | Opens the linked task, Notes page, Chat channel, or task discussion without changing a live agent run. |
+| Required attention | Shows only urgent approvals, blockers, or reviews associated with the active context, not a general unread feed. |
 | Music controls | Play/pause, skip, volume. |
 
 The principle: every action reachable from the edge panel is a single click or a single keystroke. The panel does not try to replicate any module's full UI; it provides the minimum needed to act without context-switching.
@@ -40,3 +42,4 @@ Mobile does not have the screen real estate, the always-on-top window concept, o
 - **Projects:** the linked tasks populate the checkbox list.
 - **Music:** controls the active player.
 - **Work environments:** the active environment name is displayed.
+- **Chat:** opens the relevant channel or task discussion and exposes only actionable attention for the active context.

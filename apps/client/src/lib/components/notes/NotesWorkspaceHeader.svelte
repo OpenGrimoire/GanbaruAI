@@ -1,7 +1,5 @@
 <script lang="ts">
-  import ChevronDown from "@lucide/svelte/icons/chevron-down";
   import Folder from "@lucide/svelte/icons/folder";
-  import Plus from "@lucide/svelte/icons/plus";
   import Settings2 from "@lucide/svelte/icons/settings-2";
   import { getLocalization } from "$lib/i18n/translator.svelte";
   import {
@@ -35,6 +33,7 @@
   import { getViewport } from "$lib/stores/viewport.svelte";
   import { cn } from "$lib/utils";
   import ProjectIcon from "$lib/components/projects/ProjectIcon.svelte";
+  import WorkspaceBreadcrumbTerminalIcon from "$lib/components/WorkspaceBreadcrumbTerminalIcon.svelte";
   import NotesHierarchyPickerPanel from "./NotesHierarchyPickerPanel.svelte";
   import NotesPageIcon from "./NotesPageIcon.svelte";
   import NotesProjectNavigator from "./NotesProjectNavigator.svelte";
@@ -145,15 +144,15 @@
       primary
         ? "bg-primary text-primary-foreground hover:bg-primary/90"
         : "hover:bg-accent",
-      !primary && (active ? "text-foreground" : "text-muted-foreground"),
-      !primary && open && "bg-accent text-accent-foreground",
+      !primary && "text-foreground",
+      !primary && (active || open) && "bg-accent",
     );
   }
 
   function inlineNewPageButtonClass(): string {
     return cn(
-      "flex h-7 w-5 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors",
-      "hover:bg-accent hover:text-accent-foreground",
+      "flex h-7 w-5 shrink-0 items-center justify-center rounded-md text-foreground transition-colors",
+      "hover:bg-accent",
     );
   }
 
@@ -294,14 +293,14 @@
   data-notes-workspace-header
 >
   <div bind:this={notesIdentityElement} class="relative min-w-36 shrink-0 min-[760px]:max-w-xl">
-    <div class="flex h-7 min-w-0 max-w-full items-center gap-0.5 text-sm">
+    <div class="flex h-7 min-w-0 max-w-full items-center gap-0.5 text-identity font-medium">
       {#if selectedProject && selectedGroup}
         <button
           bind:this={groupTriggerElement}
           type="button"
           class={cn(
-            "flex h-7 min-w-0 items-center gap-1.5 rounded-md px-1.5 text-left hover:bg-accent hover:text-accent-foreground",
-            navigatorOpen && navigatorMode === "groups" && "bg-accent text-accent-foreground",
+            "flex h-7 min-w-0 items-center gap-1.5 rounded-md px-1.5 text-left hover:bg-accent",
+            navigatorOpen && navigatorMode === "groups" && "bg-accent",
           )}
           aria-label={t("projects.navigator.open")}
           aria-expanded={navigatorOpen && navigatorMode === "groups"}
@@ -315,16 +314,16 @@
             emojiScale={projectIdentityEmojiScale}
             class="shrink-0"
           />
-          <span class="min-w-0 truncate font-semibold text-foreground">{selectedGroup.name}</span>
+          <span class="min-w-0 truncate text-foreground">{selectedGroup.name}</span>
         </button>
-        <span class="shrink-0 px-0.5 font-semibold text-muted-foreground">/</span>
+        <span class="shrink-0 px-0.5 text-muted-foreground">/</span>
         <button
           bind:this={projectTriggerElement}
           type="button"
           class={cn(
-            "flex h-7 min-w-0 items-center gap-1.5 rounded-md pl-1.5 text-left hover:bg-accent hover:text-accent-foreground",
+            "flex h-7 min-w-0 items-center gap-1.5 rounded-md pl-1.5 text-left hover:bg-accent",
             selectedPageTitle ? "pr-1.5" : "pr-0.5",
-            navigatorOpen && navigatorMode === "projects" && "bg-accent text-accent-foreground",
+            navigatorOpen && navigatorMode === "projects" && "bg-accent",
           )}
           aria-label={selectedPageTitle ? t("notes.showProjectHome") : t("projects.navigator.open")}
           aria-expanded={navigatorOpen && navigatorMode === "projects"}
@@ -338,14 +337,14 @@
             emojiScale={projectIdentityEmojiScale}
             class="shrink-0"
           />
-          <span class="min-w-0 truncate font-semibold text-foreground">{selectedProject.name}</span>
-          {#if !selectedPageTitle}
-            <ChevronDown size={14} strokeWidth={1.75} class="shrink-0 text-muted-foreground" />
-          {/if}
+          <span class="min-w-0 truncate text-foreground">{selectedProject.name}</span>
           {#if selectedProject.status !== "active"}
             <span class={cn("shrink-0 rounded border px-1.5 py-0.5 text-[0.666667rem]", projectLifecycleBadgeClass(selectedProject.status))}>
               {projectLifecycleLabel(selectedProject.status, t)}
             </span>
+          {/if}
+          {#if !showSelectedPagePath}
+            <WorkspaceBreadcrumbTerminalIcon kind="chevron" context="notes" class="shrink-0 text-muted-foreground" />
           {/if}
         </button>
         {#if !showSelectedPagePath}
@@ -357,25 +356,25 @@
             title={newPageTitle}
             onclick={createPage}
           >
-            <Plus size={14} strokeWidth={1.75} />
+            <WorkspaceBreadcrumbTerminalIcon kind="plus" />
           </button>
         {/if}
         {#if showSelectedPagePath}
-          {#each selectedPagePath as node (node.key)}
+          {#each selectedPagePath as node, nodeIndex (node.key)}
             {@const pathTitle = node.kind === "folder"
               ? node.folder.name
               : node.page.id === selectedPageId && selectedPageTitle
                 ? selectedPageTitle
                 : notesPageTitle(node.page, t("notes.untitled"))}
-            <span class="shrink-0 px-0.5 font-semibold text-muted-foreground">/</span>
+            <span class="shrink-0 px-0.5 text-muted-foreground">/</span>
             <button
               type="button"
               class={cn(
-                "flex h-7 min-w-0 items-center gap-1.5 rounded-md px-1.5 text-left hover:bg-accent hover:text-accent-foreground",
+                "flex h-7 min-w-0 items-center gap-1.5 rounded-md px-1.5 text-left hover:bg-accent",
                 navigatorOpen
                   && navigatorMode === "notes"
                   && notesNavigatorSourceKey === node.key
-                  && "bg-accent text-accent-foreground",
+                  && "bg-accent",
               )}
               aria-label={pathTitle}
               aria-expanded={navigatorOpen && navigatorMode === "notes" && notesNavigatorSourceKey === node.key}
@@ -397,9 +396,9 @@
                   class="shrink-0"
                 />
               {/if}
-              <span class="min-w-0 truncate font-semibold text-foreground">{pathTitle}</span>
-              {#if node.hasChildren}
-                <ChevronDown size={14} strokeWidth={1.75} class="shrink-0 text-muted-foreground" />
+              <span class="min-w-0 truncate text-foreground">{pathTitle}</span>
+              {#if nodeIndex === selectedPagePath.length - 1}
+                <WorkspaceBreadcrumbTerminalIcon kind="chevron" context="notes" class="shrink-0 text-muted-foreground" />
               {/if}
             </button>
           {/each}
@@ -411,7 +410,7 @@
             title={newPageTitle}
             onclick={createPage}
           >
-            <Plus size={14} strokeWidth={1.75} />
+            <WorkspaceBreadcrumbTerminalIcon kind="plus" />
           </button>
         {/if}
       {:else}
@@ -419,8 +418,8 @@
           bind:this={noteTriggerElement}
           type="button"
           class={cn(
-            "flex h-7 min-w-0 items-center gap-1.5 rounded-md pl-1.5 pr-0.5 text-left hover:bg-accent hover:text-accent-foreground",
-            navigatorOpen && navigatorMode === "notes" && "bg-accent text-accent-foreground",
+            "flex h-7 min-w-0 items-center gap-1.5 rounded-md pl-1.5 pr-0.5 text-left hover:bg-accent",
+            navigatorOpen && navigatorMode === "notes" && "bg-accent",
           )}
           aria-label={t("notes.openNoteNavigator")}
           aria-expanded={navigatorOpen && navigatorMode === "notes"}
@@ -433,8 +432,8 @@
             emojiScale={NOTES_PAGE_CHROME_EMOJI_SCALE}
             class="shrink-0"
           />
-          <span class="min-w-0 truncate font-semibold text-foreground">{selectedPageTitle ?? t("notes.title")}</span>
-          <ChevronDown size={14} strokeWidth={1.75} class="shrink-0 text-muted-foreground" />
+          <span class="min-w-0 truncate text-foreground">{selectedPageTitle ?? t("notes.title")}</span>
+          <WorkspaceBreadcrumbTerminalIcon kind="chevron" class="shrink-0 text-muted-foreground" />
         </button>
         <button
           type="button"
@@ -444,7 +443,7 @@
           title={newPageTitle}
           onclick={createPage}
         >
-          <Plus size={14} strokeWidth={1.75} />
+          <WorkspaceBreadcrumbTerminalIcon kind="plus" />
         </button>
       {/if}
     </div>

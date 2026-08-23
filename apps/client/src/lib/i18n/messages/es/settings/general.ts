@@ -10,6 +10,7 @@ export const general = {
     calendars: "Calendario",
     projects: "Proyectos",
     notes: "Notas",
+    chat: "Chat",
     focus: "Enfoque",
     music: "Música",
     doomscrolling: "Doomscrolling",
@@ -41,6 +42,13 @@ export const general = {
   },
   profileIdentity: {
     heading: "Identidad",
+    picture: "Imagen de perfil",
+    pictureDescription: "Aparece junto a tus mensajes y asignaciones. PNG, JPG o WebP de hasta 3 MB.",
+    uploadPicture: "Subir imagen",
+    removePicture: "Eliminar imagen de perfil",
+    picturePickerTitle: "Elegir una imagen de perfil",
+    pictureUpdateFailed: (message: string) => `No se pudo actualizar la imagen de perfil: ${message}`,
+    invalidPicture: "La imagen de perfil seleccionada no es válida.",
     displayName: "Nombre visible",
     description: "Se usa donde aparece tu nombre de perfil local",
     fullName: "Nombre completo",
@@ -137,7 +145,7 @@ export const general = {
     deleteMessage: (name: string, count: number) =>
       `¿Eliminar "${name}" y ${count === 1 ? "su 1 evento" : `sus ${count} eventos`
       }? Esta acción no se puede deshacer`,
-    deleteShortcut: "Eliminar (Enter)",
+    deleteConfirm: "Eliminar",
   },
   updates: {
     notificationsHeading: "Notificaciones",

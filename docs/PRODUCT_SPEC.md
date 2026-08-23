@@ -58,7 +58,7 @@ The Pomodoro timer is the heartbeat of the app. Every productivity signal flows 
 
 ### Note-taking
 
-A Notion-like block-based editor powered by Tiptap. Supports slash commands, drag-to-reorder blocks, rich formatting, and markdown serialization. Notes are stored as `.md` files on disk, and the user owns their files.
+A Notion-like block-based editor powered by Tiptap stores canonical pages and blocks in SQLite. The same project tree also exposes existing `.md` files from project working folders through a separate file-backed editor. Those files remain directly owned by the user and are not imported into the block graph.
 
 Notes link bidirectionally to tasks, projects, calendar events, and diary entries via backlinks tracked in SQLite. Cross-referencing notes via backlinks supports the Zettelkasten principle of connecting ideas for better mental organization.
 
@@ -131,27 +131,39 @@ This eliminates the daily friction of manually arranging your workspace. The use
 
 A narrow, auto-hiding panel anchored to the right edge of the screen. Appears on hover (global mouse position tracked via Rust using `rdev` or platform-specific APIs). Similar to Ubuntu's dock but vertical and on the right side.
 
-Contains: quick-access icons for main modules (Calendar, Kanban, Notes, Music, Settings), the current Pomodoro timer countdown as a small circular progress indicator, the active work environment name, quick-add for new Kanban tasks, task completion checkboxes for current session's tasks, and music controls (play/pause, skip, volume).
+Contains: quick-access icons for main modules (Calendar, Projects, Notes, Chat, Music, Settings), the current Pomodoro timer countdown as a small circular progress indicator, the active work environment name, the linked task or Chat context, urgent approvals, blockers, or reviews for that context, quick-add for new Projects tasks, task completion checkboxes for the current session, and music controls (play/pause, skip, volume). It does not reproduce general unread activity or raw agent progress.
 
 Design principle: minimize clicks. Every action reachable from the edge panel should require the fewest possible interactions. The panel is designed for glanceable information and single-click actions without switching away from the user's current work.
 
-### Integrated AI panel
+### Chat and agent coordination
 
-The AI panel is Ganbaru AI's conversational interface for working with AI assistants. It appears as a panel in the app, supporting two modes: an embedded terminal running Codex or another CLI coding agent (developer path) and a chat widget connecting to BYOK LLM providers (general user path). All AI features are opt-in. The app is fully functional without any AI.
+Chat is Ganbaru AI's communication and coordination workspace. It combines the durable organizational model of channels and direct messages with the native execution capabilities of local coding-agent harnesses. All AI features are opt-in, and channels remain local, readable, and writable when no provider is configured.
 
-**One conversation per project, calendar-driven switching.** Each project has its own persistent conversation thread stored in SQLite. When a calendar event starts, the AI panel automatically saves the current conversation and resumes (or starts) the conversation for the new event's project. A developer working on four different projects in a week has four conversation threads, each resuming exactly where they left off. Manual override is always available.
+**Communication instead of isolated sessions.** The primary Chat objects are channels, direct messages, task discussions, and replies. A project starts with one durable `#general` channel. Working folders, provider threads, tools, terminals, and checkpoints remain available, but they belong to bounded agent runs beneath the visible organizational history. The room is permanent even when Ganbaru compacts, forks, replaces, or changes the provider session used for later work.
 
-**Context injection from app state.** When a session starts or switches, Ganbaru AI assembles context from the active project, current kanban tasks, recent progress, calendar events, and related notes. For the terminal, context is passed through the launch prompt or standard input, depending on the selected agent. For the chat widget, context is sent as the system prompt in API calls. `AGENTS.md` stays as project-level conventions; per-task context comes from Ganbaru AI dynamically.
+**Mention-led delegation.** AI appears as persistent teammates created and configured by the user, not as disposable model chats. An actionable `@teammate` mention on a message creates or continues a shared reply thread. The thread contains human steering, teammate questions, meaningful status, results, and review. Provider sessions, model handoffs, tools, terminals, and detailed execution remain inspectable beneath it without creating `AI session` or generic tool rows in the organizational conversation.
 
-**Kanban task activation.** Clicking "Start" on a kanban task injects that task's details (title, description, priority, branch, related calendar events, related notes) into the current AI conversation. The agent immediately knows what the user is working on without any explanation needed.
+**AI as a delegable workforce.** User-created planning teammates can turn objectives and discussion into reviewable plans. The base system seeds no AI teammate, and future defaults are ordinary templates without special authority. Approved plans create canonical Projects tasks, subtasks, dependencies, acceptance criteria, assignments, reviewers, estimates, deadlines, budgets, risks, and Calendar proposals. Task agents receive narrow context and authority, perform bounded work, and report structured status. The person normally reviews tasks and deliverables rather than reading every raw agent conversation.
 
-**Developer path (Codex terminal):** an xterm.js terminal emulator running Codex or another CLI coding agent with full capabilities (file editing, bash, subagents). The user installs the agent themselves and signs in with their own account or API key. Ganbaru AI provides context injection, session management, and workflow prompt buttons. Background agents run through the selected agent's documented non-interactive mode, with `codex exec` as the default target for Codex.
+**Canonical boundaries.** Chat owns communication and provenance. Projects owns committed work, assignment, review, budgets, and requirement history. Notes owns durable specifications and research. Calendar owns time, capacity, and hard scheduling constraints. Execution sessions own provider events, workspaces, tools, artifacts, and checkpoints. A message can create or change another record only through a typed, auditable transition.
 
-**General user path (BYOK chat widget):** a chat interface connecting to the user's chosen LLM provider. Three provider categories cover most users: OpenAI API, OpenAI-compatible APIs (Groq, Together, Mistral, and any provider using a compatible chat format), and Ollama for local models (Llama, Mistral, Gemma, running entirely on the user's machine with no API key needed). Other provider APIs can be added when users supply their own credentials. The chat widget can read/write Ganbaru AI data but cannot edit arbitrary files or run bash commands.
+**Stable teammates and replaceable providers.** Human participants and AI teammates have stable identity independently of a provider or model. A teammate owns its name, purpose, instructions, and runtime defaults, while memberships and resource grants remain separate explicit authorization records. Any teammate can use one provider now and another later without becoming a different participant. Durable organizational memory comes from structured records, selected Notes, decisions, bounded conversation context, future scoped memories, and run summaries rather than one infinite model transcript.
 
-**Workflow phase prompts.** Each project management phase has a structured system prompt that adapts the AI's behavior: brainstorming mode guides structured ideation, evaluation mode helps assess ideas against Want/Can/Need criteria, planning mode assists with specifications and resource estimation, execution mode helps with implementation and blockers. These prompts work with both the terminal and the chat widget. One general agent per project carries context across all phases.
+**Context packages.** Every approved planning action and task run receives a versioned context package containing only the objective, task, acceptance criteria, dependencies, selected Notes and files, Calendar constraints, prior decisions, relevant messages, workspace, instructions, budgets, and permissions it needs. Package sources and revisions are inspectable. Later project edits do not silently change a running agent's objective.
 
-**Prompt buttons.** The UI shows contextual action buttons alongside the AI panel: "Plan this sprint", "Research competitors", "Create calendar events for these tasks". Each button inserts a structured prompt into the terminal input or chat widget. The user can review, edit, or execute immediately.
+**Scoped identity and permissions.** Adding a teammate to a channel makes it addressable but grants no code, shell, Notes, Calendar, external-service, or cross-channel access. Each assignment uses the intersection of requester authority, destination visibility, teammate grants, explicit resource grants, run grants, budgets, and provider safety. A shared teammate name never merges memory or capabilities across legal, engineering, private, or guest scopes.
+
+**Review and sustainable capacity.** Ganbaru accounts for human review as constrained work. Work-in-progress limits, review-queue limits, dependencies, provider quotas, token and monetary ceilings, workspace isolation, and hard deadlines constrain parallel execution. Routine progress appears in digests. Mentions, approvals, blockers, review-ready work, budget risk, and deadline risk form separate attention views.
+
+**Local coding-agent path.** Codex, Claude Code, Cursor Agent, Grok, and OpenCode run through Rust-owned native harness transports. The user installs and authenticates them. Ganbaru preserves provider-native models, approvals, questions, plans, safety behavior, usage, and continuation identity while owning durable normalized history, working-folder authorization, terminals, Git checkpoints, review, worktrees, and process cleanup.
+
+**General BYOK path.** A later general assistant connects to the user's chosen provider, including OpenAI API, explicitly supported OpenAI-compatible providers, and local Ollama models. It can use authorized Ganbaru data through typed operations but cannot edit arbitrary files or execute shell commands. It participates through the same channel, teammate, task, permission, and provenance model rather than creating a second unrelated chat product.
+
+**Contextual actions.** Actions such as "Plan this sprint," "Research competitors," and "Create calendar events for these tasks" create a reviewable message or structured proposal. Selecting an action does not automatically dispatch agents, spend a budget, or commit Projects and Calendar changes.
+
+**Future human collaboration.** After local coordination, sync, identity, encryption, and permissions are mature, another person can join a project group, one project, selected channels, selected Notes folders or pages, selected task discussions, or explicitly granted project working folders. These scopes remain separate. Search, mentions, notifications, reports, exports, and AI context assembly enforce the same access boundary as direct reads. Participant and invitation affordances can reserve restrained UI space now, but they remain absent or clearly disabled until the workflow is functional.
+
+The detailed organizational model lives in `features/agent-coordination.md`, the user-facing shell in `features/chat.md`, and provider transports in `features/ai-integration.md`.
 
 ---
 
@@ -249,19 +261,19 @@ Beyond the main project lifecycle, the system includes guided templates for esta
 
 ### Requirement version control
 
-Every change to a task's description, acceptance criteria, scope, or assignment within the Kanban board creates a timestamped diff. The diff records: what changed, when it changed, who requested the change, why (a mandatory brief explanation field), and what downstream tasks/dates are affected. This history is permanently attached to the task and cannot be deleted. It can be searched, filtered by date range or by requester, and exported as a report.
+Every meaningful change to a task's description, acceptance criteria, scope, assignment, reviewer, estimate, budget, dates, dependencies, or execution authority creates a timestamped revision or change event. It records what changed, when, who or what requested it, why, the originating Chat message, plan, review, or external reference when available, who approved it or which bounded policy allowed it, and which tasks, dates, budgets, Notes, deliverables, and agent runs are affected. This history is permanently attached to the relevant project records, searchable, and exportable.
 
-This solves the specific problem of shifting requirements in collaborative environments: when a CEO adds a new project, when a client changes specifications, or when scope creep happens incrementally. The system makes every change visible and traceable, enabling accountability and informed decision-making.
+This solves the specific problem of shifting requirements in collaborative environments: when a leader adds work, a client changes specifications, a review discovers a breaking change, an estimate expands, or scope creep happens incrementally. Corrections to an unchanged requirement, approved requirement revisions, and related new work remain distinct so repeated prompts cannot hide scope growth.
 
 ### Automatic report generation
 
-The system can generate project status reports automatically from: Kanban board state (tasks by status, completion rates), calendar data (planned vs. actual time spent), Pomodoro history (focus hours, productivity trends), requirement change history (scope changes over time), and milestone completion status. Reports are exportable as markdown or PDF.
+The system can generate project status reports automatically from Projects state, Calendar plans and actuals, Pomodoro history, requirement changes, milestone completion, budgets, agent runs, review queues, risks, and decisions. Reports are exportable as Markdown or PDF and remain read-only projections over canonical data.
 
 ---
 
 ## NPC characters and narrative layer (deferred)
 
-Three NPCs are planned as an aesthetic layer on top of the project management workflows: the Fairy (Sparkweaver) for brainstorming, the Dwarf (Bearer of Great Promise) for idea evaluation, and Drasil (The Eternal Wayfinder) for planning and execution. They appear in visual novel style during guided workflows. The NPC layer is purely visual; all project management functionality works without it. The AI assistance for these workflows is provided by the integrated AI panel (terminal or BYOK chat), not by the NPCs themselves.
+Three NPCs are planned as an aesthetic layer on top of the project management workflows: the Fairy (Sparkweaver) for brainstorming, the Dwarf (Bearer of Great Promise) for idea evaluation, and Drasil (The Eternal Wayfinder) for planning and execution. They appear in visual novel style during guided workflows. The NPC layer is purely visual; all project management functionality works without it. AI assistance comes from ordinary configured Chat teammates, approved planning workflows, and task agents rather than from an NPC or privileged application identity.
 
 ---
 
@@ -305,9 +317,9 @@ Project Kanban boards are the task layer of the project management framework. Re
 
 Notes can be linked to project phases, tasks, and research. Project templates generate notes for each phase that serve as working documents.
 
-### Daily diary → AI panel
+### Daily diary → private AI teammates
 
-Mood and energy data from diary entries create personal baselines. Over time, the AI can understand the user's patterns and provide context-aware motivation and schedule suggestions via the integrated AI panel.
+Mood and energy data from diary entries create private personal baselines. Over time, an authorized private AI teammate can provide context-aware motivation and schedule suggestions without exposing those measurements to project collaborators or team managers.
 
 ### Sleep alarm → Daily diary
 
@@ -329,29 +341,29 @@ Each work environment template includes its own blocker ruleset. Switching envir
 
 The edge panel displays context relevant to the current work environment: the right Kanban tasks, the right quick-access shortcuts, the current environment name.
 
-### Calendar → AI panel
+### Calendar → Chat and coordination
 
-When a calendar event starts, the AI panel saves the current conversation and resumes the conversation thread for the new event's project. The AI automatically has context about what the user is working on, what tasks are active, and where they left off.
+When a Calendar block starts, Ganbaru can select the linked project and suggest its relevant channel, task discussion, or task. It preserves every Chat draft, active review, and provider continuation. Calendar context can contribute to a later approved planning action or agent context package, but it does not silently send a prompt or retarget a running agent.
 
-### Kanban → AI panel
+### Projects → Chat and coordination
 
-Clicking "Start" on a kanban task injects the task's context into the current AI conversation. The AI knows the task details, related calendar events, and project context without the user needing to explain.
+Opening Chat from a project selects its last channel or `#general`. Opening a task discussion brings the task, approved requirement revision, dependencies, relevant Notes, Calendar constraints, assigned worker, reviewer, and linked runs into one focused surface without copying them into a second source of truth.
 
-### AI panel → Kanban
+### Chat and coordination → Projects
 
-The AI can update kanban tasks via the CLI: moving tasks between columns, updating descriptions, marking tasks as done. Background agents can work on delegated tasks and update the kanban when finished.
+An explicitly authorized planning teammate can propose tasks, subtasks, dependencies, assignments, reviewers, estimates, budgets, deadlines, risks, and requirement revisions. Accepted changes use typed Projects operations and link back to the originating message, plan, requester, reason, and approval. Task agents update execution status and deliverables, while required review remains a separate acceptance step.
 
-### AI panel → Calendar
+### Chat and coordination → Calendar
 
-The AI can create and modify calendar events via the CLI: scheduling work sessions, adjusting event durations, and suggesting rescheduling when task scope changes.
+The manager can propose work sessions, review blocks, deadline responses, and dependency-aware rescheduling. Calendar changes remain reviewable commitments and preserve protected history. Agent runtime budgets do not become human Calendar blocks unless supervision or review time is deliberately scheduled.
 
-### AI panel → Notes
+### Chat and coordination → Notes
 
-The AI can read and write project notes. In the terminal path, Codex or another CLI coding agent edits markdown files directly. In the BYOK chat path, the AI can read notes for context and suggest content.
+Authorized teammates and agents can read selected SQLite Notes through typed operations and can read or write file-authoritative Markdown inside an authorized project working folder. Context packages identify exact Notes pages, folders, files, revisions, and excerpts. Generated research or specifications become durable Notes only through an explicit typed write with provenance.
 
-### AI panel → Project management
+### Chat and coordination → Project management
 
-Workflow phase prompts adapt the AI's behavior to the current project phase. The AI assists with brainstorming, evaluation, planning, and execution using structured system prompts. Project templates and methodology forms are enhanced by AI suggestions.
+Phase-specific role and context policies guide brainstorming, evaluation, planning, execution, review, and replanning. The manager turns discussion into proposals, tracks blockers and review debt, and routes approved work to bounded agents without treating one provider conversation as the permanent project brain.
 
 ### Project management → Calendar
 
@@ -369,30 +381,30 @@ When the NPC visual layer is implemented, NPCs appear contextually during guided
 
 When a project is a software repository, Ganbaru AI bridges its internal data with the repo's own documentation:
 
-- **Calendar events** for the project carry pomodoro presets, music, blocker rules, and workspace settings. Starting a calendar event for "Project X" auto-opens the right browser tabs, switches the terminal to the project directory, loads the project's notes, and activates the project's kanban board.
-- **Kanban tasks** are the live task layer. The kanban tab auto-switches based on the active calendar event's project. Agents and collaborators see the same tasks.
+- **Calendar events** for the project carry pomodoro presets, music, blocker rules, and workspace settings. Starting a calendar event for "Project X" can open the right browser tabs, activate the work environment, select the project, and suggest the linked task or channel without discarding manual UI state.
+- **Projects tasks** are the live work layer. Agents and collaborators see only the tasks and derived summaries they are authorized to access.
 - **The `ganbaru-ai` CLI** exports repo-facing markdown views such as `KANBAN.md` and generated reports into the git repository. This makes project context available to collaborators who don't use Ganbaru AI and to AI agents that read the repo natively. The export is a view of the database, not the source of truth. Changes made to exported markdown by agents or humans can be imported back when the export type supports imports.
-- **AI agents** interact with Ganbaru AI via the CLI: querying tasks, creating calendar events, updating progress. This works with Codex, Cursor, and any agent that can run shell commands, with no MCP server or plugin required.
+- **AI agents** interact with Ganbaru AI through the CLI or typed internal operations authorized for their context package. This works with any supported agent capable of the selected bridge and does not make exported Markdown canonical.
 
-The data split: documents (notes, diary, project docs) are markdown files on disk. Structured data (events, tasks, workspace configs) is SQLite. The CLI bridges the two worlds. See TECH_STACK.md for the full technical rationale.
+The data split: diary entries, project working documents, and reports are files on disk. SQLite Notes, events, tasks, project working-folder identities, and work-environment configs are structured data. File-backed Markdown and SQLite Notes coexist in the project tree without sharing a source of truth. The CLI bridges the two worlds. See TECH_STACK.md for the full technical rationale.
 
 ---
 
 ## Mobile experience
 
-Mobile is a focused subset: note editor, calendar view and editing, Pomodoro timer, daily diary, sleep alarm, Doomscrolling (app-level blocking), BYOK AI chat, sync.
+Mobile is a focused subset: note editor, calendar view and editing, Pomodoro timer, daily diary, sleep alarm, Doomscrolling (app-level blocking), authorized Chat channels and direct messages, task review, BYOK AI teammates, and sync. Native coding-agent processes, terminals, desktop working folders, and other desktop execution tools remain desktop-only.
 
 Mobile does not include: work environment management, edge panel, fullscreen break overlay, browser extension, always-on-top windows. These features require desktop OS-level access that mobile sandboxing prohibits.
 
-The mobile app's primary roles are: anti-procrastination enforcement (app blocking during scheduled focus times and mornings), calendar/notes access and editing when away from the desktop, the sleep alarm and diary cycle, and Pomodoro timing with notification-based breaks. The mobile app also serves as the device that reminds you to return to your desktop. Calendar notifications for upcoming session blocks function as calls to action.
+The mobile app's primary roles are: anti-procrastination enforcement (app blocking during scheduled focus times and mornings), Calendar and Notes access when away from the desktop, Chat communication and task review, the sleep alarm and diary cycle, and Pomodoro timing with notification-based breaks. The mobile app also serves as the device that reminds you to return to your desktop. Calendar notifications for upcoming session blocks function as calls to action.
 
 ---
 
 ## Advanced AI features (post-MVP)
 
-The integrated AI panel (terminal and BYOK chat) provides the foundation. These additional features build on it:
+Chat coordination, native coding-agent execution, and the future BYOK path provide the foundation. These additional features build on them:
 
-**Natural language calendar management:** "move my 3pm session to tomorrow", "schedule a 2-hour deep work block for project X on Wednesday". The AI modifies calendar events via the CLI.
+**Natural language calendar management:** "move my 3pm session to tomorrow", "schedule a 2-hour deep work block for project X on Wednesday". An authorized teammate creates a reviewable proposal, and accepted changes use typed Calendar operations. External local agents can reach the same validated service through the CLI.
 
 **Mood-aware motivation:** using diary mood/energy baselines, the AI adapts its communication style and suggests schedule adjustments on low-energy days.
 
@@ -400,7 +412,7 @@ The integrated AI panel (terminal and BYOK chat) provides the foundation. These 
 
 **Local LLM diary analysis:** small local models (via Ollama) analyze diary language for goal-setting patterns, reflection quality, and mood trends without any API calls or data leaving the device.
 
-**MCP for external access:** exposes Ganbaru AI's data (calendar, tasks, notes) to external AI clients (ChatGPT, teammate agents, and other MCP-compatible clients) that don't run locally. Also consumes external MCP servers for integrations (email, external calendars). MCP is not used for internal agent interaction; that's handled by the CLI and direct process spawning.
+**MCP for external access:** exposes Ganbaru AI's data (Calendar, Projects, Notes, and authorized coordination records) to separately authorized external AI clients. Ganbaru can also consume external MCP servers for integrations such as email and external calendars. The general MCP service is not an internal teammate data API. Local agents use the CLI or typed Rust services, while a coding-agent session can receive an ephemeral internal MCP endpoint for narrowly bounded resources and browser tools. The internal endpoint is application infrastructure, never a participant.
 
 ---
 
@@ -411,7 +423,7 @@ The integrated AI panel (terminal and BYOK chat) provides the foundation. These 
 3. **Interconnection over isolation:** every module feeds data to and receives data from other modules. The value of the app comes from the connections, not any single feature.
 4. **Progressive disclosure:** new users see a guided, constrained experience. Complexity reveals itself as confidence grows.
 5. **Gamification as structure (planned):** the gamification layer (Will, Contracts, skill tree, NPCs) is designed to be structurally integrated into how the app measures and motivates productivity, not as a skin on a task list.
-6. **AI as infrastructure, not afterthought:** the integrated AI panel is a core module, not a post-MVP add-on. Calendar-driven session switching, context injection, and workflow phase prompts make AI assistance seamless. The terminal and BYOK chat are two interfaces to the same session management architecture.
+6. **AI as coordinated infrastructure, not an isolated chat:** Chat teammates, Projects commitments, Notes knowledge, Calendar capacity, context packages, reviews, and bounded agent runs form one system. Provider sessions are replaceable execution tools beneath stable organizational identity.
 7. **Minimal friction:** the edge panel, automatic environment switching, calendar-driven automation, and 10-second diary entries all serve the same goal: reducing the number of decisions and clicks required to stay productive.
 8. **Ethical engagement (planned):** gacha-inspired mechanics (Skill Capsules) will use earned currency only, never real money. Loss aversion (skill decay, Contract penalties) will be visible but not punitive.
 9. **Privacy-first:** E2E encryption for sync, local storage as default, BYOK for AI, no ads, no tracking beyond what the user explicitly configures for their own productivity measurement.

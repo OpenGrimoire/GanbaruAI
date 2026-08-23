@@ -98,6 +98,76 @@ A Notes folder belongs to exactly one project, folder parents stay inside that p
 
 **Enforced by:** SQLite foreign keys and placement triggers, folder create and update validation, the atomic page move command, defensive mixed-tree planning, migration invariant tests, and focused folder and page-movement tests.
 
+## 9. Native Chat work has one execution target
+
+**Statement:** an organizational conversation run may have no native filesystem target. A run that uses native files or commands resolves exactly one current-folder, existing-worktree, or explicitly selected private-scratch target. A target stays locked during an active continuation. A run may read or edit other explicitly granted project folders only through application-brokered tools, and a communication surface never inherits an execution target.
+
+**Why:** commands and native provider filesystem access need one stable root, while communication and bounded context may span several separately authorized resources. Keeping those identities separate prevents provider convenience from becoming an organizational permission boundary.
+
+**What would break:** a provider continuation could resume in another repository, folder-specific trust could leak across contexts, concurrent runs could collide, a channel could become unreadable when one folder disappears, or changing a membership default could retarget active work.
+
+**Enforced by:** optional typed execution-target records, assignment authorization revisions, one-target dispatch resolution for native work, continuation scope digests, folder grants, explicit private scratch scopes, execution-environment reservations, and focused target-inference tests. No conversation row owns or inherits an execution folder.
+
+## 10. Working-folder filesystem access stays bounded
+
+**Statement:** the frontend passes an authorized folder, scratch, or execution-environment identity and normalized relative path, never an arbitrary root path. Rust recanonicalizes the device-local binding and rechecks the directory's filesystem identity before every filesystem-sensitive operation. Git-sensitive operations additionally recheck the Git common storage identity. Secondary folders remain behind bounded broker tools, and shell commands run only in the selected target.
+
+**Why:** folder selection grants a narrow project capability, not general filesystem access.
+
+**What would break:** traversal, symbolic-link escapes, stale bindings, folder replacement, Git storage replacement, or vault overlap could expose or modify data outside the selected context.
+
+**Enforced by:** the shared Rust authorization boundary, device-local vault and device scoping, vault-overlap validation, symlink rejection, bounded Markdown scanning, expected revision saves, and authorization tests.
+
+## 11. Organizational conversations outlive provider sessions
+
+**Statement:** a channel, DM, task discussion, or reply thread has stable identity and durable history independently of any provider instance, model, provider continuation, working folder, or agent run. Replacing, forking, archiving, losing, or deleting an execution session cannot silently replace, merge, fork, or delete its organizational conversation.
+
+**Why:** people organize around purposes and participants, while providers and execution contexts are replaceable. Treating both as one record recreates isolated chat navigation and makes long-term project memory depend on a vendor session.
+
+**What would break:** a provider change could create a fake new relationship, context compaction could fragment a channel, unrelated legacy chats could merge into `#general`, or deleting execution artifacts could erase decisions and provenance.
+
+**Enforced by:** separate conversation, assignment, agent-run, and provider-thread identities; immutable materialized communication revisions; exact run provenance; protected `#general` creation; foreign keys that do not make a run the room owner; and lifecycle tests covering provider replacement and archive. Pre-user development vaults are reset instead of receiving a speculative legacy-thread migration.
+
+## 12. Effective access applies to derived context
+
+**Statement:** if a participant cannot read a resource directly, no search result, mention, backlink, notification, count, dashboard, report, export, summary, manager proposal, or AI context package may reveal its content or existence beyond a permission-safe generic result.
+
+**Why:** AI and aggregated views can leak restricted information without opening the original record. Future channel and Notes restrictions are meaningless if a model can summarize inaccessible content into an authorized room.
+
+**What would break:** a restricted collaborator could infer private Notes, tasks, channels, working folders, personal productivity measurements, or participant activity through generated or aggregated output.
+
+**Enforced by:** future resource grants and membership tables, authorization before query and derivation, permission-scoped indexes or post-query filters with non-leaking counts, context-package manifests, destination-scope checks, revocation tests, and audit records. The local single-user implementation uses the same APIs with one effective owner rather than bypassing the boundary.
+
+## 13. An AI mention never expands authority
+
+**Statement:** mentioning or adding an AI teammate can invoke only the intersection of the requester's invocation authority, destination visibility, teammate principal grants, explicit resource grants, run grants, budgets, and provider safety policy. Channel membership and a shared teammate display identity cannot widen filesystem, Notes, Calendar, provider, external-service, or cross-conversation access.
+
+**Why:** a mention is a communication action, not a credential delegation or permission grant. Persistent teammates must remain useful across channels without becoming a bridge between otherwise separate resources.
+
+**What would break:** a teammate addressed in a legal channel could edit an engineering codebase, a restricted collaborator could cause private Notes to enter a shared thread, one channel could spend another channel's budget, or an organizational teammate could act with the tagger's personal credentials.
+
+**Enforced by:** separate participant membership and AI access records, teammate principals, access-profile ceilings, typed work-assignment preflight, frozen references, exact folder grants, layered budget checks, verified provider enforcement, permission-safe denial results, and audit tests covering cross-channel and cross-resource invocation.
+
+## 14. Cross-channel disclosure never widens the audience
+
+**Statement:** a channel reference is valid only when the requester and teammate can read its source, the teammate can participate in the destination, and the destination read-history audience is a subset of the source read-history audience. There is no override.
+
+**Why:** channel access would be meaningless if an authorized reader could ask a teammate to summarize a restricted source into a broader destination.
+
+**What would break:** private leadership, legal, security, customer, or personal information could enter channels whose readers were never granted the source.
+
+**Enforced by:** permission-filtered candidates, send and schedule validation, assignment preflight, scoped history handles, result-publication validation, destination membership impact checks, frozen audience revisions, and retained-reference tests.
+
+## 15. Materialized context cannot outlive its authority
+
+**Statement:** a provider continuation, host-tool handle, or scratch generation can be reused only while every materialized source remains authorized for the same destination. Access contraction revokes the scope and never becomes reversible through a later expansion.
+
+**Why:** provider continuations and scratch files retain data after the direct database read. Checking only future tool calls would let stale context launder revoked information.
+
+**What would break:** a removed channel member, lost source grant, destination move, or reduced folder capability could leave restricted content available to a live provider or later result.
+
+**Enforced by:** authorization-scope digests, source provenance, revocation records, active-run interruption, generic host-tool denial, suppressed publication, continuation discard, scratch quarantine, clean generations, and retryable cleanup jobs.
+
 ## Adding new invariants
 
 When an operation reveals a constraint the system depends on but had not stated explicitly, add it here as the next number. Number reuse is forbidden; numbers may be marked deprecated but never recycled. Each new invariant gets the same five fields: statement, why, what would break, enforced by, plus any cross-doc links.

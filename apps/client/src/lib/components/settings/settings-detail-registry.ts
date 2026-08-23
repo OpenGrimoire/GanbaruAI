@@ -12,6 +12,10 @@ export type LoadedSettingsDetail =
   | {
     kind: "notes-transfer";
     component: typeof import("./NotesTransferSettingsPanel.svelte").default;
+  }
+  | {
+    kind: "chat-provider";
+    component: typeof import("./chat/ProviderSetupPanel.svelte").default;
   };
 
 const DETAIL_IMPORTERS = {
@@ -22,6 +26,10 @@ const DETAIL_IMPORTERS = {
   "notes-transfer": () => import("./NotesTransferSettingsPanel.svelte")
     .then((module) => ({
       default: { kind: "notes-transfer" as const, component: module.default },
+    })),
+  "chat-provider": () => import("./chat/ProviderSetupPanel.svelte")
+    .then((module) => ({
+      default: { kind: "chat-provider" as const, component: module.default },
     })),
 } satisfies Readonly<Record<SettingsDetailKind, LazyComponentImporter<LoadedSettingsDetail>>>;
 

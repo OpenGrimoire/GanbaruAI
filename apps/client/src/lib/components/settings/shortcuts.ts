@@ -21,6 +21,7 @@ export const SHORTCUT_GROUPS: readonly ShortcutGroup[] = Object.freeze([
       { keys: ["Alt + 1"], action: "Open calendar" },
       { keys: ["Alt + 2"], action: "Open projects" },
       { keys: ["Alt + 3"], action: "Open notes" },
+      { keys: ["Alt + 4"], action: "Open Chat" },
       { keys: ["Mod + M"], action: "Toggle music panel" },
       { keys: ["Mod + ,"], action: "Open or close settings" },
       { keys: ["Mod + +"], action: "Zoom in" },
@@ -65,6 +66,21 @@ export const SHORTCUT_GROUPS: readonly ShortcutGroup[] = Object.freeze([
     ],
   },
   {
+    title: "Chat",
+    items: [
+      { keys: ["Mod + N"], action: "New channel" },
+      { keys: ["Mod + F"], action: "Focus channel search" },
+      { keys: ["Mod + L"], action: "Focus composer" },
+      { keys: ["Alt + Arrow up", "Alt + Arrow down"], action: "Previous or next channel" },
+      { keys: ["Mod + B"], action: "Toggle channel explorer" },
+      { keys: ["Mod + Shift + J"], action: "Toggle Chat inspector" },
+      { keys: ["Mod + ."], action: "Stop active turn" },
+      { keys: ["Enter", "Mod + Enter"], action: "Send Chat message" },
+      { keys: ["Shift + Enter"], action: "Insert Chat newline" },
+      { keys: ["Mod + Shift + P"], action: "Open Chat command menu" },
+    ],
+  },
+  {
     title: "Music",
     items: [
       { keys: ["Spacebar"], action: "Play or pause" },
@@ -91,6 +107,7 @@ function localizedGroupTitle(title: string, t: Translate): string {
   if (title === "General") return t("settings.shortcuts.group.general");
   if (title === "Calendar") return t("settings.shortcuts.group.calendar");
   if (title === "Projects") return t("settings.shortcuts.group.projects");
+  if (title === "Chat") return t("settings.shortcuts.group.chat");
   if (title === "Music") return t("settings.shortcuts.group.music");
   return title;
 }
@@ -107,6 +124,28 @@ function localizedAction(action: string, t: Translate): string {
       return t("settings.shortcuts.action.openProjects");
     case "Open notes":
       return t("settings.shortcuts.action.openNotes");
+    case "Open Chat":
+      return t("settings.shortcuts.action.openChat");
+    case "New channel":
+      return t("settings.shortcuts.action.newChat");
+    case "Focus channel search":
+      return t("settings.shortcuts.action.focusThreadSearch");
+    case "Focus composer":
+      return t("settings.shortcuts.action.focusComposer");
+    case "Previous or next channel":
+      return t("settings.shortcuts.action.previousNextThread");
+    case "Toggle channel explorer":
+      return t("settings.shortcuts.action.toggleThreadRail");
+    case "Toggle Chat inspector":
+      return t("settings.shortcuts.action.toggleChatInspector");
+    case "Stop active turn":
+      return t("settings.shortcuts.action.stopActiveTurn");
+    case "Send Chat message":
+      return t("settings.shortcuts.action.sendChatMessage");
+    case "Insert Chat newline":
+      return t("settings.shortcuts.action.insertChatNewline");
+    case "Open Chat command menu":
+      return t("settings.shortcuts.action.openChatCommandMenu");
     case "Toggle music panel":
       return t("settings.shortcuts.action.toggleMusicPanel");
     case "Open or close settings":

@@ -1,13 +1,13 @@
 <script lang="ts">
   import ArrowUpDown from "@lucide/svelte/icons/arrow-up-down";
   import CalendarDays from "@lucide/svelte/icons/calendar-days";
-  import ChevronDown from "@lucide/svelte/icons/chevron-down";
   import Columns3 from "@lucide/svelte/icons/columns-3";
   import FileChartColumnIncreasing from "@lucide/svelte/icons/file-chart-column-increasing";
   import Layers from "@lucide/svelte/icons/layers";
   import ListFilter from "@lucide/svelte/icons/list-filter";
   import Route from "@lucide/svelte/icons/route";
   import ListCollapse from "@lucide/svelte/icons/list-collapse";
+  import MessageSquare from "@lucide/svelte/icons/message-square";
   import Settings2 from "@lucide/svelte/icons/settings-2";
   import SquareKanban from "@lucide/svelte/icons/square-kanban";
   import { getLocalization } from "$lib/i18n/translator.svelte";
@@ -27,9 +27,12 @@
   } from "$lib/projects/project-toolbar";
   import { PROJECT_VIEW_IDS, type Project, type ProjectGroup, type ProjectViewId } from "$lib/projects/types";
   import { getProjects } from "$lib/stores/projects.svelte";
+  import { getChat } from "$lib/stores/chat.svelte";
+  import { getNavigation } from "$lib/stores/navigation.svelte";
   import { getViewport } from "$lib/stores/viewport.svelte";
   import { cn } from "$lib/utils";
   import ProjectIcon from "./ProjectIcon.svelte";
+  import WorkspaceBreadcrumbTerminalIcon from "$lib/components/WorkspaceBreadcrumbTerminalIcon.svelte";
   import ProjectNavigator from "./ProjectNavigator.svelte";
 
   let {
@@ -59,6 +62,8 @@
   } = $props();
 
   const projects = getProjects();
+  const chat = getChat();
+  const navigation = getNavigation();
   const viewport = getViewport();
   const { t } = getLocalization();
   const projectIdentityIconSize = COMPACT_IDENTITY_ICON_SIZE;
@@ -79,6 +84,23 @@
   let projectNavigatorPanelStyle = $state("");
   let projectNavigatorPanelMaxHeight = $state(0);
   let viewTabDensityFrame: number | null = null;
+  const projectWorkingFolders = $derived(chat.workingFolders.filter((entry) => (
+    entry.workingFolder.projectId === selectedProject.id
+      && entry.workingFolder.archivedAt === null
+  )));
+
+  $effect(() => {
+    void chat.ensureLoaded().catch((error) => {
+      console.error("load project working folders failed", error);
+    });
+  });
+
+  async function openProjectChat(workingFolderId?: string): Promise<void> {
+    await chat.ensureLoaded();
+    if (workingFolderId) chat.selectWorkingFolder(workingFolderId);
+    else await chat.syncProjectSelection(selectedProject.id);
+    navigation.navigate("chat");
+  }
 
   interface ProjectNavigatorBounds {
     left: number;
@@ -112,9 +134,8 @@
 
   function toolbarIconButtonClass(active: boolean, open = false): string {
     return cn(
-      "flex h-7 w-7 shrink-0 items-center justify-center rounded-md transition-colors hover:bg-accent",
-      active ? "text-foreground" : "text-muted-foreground",
-      open && "bg-accent",
+      "flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-foreground transition-colors hover:bg-accent",
+      (active || open) && "bg-accent",
     );
   }
 
@@ -266,13 +287,13 @@
   onscroll={refreshProjectNavigatorPanelGeometry}
 >
   <div bind:this={projectIdentityElement} class="relative min-w-36 shrink-0 min-[760px]:max-w-md">
-    <div class="flex h-7 min-w-0 max-w-full items-center gap-0.5 text-sm">
+    <div class="flex h-7 min-w-0 max-w-full items-center gap-0.5 text-identity font-medium">
       <button
         bind:this={projectGroupTriggerElement}
         type="button"
         class={cn(
-          "flex h-7 min-w-0 items-center gap-1.5 rounded-md px-1.5 text-left hover:bg-accent hover:text-accent-foreground",
-          projectNavigatorOpen && projectNavigatorMode === "groups" && "bg-accent text-accent-foreground",
+          "flex h-7 min-w-0 items-center gap-1.5 rounded-md px-1.5 text-left hover:bg-accent",
+          projectNavigatorOpen && projectNavigatorMode === "groups" && "bg-accent",
         )}
         aria-label={t("projects.navigator.open")}
         aria-expanded={projectNavigatorOpen && projectNavigatorMode === "groups"}
@@ -286,15 +307,15 @@
           emojiScale={projectIdentityEmojiScale}
           class="shrink-0"
         />
-        <span class="min-w-0 truncate font-semibold text-foreground">{selectedGroup.name}</span>
+        <span class="min-w-0 truncate text-foreground">{selectedGroup.name}</span>
       </button>
-      <span class="shrink-0 px-0.5 font-semibold text-muted-foreground">/</span>
+      <span class="shrink-0 px-0.5 text-muted-foreground">/</span>
       <button
         bind:this={projectProjectTriggerElement}
         type="button"
         class={cn(
-          "flex h-7 min-w-0 items-center gap-1.5 rounded-md px-1.5 text-left hover:bg-accent hover:text-accent-foreground",
-          projectNavigatorOpen && projectNavigatorMode === "projects" && "bg-accent text-accent-foreground",
+          "flex h-7 min-w-0 items-center gap-1.5 rounded-md px-1.5 text-left hover:bg-accent",
+          projectNavigatorOpen && projectNavigatorMode === "projects" && "bg-accent",
         )}
         aria-label={t("projects.navigator.open")}
         aria-expanded={projectNavigatorOpen && projectNavigatorMode === "projects"}
@@ -308,8 +329,8 @@
           emojiScale={projectIdentityEmojiScale}
           class="shrink-0"
         />
-        <span class="min-w-0 truncate font-semibold text-foreground">{selectedProject.name}</span>
-        <ChevronDown size={14} strokeWidth={1.75} class="shrink-0 text-muted-foreground" />
+        <span class="min-w-0 truncate text-foreground">{selectedProject.name}</span>
+        <WorkspaceBreadcrumbTerminalIcon kind="chevron" class="shrink-0 text-muted-foreground" />
         {#if selectedProject.status !== "active"}
           <span class={cn("shrink-0 rounded border px-1.5 py-0.5 text-[0.666667rem]", projectLifecycleBadgeClass(selectedProject.status))}>
             {projectLifecycleLabel(selectedProject.status, t)}
@@ -351,7 +372,7 @@
     {#each PROJECT_VIEW_IDS as view}
       {@const Icon = viewIcon(view)}
       {@const label = viewLabel(view)}
-      <span class="flex h-7 shrink-0 items-center gap-1 rounded-md px-2 text-xs font-medium">
+      <span class="flex h-6 shrink-0 items-center gap-1 rounded-md px-2 text-xs font-medium">
         <Icon size={14} strokeWidth={1.75} class={view === "gantt" ? "-scale-x-100" : undefined} />
         <span>{label}</span>
       </span>
@@ -365,7 +386,7 @@
       <button
         type="button"
         class={cn(
-          "flex h-7 shrink-0 items-center gap-1 rounded-md text-xs font-medium transition-colors hover:bg-accent",
+          "flex h-6 shrink-0 items-center gap-1 rounded-md text-xs font-medium transition-colors hover:bg-accent",
           viewLabelsCollapsed ? "w-7 justify-center px-0" : "px-2",
           projects.activeView === view
             ? "text-foreground"
@@ -385,6 +406,32 @@
     {/each}
   </nav>
   <div bind:this={toolbarActionsElement} class="flex shrink-0 items-center gap-1">
+    <button
+      type="button"
+      class={toolbarIconButtonClass(false)}
+      aria-label={t("projects.header.openChat")}
+      title={t("projects.header.openChat")}
+      onclick={() => { void openProjectChat(); }}
+    >
+      <MessageSquare size={14} strokeWidth={1.75} />
+    </button>
+    {#if projectWorkingFolders.length > 1}
+      <select
+        class="h-7 max-w-28 rounded-md border border-border bg-background px-1 text-[0.68rem] text-muted-foreground"
+        aria-label={t("projects.header.chatFolder")}
+        value=""
+        onchange={(event) => {
+          const workingFolderId = event.currentTarget.value;
+          event.currentTarget.value = "";
+          if (workingFolderId) void openProjectChat(workingFolderId);
+        }}
+      >
+        <option value="">{t("projects.header.chatFolder")}</option>
+        {#each projectWorkingFolders as folder (folder.workingFolder.id)}
+          <option value={folder.workingFolder.id}>{folder.workingFolder.displayName}</option>
+        {/each}
+      </select>
+    {/if}
     <button
       type="button"
       data-project-toolbar-trigger="filters"

@@ -514,7 +514,7 @@
     background: var(--app-tooltip-bg, var(--popover));
     color: var(--app-tooltip-fg, var(--popover-foreground));
     box-shadow: var(--app-tooltip-shadow, 0 8px 28px rgba(0, 0, 0, 0.22));
-    font-size: 0.8rem;
+    font-size: calc(0.8rem * var(--type-scale));
     font-weight: 500;
     letter-spacing: 0;
     line-height: 1.3;

@@ -93,7 +93,7 @@ export const taskWorkflow = {
     deleteFieldTitle: (field: string) => `Delete ${field}?`,
     deleteFieldMessage: (field: string) =>
       `This removes ${field} and its values from every task in this project. Task history stays intact.`,
-    deleteFieldConfirm: "Delete field (Enter)",
+    deleteFieldConfirm: "Delete field",
     typeText: "Text",
     typeNumber: "Number",
     typeDate: "Date",
@@ -115,7 +115,7 @@ export const taskWorkflow = {
     deleteOptionTitle: (option: string) => `Delete ${option}?`,
     deleteOptionMessage: (option: string, field: string) =>
       `This removes ${option} from ${field} values in this project. Tasks and task history stay intact.`,
-    deleteOptionConfirm: "Delete option (Enter)",
+    deleteOptionConfirm: "Delete option",
     nameRequired: "Field name is required.",
     nameExists: "A custom field with that name already exists.",
     saveFailed: (message: string) => `Could not save custom field: ${message}`,

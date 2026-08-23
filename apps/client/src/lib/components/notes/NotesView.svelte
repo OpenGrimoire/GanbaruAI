@@ -12,6 +12,7 @@
   import { notesPageContainingFolderId } from "$lib/notes/hierarchy-navigation";
   import type { NotesPageOpenMode } from "$lib/notes/page-open-mode";
   import { notesUndoShortcutAction } from "$lib/notes/undo-history";
+  import type { NotesWorkingMarkdownFileRef } from "$lib/notes/types";
   import { getNotes } from "$lib/stores/notes.svelte";
   import { getProjects } from "$lib/stores/projects.svelte";
   import { getViewport } from "$lib/stores/viewport.svelte";
@@ -30,6 +31,7 @@
   import NotesProjectHome from "./NotesProjectHome.svelte";
   import NotesProjectSettingsPanel from "./NotesProjectSettingsPanel.svelte";
   import NotesWorkspaceHeader from "./NotesWorkspaceHeader.svelte";
+  import NotesWorkingMarkdownEditor from "./NotesWorkingMarkdownEditor.svelte";
 
   const notes = getNotes();
   const projects = getProjects();
@@ -52,6 +54,9 @@
   let projectVersionHistoryOpen = $state(false);
   let pendingProjectSettingsAction: (() => void) | null = null;
   let activeNotesHistoryShortcut: "undo" | "redo" | null = null;
+  let selectedWorkingMarkdownFile = $state<NotesWorkingMarkdownFileRef | null>(null);
+  let workingMarkdownDirty = $state(false);
+  let workingMarkdownProjectId = $state<string | null>(null);
   let surfaceLoadStates = $state<Partial<Record<
     NotesSurfaceKind,
     LazyComponentLoadState<NotesSurfaceKind, LoadedNotesSurface>
@@ -225,12 +230,17 @@
   });
 
   function showProjectHome(): void {
+    if (!beforeDocumentNavigation()) return;
     if (notes.viewMode === "archive") notes.closeArchive();
     if (notes.viewMode === "trash") notes.closeTrash();
     void notes.selectPage(null);
   }
 
   function handleProjectSelected(): void {
+    if (!beforeDocumentNavigation()) {
+      if (workingMarkdownProjectId) projects.selectedProjectId = workingMarkdownProjectId;
+      return;
+    }
     pendingProjectSettingsAction = null;
     projectSettingsOpen = false;
     projectSettingsDirty = false;
@@ -240,6 +250,31 @@
     void notes.load().catch((error) => {
       console.error("load selected Notes project failed", error);
     });
+  }
+
+  function beforeDocumentNavigation(): boolean {
+    if (!workingMarkdownDirty) {
+      selectedWorkingMarkdownFile = null;
+      workingMarkdownProjectId = null;
+      return true;
+    }
+    if (!window.confirm(t("notes.workingMarkdown.discardConfirm"))) return false;
+    workingMarkdownDirty = false;
+    selectedWorkingMarkdownFile = null;
+    workingMarkdownProjectId = null;
+    return true;
+  }
+
+  function selectWorkingMarkdownFile(file: NotesWorkingMarkdownFileRef): void {
+    const unchanged = selectedWorkingMarkdownFile?.workingFolderId === file.workingFolderId
+      && selectedWorkingMarkdownFile.relativePath === file.relativePath;
+    if (unchanged) return;
+    if (!beforeDocumentNavigation()) return;
+    if (notes.viewMode === "archive") notes.closeArchive();
+    if (notes.viewMode === "trash") notes.closeTrash();
+    void notes.selectPage(null);
+    selectedWorkingMarkdownFile = file;
+    workingMarkdownProjectId = selectedProjectId;
   }
 
   function closeProjectSettingsImmediately(): void {
@@ -472,7 +507,7 @@
         title={t("calendar.view.discardUnsavedTitle")}
         message={t("calendar.view.changesLost")}
         confirmLabel={t("calendar.view.discard")}
-        cancelLabel={t("common.cancelShortcut")}
+        cancelLabel={t("common.cancel")}
         onConfirm={confirmDiscardProjectSettings}
         onCancel={cancelDiscardProjectSettings}
       />
@@ -497,6 +532,9 @@
       projectId={selectedProjectId}
       bind:explorerCollapsed
       {creationFolderId}
+      {selectedWorkingMarkdownFile}
+      onSelectWorkingMarkdownFile={selectWorkingMarkdownFile}
+      onBeforeDocumentNavigation={beforeDocumentNavigation}
       onCreationFolderChange={(folderId) => {
         creationFolderOverride = folderId;
       }}
@@ -517,6 +555,11 @@
             {t("common.retry")}
           </button>
         </div>
+      {:else if selectedWorkingMarkdownFile}
+        <NotesWorkingMarkdownEditor
+          file={selectedWorkingMarkdownFile}
+          onDirtyChange={(dirty) => { workingMarkdownDirty = dirty; }}
+        />
       {:else if activeSurfaceKind === "archive" || activeSurfaceKind === "trash"}
         {#if activeSurfaceLoadState?.status === "ready" && activeSurfaceLoadState.component.kind === activeSurfaceKind}
           {@const ActiveNotesSurface = activeSurfaceLoadState.component.component}

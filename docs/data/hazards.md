@@ -127,3 +127,63 @@ Situations most likely to produce bugs, data corruption, or confusing UX. Every 
 **Scenario, project history restore.** Folder rows must be restored before page rows that reference them, and the current project's folder rows must be replaced with the historical set. Omitting empty folders or folder placement from the project scope changes navigation even when note bodies restore correctly.
 
 **Governed by:** `features/notes.md`, `data/schema.md`, invariant 8, folder migration triggers, atomic folder and page commands, and project history restore ordering.
+
+## 11. Working-folder identity and filesystem drift
+
+**Why it is dangerous:** an external folder can move, disappear, become a symbolic link, or be replaced by another Git repository after it was assigned. A managed folder can also be removed outside the app. Reusing a stale absolute path would let Chat or Notes act on a different filesystem target than the project association intended.
+
+**Scenario:** a project folder originally bound to repository A is replaced at the same path by repository B. Chat history must remain readable, but provider start, terminal start, mentions, diffs, checkpoints, restores, attachments, and Markdown writes must fail until the user deliberately rebinds or selects another folder. The application cannot accept the matching path string as proof of repository identity.
+
+**Mitigation:** project working-folder ids are durable SQLite identity, while external absolute paths, platform filesystem identities, Git storage identities, and verification times are device-local. Rust canonicalizes the path and compares the bound directory's filesystem identity before every filesystem-sensitive operation. Git-sensitive operations separately compare Git's common storage directory identity. This lets branches, remotes, Git configuration, and a first Git initialization change normally without confusing them with folder replacement. Replacing the directory still blocks all access, while replacing only `.git` blocks Git-sensitive behavior without hiding ordinary files. External folders cannot overlap the active Ganbaru AI folder. Managed folders resolve only from the active vault and stable project id, and a missing directory is recreated only by the explicit managed-folder recovery path.
+
+**Governed by:** `features/projects.md`, `features/chat.md`, `features/notes.md`, `data/security.md`, invariants 9 and 10.
+
+## 12. Organizational conversation and provider-session conflation
+
+**Why it is dangerous:** a channel or direct message is a durable place organized around participants and purpose. A provider session is a replaceable execution continuation bound to one authorized working folder. Reusing one identity for both makes a room inherit the provider, model, context window, folder, failure state, and retention lifecycle of one execution attempt.
+
+**Scenario:** a person discusses a release in `#general`, delegates two tasks to separate ordinary teammates, and later changes one teammate's provider. If the channel row is also the provider thread row, only one folder can be authoritative, parallel runs collide, changing providers appears to erase the teammate identity, and archiving one failed run can hide the organizational history.
+
+**Mitigation:** channels, direct messages, replies, and task discussions have stable organizational identities. Agent runs link them to one or more provider sessions, context packages, workspaces, and deliverables. Replacing or resuming a session preserves provenance without claiming that provider continuity defines the room. Existing `chat_threads` remain execution-session records. The pre-user redesign resets development vaults instead of inferring organizational relationships from unrelated legacy threads.
+
+**Governed by:** `features/agent-coordination.md`, `features/chat.md`, `features/ai-integration.md`, `data/schema.md`, invariants 9 and 11.
+
+## 13. Permission leaks through derived coordination data
+
+**Why it is dangerous:** checking access only when opening a Note or channel does not protect titles, counts, mentions, summaries, search results, reports, notifications, task descriptions, or AI context assembled from that resource. An agent can also reveal restricted data through an otherwise authorized answer.
+
+**Scenario:** a restricted collaborator can read one project channel but not a private Notes folder. A manager summary generated for that channel mentions a confidential page title and uses its contents to explain a decision. The collaborator learns restricted information even though the Notes page itself correctly denies access.
+
+**Mitigation:** authorization runs before direct reads, aggregation, indexing, notification rendering, export, and context-package assembly. AI receives the intersection of the requesting participant, destination conversation, teammate principal, explicit resource grants, and run grants. Access denial does not reveal inaccessible titles, counts, relationships, or participants. Revocation invalidates future derived reads and stale offline writes as well as direct access.
+
+**Governed by:** `features/agent-coordination.md`, `features/notes.md`, `data/sync.md`, `data/security.md`, invariant 12.
+
+## 14. AI teammate identity used as an authority bridge
+
+**Why it is dangerous:** a persistent teammate can appear in several channels, which makes it tempting to reuse its broadest resource access or memory everywhere. A visible name and channel membership are not proof that every participant or destination may use every capability associated with that teammate.
+
+**Scenario:** the same teammate appears in `#legal` and `#engineering`. It can read contracts in the first scope and edit a codebase in the second. A legal-channel participant asks it to change code, or an engineering question causes a contract summary to enter the reply thread. If dispatch uses the union of grants attached to the display identity, the teammate crosses both boundaries.
+
+**Mitigation:** every actionable mention creates a typed work assignment and computes the intersection of requester authority, destination policy and audience, teammate policy and profile ceiling, destination and source memberships, exact folder grants, assignment references and target, runtime approval, budgets, and verified provider enforcement. References and context packages retain scope and provenance. A shared display identity never merges access profiles. Denials remain permission-safe, and future proactive subscriptions name one bounded readable scope.
+
+**Governed by:** `features/agent-coordination.md`, `features/chat.md`, `data/access-control.md`, `data/security.md`, invariants 12 and 13.
+
+## 15. Restricted context retained by continuations or scratch
+
+**Why it is dangerous:** denying a new database read does not remove data already retained in a native provider continuation, host-tool result, worktree, or scratch generation. Reusing those materials after a membership or audience change can disclose data that current authorization would reject.
+
+**Scenario:** a teammate reads a restricted source channel while producing an artifact for a narrow destination. A new reader later joins the destination, or the teammate loses source access. The next prompt reuses the provider continuation or promotes the old scratch artifact into the broader destination.
+
+**Mitigation:** every authorization revision has a scope digest and exact materialized-source provenance. Contractions interrupt runs, revoke handles, stop sessions, suppress publication, discard continuations, and quarantine affected scratch generations. Expansion creates new authority and never revives old material. Cleanup failures become retryable durable jobs.
+
+**Governed by:** `data/access-control.md`, `data/security.md`, invariants 14 and 15.
+
+## 16. Destination audience expands around retained channel references
+
+**Why it is dangerous:** a channel message can retain an authorized reference after the destination audience changes. Adding a reader with earlier-history access can expose the existence or result of a source that the new reader cannot access.
+
+**Scenario:** a private source is safely referenced into a destination whose current readers all share source access. A later membership change gives another person the destination's entire history, including the retained reference and its result.
+
+**Mitigation:** destination membership changes recheck every retained source constraint. The change is blocked when earlier history would widen disclosure. The safe alternative is From access grant, which captures a lower message ordinal after the restricted reference. Scheduled delivery and result publication repeat the same audience-revision check.
+
+**Governed by:** `data/access-control.md`, `data/security.md`, invariant 14.

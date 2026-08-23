@@ -10,7 +10,7 @@ export interface MenuAimRect {
   bottom: number;
 }
 
-export type MenuAimSide = "left" | "right";
+export type MenuAimSide = "bottom" | "left" | "right" | "top";
 
 export interface MenuAimInput {
   origin: MenuAimPoint | null;
@@ -60,23 +60,46 @@ export function isPointerAimingAtSubmenu(input: MenuAimInput): boolean {
   const point = input.point;
   const submenu = input.submenu;
   if (!finitePoint(origin) || !finitePoint(point) || !finiteRect(submenu)) return false;
+  if (
+    point.x >= submenu.left
+    && point.x <= submenu.right
+    && point.y >= submenu.top
+    && point.y <= submenu.bottom
+  ) return true;
 
   const tolerance = Math.max(0, input.tolerance ?? 10);
   const topTolerance = Math.max(0, input.topTolerance ?? tolerance);
   const bottomTolerance = Math.max(0, input.bottomTolerance ?? tolerance);
   const minTowardDistance = Math.max(0, input.minTowardDistance ?? 4);
-  const targetX = input.side === "right"
-    ? submenu.left + tolerance
-    : submenu.right - tolerance;
-  const movedTowardTarget = input.side === "right"
-    ? point.x >= origin.x + minTowardDistance
-    : point.x <= origin.x - minTowardDistance;
+  if (input.side === "left" || input.side === "right") {
+    const targetX = input.side === "right"
+      ? submenu.left + tolerance
+      : submenu.right - tolerance;
+    const movedTowardTarget = input.side === "right"
+      ? point.x >= origin.x + minTowardDistance
+      : point.x <= origin.x - minTowardDistance;
+    if (!movedTowardTarget) return false;
+
+    return pointInTriangle(
+      point,
+      origin,
+      { x: targetX, y: submenu.top - topTolerance },
+      { x: targetX, y: submenu.bottom + bottomTolerance },
+    );
+  }
+
+  const targetY = input.side === "bottom"
+    ? submenu.top + tolerance
+    : submenu.bottom - tolerance;
+  const movedTowardTarget = input.side === "bottom"
+    ? point.y >= origin.y + minTowardDistance
+    : point.y <= origin.y - minTowardDistance;
   if (!movedTowardTarget) return false;
 
   return pointInTriangle(
     point,
     origin,
-    { x: targetX, y: submenu.top - topTolerance },
-    { x: targetX, y: submenu.bottom + bottomTolerance },
+    { x: submenu.left - tolerance, y: targetY },
+    { x: submenu.right + tolerance, y: targetY },
   );
 }

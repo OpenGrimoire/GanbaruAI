@@ -11,9 +11,9 @@ export function notesTextareaClass(type: NotesBlockType): string {
   if (type === "heading_3") return `${base} text-[1.25rem] font-semibold leading-[1.3]`;
   if (type === "heading_4") return `${base} text-[1.125rem] font-semibold leading-[1.3]`;
   if (type === "code") return `${base} rounded-md bg-muted/60 font-mono text-[0.82rem] leading-relaxed`;
-  if (type === "callout") return `${base} text-base leading-normal`;
-  if (type === "quote") return `${base} border-l-2 border-border pl-3 text-base leading-normal italic`;
-  return `${base} text-base leading-normal`;
+  if (type === "callout") return `${base} notes-editor-body-text leading-normal`;
+  if (type === "quote") return `${base} border-l-2 border-border pl-3 notes-editor-body-text leading-normal italic`;
+  return `${base} notes-editor-body-text leading-normal`;
 }
 
 /**

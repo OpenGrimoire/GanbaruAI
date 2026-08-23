@@ -917,14 +917,14 @@
   .builder-narrow .builder-context-panel { position: absolute; inset: 0 0 2.75rem; grid-column: 1; border-right: 0; background: var(--background); transform: translateX(-102%); transition: transform 150ms ease; }
   .builder-narrow .builder-context-panel.context-open { transform: translateX(0); }
   .builder-mobile-dock { z-index: 25; grid-column: 1; grid-row: 2; background: color-mix(in srgb, var(--background) 94%, transparent); }
-  :global(.toolbar-primary), :global(.toolbar-secondary) { display: inline-flex; height: 2rem; flex: none; align-items: center; justify-content: center; gap: 0.35rem; border-radius: 999px; padding-inline: 0.75rem; font-size: 0.65rem; font-weight: 600; white-space: nowrap; }
+  :global(.toolbar-primary), :global(.toolbar-secondary) { display: inline-flex; height: 2rem; flex: none; align-items: center; justify-content: center; gap: 0.35rem; border-radius: 999px; padding-inline: 0.75rem; font-size: calc(0.65rem * var(--type-scale)); font-weight: 600; white-space: nowrap; }
   :global(.toolbar-primary) { background: var(--primary); color: var(--primary-foreground); }
   :global(.toolbar-secondary) { background: var(--secondary); color: var(--secondary-foreground); }
   :global(.toolbar-primary:disabled), :global(.toolbar-secondary:disabled) { opacity: 0.4; }
   :global(.toolbar-icon) { display: grid; height: 2rem; width: 2rem; flex: none; place-items: center; border-radius: 999px; color: var(--foreground); }
   :global(.toolbar-icon:hover) { background: var(--secondary); }
   :global(.toolbar-menu) { position: absolute; right: 0; top: calc(100% + 0.3rem); z-index: 55; min-width: 10rem; border: 1px solid color-mix(in srgb, var(--border) 80%, transparent); border-radius: 0.7rem; background: var(--popover); padding: 0.3rem; }
-  :global(.toolbar-menu button) { display: flex; min-height: 1.9rem; width: 100%; align-items: center; border-radius: 0.45rem; padding-inline: 0.6rem; font-size: 0.68rem; text-align: left; }
+  :global(.toolbar-menu button) { display: flex; min-height: 1.9rem; width: 100%; align-items: center; border-radius: 0.45rem; padding-inline: 0.6rem; font-size: calc(0.68rem * var(--type-scale)); text-align: left; }
   :global(.toolbar-menu button:hover) { background: var(--accent); }
   :global(.toolbar-menu button:disabled) { opacity: 0.4; }
   @container (width < 520px) { :global(.toolbar-primary), :global(.toolbar-secondary) { width: 2rem; padding-inline: 0; font-size: 0; } }

@@ -92,6 +92,6 @@
 </div>
 
 <style>
-  .status-choice { min-height: 2.5rem; border: 1px solid color-mix(in srgb, var(--border) 65%, transparent); border-radius: 0.6rem; background: var(--background); padding-inline: 0.75rem; text-align: left; font-size: 0.72rem; font-weight: 500; transition: border-color 120ms ease, background-color 120ms ease; }
+  .status-choice { min-height: 2.5rem; border: 1px solid color-mix(in srgb, var(--border) 65%, transparent); border-radius: 0.6rem; background: var(--background); padding-inline: 0.75rem; text-align: left; font-size: calc(0.72rem * var(--type-scale)); font-weight: 500; transition: border-color 120ms ease, background-color 120ms ease; }
   .status-choice:hover { border-color: color-mix(in srgb, var(--primary) 50%, var(--border)); background: color-mix(in srgb, var(--primary) 5%, var(--background)); }
 </style>

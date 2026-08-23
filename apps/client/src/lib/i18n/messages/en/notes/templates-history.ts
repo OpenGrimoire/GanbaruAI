@@ -26,7 +26,7 @@ export const templatesHistory = {
   deletePageTemplateConfirmTitle: (name: string) => `Delete ${name}?`,
   deletePageTemplateConfirmMessage:
     "This deletes the saved template only. Notes created from it stay unchanged.",
-  deletePageTemplateConfirm: "Delete template (Enter)",
+  deletePageTemplateConfirm: "Delete template",
   pageHistory: "History",
   loadPageHistoryFailed: (message: string) => `Could not load history: ${message}`,
   noPageHistory: "No history",
@@ -38,5 +38,5 @@ export const templatesHistory = {
   restorePageHistoryConfirmTitle: "Restore this version?",
   restorePageHistoryConfirmMessage: (time: string) =>
     `The current note will be saved to history first, then the version from ${time} will replace note details and blocks.`,
-  restorePageHistoryConfirm: "Restore version (Enter)",
+  restorePageHistoryConfirm: "Restore version",
 } as const;

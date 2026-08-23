@@ -5,6 +5,8 @@ export const shell = {
     addTask: "Add task",
     addSection: "Add section",
     projectSettings: "Project settings",
+    openChat: "Open project Chat",
+    chatFolder: "Chat folder",
     openTasks: (count: number) => `${count} open`,
     blockedTasks: (count: number) => `${count} blocked`,
     scheduledEvents: (count: number) => `${count} scheduled`,
@@ -43,6 +45,7 @@ export const shell = {
     groupNamePlaceholder: "Group name",
     projectNamePlaceholder: "Project name",
     projectTemplate: "Project template",
+    managedFolderCreationHint: "A private folder is created automatically. Add an existing folder later in Project settings.",
     groupColor: "Group color",
     selectGroupColor: "Select group color",
     selectGroupIcon: (icon: string) => `Select ${icon} group icon`,
@@ -54,7 +57,7 @@ export const shell = {
     deleteGroupMessage: (group: string, projectCount: number) =>
       `This permanently deletes ${group}, ${projectCount} ${projectCount === 1 ? "project" : "projects"
       }, and all task data under them. Linked calendar events stay in the calendar with no project.`,
-    deleteGroupConfirm: "Delete group (Enter)",
+    deleteGroupConfirm: "Delete group",
     empty: "No projects",
   },
   iconPicker: {

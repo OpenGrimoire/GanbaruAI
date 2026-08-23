@@ -136,9 +136,8 @@ function formatTotalMb(n: number): string {
 function formatMetricValue(metric: BenchmarkMetric | undefined): string {
   if (!metric) return "n/a";
   if (!Number.isFinite(metric.value)) return "n/a";
-  return metric.unit === "count"
-    ? Math.round(metric.value).toString()
-    : Math.round(metric.value).toString();
+  if (metric.unit === "percent") return metric.value.toFixed(2);
+  return Math.round(metric.value).toString();
 }
 
 function metricsByLabel(phase: PhaseResult): Map<string, BenchmarkMetric> {

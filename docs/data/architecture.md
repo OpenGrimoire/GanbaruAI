@@ -14,6 +14,10 @@ Why markdown on disk and not in SQLite as text columns:
 
 **Structured data and document graphs.** Calendar events, Notes pages and blocks, kanban tasks, work environment configs, pomodoro runs, segments, pauses, playlist definitions, project metadata. These live in SQLite. The database is the source of truth. There is no authoritative markdown file to fall back to.
 
+Chat coordination is structured data. Channels, direct messages, task discussions, replies, participants, memberships, messages, provenance links, manager proposals, context-package manifests, agent runs, budgets, approvals, and execution events require stable identity and relational integrity. SQLite is canonical for this layer. Provider-native history and exported transcripts can help recovery or interoperability, but neither becomes the organizational source of truth.
+
+Organizational conversations and execution sessions remain distinct. A channel can link several provider sessions over time, and one task can link several attempts or reviews. Replacing a provider continuation cannot replace, merge, or delete the channel, task, decision, or approval history around it.
+
 Why SQLite and not markdown:
 
 - Structured data needs relational integrity (foreign keys, cascades, atomic transactions). Markdown does not enforce this.
@@ -22,13 +26,17 @@ Why SQLite and not markdown:
 
 The rule is one-directional: structured data and Notes pages may be exported as markdown for collaborators or AI agents that read repos, but those exports are views, not source. They can be regenerated at any time. The reverse, treating an exported markdown file as authoritative, is forbidden unless an explicit import command converts it back into canonical rows.
 
+Project working-folder Markdown is a separate document source, not a Notes export. Each project has one managed folder under `projects/{project-id}/` and may reference external folders whose absolute bindings are device-local. Existing `.md` files in those folders remain file-authoritative and appear beside SQLite Notes in one project tree. They are not copied into the Notes graph or enriched with block metadata.
+
 ## Ganbaru AI folder layout
 
 Everything portable that the app produces lives under one folder. First launch defaults to `Documents/Ganbaru AI` in production and `Documents/Ganbaru AI Dev` in development builds, with secondary actions to choose another folder or import an existing Ganbaru AI folder from another installation. Development setup warns the user to use the dev default or a copied production folder so test data does not mix with real production data. Tauri's platform app config directory stores only device-local bootstrap and runtime state, such as the active folder pointer, benchmark state, and transient doomscrolling snapshots.
 
 Folder setup errors are blocking and remain visible until the user starts another folder action, successfully selects a usable folder, or closes the app. The UI translates backend validation failures into user-facing guidance for non-empty unrelated folders, missing or damaged `vault.json`, unsupported folder schema versions, permission problems, missing folders, and database-open failures for `ganbaru-ai.sqlite`.
 
-Profile settings are folder-local preferences in `config.json`. `profile.displayName` is the short local name shown where a compact profile label is needed and is capped at 25 characters. `profile.fullName` stores the optional full name for future profile surfaces and is capped at 50 characters. Empty values are valid, and surfaces that require a visible self label fall back to contextual copy such as `You`.
+Profile settings are folder-local preferences in `config.json`. `profile.displayName` is the short local name shown where a compact profile label is needed and is capped at 25 characters. `profile.fullName` stores the optional full name for future profile surfaces and is capped at 50 characters. `profile.imagePath` stores an optional managed PNG, JPEG, or WebP path under `assets/profile/`. Empty values are valid, and surfaces that require a visible self label fall back to contextual copy such as `You`. Surfaces without a profile image derive at most two initials from the display name.
+
+Root `config.json` writes are serialized by Rust and remain atomic on disk. Frontend preference updates cross the command boundary as bounded key-level patches applied to the latest file, while native domains such as Chat mutate their branch under the same lock. A cached frontend snapshot must never replace the entire shared file because startup discovery and another feature may have committed newer branches since that snapshot was read.
 
 ```
 Ganbaru AI/
@@ -37,9 +45,10 @@ Ganbaru AI/
   ganbaru-ai.sqlite                  # SQLite source of truth for structured data, Notes, and indexes
   notes/exports/                    # derivative markdown exports for notes (planned)
   diary/morning/, diary/evening/    # dated diary entries (markdown plus indexed fields)
-  projects/{project-id}/            # per-project file attachments (PDFs, references)
+  projects/{project-id}/            # managed working folder created for every project
   reports/                          # generated project status reports (markdown, PDF)
   assets/                           # user assets (images embedded in notes, attachments)
+    profile/                        # copied local profile image
     notes/page-icons/               # copied local Notes page icon images
     notes/page-covers/              # copied local Notes page cover images
     project-icons/                  # copied project and group icon images
@@ -59,17 +68,17 @@ Lazy initialization: the database connection is opened on first use after a Ganb
 
 The Tauri integration owns SQLite in Rust through focused `sqlx` commands. Higher-level ORMs were considered and rejected: they add code to maintain, do not earn enough productivity for an app this small, and obscure the actual queries that show up in performance profiles. Plain SQL with typed command wrappers keeps the call sites direct.
 
-## External tools and the CLI bridge
+## Internal and external agent bridges
 
-The app is not the only thing that needs to read this data. AI agents (Codex or another CLI coding agent in the integrated terminal, MCP clients), backup tools, scripts, and human collaborators all interact with the same store.
+The app is not the only thing that needs to read this data. AI agents, external MCP clients, backup tools, scripts, and human collaborators may interact with the same store through different authorization boundaries.
 
-The bridge is the `ganbaru-ai` CLI (Rust binary, reads the same SQLite). It exposes structured commands (`task list`, `event get`, `export kanban`) that AI agents call via Bash. This keeps three properties:
+The future local external bridge is the `ganbaru-ai` CLI (Rust binary, reads the same SQLite). It exposes structured commands such as `task list`, `event get`, and `export projects` that explicitly authorized agents and scripts can call through their execution environment. Organizational Chat uses the same Rust service layer through typed internal commands and assignment-scoped internal host tools without starting a shell. This keeps three properties:
 
 1. One source of truth. The CLI reads what the app writes. There is no duplicate authoritative store for agents.
 2. Markdown exports stay derivative. The CLI can write kanban snapshots or generated reports to a git repo for collaborators who never install the app, but those files are regenerated from the database; editing them by hand is supported only via an explicit import command where the export type supports imports.
 3. External readers handle dirty state. If the app crashed and a run is mid-write, the CLI applies the same recovery semantics as the app on startup (see `algorithms/pomodoro-state-machine.md`). Aggregations always operate on a consistent view.
 
-The MCP server is for external clients only (ChatGPT, teammate agents, and other MCP-compatible clients). Internal agent flows use the CLI directly. This keeps MCP a thin, documented surface and avoids two parallel paths to the same data.
+The general MCP server is for external clients only. Provider sessions inside Chat can also receive an ephemeral, authorization-revision-scoped internal MCP endpoint for channel history, secondary folders, bounded resources, and browser tools as documented in `features/ai-integration.md`. That endpoint is trusted application infrastructure, not a general data API or teammate identity. Every path applies [Chat access control](access-control.md) rather than trusting possession of an identifier.
 
 ## Source-of-truth checks
 

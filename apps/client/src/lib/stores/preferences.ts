@@ -100,9 +100,11 @@ export const DEFAULT_CALENDAR_DIM_PAST_EVENTS = true;
 export const DEFAULT_MUSIC_PAUSE_ON_POMODORO_PAUSE = true;
 export const DEFAULT_PROFILE_DISPLAY_NAME = "";
 export const DEFAULT_PROFILE_FULL_NAME = "";
+export const DEFAULT_PROFILE_IMAGE_PATH: string | null = null;
 export const PROFILE_DISPLAY_NAME_FALLBACK = "You";
 export const PROFILE_DISPLAY_NAME_MAX_CHARS = 25;
 export const PROFILE_FULL_NAME_MAX_CHARS = 50;
+const PROFILE_IMAGE_PATH_PATTERN = /^profile\/[a-f0-9]{64}\.(?:png|jpe?g|webp)$/i;
 export const DEFAULT_NOTES_MENTION_NOTIFICATIONS_ENABLED = true;
 export const DEFAULT_NOTES_REMINDER_NOTIFICATIONS_ENABLED = true;
 export const DEFAULT_NOTES_USER_MENTION_NOTIFICATIONS_ENABLED = true;
@@ -200,6 +202,11 @@ export type ProfileDisplayNameValidation =
 export type ProfileFullNameValidation =
   | { ok: true; value: string }
   | { ok: false; reason: "too_long" | "control_characters" };
+
+/** Returns true when a profile image points to one managed raster asset. */
+export function isProfileImagePath(value: unknown): value is string {
+  return typeof value === "string" && PROFILE_IMAGE_PATH_PATTERN.test(value.trim());
+}
 
 function normalizeProfileTextField(
   value: string,

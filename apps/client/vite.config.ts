@@ -2,7 +2,7 @@ import { defineConfig, type Plugin, type ViteDevServer } from "vite";
 import { svelte } from "@sveltejs/vite-plugin-svelte";
 import tailwindcss from "@tailwindcss/vite";
 import { execFileSync } from "node:child_process";
-import { readdirSync, readFileSync, statSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import path from "path";
 import { fileURLToPath } from "node:url";
 
@@ -47,8 +47,30 @@ function gitOutput(args: string[]): string | undefined {
 
 function chunkNameForModule(id: string): string | undefined {
   const moduleId = id.replaceAll("\\", "/");
+  if (moduleId.includes("vite/preload-helper")) return "vendor";
+  if (moduleId.endsWith("/src/lib/chat/code-editor-runtime.ts")) return "chat-editor-runtime";
   if (!moduleId.includes("node_modules")) return undefined;
 
+  const reviewCatalogChunk = reviewCatalogChunkName(moduleId);
+  if (reviewCatalogChunk) return reviewCatalogChunk;
+
+  const codeEditorCatalogChunk = codeEditorCatalogChunkName(moduleId);
+  if (codeEditorCatalogChunk) return codeEditorCatalogChunk;
+
+  if (isCodeEditorCoreModule(moduleId)) return "chat-editor-runtime";
+
+  if (
+    moduleId.includes("/node_modules/@pierre/diffs/") ||
+    moduleId.includes("/node_modules/@pierre/theme/") ||
+    moduleId.includes("/node_modules/@pierre/theming/") ||
+    moduleId.includes("/node_modules/@shikijs/") ||
+    moduleId.includes("/node_modules/shiki/") ||
+    moduleId.includes("/node_modules/hast-util-to-html/") ||
+    moduleId.includes("/node_modules/lru_map/") ||
+    moduleId.includes("/node_modules/diff/")
+  ) {
+    return undefined;
+  }
   if (moduleId.includes("/node_modules/svelte/") || moduleId.includes("/node_modules/esm-env/")) {
     return "vendor-svelte";
   }
@@ -71,34 +93,70 @@ function chunkNameForModule(id: string): string | undefined {
   return "vendor";
 }
 
-function svelteFilesWithStyles(dir: string): string[] {
-  const files: string[] = [];
-  for (const entry of readdirSync(dir)) {
-    if (entry === "node_modules" || entry === "dist" || entry === "src-tauri") continue;
-    const fullPath = path.join(dir, entry);
-    const stat = statSync(fullPath);
-    if (stat.isDirectory()) {
-      files.push(...svelteFilesWithStyles(fullPath));
-      continue;
-    }
-    if (!entry.endsWith(".svelte")) continue;
-    const source = readFileSync(fullPath, "utf8");
-    if (source.includes("<style")) files.push(fullPath);
+function codeEditorCatalogChunkName(moduleId: string): string | undefined {
+  if (moduleId.includes("/node_modules/@replit/codemirror-lang-svelte/")) {
+    return "chat-editor-language-svelte";
   }
-  return files;
+  const languageMatch = moduleId.match(/\/node_modules\/@codemirror\/lang-([^/]+)\//u);
+  if (languageMatch?.[1]) return `chat-editor-language-${languageMatch[1]}`;
+  const parserMatch = moduleId.match(/\/node_modules\/@lezer\/([^/]+)\//u);
+  if (parserMatch?.[1] && !["common", "highlight", "lr"].includes(parserMatch[1])) {
+    return `chat-editor-parser-${parserMatch[1]}`;
+  }
+  const legacyMarker = "/node_modules/@codemirror/legacy-modes/mode/";
+  const legacyIndex = moduleId.lastIndexOf(legacyMarker);
+  if (legacyIndex >= 0) {
+    const relativeModule = moduleId.slice(legacyIndex + legacyMarker.length).split("?", 1)[0] ?? "mode";
+    const suffix = relativeModule
+      .replace(/\.[^.]+$/u, "")
+      .replace(/[^a-zA-Z0-9]+/gu, "-")
+      .replace(/^-+|-+$/gu, "")
+      .toLowerCase();
+    return `chat-editor-language-legacy-${suffix || "mode"}`;
+  }
+  return undefined;
 }
 
-function toViteUrl(filePath: string): string {
-  const relative = path.relative(configDir, filePath).replaceAll(path.sep, "/");
-  return `/${relative}`;
+function isCodeEditorCoreModule(moduleId: string): boolean {
+  return moduleId.includes("/node_modules/codemirror/")
+    || moduleId.includes("/node_modules/@codemirror/autocomplete/")
+    || moduleId.includes("/node_modules/@codemirror/commands/")
+    || moduleId.includes("/node_modules/@codemirror/language-data/")
+    || moduleId.includes("/node_modules/@codemirror/language/")
+    || moduleId.includes("/node_modules/@codemirror/lint/")
+    || moduleId.includes("/node_modules/@codemirror/search/")
+    || moduleId.includes("/node_modules/@codemirror/state/")
+    || moduleId.includes("/node_modules/@codemirror/view/")
+    || moduleId.includes("/node_modules/@lezer/common/")
+    || moduleId.includes("/node_modules/@lezer/highlight/")
+    || moduleId.includes("/node_modules/@lezer/lr/")
+    || moduleId.includes("/node_modules/crelt/")
+    || moduleId.includes("/node_modules/style-mod/")
+    || moduleId.includes("/node_modules/w3c-keyname/");
+}
+
+function reviewCatalogChunkName(moduleId: string): string | undefined {
+  const catalogs = [
+    ["/node_modules/@shikijs/langs/dist/", "chat-review-language"],
+    ["/node_modules/@shikijs/themes/dist/", "chat-review-theme"],
+    ["/node_modules/@pierre/theme/dist/", "chat-review-pierre-theme"],
+  ] as const;
+  for (const [marker, prefix] of catalogs) {
+    const markerIndex = moduleId.lastIndexOf(marker);
+    if (markerIndex < 0) continue;
+    const relativeModule = moduleId.slice(markerIndex + marker.length).split("?", 1)[0] ?? "module";
+    const chunkSuffix = relativeModule
+      .replace(/\.[^.]+$/u, "")
+      .replace(/[^a-zA-Z0-9]+/gu, "-")
+      .replace(/^-+|-+$/gu, "")
+      .toLowerCase();
+    return `${prefix}-${chunkSuffix || "module"}`;
+  }
+  return undefined;
 }
 
 async function warmTauriDevEntry(server: ViteDevServer): Promise<void> {
-  const urls = [
-    "/src/main.ts",
-    ...svelteFilesWithStyles(path.join(configDir, "src")).map(toViteUrl),
-  ];
-  await Promise.all(urls.map((url) => server.transformRequest(url)));
+  await server.transformRequest("/src/main.ts");
 }
 
 function tauriDevReady(): Plugin {
@@ -204,9 +262,19 @@ export default defineConfig({
   },
   clearScreen: false,
   build: {
-    rollupOptions: {
+    rolldownOptions: {
+      preserveEntrySignatures: "allow-extension",
       output: {
-        manualChunks: chunkNameForModule,
+        strictExecutionOrder: true,
+        codeSplitting: {
+          includeDependenciesRecursively: false,
+          groups: [
+            {
+              name: (id) => chunkNameForModule(id) ?? null,
+              priority: 10,
+            },
+          ],
+        },
       },
     },
   },
@@ -223,9 +291,6 @@ export default defineConfig({
       : undefined,
     watch: {
       ignored: ["**/src-tauri/**"],
-    },
-    warmup: {
-      clientFiles: ["./src/main.ts", "./src/**/*.svelte"],
     },
   },
 });

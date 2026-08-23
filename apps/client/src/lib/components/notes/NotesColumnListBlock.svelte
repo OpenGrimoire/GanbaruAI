@@ -788,7 +788,7 @@
   .notes-column-width-value {
     min-width: 2.25rem;
     color: hsl(var(--muted-foreground));
-    font-size: 0.733333rem;
+    font-size: calc(0.733333rem * var(--type-scale));
     text-align: right;
   }
 

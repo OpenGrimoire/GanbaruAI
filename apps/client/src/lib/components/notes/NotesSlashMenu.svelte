@@ -456,7 +456,7 @@
     border-radius: 0.25rem;
     background: var(--notes-color-swatch-bg);
     color: var(--notes-color-swatch-fg);
-    font-size: 0.65rem;
+    font-size: calc(0.65rem * var(--type-scale));
     font-weight: 600;
     line-height: 1;
   }

@@ -54,6 +54,6 @@
 <style>
   .format-card { display: flex; min-width: 0; align-items: flex-start; gap: 0.65rem; border: 1px solid color-mix(in srgb, var(--border) 70%, transparent); border-radius: 0.75rem; padding: 0.75rem; text-align: left; }
   .format-card[aria-pressed="true"] { border-color: color-mix(in srgb, var(--primary) 65%, var(--border)); background: color-mix(in srgb, var(--primary) 8%, transparent); }
-  .format-card span { min-width: 0; } .format-card strong { display: block; font-size: 0.75rem; } .format-card small { margin-top: 0.2rem; display: block; color: var(--muted-foreground); font-size: 0.62rem; line-height: 1.35; }
-  .preview-stat { border-radius: 0.7rem; background: color-mix(in srgb, var(--secondary) 68%, transparent); padding: 0.65rem; } .preview-stat strong { display: block; font-size: 1rem; } .preview-stat span { display: block; color: var(--muted-foreground); font-size: 0.62rem; }
+  .format-card span { min-width: 0; } .format-card strong { display: block; font-size: calc(0.75rem * var(--type-scale)); } .format-card small { margin-top: 0.2rem; display: block; color: var(--muted-foreground); font-size: calc(0.62rem * var(--type-scale)); line-height: 1.35; }
+  .preview-stat { border-radius: 0.7rem; background: color-mix(in srgb, var(--secondary) 68%, transparent); padding: 0.65rem; } .preview-stat strong { display: block; font-size: calc(1rem * var(--type-scale)); } .preview-stat span { display: block; color: var(--muted-foreground); font-size: calc(0.62rem * var(--type-scale)); }
 </style>

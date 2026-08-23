@@ -121,7 +121,7 @@
 
 <style>
   .source-dashboard { scrollbar-width: thin; scrollbar-color: color-mix(in srgb, var(--foreground) 18%, transparent) transparent; }
-  .source-primary, .source-secondary { display: inline-flex; height: 2rem; align-items: center; justify-content: center; gap: 0.35rem; border-radius: 0.6rem; padding-inline: 0.7rem; font-size: 0.68rem; font-weight: 600; white-space: nowrap; }
+  .source-primary, .source-secondary { display: inline-flex; height: 2rem; align-items: center; justify-content: center; gap: 0.35rem; border-radius: 0.6rem; padding-inline: 0.7rem; font-size: calc(0.68rem * var(--type-scale)); font-weight: 600; white-space: nowrap; }
   .source-primary { background: var(--primary); color: var(--primary-foreground); }
   .source-secondary { background: var(--secondary); color: var(--secondary-foreground); }
   .source-secondary:hover { background: var(--accent); color: var(--accent-foreground); }
@@ -132,6 +132,6 @@
   .health-warning { background: var(--destructive); }
   .health-stale { background: color-mix(in srgb, var(--destructive) 55%, var(--foreground)); }
   .source-stat { display: flex; min-width: 0; flex-direction: column; border-radius: 0.55rem; background: color-mix(in srgb, var(--secondary) 65%, transparent); padding: 0.35rem 0.45rem; }
-  .source-stat strong { font-size: 0.75rem; font-variant-numeric: tabular-nums; }
-  .source-stat span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted-foreground); font-size: 0.58rem; }
+  .source-stat strong { font-size: calc(0.75rem * var(--type-scale)); font-variant-numeric: tabular-nums; }
+  .source-stat span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted-foreground); font-size: calc(0.58rem * var(--type-scale)); }
 </style>

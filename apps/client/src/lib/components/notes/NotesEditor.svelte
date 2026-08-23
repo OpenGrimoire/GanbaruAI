@@ -441,8 +441,8 @@
 
   function actionButtonClass(active = false): string {
     return cn(
-      "relative flex h-7 min-w-7 shrink-0 items-center justify-center rounded-md px-1.5 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground",
-      active && "bg-accent text-foreground",
+      "relative flex h-7 min-w-7 shrink-0 items-center justify-center rounded-md px-1.5 text-foreground transition-colors hover:bg-accent",
+      active && "bg-accent",
     );
   }
 
@@ -769,7 +769,7 @@
         >
           <button
             type="button"
-            class="flex h-7 max-w-40 items-center rounded-md px-2 text-[0.8rem] text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus:bg-accent focus:text-foreground"
+            class="flex h-7 max-w-40 items-center rounded-md px-2 text-[0.8rem] text-foreground transition-colors hover:bg-accent focus:bg-accent"
             aria-label={activityPanelLabel}
             aria-expanded={activityPanelOpen}
             aria-controls={activityPanelId}
@@ -1186,7 +1186,7 @@
 
           <input
             bind:this={titleInput}
-            class="block w-full min-w-0 bg-transparent text-[2.5rem] font-bold leading-[1.2] text-foreground outline-none placeholder:text-muted-foreground"
+            class="notes-editor-page-title block w-full min-w-0 bg-transparent font-bold leading-[1.2] text-foreground outline-none placeholder:text-muted-foreground"
             aria-label={t("notes.titleInput")}
             bind:value={titleDraft}
             placeholder={t("notes.titlePlaceholder")}
@@ -1267,7 +1267,7 @@
       title={t("notes.archiveConfirmTitle", notesPageTitle(pendingArchivePage, t("notes.untitled")))}
       message={t("notes.archiveConfirmMessage")}
       confirmLabel={t("notes.archiveConfirm")}
-      cancelLabel={t("common.cancelShortcut")}
+      cancelLabel={t("common.cancel")}
       onConfirm={confirmArchivePage}
       onCancel={() => {
         pendingArchivePage = null;
@@ -1285,7 +1285,7 @@
       title={t("notes.trashConfirmTitle", notesPageTitle(pendingTrashPage, t("notes.untitled")))}
       message={t("notes.trashConfirmMessage")}
       confirmLabel={t("notes.trashConfirm")}
-      cancelLabel={t("common.cancelShortcut")}
+      cancelLabel={t("common.cancel")}
       onConfirm={confirmTrashPage}
       onCancel={() => {
         pendingTrashPage = null;

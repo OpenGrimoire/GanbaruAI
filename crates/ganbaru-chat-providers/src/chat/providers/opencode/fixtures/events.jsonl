@@ -1,0 +1,18 @@
+{"type":"server.connected","properties":{}}
+{"type":"session.updated","properties":{"sessionID":"ses_fixture","info":{"id":"ses_fixture","title":"Fixture thread","directory":"/workspace","version":"1.14.19"}}}
+{"type":"message.updated","properties":{"sessionID":"ses_fixture","info":{"id":"msg_assistant","role":"assistant","providerID":"openai","modelID":"gpt-5","variant":"medium"}}}
+{"type":"message.part.updated","properties":{"sessionID":"ses_fixture","part":{"id":"part_text","sessionID":"ses_fixture","messageID":"msg_assistant","type":"text","text":"Hello","time":{"start":1}}}}
+{"type":"message.part.delta","properties":{"sessionID":"ses_fixture","messageID":"msg_assistant","partID":"part_text","field":"text","delta":" world"}}
+{"type":"message.part.updated","properties":{"sessionID":"ses_fixture","part":{"id":"part_text","sessionID":"ses_fixture","messageID":"msg_assistant","type":"text","text":"Hello world","time":{"start":1,"end":2}}}}
+{"type":"message.part.updated","properties":{"sessionID":"ses_fixture","part":{"id":"part_tool","sessionID":"ses_fixture","messageID":"msg_assistant","type":"tool","callID":"call_fixture","tool":"bash","state":{"status":"completed","input":{"command":"pwd"},"title":"Run pwd","output":"/workspace"}}}}
+{"type":"message.part.updated","properties":{"sessionID":"ses_fixture","part":{"id":"part_usage","sessionID":"ses_fixture","messageID":"msg_assistant","type":"step-finish","reason":"stop","cost":0.0125,"tokens":{"total":150,"input":100,"output":50,"reasoning":10,"cache":{"read":20,"write":0}}}}}
+{"type":"permission.asked","properties":{"id":"perm_fixture","sessionID":"ses_fixture","permission":"edit","patterns":["src/main.rs"],"metadata":{"path":"src/main.rs","authorization":"secret"},"always":["src/**"]}}
+{"type":"permission.replied","properties":{"sessionID":"ses_fixture","requestID":"perm_fixture","reply":"once"}}
+{"type":"question.asked","properties":{"id":"question_fixture","sessionID":"ses_fixture","questions":[{"header":"Scope","question":"Which scope should be changed?","options":[{"label":"Current file","description":"Only update the selected file"},{"label":"Project","description":"Update related files"}],"multiple":false,"custom":true}]}}
+{"type":"question.replied","properties":{"sessionID":"ses_fixture","requestID":"question_fixture","answers":[["Current file"]]}}
+{"type":"todo.updated","properties":{"sessionID":"ses_fixture","todos":[{"id":"todo_one","content":"Inspect code","status":"completed"},{"id":"todo_two","content":"Apply change","status":"in_progress"}]}}
+{"type":"session.diff","properties":{"sessionID":"ses_fixture","diff":[{"file":"src/main.rs","additions":3,"deletions":1,"status":"modified","binary":false}]}}
+{"type":"mcp.status","properties":{"sessionID":"ses_fixture","id":"docs","status":"connected","message":"Ready"}}
+{"type":"provider.future_event","properties":{"sessionID":"ses_fixture","token":"must-redact","safe":"value"}}
+{"type":"session.status","properties":{"sessionID":"ses_fixture","status":{"type":"busy"}}}
+{"type":"session.status","properties":{"sessionID":"ses_fixture","status":{"type":"idle"}}}

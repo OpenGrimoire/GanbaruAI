@@ -1356,7 +1356,7 @@
   }
 
   .time-input::placeholder {
-    font-size: 0.68rem;
+    font-size: calc(0.68rem * var(--type-scale));
   }
 
   .time-input-shell {

@@ -1,0 +1,17 @@
+[package]
+name = "ganbaru-working-folders"
+version = "0.1.5"
+description = "Ganbaru AI working-folder contracts and device state"
+authors = ["Ganbaru AI"]
+license = "AGPL-3.0-only"
+edition = "2021"
+
+[lib]
+doctest = false
+
+[dependencies]
+chrono = { workspace = true }
+serde = { workspace = true }
+
+[dev-dependencies]
+serde_json = { workspace = true }

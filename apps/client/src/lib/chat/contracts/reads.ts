@@ -1,0 +1,131 @@
+import type {
+  ChatActivityId,
+  ChatExecutionEnvironmentId,
+  ChatScratchGenerationId,
+  ChatThreadId,
+  ChatThreadState,
+  ChatTurnId,
+  ChatTurnState,
+  ProjectWorkingFolderId,
+  ContinuationGroupId,
+  ModelId,
+  ProviderFamilyId,
+  ProviderInstanceId,
+  ProviderItemId,
+  ProviderSessionId,
+  ProviderSessionState,
+  ProviderThreadId,
+  ProviderTurnId,
+  TurnModeSnapshot,
+  UtcTimestamp,
+  VersionedJson,
+} from "./common";
+import type { ChangedFileSummary, ThreadUsageUpdatedEvent } from "./events";
+import type { ModelOptionSelection, ProviderCapabilities } from "./provider";
+
+export interface ProviderSessionSnapshot {
+  sessionId: ProviderSessionId;
+  state: ProviderSessionState;
+  providerThreadId: ProviderThreadId | null;
+  continuationGroupId: ContinuationGroupId;
+  resumeCursor: VersionedJson | null;
+  effectiveModes: TurnModeSnapshot;
+  capabilities: ProviderCapabilities;
+  startedAt: UtcTimestamp;
+}
+
+export interface TurnDispatchReceipt {
+  turnId: ChatTurnId;
+  state: ChatTurnState;
+  providerTurnId: ProviderTurnId | null;
+  acceptedAt: UtcTimestamp;
+}
+
+export interface DriverOperationReceipt {
+  accepted: boolean;
+  operationId: string;
+  detail: string | null;
+}
+
+export interface ProviderHistoryItem {
+  providerItemId: ProviderItemId | null;
+  providerTurnId: ProviderTurnId | null;
+  kind: string;
+  data: VersionedJson;
+}
+
+export interface ProviderHistoryPage {
+  items: ProviderHistoryItem[];
+  nextCursor: string | null;
+}
+
+export interface ChatThreadShellRead {
+  id: ChatThreadId;
+  workingFolderId: ProjectWorkingFolderId | null;
+  executionEnvironmentId: ChatExecutionEnvironmentId;
+  scratchGenerationId: ChatScratchGenerationId | null;
+  projectId: string;
+  title: string;
+  providerFamilyId: ProviderFamilyId;
+  providerInstanceId: ProviderInstanceId;
+  providerThreadId: ProviderThreadId | null;
+  modelId: ModelId | null;
+  modelOptions: ModelOptionSelection[];
+  modes: TurnModeSnapshot;
+  state: ChatThreadState;
+  latestTurnState: ChatTurnState | null;
+  latestPreview: string | null;
+  messageCount: number;
+  revision: number;
+  lastEventSequence: number;
+  lastActivityAt: UtcTimestamp;
+  unreadAt: UtcTimestamp | null;
+  archivedAt: UtcTimestamp | null;
+}
+
+export interface ChatProjectShellRead {
+  projectId: string;
+  workingFolderId: ProjectWorkingFolderId;
+  workingFolderName: string;
+  workingFolderArchivedAt: UtcTimestamp | null;
+  activeThreadCount: number;
+  archivedThreadCount: number;
+}
+
+export interface ChatChangeNotification {
+  threadId: ChatThreadId;
+  sequence: number;
+  revision: number;
+  changedProjectionKeys: string[];
+}
+
+export interface ChatTimelineItemRead {
+  activityId: ChatActivityId;
+  turnId: ChatTurnId | null;
+  sequenceAnchor: number;
+  kind: string;
+  data: VersionedJson;
+  sourceThreadId?: ChatThreadId;
+}
+
+export interface ChatTimelineTurnRead {
+  turnId: ChatTurnId;
+  state: ChatTurnState;
+  startedAt: UtcTimestamp | null;
+  completedAt: UtcTimestamp | null;
+  stopReason: string | null;
+  modelId: ModelId | null;
+  modelOptions: ModelOptionSelection[];
+  modes: TurnModeSnapshot;
+  usage: ThreadUsageUpdatedEvent | null;
+  changedFiles: ChangedFileSummary[];
+}
+
+export interface ChatTimelinePageRead {
+  threadId: ChatThreadId;
+  items: ChatTimelineItemRead[];
+  turns: ChatTimelineTurnRead[];
+  previousCursor: string | null;
+  nextCursor: string | null;
+  threadRevision: number;
+}

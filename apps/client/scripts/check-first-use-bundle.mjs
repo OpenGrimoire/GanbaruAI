@@ -48,6 +48,10 @@ function readChunks(metadata) {
       fileName: requireString(chunk.fileName, `bundle chunk ${index} fileName`),
       isEntry: chunk.isEntry === true,
       imports: requireStringArray(chunk.imports, `bundle chunk ${index} imports`),
+      dynamicImports: requireStringArray(
+        chunk.dynamicImports,
+        `bundle chunk ${index} dynamicImports`,
+      ),
       modules: requireStringArray(chunk.modules, `bundle chunk ${index} modules`),
     };
   });
@@ -81,6 +85,66 @@ function readBaseline(value) {
           shell.forbiddenModules,
           "baseline shell forbiddenModules",
         ),
+      };
+    })(),
+    chatShell: (() => {
+      const contract = requireObject(root.chatShell, "baseline chatShell");
+      return {
+        loadedModules: requireStringArray(
+          contract.loadedModules,
+          "baseline chatShell loadedModules",
+        ),
+        requiredModules: requireStringArray(
+          contract.requiredModules,
+          "baseline chatShell requiredModules",
+        ),
+        forbiddenModules: requireStringArray(
+          contract.forbiddenModules,
+          "baseline chatShell forbiddenModules",
+        ),
+        forbiddenModuleSubstrings: requireStringArray(
+          contract.forbiddenModuleSubstrings,
+          "baseline chatShell forbiddenModuleSubstrings",
+        ),
+      };
+    })(),
+    editorRuntime: (() => {
+      const contract = requireObject(root.editorRuntime, "baseline editorRuntime");
+      return {
+        module: requireString(contract.module, "baseline editorRuntime module"),
+        requiredModuleSubstrings: requireStringArray(
+          contract.requiredModuleSubstrings,
+          "baseline editorRuntime requiredModuleSubstrings",
+        ),
+        requiredDynamicChunkPrefixes: requireStringArray(
+          contract.requiredDynamicChunkPrefixes,
+          "baseline editorRuntime requiredDynamicChunkPrefixes",
+        ),
+        forbiddenStaticChunkPrefixes: requireStringArray(
+          contract.forbiddenStaticChunkPrefixes,
+          "baseline editorRuntime forbiddenStaticChunkPrefixes",
+        ),
+      };
+    })(),
+    reviewRuntime: (() => {
+      const contract = requireObject(root.reviewRuntime, "baseline reviewRuntime");
+      const maxCatalogModulesPerChunk = contract.maxCatalogModulesPerChunk;
+      if (!Number.isSafeInteger(maxCatalogModulesPerChunk) || maxCatalogModulesPerChunk < 1) {
+        throw new Error(
+          "baseline reviewRuntime maxCatalogModulesPerChunk must be a positive integer",
+        );
+      }
+      return {
+        module: requireString(contract.module, "baseline reviewRuntime module"),
+        catalogModuleSubstrings: requireStringArray(
+          contract.catalogModuleSubstrings,
+          "baseline reviewRuntime catalogModuleSubstrings",
+        ),
+        requiredDynamicChunkPrefixes: requireStringArray(
+          contract.requiredDynamicChunkPrefixes,
+          "baseline reviewRuntime requiredDynamicChunkPrefixes",
+        ),
+        maxCatalogModulesPerChunk,
       };
     })(),
     projectsShell: (() => {
@@ -205,6 +269,10 @@ function readBaseline(value) {
       root.forbiddenEntryModules,
       "baseline forbiddenEntryModules",
     ),
+    forbiddenModuleSubstrings: requireStringArray(
+      root.forbiddenModuleSubstrings,
+      "baseline forbiddenModuleSubstrings",
+    ),
   };
 }
 
@@ -260,10 +328,84 @@ function evaluateStaticModuleContract(contract, label) {
       failures.push(`${label} loads forbidden module: ${moduleId}`);
     }
   }
+  for (const substring of contract.forbiddenModuleSubstrings ?? []) {
+    const matchingModules = [...allModules].filter((moduleId) => moduleId.includes(substring));
+    if (matchingModules.length === 0) {
+      failures.push(`${label} forbidden module substring matches no modules: ${substring}`);
+      continue;
+    }
+    for (const moduleId of matchingModules) {
+      if (modules.has(moduleId)) failures.push(`${label} loads forbidden module: ${moduleId}`);
+    }
+  }
   return { closure, modules };
 }
 
 const shellContract = evaluateStaticModuleContract(baseline.shell, "initial shell");
+
+const chatShellContract = evaluateStaticModuleContract(baseline.chatShell, "Chat shell");
+
+const editorRuntimeChunk = chunks.find((chunk) => (
+  chunk.modules.includes(baseline.editorRuntime.module)
+));
+if (!editorRuntimeChunk) {
+  failures.push(`Editor runtime module is absent: ${baseline.editorRuntime.module}`);
+} else {
+  if (editorRuntimeChunk.isEntry) failures.push("Editor runtime is present in an entry chunk");
+  const editorRuntimeClosure = staticChunkClosure([editorRuntimeChunk]);
+  const editorRuntimeModules = new Set(editorRuntimeClosure.flatMap((chunk) => chunk.modules));
+  for (const substring of baseline.editorRuntime.requiredModuleSubstrings) {
+    if (![...editorRuntimeModules].some((moduleId) => moduleId.includes(substring))) {
+      failures.push(`Editor runtime does not load required dependency: ${substring}`);
+    }
+  }
+  for (const prefix of baseline.editorRuntime.forbiddenStaticChunkPrefixes) {
+    const matchingChunk = editorRuntimeClosure.find((chunk) => chunk.fileName.startsWith(prefix));
+    if (matchingChunk) {
+      failures.push(`Editor runtime eagerly loads language chunk: ${matchingChunk.fileName}`);
+    }
+  }
+  const editorDynamicImports = new Set(
+    editorRuntimeClosure.flatMap((chunk) => chunk.dynamicImports),
+  );
+  for (const prefix of baseline.editorRuntime.requiredDynamicChunkPrefixes) {
+    if (![...editorDynamicImports].some((fileName) => fileName.startsWith(prefix))) {
+      failures.push(`Editor runtime has no on-demand chunk with prefix: ${prefix}`);
+    }
+  }
+}
+
+const reviewRuntimeChunk = chunks.find((chunk) => (
+  chunk.modules.includes(baseline.reviewRuntime.module)
+));
+if (!reviewRuntimeChunk) {
+  failures.push(`Review runtime module is absent: ${baseline.reviewRuntime.module}`);
+} else {
+  if (reviewRuntimeChunk.isEntry) {
+    failures.push("Review runtime is present in an entry chunk");
+  }
+  const reviewRuntimeClosure = staticChunkClosure([reviewRuntimeChunk]);
+  const reviewDynamicImports = new Set(
+    reviewRuntimeClosure.flatMap((chunk) => chunk.dynamicImports),
+  );
+  for (const prefix of baseline.reviewRuntime.requiredDynamicChunkPrefixes) {
+    if (![...reviewDynamicImports].some((fileName) => fileName.startsWith(prefix))) {
+      failures.push(`Review runtime has no on-demand chunk with prefix: ${prefix}`);
+    }
+  }
+}
+for (const chunk of chunks) {
+  const catalogModules = chunk.modules.filter((moduleId) => (
+    baseline.reviewRuntime.catalogModuleSubstrings.some((substring) => (
+      moduleId.includes(substring)
+    ))
+  ));
+  if (catalogModules.length > baseline.reviewRuntime.maxCatalogModulesPerChunk) {
+    failures.push(
+      `Review catalog chunk ${chunk.fileName} contains ${catalogModules.length} catalog modules, baseline allows ${baseline.reviewRuntime.maxCatalogModulesPerChunk}`,
+    );
+  }
+}
 
 const projectsShellContract = evaluateStaticModuleContract(
   baseline.projectsShell,
@@ -363,6 +505,14 @@ for (const moduleId of baseline.forbiddenEntryModules) {
   }
 }
 
+for (const substring of baseline.forbiddenModuleSubstrings) {
+  for (const moduleId of allModules) {
+    if (moduleId.includes(substring)) {
+      failures.push(`forbidden dependency module is present: ${moduleId}`);
+    }
+  }
+}
+
 if (failures.length > 0) {
   throw new Error(`first-use bundle contract failed:\n${failures.map((failure) => `* ${failure}`).join("\n")}`);
 }
@@ -374,6 +524,24 @@ console.log(JSON.stringify({
     requiredModules: baseline.shell.requiredModules,
     forbiddenModules: baseline.shell.forbiddenModules,
   },
+  chatShell: {
+    chunks: chatShellContract.closure.map((chunk) => chunk.fileName),
+    sourceModules: [...chatShellContract.modules]
+      .filter((moduleId) => moduleId.startsWith("src/")).length,
+    requiredModules: baseline.chatShell.requiredModules,
+    forbiddenModules: baseline.chatShell.forbiddenModules,
+    forbiddenModuleSubstrings: baseline.chatShell.forbiddenModuleSubstrings,
+  },
+  reviewRuntime: reviewRuntimeChunk ? {
+    chunk: reviewRuntimeChunk.fileName,
+    dynamicChunks: reviewRuntimeChunk.dynamicImports.length,
+    maxCatalogModulesPerChunk: baseline.reviewRuntime.maxCatalogModulesPerChunk,
+  } : null,
+  editorRuntime: editorRuntimeChunk ? {
+    chunk: editorRuntimeChunk.fileName,
+    dynamicChunks: editorRuntimeChunk.dynamicImports.length,
+    forbiddenStaticChunkPrefixes: baseline.editorRuntime.forbiddenStaticChunkPrefixes,
+  } : null,
   projectsShell: {
     chunks: projectsShellContract.closure.map((chunk) => chunk.fileName),
     sourceModules: [...projectsShellContract.modules]
@@ -426,4 +594,5 @@ console.log(JSON.stringify({
     forbiddenModulePrefixes: baseline.defaultEnglishStartup.forbiddenModulePrefixes,
   },
   forbiddenEntryModules: baseline.forbiddenEntryModules,
+  forbiddenModuleSubstrings: baseline.forbiddenModuleSubstrings,
 }, null, 2));

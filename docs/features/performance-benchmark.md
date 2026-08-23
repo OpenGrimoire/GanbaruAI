@@ -42,6 +42,9 @@ Benchmark result tables use compact dataset ids:
 |---|---|
 | `base-N` | The isolated benchmark DB after scenario setup and before dense dataset seeding. `N` is the number of calendar events present at measurement start. |
 | `dense-vX-rYy-sZ-dP` | The isolated benchmark DB seeded with dense dataset version `vX`, `Y` years before and after the run anchor date, `Z` overlapping timed events at each hourly start, and detail profile `dP`. Detail profiles may add all-day events or productivity history. |
+| `dense-chat-v1` | The isolated benchmark DB seeded with the fixed Chat workload: 4 groups, 20 projects and workspaces, 80 channels, 100 linked provider sessions, 2,000 turns, 4,000 messages, 4,000 activities, 1,000 plans, 500 attachments, 200 checkpoints, and 10,000 canonical events. |
+
+`dense-chat-v1` measures the channel navigation and provider-session execution foundation. Each project has `#general`, `#planning`, `#implementation`, and `#review`; `#general` contains two ordered provider sessions. It does not represent direct messages, task discussions, attention, memberships, or context packages. Those surfaces require a later fixture version after this unrecorded profile has results.
 
 The formatter emits these ids directly. Do not render prose dataset labels such as "empty", "setup events", or "dense calendar" in copied markdown.
 
@@ -208,7 +211,7 @@ Registered suites:
 
 | Suite | Scenarios | Purpose |
 |---|---|---|
-| Core benchmarks | `startup-boot`, `idle-memory`, `calendar-nav`, `calendar-panel-latency` | User-perceived startup, memory, and interaction latency |
+| Core benchmarks | `startup-boot`, `idle-memory`, `calendar-nav`, `calendar-panel-latency`, `chat-workspace` | User-perceived startup, memory, and interaction latency |
 | Backend benchmarks | `calendar-import-ops` | Rust-backed calendar import latency |
 | All benchmarks | Core plus backend | Complete release baseline or broad refactor validation |
 
@@ -220,11 +223,16 @@ Registered scenarios:
 | `idle-memory` | `lib/benchmark/scenarios/idle-memory.ts` | Anchored week idle RAM |
 | `calendar-nav` | `lib/benchmark/scenarios/calendar-nav.ts` | Physical right-arrow hold week-view RAM |
 | `calendar-panel-latency` | `lib/benchmark/scenarios/calendar-panel-latency.ts` | Calendar panel open latency from existing-event and create actions |
+| `chat-workspace` | `lib/benchmark/scenarios/chat-workspace.ts` | Chat activation, recent-channel switching, bounded reads, channel search, streamed paint cadence, idle process CPU, memory, and owned process stop |
 | `calendar-import-ops` | `lib/benchmark/scenarios/calendar-import-ops.ts` | Rust-backed calendar bulk import latency |
 
 `calendar-nav` dispatches `ArrowRight` keydown and keyup events on `window` for a 3-second hold. That enters CalendarView's real keyboard listener and real held-navigation controller, so the benchmark follows the same path as a physical right-arrow hold. Setup waits for the anchored week and adjacent window prefetch to finish. Held repeats use the app's normal readiness gate: the current render window must be applied, and the next target window must already be current or cached. If not, the repeat tick is skipped. The scenario observes the real controller to count moves, repeats, and skipped ticks.
 
 `calendar-panel-latency` runs 50 samples for each panel action. `click existing event` opens many different visible events from the dense anchored week instead of alternating between one or two events, which avoids measuring a warmed detail cache as the normal case. `click empty time slot` opens the create panel from deterministic time slots. The scenario does not measure switching between already-open events and does not measure create-panel cancellation.
+
+`chat-workspace` is dense-only and seeds `dense-chat-v1` without provider credentials, absolute workspace paths, network traffic, or user data. It measures the first route activation to a usable channel rail, 20 alternating channel switches through the mounted store and byte-bounded recent-channel working set, 20 unified channel latest-page SQLite reads with cross-session projection parsing, 20 loaded channel searches, 20 indexed channel searches, and 120 painted synthetic streaming updates against the selected message card. It samples the complete app process tree for idle CPU over two seconds, measures five graceful stops of an inert shell-free owned child, then uses the normal 30-second memory observation window. The synthetic stream changes only in-memory benchmark state and restores the original row afterward. Provider processes do not start during route activation, switching, paging, search, streaming, CPU, or memory measurement.
+
+The Chat workload has its own fixed profile because calendar range, anchor date, and stack count do not describe conversation density. Change `dense-chat-v1` only after its current shape has a recorded run. A change to row counts, payload sizes, repetitions, CPU window, streaming method, or measured path requires a new Chat fixture profile after results exist. Wording and output layout changes do not.
 
 ## Dense calendar dataset generator
 

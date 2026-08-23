@@ -1,6 +1,6 @@
 # Work environments
 
-A work environment is a saved configuration that the calendar activates automatically when a session block starts. It covers what apps to open, what browser tabs to load, what playlist to play, what blocker rules to enforce, and what project context to show. The user defines environments once during planning; the app enforces them throughout the week.
+A work environment is a saved configuration that the calendar activates automatically when a session block starts. It covers what apps to open, what browser tabs to load, what playlist to play, what blocker rules to enforce, and what project, task, Notes, or Chat context to suggest. The user defines environments once during planning; the app applies them throughout the week.
 
 This doc is a placeholder. Deeper design comes in a later pass.
 
@@ -14,6 +14,7 @@ This doc is a placeholder. Deeper design comes in a later pass.
 | Music playlist | Local file, YouTube playlist, or environment-default playlist |
 | Blocker rules | Which sites and apps are off-limits (see `features/doomscrolling.md`) |
 | Edge panel context | Which project context to display |
+| Ganbaru context | Project plus optional task, Notes page, or Chat channel to surface |
 
 ## How activation works
 
@@ -26,8 +27,9 @@ When a calendar session block reaches its start time:
 5. Starts the assigned playlist.
 6. Updates the blocker rules.
 7. Updates the edge panel context.
+8. Selects the linked project and offers the task, Notes page, or Chat channel needed for the session.
 
-This eliminates the daily friction of arranging the workspace manually. The user decides once during weekly planning; the app enforces it throughout the week.
+This eliminates the daily friction of arranging the workspace manually. The user decides once during weekly planning; the app applies it throughout the week. Context activation must preserve drafts, open review state, and active execution. It can suggest or open a linked channel or task, but it never retargets a running provider continuation or silently discards the person's current UI state.
 
 ## Manual activation
 
@@ -50,3 +52,7 @@ Environment management requires controlling other applications (opening, closing
 - **Doomscrolling:** enforces the assigned rules.
 - **Edge panel:** displays the environment name and the relevant project context.
 - **Pomodoro:** runs alongside; the timer is independent of the environment but typically pairs with one.
+- **Projects and Notes:** surface the linked task and supporting knowledge for scheduled human work.
+- **Chat:** surfaces the linked channel, task discussion, or attention item without turning the environment into a provider-session owner.
+
+A human work environment and an AI execution environment are related but distinct. Calendar activation may surface a channel or folder for the person, but it never grants a teammate access or changes an active run. An AI run selects one authorized current-folder, worktree, or scratch execution environment under [Chat access control](../data/access-control.md). Other granted folders remain secondary application-brokered resources.

@@ -15,6 +15,7 @@
   import { getPomodoro } from "$lib/stores/pomodoro.svelte";
   import { getNotes } from "$lib/stores/notes.svelte";
   import { getProjects } from "$lib/stores/projects.svelte";
+  import { getChat } from "$lib/stores/chat.svelte";
   import { getZoom } from "$lib/stores/zoom.svelte";
   import { getPreferences } from "$lib/stores/preferences.svelte";
   import { getSettingsLauncher } from "$lib/stores/settingsLauncher.svelte";
@@ -61,6 +62,7 @@
   import MusicSoundscapeCoordinator from "$lib/components/music/MusicSoundscapeCoordinator.svelte";
   import NotesView from "$lib/components/notes/NotesView.svelte";
   import ProjectsView from "$lib/components/projects/ProjectsView.svelte";
+  import ChatWorkspace from "$lib/components/chat/ChatWorkspace.svelte";
   import ConfirmDialog from "$lib/components/ui/ConfirmDialog.svelte";
   import TooltipHost from "$lib/components/ui/TooltipHost.svelte";
   import UpdateNotificationToast from "$lib/components/updates/UpdateNotificationToast.svelte";
@@ -103,6 +105,7 @@
   const pomodoro = getPomodoro();
   const notes = getNotes();
   const projects = getProjects();
+  const chat = getChat();
   const zoom = getZoom();
   const preferences = getPreferences();
   const settingsLauncher = getSettingsLauncher();
@@ -314,9 +317,13 @@
     const unsubscribeHistoryVault = isMainWindow
       ? onActiveVaultIdentityChange((previousVaultId, nextVaultId) => {
           notesProjectHistoryScheduler.switchVault();
+          chat.resetForVault();
           if (!nextVaultId) return;
           const projectsRequest = previousVaultId ? projects.load() : projects.ensureLoaded();
-          void projectsRequest.then(() => previousVaultId ? notes.load() : notes.ensureLoaded()).catch((error) => {
+          void projectsRequest.then(() => Promise.all([
+            previousVaultId ? notes.load() : notes.ensureLoaded(),
+            chat.prewarmForProject(projects.selectedProjectId),
+          ])).catch((error) => {
             console.error("core workspace preload failed", error);
           });
         })
@@ -325,7 +332,10 @@
     if (isMainWindow) {
       void ensureDbUrl()
         .then(() => projects.ensureLoaded())
-        .then(() => notes.ensureLoaded())
+        .then(() => Promise.all([
+          notes.ensureLoaded(),
+          chat.prewarmForProject(projects.selectedProjectId),
+        ]))
         .catch((error) => {
           console.error("core workspace preload failed", error);
         });
@@ -994,6 +1004,27 @@
     if (enabled && wasEnabled) notesNotificationScheduler.invalidate();
   });
 
+  const chatScheduledMessageScheduler = createLifecycleScheduler({
+    errorRetryMs: 60_000,
+    run: async (context) => {
+      const result = await chat.dispatchDueScheduledMessages();
+      if (!context.isCurrent() || !result.nextDispatchAt) return null;
+      const deadline = Date.parse(result.nextDispatchAt);
+      return Number.isFinite(deadline) ? deadline : null;
+    },
+    onError: (error) => {
+      console.error("[chat scheduled messages] dispatch failed:", error);
+    },
+  });
+
+  $effect(() => {
+    const _version = chat.scheduledMessagesVersion;
+    const enabled = isMainWindow && chat.loaded;
+    const wasEnabled = chatScheduledMessageScheduler.isEnabled();
+    chatScheduledMessageScheduler.setEnabled(enabled);
+    if (enabled && wasEnabled) chatScheduledMessageScheduler.invalidate();
+  });
+
   // Event notifications
   const eventNotificationScheduler = createEventNotificationScheduler({
     getEvents: () => {
@@ -1027,6 +1058,7 @@
     activeBlockScheduler.resume();
     eventNotificationScheduler.resume();
     notesNotificationScheduler.resume();
+    chatScheduledMessageScheduler.resume();
     notesProjectHistoryScheduler.resume();
     desktopBlockingScheduler.resume();
     doomscrollingUsage.resume();
@@ -1037,6 +1069,7 @@
     activeBlockScheduler.dispose();
     eventNotificationScheduler.dispose();
     notesNotificationScheduler.dispose();
+    chatScheduledMessageScheduler.dispose();
     desktopBlockingScheduler.dispose();
     doomscrollingUsage.setEnabled(false);
     void doomscrollingUsage.flush().catch((error) => {
@@ -1059,8 +1092,10 @@
         <CalendarView />
       {:else if nav.current === "projects"}
         <ProjectsView />
-      {:else}
+      {:else if nav.current === "notes"}
         <NotesView />
+      {:else}
+        <ChatWorkspace />
       {/if}
     </main>
   </div>
@@ -1081,7 +1116,7 @@
       title={t("focusDialog.resumeTitle")}
       message={t("focusDialog.awayMessage", formatAwayDuration(suspendInfo.awaySeconds))}
       confirmLabel={t("focusDialog.resume")}
-      cancelLabel={t("focusDialog.stopSessionShortcut")}
+      cancelLabel={t("focusDialog.stopSessionCancel")}
       danger={false}
       onConfirm={() => { void pomodoro.dismissSuspend(true); }}
       onCancel={() => { pomodoro.dismissedBlockId = pomodoro.activeBlockId; void pomodoro.dismissSuspend(false); }}

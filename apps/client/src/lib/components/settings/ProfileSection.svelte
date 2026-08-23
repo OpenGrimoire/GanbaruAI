@@ -1,5 +1,9 @@
 <script lang="ts">
   import Save from "@lucide/svelte/icons/save";
+  import ImagePlus from "@lucide/svelte/icons/image-plus";
+  import Trash2 from "@lucide/svelte/icons/trash-2";
+  import { deleteProfileImageFile, pickProfileImageFile } from "$lib/api/profile-image";
+  import ProfileAvatar from "$lib/components/profile/ProfileAvatar.svelte";
   import { getLocalization } from "$lib/i18n/translator.svelte";
   import type { NotesLocalUser } from "$lib/notes/types";
   import {
@@ -23,6 +27,7 @@
   let initializedDisplayName = $state<string | null>(null);
   let initializedFullName = $state<string | null>(null);
   let saving = $state(false);
+  let savingImage = $state(false);
   let saveError = $state<string | null>(null);
   let saved = $state(false);
 
@@ -111,6 +116,46 @@
     }
   }
 
+  async function chooseProfileImage(): Promise<void> {
+    saveError = null;
+    saved = false;
+    savingImage = true;
+    try {
+      const selected = await pickProfileImageFile(t("settings.profileIdentity.picturePickerTitle"));
+      if (!selected || selected.relativePath === preferences.profileImagePath) return;
+      const previous = preferences.profileImagePath;
+      if (!preferences.setProfileImagePath(selected.relativePath)) {
+        await deleteProfileImageFile(selected.relativePath);
+        throw new Error(t("settings.profileIdentity.invalidPicture"));
+      }
+      if (previous) await deleteProfileImageFile(previous);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      saveError = t("settings.profileIdentity.pictureUpdateFailed", message);
+    } finally {
+      savingImage = false;
+    }
+  }
+
+  async function removeProfileImage(): Promise<void> {
+    const previous = preferences.profileImagePath;
+    if (!previous || savingImage) return;
+    saveError = null;
+    saved = false;
+    savingImage = true;
+    try {
+      if (!preferences.setProfileImagePath(null)) {
+        throw new Error(t("settings.profileIdentity.invalidPicture"));
+      }
+      await deleteProfileImageFile(previous);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      saveError = t("settings.profileIdentity.pictureUpdateFailed", message);
+    } finally {
+      savingImage = false;
+    }
+  }
+
   function handleIdentityKeydown(event: KeyboardEvent): void {
     if (event.key === "Enter") {
       event.preventDefault();
@@ -132,6 +177,44 @@
     <h2 class="px-1 text-[0.866667rem] font-semibold text-foreground">{t("settings.profileIdentity.heading")}</h2>
 
     <div class="flex flex-col gap-3">
+      <div class="flex items-center justify-between gap-4 px-1 py-1 max-[520px]:flex-col max-[520px]:items-stretch max-[520px]:gap-3">
+        <div class="flex min-w-0 flex-1 items-center gap-3">
+          <ProfileAvatar
+            displayName={draftDisplayName || PROFILE_DISPLAY_NAME_FALLBACK}
+            imagePath={preferences.profileImagePath}
+            size={56}
+          />
+          <div class="min-w-0">
+            <div class="text-[0.866667rem] text-foreground">{t("settings.profileIdentity.picture")}</div>
+            <div class="mt-0.5 text-[0.8rem] leading-5 text-muted-foreground">
+              {t("settings.profileIdentity.pictureDescription")}
+            </div>
+          </div>
+        </div>
+        <div class="flex shrink-0 items-center gap-2 max-[520px]:pl-17">
+          <button
+            type="button"
+            class="inline-flex h-8 items-center gap-1.5 rounded-md border border-border bg-card px-2.5 text-[0.8rem] font-medium text-foreground transition-colors hover:bg-accent disabled:opacity-55 dark:bg-transparent"
+            disabled={savingImage}
+            onclick={() => void chooseProfileImage()}
+          >
+            <ImagePlus size={13} />
+            {t("settings.profileIdentity.uploadPicture")}
+          </button>
+          {#if preferences.profileImagePath}
+            <button
+              type="button"
+              class="inline-flex size-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-destructive disabled:opacity-55"
+              disabled={savingImage}
+              aria-label={t("settings.profileIdentity.removePicture")}
+              title={t("settings.profileIdentity.removePicture")}
+              onclick={() => void removeProfileImage()}
+            >
+              <Trash2 size={14} />
+            </button>
+          {/if}
+        </div>
+      </div>
       <div class="flex items-center justify-between gap-4 px-1 py-1 max-[520px]:flex-col max-[520px]:items-stretch max-[520px]:gap-2">
         <div class="min-w-0 flex-1">
           <label for="profile-display-name" class="text-[0.866667rem] text-foreground">

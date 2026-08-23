@@ -788,8 +788,8 @@
   <ConfirmDialog
     title={t("settings.doomscrolling.limits.editor.deleteLinkedSourceTitle")}
     message={t("settings.doomscrolling.limits.editor.deleteLinkedSourceMessage")}
-    confirmLabel={t("settings.doomscrolling.shared.deleteShortcut")}
-    cancelLabel={t("settings.doomscrolling.shared.cancelShortcut")}
+    confirmLabel={t("settings.doomscrolling.shared.deleteAction")}
+    cancelLabel={t("settings.doomscrolling.shared.cancelAction")}
     onConfirm={confirmDeleteEntry}
     onCancel={cancelDeleteEntry}
   />

@@ -1,4 +1,4 @@
-export const APP_VIEWS = ["calendar", "projects", "notes"] as const;
+export const APP_VIEWS = ["calendar", "projects", "notes", "chat"] as const;
 export type View = (typeof APP_VIEWS)[number];
 
 export const DETACHABLE_TAB_VIEWS = APP_VIEWS;
@@ -18,7 +18,8 @@ export function isDetachableTabView(value: unknown): value is DetachableTabView 
 export function viewLabel(view: View): string {
   if (view === "calendar") return "Calendar";
   if (view === "projects") return "Projects";
-  return "Notes";
+  if (view === "notes") return "Notes";
+  return "Chat";
 }
 
 export function parseInitialViewSearch(search: string): View | undefined {

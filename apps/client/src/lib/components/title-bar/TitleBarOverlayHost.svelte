@@ -130,6 +130,10 @@
     onClose={() => settingsLauncher.close()}
     initialSection={settingsLauncher.targetSection}
     initialDoomscrollingTab={settingsLauncher.targetDoomscrollingTab}
+    initialChatSubsection={settingsLauncher.targetChatSubsection}
+    initialChatTeammateId={settingsLauncher.targetChatTeammateId}
+    initialChatChannelId={settingsLauncher.targetChatChannelId}
+    initialChatCreateTeammate={settingsLauncher.targetChatCreateTeammate}
   />
 {/if}
 

@@ -210,11 +210,11 @@
   .menu-panel { border: 1px solid var(--border); border-radius: 0.5rem; background: var(--popover); color: var(--popover-foreground); box-shadow: 0 10px 28px color-mix(in srgb, black 18%, transparent); outline: none; }
   .back-button { display: grid; height: 1.75rem; width: 1.75rem; flex: none; place-items: center; border-radius: 0.375rem; color: var(--muted-foreground); }
   .back-button:hover, .back-button:focus-visible { background: var(--accent); color: var(--accent-foreground); outline: none; }
-  .panel-row { display: grid; min-height: 2rem; width: 100%; grid-template-columns: 1.25rem minmax(0,1fr) auto 0.9rem; align-items: center; gap: 0.35rem; border-radius: 0.375rem; padding-inline: 0.45rem; text-align: left; font-size: 0.68rem; }
+  .panel-row { display: grid; min-height: 2rem; width: 100%; grid-template-columns: 1.25rem minmax(0,1fr) auto 0.9rem; align-items: center; gap: 0.35rem; border-radius: 0.375rem; padding-inline: 0.45rem; text-align: left; font-size: calc(0.68rem * var(--type-scale)); }
   .panel-row:hover, .panel-row:focus-visible { background: var(--accent); outline: none; }
-  .action-row { display: flex; min-height: 2rem; width: 100%; align-items: center; gap: 0.6rem; border-radius: 0.375rem; padding-inline: 0.45rem; text-align: left; font-size: 0.68rem; }
+  .action-row { display: flex; min-height: 2rem; width: 100%; align-items: center; gap: 0.6rem; border-radius: 0.375rem; padding-inline: 0.45rem; text-align: left; font-size: calc(0.68rem * var(--type-scale)); }
   .action-row:hover, .action-row:focus-visible { background: var(--accent); outline: none; }
   .action-row:disabled { opacity: 0.5; }
-  .option-row { display: flex; min-height: 2rem; width: 100%; align-items: center; justify-content: space-between; gap: 0.5rem; border-radius: 0.375rem; padding-inline: 0.5rem; text-align: left; font-size: 0.68rem; }
+  .option-row { display: flex; min-height: 2rem; width: 100%; align-items: center; justify-content: space-between; gap: 0.5rem; border-radius: 0.375rem; padding-inline: 0.5rem; text-align: left; font-size: calc(0.68rem * var(--type-scale)); }
   .option-row:hover, .option-row:focus-visible { background: var(--accent); outline: none; }
 </style>

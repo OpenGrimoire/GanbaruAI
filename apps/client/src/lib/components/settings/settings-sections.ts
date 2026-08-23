@@ -4,6 +4,7 @@ import UserRound from "@lucide/svelte/icons/user-round";
 import Calendar from "@lucide/svelte/icons/calendar";
 import Folder from "@lucide/svelte/icons/folder";
 import Book from "@lucide/svelte/icons/book";
+import MessageSquare from "@lucide/svelte/icons/message-square";
 import GlobeOff from "@lucide/svelte/icons/globe-off";
 import Info from "@lucide/svelte/icons/info";
 import Keyboard from "@lucide/svelte/icons/keyboard";
@@ -25,6 +26,7 @@ export const SETTINGS_SECTIONS: SettingsSectionMeta[] = [
   { id: "calendars", labelKey: "settings.section.calendars", icon: Calendar },
   { id: "projects", labelKey: "settings.section.projects", icon: Folder },
   { id: "notes", labelKey: "settings.section.notes", icon: Book },
+  { id: "chat", labelKey: "settings.section.chat", icon: MessageSquare },
   { id: "focus", labelKey: "settings.section.focus", icon: Timer },
   { id: "music", labelKey: "settings.section.music", icon: Music },
   { id: "doomscrolling", labelKey: "settings.section.doomscrolling", icon: GlobeOff },

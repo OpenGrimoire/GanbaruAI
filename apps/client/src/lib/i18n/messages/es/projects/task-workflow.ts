@@ -96,7 +96,7 @@ export const taskWorkflow = {
     deleteFieldTitle: (field: string) => `¿Eliminar ${field}?`,
     deleteFieldMessage: (field: string) =>
       `Esto quita ${field} y sus valores de todas las tareas de este proyecto. El historial de tareas se conserva.`,
-    deleteFieldConfirm: "Eliminar campo (Enter)",
+    deleteFieldConfirm: "Eliminar campo",
     typeText: "Texto",
     typeNumber: "Número",
     typeDate: "Fecha",
@@ -118,7 +118,7 @@ export const taskWorkflow = {
     deleteOptionTitle: (option: string) => `¿Eliminar ${option}?`,
     deleteOptionMessage: (option: string, field: string) =>
       `Esto quita ${option} de los valores de ${field} en este proyecto. Las tareas y su historial se conservan.`,
-    deleteOptionConfirm: "Eliminar opción (Enter)",
+    deleteOptionConfirm: "Eliminar opción",
     nameRequired: "El nombre del campo es obligatorio.",
     nameExists: "Ya existe un campo personalizado con ese nombre.",
     saveFailed: (message: string) => `No se pudo guardar el campo personalizado: ${message}`,

@@ -1,0 +1,16 @@
+{
+  "minimumCursorVersion": "2026.04.08",
+  "installedLocalVersionSupported": false,
+  "protocolVersion": 1,
+  "transport": "native_rust_acp_stdio",
+  "requiredCases": {
+    "authentication": true,
+    "sessionResume": true,
+    "offeredPermissions": true,
+    "structuredQuestions": true,
+    "nativePlan": true,
+    "modelTraits": true,
+    "cancellation": true,
+    "unknownBlocks": true
+  }
+}

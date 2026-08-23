@@ -29,7 +29,7 @@ export const templatesHistory = {
   deletePageTemplateConfirmTitle: (name: string) => `¿Eliminar ${name}?`,
   deletePageTemplateConfirmMessage:
     "Esto elimina solo la plantilla guardada. Las notas creadas desde ella no cambian.",
-  deletePageTemplateConfirm: "Eliminar plantilla (Enter)",
+  deletePageTemplateConfirm: "Eliminar plantilla",
   pageHistory: "Historial",
   loadPageHistoryFailed: (message: string) => `No se pudo cargar el historial: ${message}`,
   noPageHistory: "No hay historial",
@@ -42,5 +42,5 @@ export const templatesHistory = {
   restorePageHistoryConfirmTitle: "¿Restaurar esta versión?",
   restorePageHistoryConfirmMessage: (time: string) =>
     `La nota actual se guardará primero en el historial. Después, la versión de ${time} reemplazará detalles y bloques de la nota.`,
-  restorePageHistoryConfirm: "Restaurar versión (Enter)",
+  restorePageHistoryConfirm: "Restaurar versión",
 } as const satisfies MessageShape<typeof enTemplatesHistory>;

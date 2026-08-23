@@ -51,5 +51,5 @@
 </div>
 
 <style>
-  .bulk-button { display: inline-flex; height: 1.75rem; flex: none; align-items: center; gap: 0.3rem; border-radius: 0.375rem; background: var(--secondary); padding-inline: 0.5rem; color: var(--secondary-foreground); font-size: 0.63rem; font-weight: 500; }
+  .bulk-button { display: inline-flex; height: 1.75rem; flex: none; align-items: center; gap: 0.3rem; border-radius: 0.375rem; background: var(--secondary); padding-inline: 0.5rem; color: var(--secondary-foreground); font-size: calc(0.63rem * var(--type-scale)); font-weight: 500; }
 </style>

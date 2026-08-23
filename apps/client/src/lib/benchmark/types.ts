@@ -156,7 +156,7 @@ export interface BenchmarkWorkload {
   memoryMode: BenchmarkMemoryMode;
 }
 
-export type BenchmarkMetricUnit = "ms" | "count";
+export type BenchmarkMetricUnit = "ms" | "count" | "percent";
 
 export interface BenchmarkMetric {
   /** Stable row label within a scenario, e.g. `click existing event`. */

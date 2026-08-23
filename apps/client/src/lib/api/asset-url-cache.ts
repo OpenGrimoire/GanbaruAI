@@ -11,6 +11,7 @@ export type AssetUrlKind =
   | "notes-page-icon"
   | "notes-page-cover"
   | "notes-file"
+  | "profile-image"
   | "project-icon";
 
 export interface ByteAwareLruCacheOptions<Value> {

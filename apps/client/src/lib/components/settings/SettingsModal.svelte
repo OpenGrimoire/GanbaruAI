@@ -23,6 +23,8 @@
     DoomscrollingLimitEditorTarget,
     DoomscrollingSettingsTab,
     NotesTransferOperation,
+    ChatProviderSetupTarget,
+    ChatSettingsSubsection,
     SectionId,
     SettingsDetailKind,
   } from "./types";
@@ -32,6 +34,7 @@
   import CalendarsSection from "./CalendarsSection.svelte";
   import ProjectsSection from "./ProjectsSection.svelte";
   import NotesSection from "./NotesSection.svelte";
+  import ChatSection from "./ChatSection.svelte";
   import FocusSection from "./FocusSection.svelte";
   import MusicSection from "./MusicSection.svelte";
   import DoomscrollingSection from "./DoomscrollingSection.svelte";
@@ -39,6 +42,7 @@
   import UpdatesSection from "./UpdatesSection.svelte";
   import ShortcutsSection from "./ShortcutsSection.svelte";
   import AboutSection from "./AboutSection.svelte";
+  import ConfirmDialog from "$lib/components/ui/ConfirmDialog.svelte";
 
   const SECTION_COMPONENTS = {
     appearance: AppearanceSection,
@@ -46,6 +50,7 @@
     calendars: CalendarsSection,
     projects: ProjectsSection,
     notes: NotesSection,
+    chat: ChatSection,
     focus: FocusSection,
     music: MusicSection,
     doomscrolling: DoomscrollingSection,
@@ -57,16 +62,25 @@
 
   type SettingsDetailView =
     | { kind: "doomscrolling-limit"; target: DoomscrollingLimitEditorTarget }
-    | { kind: "notes-transfer"; operation: NotesTransferOperation };
+    | { kind: "notes-transfer"; operation: NotesTransferOperation }
+    | { kind: "chat-provider"; target: ChatProviderSetupTarget };
 
   let {
     onClose,
     initialSection,
     initialDoomscrollingTab,
+    initialChatSubsection,
+    initialChatTeammateId,
+    initialChatChannelId,
+    initialChatCreateTeammate,
   }: {
     onClose: () => void;
     initialSection?: SectionId;
     initialDoomscrollingTab?: DoomscrollingSettingsTab;
+    initialChatSubsection?: ChatSettingsSubsection;
+    initialChatTeammateId?: string;
+    initialChatChannelId?: string;
+    initialChatCreateTeammate?: boolean;
   } = $props();
 
   const themeEditor = getThemeEditor();
@@ -76,13 +90,17 @@
   // When the user opens a theme in the floating editor, step out of the way
   // so the modal backdrop does not block clicking through to the app.
   $effect(() => {
-    if (themeEditor.editingId) onClose();
+    if (themeEditor.editingId) requestSettingsClose();
   });
 
   const SECTIONS = SETTINGS_SECTIONS;
 
   const initialActiveSection = untrack(() => initialSection ?? "appearance");
+  const initialActiveChatSubsection = untrack(() => initialChatSubsection ?? "teammates");
   let activeSection = $state<SectionId>(initialActiveSection);
+  let activeChatSubsection = $state<ChatSettingsSubsection>(initialActiveChatSubsection);
+  let teammateDraftOpen = $state(false);
+  let pendingDraftNavigation = $state<(() => void) | null>(null);
   let detailView = $state<SettingsDetailView | null>(null);
   let detailLoadState = $state<LazyComponentLoadState<
     SettingsDetailKind,
@@ -93,6 +111,7 @@
     detailView && detailLoadState?.key === detailView.kind ? detailLoadState : null,
   );
   let detailScrollEl: HTMLElement | undefined = $state();
+  let modalPanel: HTMLElement | undefined = $state();
   let detailScrollbarInsetTop = $state(0);
   let detailScrollbarInsetBottom = $state(0);
   let settingsScrollEl: HTMLElement | undefined = $state();
@@ -100,6 +119,38 @@
   const useIconRail = $derived(!useTopNav && viewport.below("regular"));
   const settingsScrollbarInset = $derived(useTopNav ? 12 : useIconRail ? 16 : 24);
   const settingsContentPaddingClass = $derived(useTopNav ? "px-3 py-4" : useIconRail ? "px-5 py-5" : "p-8");
+  const chatTeammatesUsesInternalScroll = $derived(
+    activeSection === "chat" && activeChatSubsection === "teammates",
+  );
+
+  function requestSettingsNavigation(navigate: () => void): void {
+    if (!teammateDraftOpen) {
+      navigate();
+      return;
+    }
+    pendingDraftNavigation = navigate;
+  }
+
+  function requestSettingsClose(): void {
+    requestSettingsNavigation(onClose);
+  }
+
+  function cancelDraftNavigation(): void {
+    pendingDraftNavigation = null;
+  }
+
+  function discardDraftAndContinue(): void {
+    const navigate = pendingDraftNavigation;
+    pendingDraftNavigation = null;
+    teammateDraftOpen = false;
+    navigate?.();
+  }
+
+  function updateTeammateDraftState(open: boolean): void {
+    teammateDraftOpen = open;
+    if (!open) pendingDraftNavigation = null;
+  }
+
   function requestSettingsDetail(kind: SettingsDetailKind, retry = false): void {
     if (!retry && detailLoadState?.key === kind) return;
     const loadingState = beginLazyComponentLoad(detailLoadState, kind);
@@ -149,14 +200,42 @@
     });
   }
 
+  function focusableElements(container: HTMLElement): HTMLElement[] {
+    return [...container.querySelectorAll<HTMLElement>(
+      "button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), a[href], [tabindex]:not([tabindex='-1'])",
+    )].filter((element) => !element.hidden && element.getClientRects().length > 0);
+  }
+
+  function trapModalFocus(event: KeyboardEvent): void {
+    if (event.key !== "Tab" || !modalPanel) return;
+    const focusable = focusableElements(modalPanel);
+    if (focusable.length === 0) {
+      event.preventDefault();
+      modalPanel.focus();
+      return;
+    }
+    const first = focusable[0];
+    const last = focusable[focusable.length - 1];
+    if (event.shiftKey && document.activeElement === first) {
+      event.preventDefault();
+      last.focus();
+    } else if (!event.shiftKey && document.activeElement === last) {
+      event.preventDefault();
+      first.focus();
+    }
+  }
+
   function selectSection(section: SectionId): void {
-    activeSection = section;
-    detailView = null;
-    detailLoadState = null;
-    detailScrollEl = undefined;
-    detailScrollbarInsetTop = 0;
-    detailScrollbarInsetBottom = 0;
-    scrollSettingsToTop();
+    if (section === activeSection && !detailView) return;
+    requestSettingsNavigation(() => {
+      activeSection = section;
+      detailView = null;
+      detailLoadState = null;
+      detailScrollEl = undefined;
+      detailScrollbarInsetTop = 0;
+      detailScrollbarInsetBottom = 0;
+      scrollSettingsToTop();
+    });
   }
 
   function openDoomscrollingLimitEditor(target: DoomscrollingLimitEditorTarget): void {
@@ -179,6 +258,17 @@
     scrollSettingsToTop();
   }
 
+  function openChatProviderSetup(target: ChatProviderSetupTarget): void {
+    activeSection = "chat";
+    activeChatSubsection = "providers";
+    detailView = { kind: "chat-provider", target };
+    detailScrollEl = undefined;
+    detailScrollbarInsetTop = 0;
+    detailScrollbarInsetBottom = 0;
+    requestSettingsDetail("chat-provider");
+    scrollSettingsToTop();
+  }
+
   function closeDetailView(): void {
     detailView = null;
     detailLoadState = null;
@@ -189,11 +279,20 @@
   }
 
   onMount(() => {
+    const returnFocus = document.activeElement instanceof HTMLElement
+      ? document.activeElement
+      : null;
+    queueMicrotask(() => {
+      const first = modalPanel ? focusableElements(modalPanel)[0] : undefined;
+      (first ?? modalPanel)?.focus();
+    });
     function handleKeydown(e: KeyboardEvent) {
+      if (pendingDraftNavigation) return;
+      trapModalFocus(e);
       if (hasOnlyShortcutModifier(e) && e.key === ",") {
         e.preventDefault();
         e.stopPropagation();
-        onClose();
+        requestSettingsClose();
         return;
       }
       if (activeSection === "shortcuts" && hasOnlyShortcutModifier(e) && e.key.toLowerCase() === "f") {
@@ -215,14 +314,19 @@
           closeDetailView();
           return;
         }
-        onClose();
+        requestSettingsClose();
         return;
       }
       // Keep the modal from leaking shortcuts to underlying panels
       e.stopPropagation();
     }
     window.addEventListener("keydown", handleKeydown, true);
-    return () => window.removeEventListener("keydown", handleKeydown, true);
+    return () => {
+      window.removeEventListener("keydown", handleKeydown, true);
+      queueMicrotask(() => {
+        if (returnFocus?.isConnected) returnFocus.focus();
+      });
+    };
   });
 </script>
 
@@ -235,12 +339,17 @@
   )}
   onclick={(e) => {
     e.stopPropagation();
-    onClose();
+    requestSettingsClose();
   }}
 >
   <div class="absolute inset-0 bg-black/50"></div>
   <div
+    bind:this={modalPanel}
     data-settings-modal-panel
+    role="dialog"
+    aria-modal="true"
+    aria-label={t("settings.title")}
+    tabindex="-1"
     data-settings-section={activeSection}
     class={cn(
       "relative z-10 flex overflow-hidden border border-border bg-card shadow-2xl dark:bg-background",
@@ -275,7 +384,7 @@
         </nav>
         <button
           type="button"
-          onclick={onClose}
+          onclick={requestSettingsClose}
           aria-label={t("settings.close")}
           data-app-tooltip-disabled="true"
           class="flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
@@ -300,7 +409,7 @@
           {/if}
           <button
             type="button"
-            onclick={onClose}
+            onclick={requestSettingsClose}
             aria-label={t("settings.close")}
             data-app-tooltip-disabled="true"
             class="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
@@ -342,7 +451,7 @@
         data-settings-content
         class={cn(
           "h-full min-h-0 bg-background/40 dark:bg-black/20",
-          detailView || activeSection === "shortcuts"
+          detailView || activeSection === "shortcuts" || chatTeammatesUsesInternalScroll
             ? "overflow-hidden"
             : "hide-scrollbar overflow-y-auto",
           detailView ? "p-0" : settingsContentPaddingClass,
@@ -371,6 +480,21 @@
               {@const DetailComponent = loadedDetail.component}
               <DetailComponent
                 operation={detailView.operation}
+                onCancel={closeDetailView}
+                compactLayout={useTopNav}
+                iconRailLayout={useIconRail}
+                onScrollContainerChange={(scrollContainer: HTMLElement | undefined) => {
+                  detailScrollEl = scrollContainer;
+                }}
+                onScrollbarInsetsChange={(insets: { top: number; bottom: number }) => {
+                  detailScrollbarInsetTop = insets.top;
+                  detailScrollbarInsetBottom = insets.bottom;
+                }}
+              />
+            {:else if loadedDetail.kind === "chat-provider" && detailView.kind === "chat-provider"}
+              {@const DetailComponent = loadedDetail.component}
+              <DetailComponent
+                target={detailView.target}
                 onCancel={closeDetailView}
                 compactLayout={useTopNav}
                 iconRailLayout={useIconRail}
@@ -413,6 +537,20 @@
               initialTab={initialDoomscrollingTab}
               onOpenLimitEditor={openDoomscrollingLimitEditor}
             />
+        {:else if activeSection === "chat"}
+            <ChatSection
+              initialSubsection={activeChatSubsection}
+              {initialChatTeammateId}
+              {initialChatChannelId}
+              {initialChatCreateTeammate}
+              onOpenProviderSetup={openChatProviderSetup}
+              onSubsectionChange={(subsection) => {
+                activeChatSubsection = subsection;
+                scrollSettingsToTop();
+              }}
+              onRequestNavigation={requestSettingsNavigation}
+              onTeammateDraftStateChange={updateTeammateDraftState}
+            />
         {:else}
           {@const SectionComponent = activeSectionComponent}
           <SectionComponent />
@@ -425,7 +563,7 @@
           stickyBottom={detailScrollbarInsetBottom}
           wheelPassthrough
         />
-      {:else if activeSection !== "shortcuts"}
+      {:else if activeSection !== "shortcuts" && !chatTeammatesUsesInternalScroll}
         <CalendarScrollbar
           scrollContainer={settingsScrollEl}
           stickyTop={settingsScrollbarInset}
@@ -436,3 +574,14 @@
     </div>
   </div>
 </div>
+
+{#if pendingDraftNavigation}
+  <ConfirmDialog
+    title={t("settings.chat.teammates.discardDraftTitle")}
+    message={t("settings.chat.teammates.discardDraftMessage")}
+    confirmLabel={t("settings.chat.teammates.discardDraft")}
+    cancelLabel={t("settings.chat.teammates.keepEditing")}
+    onConfirm={discardDraftAndContinue}
+    onCancel={cancelDraftNavigation}
+  />
+{/if}

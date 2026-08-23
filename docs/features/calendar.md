@@ -15,7 +15,7 @@ This doc covers the user-facing calendar surface: views, the event model, intera
 
 ## View modes
 
-Four views, switched from the navigation bar.
+Four views, switched from the navigation bar. The compact range controls match Projects view tabs: selected ranges use the foreground color, unselected ranges use the muted foreground, and selection does not add a persistent background. Both selectors use the same 24px control height, horizontal padding, and 12px medium-weight labels at the default font scale.
 
 **Day view.** A single day column, full-height. Best for a deep look at one day's schedule, especially when running a pomodoro (the rail is most readable here). All-day events appear as chips at the top.
 
@@ -147,6 +147,24 @@ When a pomodoro session is running on an event, the calendar UI restricts certai
 - **Reconfiguration ends the run and starts a new one with inheritance.** Changing focus duration mid-session is allowed, but it transitions the run rather than mutating it in place. See `algorithms/pomodoro-state-machine.md`.
 
 For events without an active session but with past tracking data, the protections are weaker: the event can be moved, resized, recolored. The tracking data stays anchored to its original timestamps, so the rail's segments can land outside the event's new block (still valid historical data).
+
+## Coordination and capacity
+
+Calendar is the canonical time and capacity layer for [Agent coordination](agent-coordination.md). Projects can store task targets and hard deadlines, while Calendar stores actual reservations, scheduled review blocks, external events, and availability. A manager proposal does not silently become a Calendar commitment.
+
+The planning model distinguishes:
+
+- **Estimate:** predicted effort or duration.
+- **Target date:** a preferred completion point that can move through approved replanning.
+- **Hard deadline:** a constraint whose violation must be surfaced explicitly.
+- **Scheduled block:** time reserved for human work, review, coordination, or another capacity-consuming activity.
+- **Agent runtime expectation:** a run budget or operational forecast, not a human Calendar event unless a person deliberately schedules supervision or review.
+
+When scope, dependencies, assignments, reviewer availability, or estimates change, Ganbaru can propose a cascade. The preview identifies every affected task and event, the reason it moves, hard-deadline conflicts, unscheduled work, and review-capacity risk. Applying the proposal uses normal Calendar and Projects commands. Protected past events and active sessions retain their existing invariants.
+
+Starting a project-linked Calendar block can select that project across Projects, Notes, and Chat and can suggest the event's relevant channel, task discussion, or task. It does not retarget a provider continuation, discard a Chat draft, close an active review, or force navigation away from a deliberate manual context. Work-environment activation and communication selection preserve user state independently.
+
+Future team planning receives only permission-safe availability and coarse capacity. It never exposes another participant's private Pomodoro, idle, blocker, diary, or break details. A manager can say that a schedule is unavailable or at risk without explaining private personal measurements.
 
 ## Examples
 

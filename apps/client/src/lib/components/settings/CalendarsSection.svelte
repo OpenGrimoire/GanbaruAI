@@ -369,8 +369,8 @@
       calendarDisplayName(pendingDelete),
       counts[pendingDelete.id] ?? 0,
     )}
-    confirmLabel={t("settings.calendars.deleteShortcut")}
-    cancelLabel={t("common.cancelShortcut")}
+    confirmLabel={t("settings.calendars.deleteConfirm")}
+    cancelLabel={t("common.cancel")}
     onConfirm={confirmDelete}
     onCancel={cancelDelete}
   />

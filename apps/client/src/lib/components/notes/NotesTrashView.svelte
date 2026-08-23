@@ -169,7 +169,7 @@
     title={t("notes.permanentDeleteConfirmTitle", notesPageTitle(pendingDeletePage, t("notes.untitled")))}
     message={t("notes.permanentDeleteConfirmMessage")}
     confirmLabel={t("notes.permanentDeleteConfirm")}
-    cancelLabel={t("common.cancelShortcut")}
+    cancelLabel={t("common.cancel")}
     onConfirm={confirmPermanentDelete}
     onCancel={() => {
       pendingDeletePage = null;

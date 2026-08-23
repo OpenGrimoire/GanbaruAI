@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { tick } from "svelte";
+  import { onMount, tick } from "svelte";
   import ArrowUpNarrowWide from "@lucide/svelte/icons/arrow-up-narrow-wide";
   import Check from "@lucide/svelte/icons/check";
   import ChevronsLeft from "@lucide/svelte/icons/chevrons-left";
@@ -12,6 +12,7 @@
   import Search from "@lucide/svelte/icons/search";
   import SquarePen from "@lucide/svelte/icons/square-pen";
   import { getLocalization } from "$lib/i18n/translator.svelte";
+  import { listNotesWorkingMarkdown } from "$lib/api/notes";
   import {
     beginLazyComponentLoad,
     rejectLazyComponentLoad,
@@ -35,10 +36,17 @@
   import { notesPageContainingFolderId } from "$lib/notes/hierarchy-navigation";
   import { notesPageTitle } from "$lib/notes/page-title";
   import { notesPagesForProject } from "$lib/notes/project-membership";
-  import type { NotesFolder, NotesPage } from "$lib/notes/types";
+  import type {
+    NotesFolder,
+    NotesPage,
+    NotesWorkingMarkdownFileRef,
+    NotesWorkingMarkdownTreeRead,
+  } from "$lib/notes/types";
+  import { buildWorkingMarkdownTreeItems } from "$lib/notes/working-markdown-tree";
   import { getNotes } from "$lib/stores/notes.svelte";
   import NotesFolderRow from "./NotesFolderRow.svelte";
   import NotesPageRow from "./NotesPageRow.svelte";
+  import NotesWorkingMarkdownTree from "./NotesWorkingMarkdownTree.svelte";
   import {
     loadNotesOptionalComponent,
     retryNotesOptionalComponent,
@@ -50,11 +58,17 @@
     explorerCollapsed = $bindable(false),
     creationFolderId = null,
     onCreationFolderChange,
+    selectedWorkingMarkdownFile = null,
+    onSelectWorkingMarkdownFile,
+    onBeforeDocumentNavigation,
   }: {
     projectId?: string | null;
     explorerCollapsed?: boolean;
     creationFolderId?: string | null;
     onCreationFolderChange: (folderId: string | null) => void;
+    selectedWorkingMarkdownFile?: NotesWorkingMarkdownFileRef | null;
+    onSelectWorkingMarkdownFile: (file: NotesWorkingMarkdownFileRef) => void;
+    onBeforeDocumentNavigation: () => boolean;
   } = $props();
 
   const notes = getNotes();
@@ -425,6 +439,13 @@
     "confirm-dialog",
     LoadedNotesOptionalComponent
   > | null>(null);
+  let workingMarkdownTree = $state<NotesWorkingMarkdownTreeRead>({
+    roots: [],
+    unavailableWorkingFolderIds: [],
+  });
+  let workingMarkdownLoading = $state(false);
+  let workingMarkdownError = $state<string | null>(null);
+  let workingMarkdownGeneration = 0;
 
   const projectPages = $derived.by(() => notesPagesForProject(
     [...new Map([...notes.allPages, ...notes.linkResolutionPages].map((item) => [item.id, item])).values()],
@@ -445,6 +466,9 @@
     })
   );
   const explorerItems = $derived(treeItems);
+  const workingMarkdownHasMatches = $derived(
+    buildWorkingMarkdownTreeItems(workingMarkdownTree.roots, new Set(), search).length > 0,
+  );
   const navigationFolderDropArea = $derived.by(() => {
     const result = new Map<string, {
       state: "valid" | "invalid";
@@ -555,6 +579,7 @@
   });
 
   function createPage(folderId: string | null = creationFolderId): void {
+    if (!onBeforeDocumentNavigation()) return;
     if (folderId) notes.setFolderCollapsed(folderId, false);
     if (notes.viewMode === "archive") notes.closeArchive();
     if (notes.viewMode === "trash") notes.closeTrash();
@@ -562,6 +587,7 @@
   }
 
   function createSubpage(parentPageId: string): void {
+    if (!onBeforeDocumentNavigation()) return;
     void notes.createSubpage(parentPageId, "", { openMode: "full" });
   }
 
@@ -576,10 +602,49 @@
   }
 
   function selectPrimaryPage(pageId: string): void {
+    if (!onBeforeDocumentNavigation()) return;
     if (notes.viewMode === "archive") notes.closeArchive();
     if (notes.viewMode === "trash") notes.closeTrash();
     void notes.selectPage(pageId, { openMode: "full" });
   }
+
+  async function refreshWorkingMarkdown(): Promise<void> {
+    const requestedProjectId = projectId;
+    const generation = ++workingMarkdownGeneration;
+    if (!requestedProjectId) {
+      workingMarkdownTree = { roots: [], unavailableWorkingFolderIds: [] };
+      workingMarkdownError = null;
+      return;
+    }
+    workingMarkdownLoading = true;
+    workingMarkdownError = null;
+    try {
+      const tree = await listNotesWorkingMarkdown(requestedProjectId);
+      if (generation !== workingMarkdownGeneration || projectId !== requestedProjectId) return;
+      workingMarkdownTree = tree;
+    } catch (error) {
+      if (generation !== workingMarkdownGeneration || projectId !== requestedProjectId) return;
+      workingMarkdownTree = { roots: [], unavailableWorkingFolderIds: [] };
+      workingMarkdownError = error instanceof Error ? error.message : String(error);
+    } finally {
+      if (generation === workingMarkdownGeneration) workingMarkdownLoading = false;
+    }
+  }
+
+  $effect(() => {
+    const activeProjectId = projectId;
+    void activeProjectId;
+    void refreshWorkingMarkdown();
+  });
+
+  onMount(() => {
+    const refreshOnFocus = () => { void refreshWorkingMarkdown(); };
+    window.addEventListener("focus", refreshOnFocus);
+    return () => {
+      workingMarkdownGeneration += 1;
+      window.removeEventListener("focus", refreshOnFocus);
+    };
+  });
 
   function toggleSearch(): void {
     searchOpen = !searchOpen;
@@ -1068,7 +1133,7 @@
       <div class="px-1 py-2 text-[0.8rem] text-destructive">
         {t("notes.loadFailed", notes.loadError)}
       </div>
-    {:else if treeItems.length === 0 && search.trim()}
+    {:else if treeItems.length === 0 && !workingMarkdownHasMatches && search.trim()}
       <div class="px-1 py-2 text-[0.8rem] text-muted-foreground">
         {t("notes.noSearchResults")}
       </div>
@@ -1168,6 +1233,15 @@
         </div>
       {/each}
     {/if}
+    <NotesWorkingMarkdownTree
+      tree={workingMarkdownTree}
+      query={search}
+      selectedFile={selectedWorkingMarkdownFile}
+      loading={workingMarkdownLoading}
+      error={workingMarkdownError}
+      onSelect={onSelectWorkingMarkdownFile}
+      onRefresh={() => { void refreshWorkingMarkdown(); }}
+    />
     {#if draggingNavigationItem}
       <div
         class={`sticky bottom-1 z-10 mt-2 flex min-h-9 items-center justify-center gap-1.5 rounded-md border px-2 text-[0.8rem] shadow-sm backdrop-blur-sm ${navigationDropState({ kind: "root" }) === "valid"
@@ -1195,7 +1269,7 @@
         title={t("notes.archiveConfirmTitle", notesPageTitle(pendingArchivePage, t("notes.untitled")))}
         message={t("notes.archiveConfirmMessage")}
         confirmLabel={t("notes.archiveConfirm")}
-        cancelLabel={t("common.cancelShortcut")}
+        cancelLabel={t("common.cancel")}
         onConfirm={confirmArchivePage}
         onCancel={() => {
           pendingArchivePage = null;
@@ -1206,7 +1280,7 @@
         title={t("notes.trashConfirmTitle", notesPageTitle(pendingTrashPage, t("notes.untitled")))}
         message={t("notes.trashConfirmMessage")}
         confirmLabel={t("notes.trashConfirm")}
-        cancelLabel={t("common.cancelShortcut")}
+        cancelLabel={t("common.cancel")}
         onConfirm={confirmTrashPage}
         onCancel={() => {
           pendingTrashPage = null;
@@ -1217,7 +1291,7 @@
         title={t("notes.deleteFolderConfirmTitle", pendingDeleteFolder.name)}
         message={t("notes.deleteFolderConfirmMessage")}
         confirmLabel={t("notes.deleteFolderConfirm")}
-        cancelLabel={t("common.cancelShortcut")}
+        cancelLabel={t("common.cancel")}
         onConfirm={() => {
           void confirmDeleteFolder();
         }}

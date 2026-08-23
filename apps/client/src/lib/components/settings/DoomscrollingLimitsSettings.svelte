@@ -232,10 +232,10 @@
   }
 
   function pendingConfirmLabel(action: PendingLimitAction): string {
-    if (action.type === "global-disable") return t("settings.doomscrolling.shared.turnOffShortcut");
+    if (action.type === "global-disable") return t("settings.doomscrolling.shared.turnOffAction");
     return action.type === "disable"
-      ? t("settings.doomscrolling.shared.disableShortcut")
-      : t("settings.doomscrolling.shared.deleteShortcut");
+      ? t("settings.doomscrolling.shared.disableAction")
+      : t("settings.doomscrolling.shared.deleteAction");
   }
 </script>
 
@@ -409,7 +409,7 @@
     title={pendingTitle(pendingAction)}
     message={pendingMessage(pendingAction)}
     confirmLabel={pendingConfirmLabel(pendingAction)}
-    cancelLabel={t("settings.doomscrolling.shared.cancelShortcut")}
+    cancelLabel={t("settings.doomscrolling.shared.cancelAction")}
     onConfirm={confirmPendingAction}
     onCancel={cancelPendingAction}
   />

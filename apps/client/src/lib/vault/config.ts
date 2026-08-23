@@ -1,9 +1,11 @@
 /**
  * Frontend bridge to the active Ganbaru AI folder's root `config.json`.
  *
- * Reads the file once at boot, keeps an in-memory cache, and flushes any
- * changes back to disk through a debounced write so a burst of edits
- * (dragging a color picker, typing in a name field) coalesces into one IO.
+ * Reads the file once at boot, keeps an in-memory cache, and flushes bounded
+ * key-level patches through a debounced write so a burst of edits (dragging a
+ * color picker, typing in a name field) coalesces into one IO. Rust applies
+ * those patches to the latest file under the same lock used by native Chat
+ * settings, so neither side can replace the other's newer branches.
  *
  * Consumers go through `getConfigKey` / `setConfigKey` with dotted keys
  * (e.g. `"theme.activeId"`, `"preferences.fontScale"`). Dotted keys map to
@@ -11,8 +13,8 @@
  * concerns live under their own branches.
  *
  * The Ganbaru AI folder path itself is owned by the Rust side (see
- * `src-tauri/src/vault.rs`). This module only knows how to read and write
- * the config payload and never talks to the filesystem directly.
+ * `src-tauri/src/vault.rs`). This module only knows how to read cached values
+ * and request patches, and never talks to the filesystem directly.
  */
 
 import { invoke } from "@tauri-apps/api/core";
@@ -25,6 +27,12 @@ let cache: JsonObject = {};
 let loadPromise: Promise<void> | null = null;
 let writeTimer: ReturnType<typeof setTimeout> | null = null;
 let writeInflight: Promise<void> | null = null;
+interface ConfigPatch {
+  path: string[];
+  remove: boolean;
+  value: unknown;
+}
+const pendingPatches = new Map<string, ConfigPatch>();
 
 function isPlainObject(value: unknown): value is JsonObject {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -84,12 +92,23 @@ async function fetchFromDisk(): Promise<JsonObject> {
   }
 }
 
-async function flushToDisk(): Promise<void> {
-  const payload = JSON.stringify(cache, null, 2);
+async function flushPendingPatches(): Promise<void> {
+  if (writeInflight) await writeInflight;
+  if (pendingPatches.size === 0) return;
+  const patches = [...pendingPatches.values()];
+  pendingPatches.clear();
   try {
-    await invoke("vault_write_config", { json: payload });
+    const request = invoke<void>("vault_patch_config", { patches });
+    writeInflight = request;
+    await request;
   } catch (err) {
-    console.error("vault_write_config failed", err);
+    for (const patch of patches) {
+      const key = patch.path.join(".");
+      if (!pendingPatches.has(key)) pendingPatches.set(key, patch);
+    }
+    console.error("vault_patch_config failed", err);
+  } finally {
+    writeInflight = null;
   }
 }
 
@@ -97,7 +116,7 @@ function scheduleFlush(): void {
   if (writeTimer !== null) clearTimeout(writeTimer);
   writeTimer = setTimeout(() => {
     writeTimer = null;
-    writeInflight = flushToDisk();
+    void flushPendingPatches();
   }, WRITE_DEBOUNCE_MS);
 }
 
@@ -136,6 +155,11 @@ export function setConfigKey(key: string, value: unknown): void {
   } else {
     writePath(cache, parts, value);
   }
+  pendingPatches.set(key, {
+    path: parts,
+    remove: value === undefined,
+    value: value ?? null,
+  });
   scheduleFlush();
 }
 
@@ -147,7 +171,7 @@ export async function flushConfig(): Promise<void> {
   if (writeTimer !== null) {
     clearTimeout(writeTimer);
     writeTimer = null;
-    writeInflight = flushToDisk();
   }
-  if (writeInflight) await writeInflight;
+  await flushPendingPatches();
+  if (pendingPatches.size > 0) await flushPendingPatches();
 }

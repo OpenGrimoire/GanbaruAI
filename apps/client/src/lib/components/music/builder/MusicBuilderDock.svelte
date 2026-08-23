@@ -56,7 +56,7 @@
       type="button"
       data-builder-dock-item
       class:active={item.active}
-      class="dock-button relative inline-flex h-8 min-w-8 shrink-0 items-center justify-center gap-1.5 rounded-lg px-2 text-muted-foreground hover:bg-accent/55 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60"
+      class="dock-button relative inline-flex h-8 min-w-8 shrink-0 items-center justify-center gap-1.5 rounded-lg px-2 text-foreground hover:bg-accent/55 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60"
       aria-current={item.active ? "page" : undefined}
       aria-label={`${itemLabel}, ${t("calendar.toolbar.shortcutKey", item.shortcut)}`}
       title={`${itemLabel} (${t("calendar.toolbar.shortcutKey", item.shortcut)})`}

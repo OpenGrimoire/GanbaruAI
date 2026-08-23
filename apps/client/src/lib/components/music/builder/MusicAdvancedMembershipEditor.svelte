@@ -102,5 +102,5 @@
 </div>
 
 <style>
-  .membership-input { margin-top: 0.25rem; height: 2rem; width: 100%; border: 1px solid color-mix(in srgb, var(--border) 70%, transparent); border-radius: 0.375rem; background: var(--background); padding-inline: 0.5rem; color: var(--foreground); font-size: 0.66rem; outline: none; }
+  .membership-input { margin-top: 0.25rem; height: 2rem; width: 100%; border: 1px solid color-mix(in srgb, var(--border) 70%, transparent); border-radius: 0.375rem; background: var(--background); padding-inline: 0.5rem; color: var(--foreground); font-size: calc(0.66rem * var(--type-scale)); outline: none; }
 </style>

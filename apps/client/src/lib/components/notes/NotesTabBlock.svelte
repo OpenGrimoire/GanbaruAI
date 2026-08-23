@@ -830,7 +830,7 @@
     border-bottom: 2px solid transparent;
     padding: 0 0.55rem;
     color: hsl(var(--muted-foreground));
-    font-size: 0.8rem;
+    font-size: calc(0.8rem * var(--type-scale));
     font-weight: 500;
     outline: none;
   }
@@ -851,7 +851,7 @@
     flex-shrink: 0;
     overflow: hidden;
     color: inherit;
-    font-size: 0.75rem;
+    font-size: calc(0.75rem * var(--type-scale));
     text-overflow: ellipsis;
     white-space: nowrap;
   }
@@ -873,7 +873,7 @@
     border-radius: 0.375rem;
     background: hsl(var(--background));
     color: hsl(var(--foreground));
-    font-size: 0.78rem;
+    font-size: calc(0.78rem * var(--type-scale));
     outline: none;
   }
 

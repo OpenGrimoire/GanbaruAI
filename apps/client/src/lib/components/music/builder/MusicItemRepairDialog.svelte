@@ -70,7 +70,7 @@
 
 <style>
   .match-box { display: flex; align-items: flex-start; gap: 0.5rem; margin-top: 0.75rem; border-radius: 0.65rem; background: color-mix(in srgb, var(--primary) 8%, var(--secondary)); padding: 0.55rem; color: var(--muted-foreground); }
-  .match-box strong { display: block; color: var(--foreground); font-size: 0.68rem; }
-  .match-box p { margin-top: 0.2rem; font-size: 0.61rem; line-height: 1.4; }
+  .match-box strong { display: block; color: var(--foreground); font-size: calc(0.68rem * var(--type-scale)); }
+  .match-box p { margin-top: 0.2rem; font-size: calc(0.61rem * var(--type-scale)); line-height: 1.4; }
   .match-box.weak { background: color-mix(in srgb, var(--destructive) 8%, var(--secondary)); color: var(--destructive); }
 </style>

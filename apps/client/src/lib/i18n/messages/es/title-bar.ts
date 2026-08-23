@@ -6,6 +6,7 @@ export const titleBar = {
     calendar: "Calendario",
     projects: "Proyectos",
     notes: "Notas",
+    chat: "Chat",
     withShortcut: (label: string, shortcut: string) => `${label} (${shortcut})`,
   },
   control: {
@@ -64,13 +65,13 @@ export const titleBar = {
   resetSequenceTitle: "¿Abrir confirmación de reinicio?",
   resetSequenceMessage:
     "Presionaste el atajo oculto de reinicio 10 veces. Continúa solo si querías borrar tus datos locales de la app",
-  resetSequenceConfirm: "Continuar (Enter)",
+  resetSequenceConfirm: "Continuar",
   resetDatabaseTitle: "¿Reiniciar datos locales?",
   resetDatabaseMessage:
     "El archivo de datos local de la carpeta activa de Ganbaru AI se eliminará permanentemente",
-  resetDatabaseConfirm: "Reiniciar datos locales (Enter)",
+  resetDatabaseConfirm: "Reiniciar datos locales",
   closeAppTitle: "¿Cerrar la app?",
   closeAppMessage: "Todas las funciones de productividad dejarán de funcionar",
-  closeAnyway: "Cerrar de todos modos (Enter)",
-  stay: "Quedarse (Esc)",
+  closeAnyway: "Cerrar de todos modos",
+  stay: "Quedarse",
 } as const satisfies MessageShape<typeof enTitleBar>;

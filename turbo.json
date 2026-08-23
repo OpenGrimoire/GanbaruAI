@@ -7,11 +7,35 @@
     },
     "build": {
       "dependsOn": ["^build"],
-      "outputs": ["dist/**", "src-tauri/target/**"]
+      "env": ["GANBARU_AI_RELEASE_REPOSITORY"],
+      "outputs": ["dist/**"]
     },
     "check": {
       "dependsOn": ["^build"]
     },
-    "test": {}
+    "test": {},
+    "editor-check": {
+      "inputs": [
+        "index.html",
+        "package.json",
+        "scripts/check-tailwind-diagnostics.mjs",
+        "src/**/*.css",
+        "src/**/*.html",
+        "src/**/*.js",
+        "src/**/*.mjs",
+        "src/**/*.svelte",
+        "src/**/*.ts",
+        "svelte.config.js",
+        "vite.config.ts"
+      ]
+    },
+    "bundle-contracts": {
+      "dependsOn": ["build"],
+      "inputs": [
+        "package.json",
+        "scripts/check-first-use-bundle.mjs",
+        "scripts/first-use-bundle-baseline.json"
+      ]
+    }
   }
 }

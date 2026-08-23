@@ -512,6 +512,6 @@
     background: hsl(var(--muted) / 0.4);
     padding: 0.5rem 0.75rem;
     color: hsl(var(--muted-foreground));
-    font-size: 0.866667rem;
+    font-size: calc(0.866667rem * var(--type-scale));
   }
 </style>

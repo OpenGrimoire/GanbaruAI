@@ -53,7 +53,7 @@
     title={t("projects.settings.deleteStatusTitle", pendingDeleteStatus.name)}
     message={t("projects.settings.deleteStatusMessage", pendingDeleteStatus.name)}
     confirmLabel={t("projects.settings.deleteStatusConfirm")}
-    cancelLabel={t("common.cancelShortcut")}
+    cancelLabel={t("common.cancel")}
     onConfirm={onConfirmDeleteStatus}
     onCancel={onCancelDeleteStatus}
   />
@@ -64,7 +64,7 @@
     title={t("projects.settings.deletePriorityTitle", pendingDeletePriority.name)}
     message={t("projects.settings.deletePriorityMessage", pendingDeletePriority.name)}
     confirmLabel={t("projects.settings.deletePriorityConfirm")}
-    cancelLabel={t("common.cancelShortcut")}
+    cancelLabel={t("common.cancel")}
     onConfirm={onConfirmDeletePriority}
     onCancel={onCancelDeletePriority}
   />
@@ -75,7 +75,7 @@
     title={t("projects.settings.deleteTagTitle", pendingDeleteTag.name)}
     message={t("projects.settings.deleteTagMessage", pendingDeleteTag.name)}
     confirmLabel={t("projects.settings.deleteTagConfirm")}
-    cancelLabel={t("common.cancelShortcut")}
+    cancelLabel={t("common.cancel")}
     onConfirm={onConfirmDeleteTag}
     onCancel={onCancelDeleteTag}
   />
@@ -86,7 +86,7 @@
     title={t("projects.customFields.deleteFieldTitle", pendingDeleteCustomField.name)}
     message={t("projects.customFields.deleteFieldMessage", pendingDeleteCustomField.name)}
     confirmLabel={t("projects.customFields.deleteFieldConfirm")}
-    cancelLabel={t("common.cancelShortcut")}
+    cancelLabel={t("common.cancel")}
     onConfirm={onConfirmDeleteCustomField}
     onCancel={onCancelDeleteCustomField}
   />
@@ -101,7 +101,7 @@
       customFieldForOption(pendingDeleteCustomFieldOption)?.name ?? "",
     )}
     confirmLabel={t("projects.customFields.deleteOptionConfirm")}
-    cancelLabel={t("common.cancelShortcut")}
+    cancelLabel={t("common.cancel")}
     onConfirm={onConfirmDeleteCustomFieldOption}
     onCancel={onCancelDeleteCustomFieldOption}
   />

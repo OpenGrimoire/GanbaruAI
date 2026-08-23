@@ -1,5 +1,5 @@
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
-import type { DetachableTabView } from "$lib/navigation";
+import { isDetachableTabView, type DetachableTabView } from "$lib/navigation";
 import {
   DETACHED_VIEW_WINDOW_CHANGED_EVENT,
   listDetachedViews,
@@ -35,8 +35,7 @@ function applyChange(change: DetachedViewWindowChange): void {
 function isDetachedViewWindowChange(value: unknown): value is DetachedViewWindowChange {
   if (typeof value !== "object" || value === null) return false;
   const record = value as Record<string, unknown>;
-  return typeof record.view === "string"
-    && (record.view === "calendar" || record.view === "projects" || record.view === "notes")
+  return isDetachableTabView(record.view)
     && typeof record.detached === "boolean";
 }
 

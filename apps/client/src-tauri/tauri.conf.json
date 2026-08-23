@@ -28,6 +28,7 @@
       "csp": {
         "default-src": "'self'",
         "script-src": "'self' https://www.youtube.com https://s.ytimg.com",
+        "worker-src": "'self'",
         "style-src": "'self' 'unsafe-inline'",
         "img-src": "'self' data: asset: http://asset.localhost http://127.0.0.1:* http://localhost:*",
         "media-src": "'self' http://127.0.0.1:* http://localhost:*",
@@ -41,6 +42,7 @@
       "devCsp": {
         "default-src": "'self' http://localhost:1420 http://127.0.0.1:1420",
         "script-src": "'self' 'unsafe-eval' http://localhost:1420 http://127.0.0.1:1420 https://www.youtube.com https://s.ytimg.com",
+        "worker-src": "'self'",
         "style-src": "'self' 'unsafe-inline' http://localhost:1420 http://127.0.0.1:1420",
         "img-src": "'self' data: asset: http://asset.localhost http://127.0.0.1:* http://localhost:* http://localhost:1420 http://127.0.0.1:1420",
         "media-src": "'self' http://127.0.0.1:* http://localhost:* http://localhost:1420 http://127.0.0.1:1420",

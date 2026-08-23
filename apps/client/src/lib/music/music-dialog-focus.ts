@@ -1,6 +1,8 @@
 export interface MusicDialogFocusOptions {
   onEscape: () => void;
   escapeDisabled?: boolean;
+  onEnter?: () => void;
+  enterDisabled?: boolean;
 }
 
 const FOCUSABLE_SELECTOR = [
@@ -38,6 +40,12 @@ export function containMusicDialogFocus(
       event.preventDefault();
       event.stopPropagation();
       options.onEscape();
+      return;
+    }
+    if (event.key === "Enter" && options.onEnter && !options.enterDisabled) {
+      event.preventDefault();
+      event.stopPropagation();
+      options.onEnter();
       return;
     }
     if (event.key !== "Tab") return;

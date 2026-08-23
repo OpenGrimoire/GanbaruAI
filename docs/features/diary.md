@@ -38,10 +38,10 @@ The markdown file is the source of truth (see `data/architecture.md`). The SQLit
 
 ## Personal baselines
 
-Mood and energy data over weeks and months form a baseline. The AI panel (see `features/ai-integration.md`) can use these baselines to:
+Mood and energy data over weeks and months form a baseline. An authorized AI role (see [AI integration](ai-integration.md)) can use these baselines to:
 
 - Tailor communication style on low-energy days.
 - Suggest schedule adjustments when patterns are off-baseline.
 - Detect trends without requiring the user to self-analyze.
 
-This data never leaves the user's machine unless the user explicitly opts in to a sync or AI provider that processes it externally.
+This data never leaves the user's machine unless the user explicitly opts in to a sync or AI provider that processes it externally. A project channel, collaborator, manager proposal, report, or shared context package never receives raw diary data merely because it can use a coarse personal capacity recommendation.

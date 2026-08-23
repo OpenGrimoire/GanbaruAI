@@ -7,6 +7,7 @@ export const general = {
     calendars: "Calendar",
     projects: "Projects",
     notes: "Notes",
+    chat: "Chat",
     focus: "Focus",
     music: "Music",
     doomscrolling: "Doomscrolling",
@@ -38,6 +39,13 @@ export const general = {
   },
   profileIdentity: {
     heading: "Identity",
+    picture: "Profile picture",
+    pictureDescription: "Shown beside your messages and assignments. PNG, JPG, or WebP up to 3 MB.",
+    uploadPicture: "Upload image",
+    removePicture: "Remove profile picture",
+    picturePickerTitle: "Choose a profile picture",
+    pictureUpdateFailed: (message: string) => `Could not update profile picture: ${message}`,
+    invalidPicture: "The selected profile picture is invalid.",
     displayName: "Display name",
     description: "Used wherever your local profile name appears",
     fullName: "Full name",
@@ -134,7 +142,7 @@ export const general = {
     deleteMessage: (name: string, count: number) =>
       `Delete "${name}" and ${count === 1 ? "its 1 event" : `all ${count} events`
       }? This cannot be undone`,
-    deleteShortcut: "Delete (Enter)",
+    deleteConfirm: "Delete",
   },
   updates: {
     notificationsHeading: "Notifications",

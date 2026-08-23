@@ -68,4 +68,31 @@ describe("menu aim", () => {
       side: "left",
     })).toBe(true);
   });
+
+  it("keeps an upper submenu open for movement toward it", () => {
+    expect(isPointerAimingAtSubmenu({
+      origin: { x: 300, y: 400 },
+      point: { x: 340, y: 350 },
+      submenu: { left: 240, right: 520, top: 100, bottom: 330 },
+      side: "top",
+    })).toBe(true);
+  });
+
+  it("rejects sideways movement when the submenu is above", () => {
+    expect(isPointerAimingAtSubmenu({
+      origin: { x: 300, y: 400 },
+      point: { x: 390, y: 398 },
+      submenu: { left: 240, right: 520, top: 100, bottom: 330 },
+      side: "top",
+    })).toBe(false);
+  });
+
+  it("keeps a lower submenu open for movement toward it", () => {
+    expect(isPointerAimingAtSubmenu({
+      origin: { x: 300, y: 160 },
+      point: { x: 340, y: 215 },
+      submenu: { left: 240, right: 520, top: 200, bottom: 430 },
+      side: "bottom",
+    })).toBe(true);
+  });
 });

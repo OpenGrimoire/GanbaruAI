@@ -51,6 +51,7 @@
     selectedProjectId = null,
     selectedGroupId = null,
     mode = "groups",
+    iconStrokeWidth = 1.6,
     panelMaxHeight = null,
     panelHeight = $bindable(0),
     mainVisibleRows = 6,
@@ -63,15 +64,22 @@
     showClearProject = false,
     showLifecycleBadges = false,
     closeOnProjectCreate = false,
+    showProjectChildren = false,
+    activeProjectId = null,
     projectSearch = $bindable(""),
     onShowInactiveProjectsChange = undefined,
     onProjectSelected,
     onProjectCreated = undefined,
     onClearProject = undefined,
+    onProjectPreview = undefined,
+    onProjectPreviewClose = undefined,
+    projectChildContainsTarget = undefined,
+    pointerAimingAtProjectChild = undefined,
   }: {
     selectedProjectId?: string | null;
     selectedGroupId?: string | null;
     mode?: ProjectNavigatorPanelMode;
+    iconStrokeWidth?: number;
     panelMaxHeight?: number | null;
     panelHeight?: number;
     mainVisibleRows?: number | null;
@@ -84,16 +92,25 @@
     showClearProject?: boolean;
     showLifecycleBadges?: boolean;
     closeOnProjectCreate?: boolean;
+    showProjectChildren?: boolean;
+    activeProjectId?: string | null;
     projectSearch?: string;
     onShowInactiveProjectsChange?: (value: boolean) => void;
     onProjectSelected: (project: Project) => MaybePromise<void>;
     onProjectCreated?: (projectId: string | null) => MaybePromise<void>;
     onClearProject?: () => MaybePromise<void>;
+    onProjectPreview?: (
+      project: Project,
+      anchor: HTMLElement,
+      sourcePanel: HTMLDivElement | null,
+    ) => void;
+    onProjectPreviewClose?: () => void;
+    projectChildContainsTarget?: (target: EventTarget | null) => boolean;
+    pointerAimingAtProjectChild?: (point: MenuAimPoint) => boolean;
   } = $props();
 
   const projects = getProjects();
   const { t } = getLocalization();
-  const iconStrokeWidth = 1.6;
   const iconSize = 13;
   const emojiScale = 0.94;
   const panelFallbackHeaderHeight = 40;
@@ -365,6 +382,7 @@
   ): void {
     if (activeGroupId !== group.id) {
       createProjectGroupId = null;
+      onProjectPreviewClose?.();
     }
     activeGroupId = group.id;
     activeGroupAnchorElement = target instanceof HTMLElement ? target : null;
@@ -396,14 +414,47 @@
     return Boolean(
       activeGroupAnchorElement?.contains(target)
       || projectSubpanelBridgeElement?.contains(target)
-      || projectSubpanelElement?.contains(target),
+      || projectSubpanelElement?.contains(target)
+      || projectChildContainsTarget?.(target)
     );
   }
 
   function handleProjectSubpanelBoundaryLeave(event: PointerEvent): void {
     if (isProjectSubpanelBoundaryTarget(event.relatedTarget)) return;
+    if (pointerAimingAtProjectChild?.(projectPickerPointerPoint(event))) return;
     if (pointerAimingAtProjectSubpanel(projectPickerPointerPoint(event))) return;
+    onProjectPreviewClose?.();
     closeProjectSubpanel();
+  }
+
+  function previewProject(project: Project, target: EventTarget | null): void {
+    if (!showProjectChildren || !(target instanceof HTMLElement)) return;
+    onProjectPreview?.(
+      project,
+      target,
+      target.closest<HTMLDivElement>(".project-picker-panel"),
+    );
+  }
+
+  function handleProjectPointerEnter(project: Project, event: PointerEvent): void {
+    if (
+      activeProjectId
+      && activeProjectId !== project.id
+      && pointerAimingAtProjectChild?.(projectPickerPointerPoint(event))
+    ) return;
+    previewProject(project, event.currentTarget);
+  }
+
+  function handleProjectPointerMove(project: Project, event: PointerEvent): void {
+    if (activeProjectId === project.id) return;
+    if (activeProjectId && pointerAimingAtProjectChild?.(projectPickerPointerPoint(event))) return;
+    previewProject(project, event.currentTarget);
+  }
+
+  function handleProjectPointerLeave(event: PointerEvent): void {
+    if (projectChildContainsTarget?.(event.relatedTarget)) return;
+    if (pointerAimingAtProjectChild?.(projectPickerPointerPoint(event))) return;
+    onProjectPreviewClose?.();
   }
 
   async function selectProject(project: Project): Promise<void> {
@@ -441,6 +492,7 @@
   $effect(() => {
     if (searchActive || mode === "projects") {
       closeProjectSubpanel();
+      onProjectPreviewClose?.();
       return;
     }
     if (!activeGroupId) return;
@@ -665,17 +717,30 @@
                 <button
                   type="button"
                   class={cn(
-                    "flex min-h-8 w-full items-center gap-2 rounded-md px-2 text-left text-[0.8rem] transition-colors hover:bg-accent hover:text-accent-foreground",
+                    "min-h-8 w-full items-center gap-2 rounded-md px-2 text-left text-[0.8rem] transition-colors hover:bg-accent hover:text-accent-foreground",
+                    showProjectChildren
+                      ? "grid grid-cols-[1rem_minmax(0,1fr)_auto]"
+                      : "flex",
                     project.status === "active" ? "text-popover-foreground" : "text-popover-foreground/60",
+                    activeProjectId === project.id && "bg-accent text-accent-foreground",
                   )}
                   aria-label={t("projects.actions.selectProject", project.name, directProjectGroup.name)}
+                  onpointerenter={(event) => handleProjectPointerEnter(project, event)}
+                  onpointermove={(event) => handleProjectPointerMove(project, event)}
+                  onpointerleave={handleProjectPointerLeave}
+                  onfocus={(event) => previewProject(project, event.currentTarget)}
                   onclick={() => { void selectProject(project); }}
                 >
                   <ProjectIcon name={project.icon} size={iconSize} strokeWidth={iconStrokeWidth} emojiScale={emojiScale} class="shrink-0" />
                   <span class="min-w-0 flex-1 truncate">{project.name}</span>
-                  {#if showLifecycleBadges && project.status !== "active"}
-                    <span class={cn("shrink-0 rounded border px-1.5 py-0.5 text-[0.666667rem]", projectLifecycleBadgeClass(project.status))}>
-                      {projectLifecycleLabel(project.status, t)}
+                  {#if showProjectChildren || (showLifecycleBadges && project.status !== "active")}
+                    <span class="flex min-w-0 items-center justify-end gap-1">
+                      {#if showLifecycleBadges && project.status !== "active"}
+                        <span class={cn("shrink-0 rounded border px-1.5 py-0.5 text-[0.666667rem]", projectLifecycleBadgeClass(project.status))}>
+                          {projectLifecycleLabel(project.status, t)}
+                        </span>
+                      {/if}
+                      {#if showProjectChildren}<ChevronRight size={13} strokeWidth={iconStrokeWidth} class="shrink-0 text-popover-foreground/60" />{/if}
                     </span>
                   {/if}
                 </button>
@@ -758,6 +823,7 @@
                 </button>
               {/each}
             </div>
+            <p class="text-[0.66rem] leading-4 text-popover-foreground/55">{t("projects.navigator.managedFolderCreationHint")}</p>
           </form>
         {:else}
           <button
@@ -816,17 +882,30 @@
                 <button
                   type="button"
                   class={cn(
-                    "flex min-h-8 w-full items-center gap-2 rounded-md px-2 text-left text-[0.8rem] transition-colors hover:bg-accent hover:text-accent-foreground",
+                    "min-h-8 w-full items-center gap-2 rounded-md px-2 text-left text-[0.8rem] transition-colors hover:bg-accent hover:text-accent-foreground",
+                    showProjectChildren
+                      ? "grid grid-cols-[1rem_minmax(0,1fr)_auto]"
+                      : "flex",
                     project.status === "active" ? "text-popover-foreground" : "text-popover-foreground/60",
+                    activeProjectId === project.id && "bg-accent text-accent-foreground",
                   )}
                   aria-label={t("projects.actions.selectProject", project.name, activeGroup.name)}
+                  onpointerenter={(event) => handleProjectPointerEnter(project, event)}
+                  onpointermove={(event) => handleProjectPointerMove(project, event)}
+                  onpointerleave={handleProjectPointerLeave}
+                  onfocus={(event) => previewProject(project, event.currentTarget)}
                   onclick={() => { void selectProject(project); }}
                 >
                   <ProjectIcon name={project.icon} size={iconSize} strokeWidth={iconStrokeWidth} emojiScale={emojiScale} class="shrink-0" />
                   <span class="min-w-0 flex-1 truncate">{project.name}</span>
-                  {#if showLifecycleBadges && project.status !== "active"}
-                    <span class={cn("shrink-0 rounded border px-1.5 py-0.5 text-[0.666667rem]", projectLifecycleBadgeClass(project.status))}>
-                      {projectLifecycleLabel(project.status, t)}
+                  {#if showProjectChildren || (showLifecycleBadges && project.status !== "active")}
+                    <span class="flex min-w-0 items-center justify-end gap-1">
+                      {#if showLifecycleBadges && project.status !== "active"}
+                        <span class={cn("shrink-0 rounded border px-1.5 py-0.5 text-[0.666667rem]", projectLifecycleBadgeClass(project.status))}>
+                          {projectLifecycleLabel(project.status, t)}
+                        </span>
+                      {/if}
+                      {#if showProjectChildren}<ChevronRight size={13} strokeWidth={iconStrokeWidth} class="shrink-0 text-popover-foreground/60" />{/if}
                     </span>
                   {/if}
                 </button>
@@ -884,6 +963,7 @@
               </button>
             {/each}
           </div>
+          <p class="text-[0.66rem] leading-4 text-popover-foreground/55">{t("projects.navigator.managedFolderCreationHint")}</p>
         </form>
       {:else}
         <button

@@ -217,6 +217,6 @@
 </div>
 
 <style>
-  .menu-action { display: flex; min-height: 2.25rem; width: 100%; align-items: center; gap: 0.6rem; border-radius: 0.45rem; padding-inline: 0.65rem; text-align: left; font-size: 0.72rem; font-weight: 500; }
+  .menu-action { display: flex; min-height: 2.25rem; width: 100%; align-items: center; gap: 0.6rem; border-radius: 0.45rem; padding-inline: 0.65rem; text-align: left; font-size: calc(0.72rem * var(--type-scale)); font-weight: 500; }
   .menu-action:hover { background: var(--accent); color: var(--accent-foreground); }
 </style>

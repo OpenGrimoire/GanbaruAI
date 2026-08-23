@@ -439,7 +439,7 @@
 <!-- svelte-ignore a11y_no_static_element_interactions -->
 <div
   data-tauri-drag-region
-  class="flex w-full shrink-0 select-none items-center bg-sidebar"
+  class="app-title-bar flex w-full shrink-0 select-none items-center bg-sidebar"
   style="height: var(--titlebar-h);"
   onwheel={(event) => titleBarTabs?.handleWheel(event)}
   oncontextmenu={openTitleBarMenu}
@@ -547,7 +547,7 @@
     title={t("titleBar.resetSequenceTitle")}
     message={t("titleBar.resetSequenceMessage")}
     confirmLabel={t("titleBar.resetSequenceConfirm")}
-    cancelLabel={t("common.cancelShortcut")}
+    cancelLabel={t("common.cancel")}
     onConfirm={() => {
       showResetSequenceConfirm = false;
       showResetConfirm = true;
@@ -561,7 +561,7 @@
     title={t("titleBar.resetDatabaseTitle")}
     message={t("titleBar.resetDatabaseMessage")}
     confirmLabel={t("titleBar.resetDatabaseConfirm")}
-    cancelLabel={t("common.cancelShortcut")}
+    cancelLabel={t("common.cancel")}
     onConfirm={confirmReset}
     onCancel={() => { showResetConfirm = false; }}
   />

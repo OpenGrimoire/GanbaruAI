@@ -512,7 +512,7 @@
     width: 100%;
     table-layout: fixed;
     border-collapse: collapse;
-    font-size: 0.866667rem;
+    font-size: calc(0.866667rem * var(--type-scale));
   }
 
   .notes-table-row-tools {

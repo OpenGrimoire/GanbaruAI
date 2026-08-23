@@ -2,7 +2,7 @@
 
 ## Overview
 
-A cross-platform productivity app for desktop and mobile built around a calendar, Kanban board, Pomodoro system, Notion-like note-taking stored as a local SQLite page and block graph, daily diary, sleep alarm, work environment management, website/app blocking, music player, project management framework, and collaborative workspaces. Designed as a local-first, privacy-respecting alternative to Notion, ClickUp, and Asana. A gamification layer (skill tree, XP, contracts, NPC-guided workflows) is planned for later phases.
+A cross-platform productivity app for desktop and mobile built around Calendar, Projects, Pomodoro, project-owned working folders, SQLite-backed Notes, file-backed Markdown working documents, Chat channels and agent coordination, daily diary, sleep alarm, work environments, website and app blocking, music, guided project management, and future collaborative workspaces. Designed as a local-first, privacy-respecting alternative to fragmented planning, knowledge, communication, and AI-assistant tools. A gamification layer is planned for later phases.
 
 Desktop (Windows, Linux) is the primary target. Mobile (iOS, Android via Tauri v2) is a first-class secondary target sharing the same codebase but offering a focused subset of features.
 
@@ -81,6 +81,28 @@ The monorepo task runner. Sits on top of pnpm workspaces and handles build orche
 
 Turborepo does not replace Tauri's build pipeline; it invokes `tauri build`/`tauri dev` as a task. The cargo workspace and pnpm workspace coexist at the repo root: Turborepo orchestrates JS/TS tasks across pnpm workspace members, while Cargo handles Rust builds. The Tauri CLI invokes cargo for `apps/client/src-tauri`.
 
+### Rust workspace architecture
+
+The Rust backend is a Cargo workspace with an intentionally small Tauri shell and Tauri-free domain crates. This keeps platform authority at the application boundary, makes domain tests cheaper to compile, and prevents the complete desktop backend from being emitted into every mobile library format during normal desktop development.
+
+| Package | Responsibility |
+| --- | --- |
+| `apps/client/src-tauri` (`ganbaru-ai`) | Tauri build script, configuration, migrations, capabilities, generated context, desktop entry, and mobile library entry. |
+| `apps/client/src-tauri/app` (`ganbaru-tauri-app`) | Tauri command adapters, managed state, setup and exit hooks, active-folder authorization, native credentials, dialogs, webviews, window operations, Projects, and Music. |
+| `ganbaru-working-folders` | Working-folder IDs, repository kinds, UTC timestamps, binding DTOs, and pure device-state operations. |
+| `ganbaru-db` | SQLite pool registry, connection configuration, embedded migrations, and the shared row conversion macro. |
+| `ganbaru-chat-contracts` | Stable Chat errors, IDs, commands, events, configuration, provider-neutral DTOs, and Serde wire contracts. |
+| `ganbaru-chat-providers` | Provider processes, transports, drivers, factories, event sinks, cancellation, and registry. |
+| `ganbaru-chat` | Chat repositories, canonical event projection, runtime, Git workspaces, checkpoints, review, source control, bounded file operations, and application services. |
+| `ganbaru-notes` | Notes domain, persistence, imports, exports, history, assets, validation, and bounded filesystem operations. |
+| `ganbaru-native-messaging` | Independent `ganbaru-ai-native-messaging` browser-extension host and its binary-local tests. |
+
+Dependency direction is one way. Chat contracts depend on working-folder contracts. Chat providers depend on Chat contracts. The Chat service depends on contracts, providers, and working-folder contracts. Notes, database services, and native messaging remain independent production packages. Chat and Notes use `ganbaru-db` only as a development dependency for migrated database tests, while production services receive an authorized `&SqlitePool`. `ganbaru-tauri-app` composes the packages and retains all Tauri, active-vault, native keyring, dialog, webview, and managed-state authority.
+
+The desktop `main.rs` calls `ganbaru_tauri_app::run(tauri::generate_context!())` directly. The root library is mobile-only and retains `staticlib`, `cdylib`, and `rlib` outputs required by Android and iOS. On desktop, the substantial backend compiles once as the ordinary `ganbaru-tauri-app` Rust library instead of being linked into three large `desktop_lib` formats. This changes the build graph without changing Tauri command names, serialized DTOs, database paths, migrations, or stored data.
+
+Core asynchronous work uses Tokio. Tauri runtime wrappers remain at the platform boundary. Chat change delivery and credential access cross that boundary through explicit traits, so the core service does not receive an `AppHandle` or native keyring access. Projects and Music remain in `ganbaru-tauri-app` because their current platform and cross-domain integrations do not yet justify separate packages.
+
 ---
 
 ## UI component libraries
@@ -125,7 +147,7 @@ Tiptap or another rich editing engine may be reconsidered later only if it can t
 
 ## Sync, collaboration, and backup architecture
 
-This is one of the most important architectural decisions in the app. The system is designed around three distinct tiers that share the same underlying technology.
+This is one of the most important architectural decisions in the app. The system is designed around two deployment tiers plus a permission-aware collaboration model that uses the same underlying primitives.
 
 ### Core principle: local-first
 
@@ -133,9 +155,9 @@ Local storage inside the Ganbaru AI folder is always the source of truth. For No
 
 ### Yjs
 
-A CRDT (conflict-free replicated data type) library. The core of both sync and collaboration. Future collaborative document graphs can be represented as Yjs data structures whose updates merge from any source in any order and converge to the same result. This means:
+A CRDT library that can support parts of sync and collaboration. Future collaborative graphs can use Yjs documents or compatible typed operations whose updates merge from different devices and converge. This means:
 
-- **No conflict resolution logic to write.** The math handles it at the data structure level.
+- **Fewer generic text and collection conflicts.** Domain rules are still required for protected history, relational invariants, permissions, proposals, deadlines, and revocation.
 - **Works offline.** Updates accumulate locally and sync when connection is restored.
 - **Real-time collab and async sync use the same primitive.** A Yjs document does not care whether updates arrive 10ms or 10 days later.
 
@@ -147,7 +169,7 @@ A production-grade Yjs server. Open source and self-hostable. Chosen over the si
 
 - Handles **persistent document state**, so new collaborators can load the full document even if they were offline when edits happened.
 - Supports **presence and awareness**: who is online, live cursor positions.
-- Has **authentication and authorization hooks**, needed for workspace access control (who can read/write which workspace).
+- Has **authentication and authorization hooks**, needed for encrypted resource access control.
 - Designed for persistent collaborative editing over Yjs.
 
 Users run their own Hocuspocus instance on a cheap VPS, Raspberry Pi, or any cloud provider. The app includes guided setup instructions to make this as painless as possible.
@@ -156,10 +178,11 @@ Users run their own Hocuspocus instance on a cheap VPS, Raspberry Pi, or any clo
 
 All data in transit and at rest on the sync server is end-to-end encrypted. The encryption key is derived client-side from the user's credentials and never leaves their device. The server stores and relays only ciphertext; not even you as the operator can read user data. This is a genuine competitive advantage over Notion and ClickUp, and a strong trust signal to privacy-conscious users.
 
-Two encryption contexts:
+Encryption contexts include:
 
-- **Personal Ganbaru AI folder.** Single key per folder, known only to the user's devices. The relay is a blind courier.
-- **Collaborative workspace.** One workspace key shared among members, encrypted individually for each member's device using their public key. All members can read the workspace; nobody outside it can, including the server operator.
+- **Personal Ganbaru AI folder.** A personal root context known only to the user's authorized devices. The relay is a blind courier.
+- **Collaborative resources.** Resource or subtree keys distributed through encrypted member and device envelopes according to group, project, channel, Notes, task-discussion, and working-folder grants. One broad workspace key cannot enforce restricted membership safely.
+- **Revocation epochs.** Access reduction rotates the affected future key context and rejects stale offline operations. It cannot erase cleartext legitimately received before revocation.
 
 ### The two sync tiers
 
@@ -211,6 +234,8 @@ Why not SQLite for those document files: they need plain-file ownership, meaning
 ### Notes: SQLite page and block graph
 
 Notes are the deliberate exception to markdown document storage. A Notion-like editor needs stable block ids, nesting, pagination, parent objects, type payloads, trash state, unsupported block preservation, and transactional edits. SQLite stores that graph directly, while markdown remains a derived import, export, preview, or bridge format.
+
+Project working-folder Markdown is not part of that exception because those files already have a canonical file identity. Rust scans each active project folder through the shared authorization boundary, and Notes displays matching `.md` files beside SQLite pages. Reads are UTF-8 and size bounded. Saves require the expected SHA-256 revision and replace the file atomically. No filesystem creation, rename, move, or delete command is exposed by this surface.
 
 ### Structured data: SQLite as source of truth
 
@@ -405,21 +430,21 @@ The protocol connecting the browser extension to the local Rust native host via 
 
 ## Music / media player
 
-A local-first media player integrated directly into the AGPL 3.0 app. Rodio/Symphonia audio playback and local media probing live in the internal Rust media player module at `apps/client/src-tauri/src/media_player.rs`; playlist data, media registration, YouTube host URLs, and local video loopback hosting remain in `apps/client/src-tauri/src/music.rs`. Supports two sources: local files (primary) and YouTube via the official IFrame API (secondary).
+A local-first media player integrated directly into the AGPL 3.0 app. Rodio/Symphonia audio playback and local media probing live in the internal Rust media player module at `apps/client/src-tauri/app/src/media_player.rs`; playlist data, media registration, YouTube host URLs, and local video loopback hosting remain in `apps/client/src-tauri/app/src/music.rs`. Supports two sources: local files (primary) and YouTube via the official IFrame API (secondary).
 
 ### Current local playback path
 
-Desktop local audio playback is Rust-controlled through `apps/client/src-tauri/src/media_player.rs` with Rodio and Symphonia. Desktop local video uses the browser media element inside the Tauri WebView with file access provided by a token-gated Rust loopback media host on `127.0.0.1`. The Rust side validates the file path, scans user-selected folders outside the UI thread, registers only selected files, and streams byte-range responses with media content types.
+Desktop local audio playback is Rust-controlled through `apps/client/src-tauri/app/src/media_player.rs` with Rodio and Symphonia. Desktop local video uses the browser media element inside the Tauri WebView with file access provided by a token-gated Rust loopback media host on `127.0.0.1`. The Rust side validates the file path, scans user-selected folders outside the UI thread, registers only selected files, and streams byte-range responses with media content types.
 
 The WebView path is the intentional local video path. It can play only the formats and codecs supported by the user's platform WebView, but it delegates video decoding and rendering to the media stack that Tauri already ships on each platform. On Linux this is WebKitGTK, which uses GStreamer internally for web media. On Windows this is WebView2. On macOS and iOS this is WKWebView. On Android this is Android WebView.
 
 Local audio volume, mute, pause, seek, rate, duration, and position snapshots are internal Rust media player operations. Local audio, local video, and YouTube volume are capped at normal `100%`. Local video uses the WebView media element directly and avoids Web Audio gain routing so playback can follow default output changes more reliably on Linux Bluetooth setups. When the OS reports an audio device change, the frontend recreates active local video media at the current position and resumes if it was playing.
 
-Hardware and Bluetooth media controls use the existing browser Media Session API where the WebView supports it. Linux desktop builds also expose a lightweight MPRIS bridge through GTK/GIO in `apps/client/src-tauri/src/media_controls.rs`, so desktop media widgets, keyboard media keys, and Bluetooth AVRCP controls can call the persistent music player even when local audio is playing through Rodio instead of a WebView media element. Windows desktop builds use the same module to expose System Media Transport Controls from the main native window, keeping Windows media flyouts and hardware controls on the same player action path.
+Hardware and Bluetooth media controls use the existing browser Media Session API where the WebView supports it. Linux desktop builds also expose a lightweight MPRIS bridge through GTK/GIO in `apps/client/src-tauri/app/src/media_controls.rs`, so desktop media widgets, keyboard media keys, and Bluetooth AVRCP controls can call the persistent music player even when local audio is playing through Rodio instead of a WebView media element. Windows desktop builds use the same module to expose System Media Transport Controls from the main native window, keeping Windows media flyouts and hardware controls on the same player action path.
 
 ### Rust audio backend target
 
-The production local audio backend is Rust-controlled through `apps/client/src-tauri/src/media_player.rs`. Rodio with default features disabled remains the default local audio target, with only playback plus the needed Symphonia decoding features enabled for common local music files. This gives the app a small audio-only path before it initializes any video-capable multimedia framework. The backend owns local audio decoding, transport controls, volume, mute, seeking, rate changes, duration, position snapshots, and audio device output. Metadata and artwork extraction still use the existing Rust music commands.
+The production local audio backend is Rust-controlled through `apps/client/src-tauri/app/src/media_player.rs`. Rodio with default features disabled remains the default local audio target, with only playback plus the needed Symphonia decoding features enabled for common local music files. This gives the app a small audio-only path before it initializes any video-capable multimedia framework. The backend owns local audio decoding, transport controls, volume, mute, seeking, rate changes, duration, position snapshots, and audio device output. Metadata and artwork extraction still use the existing Rust music commands.
 
 Rodio is the first target because it is a RustAudio playback crate, uses CPAL for cross-platform audio output, supports player controls such as play, pause, seek, volume, and speed, and uses Symphonia as the default decoder backend for common file types. The approved dependency shape is `rodio` with `default-features = false` and features limited to `playback`, `symphonia-flac`, `symphonia-mp3`, `symphonia-isomp4`, `symphonia-aac`, `symphonia-alac`, `symphonia-ogg`, `symphonia-vorbis`, `symphonia-wav`, and `symphonia-pcm`.
 
@@ -492,9 +517,9 @@ The skill tree visualization, visual novel NPC interactions, Will system, contra
 
 Tauri v2 has official iOS and Android support. The mobile app shares the Svelte frontend, Notes page and block graph, Yjs sync layer, and SQLite database with the desktop app. It is not a separate product; it is the same app with a mobile-appropriate layout and a focused subset of features.
 
-Features available on mobile: note editor, calendar view and editing, Pomodoro timer (with notification-based breaks instead of fullscreen overlay), daily diary (morning and evening entries), sleep alarm (triggers diary flows and morning playlist), Doomscrolling (app-level blocking during scheduled focus times and mornings), collaborative workspaces, sync.
+Features available on mobile: note editor, calendar view and editing, Pomodoro timer (with notification-based breaks instead of fullscreen overlay), daily diary (morning and evening entries), sleep alarm (triggers diary flows and morning playlist), Doomscrolling (app-level blocking during scheduled focus times and mornings), authorized Chat channels and direct messages, task review, BYOK AI teammates, collaborative workspaces, and sync.
 
-Features unavailable on mobile due to OS sandboxing: work environment switching (opening/closing desktop apps, arranging browser tabs), edge panel, fullscreen break overlay, always-on-top windows, desktop activity monitoring.
+Features unavailable on mobile due to OS sandboxing: native coding-agent processes, terminals, desktop working folders and execution tools, work environment switching (opening/closing desktop apps, arranging browser tabs), edge panel, fullscreen break overlay, always-on-top windows, and desktop activity monitoring.
 
 ### Sleep alarm
 
@@ -516,105 +541,60 @@ The project management framework generates automatic status reports from Kanban 
 
 ## AI integration architecture
 
-All AI features are opt-in and BYOK. The app is fully functional without any AI layer. No API calls leave the device without explicit user consent. Three distinct integration paths serve different user profiles.
+All AI features are opt-in. The app is fully functional with no provider configured. Ganbaru has one coordination model and three provider-access paths: local coding-agent harnesses, a future general BYOK path, and external clients. Channels, teammates, tasks, and decisions do not change identity when the provider path changes.
 
-### Integrated terminal (developer path)
+### Coordination layer
 
-An xterm.js terminal emulator embedded in the Tauri webview. Runs Codex by default, or another CLI-based AI agent when the user chooses one. This is the power-user path for developers and supports file editing, shell commands, tests, subagents, and repository-aware workflows.
+Chat channels, direct messages, reply threads, task discussions, persistent AI teammates, work assignments, manager proposals, context packages, agent runs, reviews, budgets, and provenance are structured SQLite data. Projects owns accepted work. Notes owns durable knowledge. Calendar owns time and capacity. The coordination layer chooses an authorized execution path but is not itself a provider protocol.
 
-xterm.js is the same terminal emulator used by VS Code. It handles color, Unicode, resize, selection, and all standard terminal behavior. The user installs Codex or another supported agent themselves and signs in with their own account or API key. Ganbaru AI provides a specialized terminal that is context-aware, not a redistribution of any agent.
+The base system seeds no AI teammate. Future teammate templates instantiate ordinary identities under the same access model. Durable teammate context comes from canonical records, selected Notes, bounded conversation context, future scoped memory, decisions, and run summaries rather than one infinite provider conversation. A planning proposal applies only to exact source and authorization revisions and becomes canonical work through typed Rust commands after the applicable approval.
 
-**Context injection from app state.** `AGENTS.md` stays as project-level conventions. Task-specific context comes from Ganbaru AI dynamically and is passed through the launch prompt, standard input, or the selected agent's SDK.
+### Local coding-agent path
 
-```bash
-# User clicks "Start" on kanban task #42.
-# Ganbaru AI assembles project context and launches Codex.
-ganbaru-ai project context ganbaru-ai | codex exec "Start implementing kanban task #42"
+Rust-owned native transports provide interactive coding execution:
 
-# Background agent for delegated work.
-ganbaru-ai project context ganbaru-ai | codex exec "Research OAuth2 best practices for Tauri desktop apps"
-
-# Workflow-specific prompt for brainstorming.
-codex exec "Help brainstorm a new project. Guide structured ideation, evaluate ideas against criteria, and write results to the project notes directory."
-```
-
-Key Codex capabilities for programmatic control:
-
-| Capability | Purpose |
+| Provider family | Transport boundary |
 |---|---|
-| `codex exec` | Run non-interactive agents from scripts, CI, or Ganbaru AI background jobs |
-| Codex SDK | Control local Codex agents from an application or internal tool |
-| `AGENTS.md` | Load persistent project conventions before work starts |
-| Subagents | Delegate specialized work in parallel |
-| MCP | Connect Codex to external tools and data sources |
-| Sandbox and approval settings | Bound file system access, command execution, and automation risk |
-| JSONL output mode | Consume agent progress and results programmatically |
+| Codex | `app-server` JSONL over an owned child process |
+| Claude Code | Native bidirectional stream JSON over an owned child process |
+| Cursor Agent and Grok | ACP over owned standard input and output |
+| OpenCode | Owned loopback HTTP and server-sent events, or an explicitly configured external origin |
 
-### Session management
+The user installs and authenticates each harness. Ganbaru discovers configured executables, preserves provider-native models, approvals, questions, plans, usage, safety behavior, and continuation identities, and normalizes durable events in Rust. Svelte receives validated DTOs and never receives generic process, credential, or filesystem authority.
 
-Per-project conversation threads stored in SQLite. The calendar drives automatic session switching.
+xterm.js renders thread-scoped terminal sessions created by narrow Rust commands in an authorized execution environment. It is a workspace tool, not the transport used to scrape or control provider output. Files, review, Git, checkpoints, worktrees, source control, and browser preview use the same Rust-owned authorization boundary.
 
-When a calendar event starts (e.g., "Project X: auth module"), Ganbaru AI:
-1. Saves the current AI session (session ID, conversation state)
-2. Checks if a previous session exists for the new event's project
-3. Resumes the previous session when the selected agent supports resumable threads, or starts a new one with project context
-4. Injects the current task context through the agent launch prompt, standard input, or SDK call
+### Organizational conversations and execution sessions
 
-The user sees one AI panel that automatically carries the right conversation for whatever they're working on. Switching between four different projects in a week means four persistent conversation threads, each resuming exactly where the user left off.
+A channel or future DM is a durable organizational conversation. A provider thread is replaceable execution machinery. `chat_conversations` and `chat_channels` own organizational identity, while messages and reply threads link to work assignments and exact agent runs. An agent run optionally links to a hidden `chat_thread` and always binds an immutable teammate policy and authorization revision. A conversation run has no native filesystem target. A run that uses native files or commands binds one folder or explicit private-scratch target. No channel owns a provider, model, folder, or current provider session.
 
-Manual override is always available: the user can stay in the current conversation, switch manually, or start a fresh session.
+Calendar can select the linked project and suggest a channel or task while preserving drafts, reviews, and live execution. It never retargets a running provider continuation. Working folders remain execution resources selected by a task, teammate policy, or direct-agent action instead of the left-rail hierarchy.
 
-### BYOK chat widget (general user path)
+### Context packages and agent runs
 
-A chat interface inside Ganbaru AI's UI for users who don't use the developer terminal. Same session management (calendar-driven switching, per-project threads) but with a web-based chat widget instead of a terminal.
+Every approved planning action and delegated run receives a versioned context package with exact task and requirement revisions, selected Notes or files, dependencies, Calendar constraints, relevant conversation context, prior summaries, instructions, effective permissions, and budgets. Package construction is permission-aware and auditable.
 
-Three LLM provider categories, covering most users:
+An agent run records the objective, teammate or task-agent identity, role-policy revision, provider, model, workspace, execution environment, context package, authority, budgets, lifecycle state, usage, deliverables, review state, and provider continuation. Parallel mutable work uses separate worktrees or execution environments. Work-in-progress, review capacity, dependencies, quotas, and cost ceilings constrain scheduling.
 
-- **OpenAI API**. Direct API integration for OpenAI-hosted models.
-- **OpenAI-compatible APIs** (Groq, Together, Mistral API, and any provider implementing a compatible chat format). A single integration covers dozens of providers.
-- **Ollama** (local models via localhost REST API). Runs Llama, Mistral, Gemma, and other open models entirely on the user's machine. No API key needed, no data leaves the device.
-- **Other provider APIs** when users supply their own credentials and the integration is implemented explicitly.
+### General BYOK path
 
-Context injection works the same way as the terminal path: Ganbaru AI assembles project/task context and sends it as the system prompt in API calls. The chat widget can read/write Ganbaru AI data via internal Tauri commands but cannot edit arbitrary files or run bash commands.
+The future general path supports OpenAI API, explicitly supported OpenAI-compatible providers, Ollama, and other reviewed integrations. General AI teammates participate in the same authorized channels, DMs, tasks, and context-package model. They can use typed Ganbaru data operations but cannot edit arbitrary files or execute shell commands.
 
-BYOK configuration UI: API key management (stored locally, never transmitted except to the configured provider), model selection, provider setup with guided instructions, and consent controls for what context is sent to the LLM.
+Credentials stay in the operating-system credential store behind opaque references. Each request records the provider, model, destination, consent, effective context scope, usage, and result needed for provenance and cost controls.
 
-### Workflow phase prompts
+### CLI as the local data bridge
 
-Each project management phase has a structured system prompt that adapts the AI's behavior without requiring specialized agents. One general agent per project carries context across phases:
+The planned `ganbaru-ai` CLI exposes typed Projects, Calendar, Notes, and workspace operations to separately authorized local agents and scripts. Application-owned coordination services can call the same Rust services without starting a shell. Neither the CLI nor an internal service is a participant identity. Agents never gain permission merely because they can guess a row ID, and exported Markdown remains derivative.
 
-- **Brainstorming:** "Guide the user through structured ideation. Help them generate ideas, evaluate against criteria, combine or discard. Research existing solutions."
-- **Idea evaluation:** "Help evaluate this idea against Want/Can/Need criteria. Research competitors, market size, and feasibility. Fill the market analysis template."
-- **Planning:** "Help create a detailed specification. Break down into phases, estimate resources, identify risks, define milestones."
-- **Execution:** "Assist with implementation. Review progress against the plan, suggest next steps, help resolve blockers."
+### MCP boundaries
 
-These prompts are appended to the base system prompt when the user enters a project management phase. They work with both the terminal and the BYOK chat widget.
+The general MCP server is for separately authorized external clients. Chat provider sessions can also receive an ephemeral loopback-only internal MCP endpoint for bounded durable resources and controlled browser-preview tools. It is thread-scoped, bearer-authenticated, removed with the session, and never becomes the general Ganbaru data API.
 
-### Background agents
+Ganbaru may later consume external MCP servers for integrations such as email or external calendars. Those integrations follow the same participant, conversation, context-package, approval, and provenance rules as native operations.
 
-Non-interactive agents for delegated or parallel work. The user can delegate a kanban task to a background agent instead of working on it interactively.
+### Future human collaboration
 
-- Terminal path: `codex exec` or the Codex SDK runs as a separate process or controlled local agent
-- BYOK path: direct LLM API calls from the Rust backend
-- Results appear as notifications, update kanban tasks directly, or create PRs
-- Multiple background agents can run in parallel, each with isolated context from Ganbaru AI's prompt builder
-
-### CLI as the live data bridge
-
-The `ganbaru-ai` CLI (detailed in the "CLI for agent integration" section above) serves as the bridge between AI agents and Ganbaru AI's data. Inside the integrated terminal, Codex calls `ganbaru-ai task list`, `ganbaru-ai calendar today`, etc. to query live data. Background agents use the CLI for structured queries. The CLI is also available to any external script or automation.
-
-### MCP (external access only)
-
-MCP is reserved for a single use case: letting external AI clients that don't run locally access Ganbaru AI's data. This includes ChatGPT, teammate agents, or any MCP-compatible client that connects remotely.
-
-MCP is not used for:
-- How Codex interacts with Ganbaru AI (that's the CLI)
-- How the integrated terminal works (that's direct process spawning)
-- How the BYOK chat widget works (that's direct API calls)
-
-MCP adds value when: a user wants their ChatGPT session to see their Ganbaru AI calendar, or a teammate's agent needs to query project tasks without having the CLI installed locally. This is a post-MVP feature.
-
-Ganbaru AI can also consume external MCP servers for integrations (email, external calendars, etc.) when those integrations require real-time bidirectional connections.
+Permission-aware sync later lets people join project groups, projects, selected channels, selected Notes folders or pages, selected task discussions, or explicit project working folders. Direct and derived reads share one boundary. Search, notifications, reports, exports, and AI context packages cannot reveal inaccessible data. See `features/agent-coordination.md`, `data/sync.md`, and `data/security.md`.
 
 ---
 
@@ -662,11 +642,13 @@ Everything is free. The project is sustained by donations via GitHub Sponsors.
 | PDF generation            | Typst                                                | Rust-native typesetting, structured data → high-quality PDF reports                |
 | PDF reading               | `pdfium-render`                                      | Google PDFium Rust bindings for text extraction and page rendering                 |
 | Visual novel layer (deferred) | Custom Svelte components                         | JSON-driven dialogue state machine, NPC interactions in project management         |
-| Integrated terminal       | xterm.js                                             | Embedded terminal for Codex or another CLI coding agent, context injection, session management |
-| BYOK chat widget          | OpenAI / OpenAI-compatible / Ollama APIs             | In-app AI chat for non-developer users, same session management as terminal        |
+| Chat coordination         | SQLite + Svelte + typed Rust commands                | Channels, teammates, work assignments, context packages, agent runs, and review    |
+| Coding-agent execution    | Native provider protocols + Rust process ownership  | Durable provider sessions beneath channels and task-linked runs                    |
+| Execution terminal        | xterm.js + Rust pseudoterminals                      | Thread-scoped terminal tool in an authorized working folder                        |
+| BYOK AI teammates         | OpenAI / reviewed compatible APIs / Ollama          | General assistants in the same permission-aware coordination model                 |
 | Mobile alarm              | iOS `UNNotificationRequest` / Android `AlarmManager` | Sleep alarm triggering diary flows and morning routines                            |
 | Mobile app blocking       | iOS Screen Time API / Android UsageStatsManager      | App-level blocking during focus times within platform sandbox constraints          |
-| Agent integration (CRUD)  | `ganbaru-ai` CLI (Rust)                               | Direct SQLite access, no server, works with any agent/script                       |
+| Agent integration (CRUD)  | `ganbaru-ai` CLI (Rust)                               | Typed local operations over canonical data with explicit authorization             |
 | Agent integration (external) | MCP (post-MVP)                                    | External AI clients accessing Ganbaru AI data remotely                              |
 | Backend language          | Rust                                                 | Required by Tauri, OS-level APIs, media engine                                     |
 | Frontend language         | TypeScript                                           | Type safety across interconnected state                                            |

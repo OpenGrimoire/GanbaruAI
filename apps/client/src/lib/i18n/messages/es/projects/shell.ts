@@ -8,6 +8,8 @@ export const shell = {
     addTask: "Agregar tarea",
     addSection: "Agregar sección",
     projectSettings: "Configuración del proyecto",
+    openChat: "Abrir Chat del proyecto",
+    chatFolder: "Carpeta de Chat",
     openTasks: (count: number) => `${count} abiertas`,
     blockedTasks: (count: number) => `${count} bloqueadas`,
     scheduledEvents: (count: number) => `${count} programadas`,
@@ -46,6 +48,7 @@ export const shell = {
     groupNamePlaceholder: "Nombre del grupo",
     projectNamePlaceholder: "Nombre del proyecto",
     projectTemplate: "Plantilla del proyecto",
+    managedFolderCreationHint: "Se crea automáticamente una carpeta privada. Agrega una carpeta existente después en la configuración del proyecto.",
     groupColor: "Color del grupo",
     selectGroupColor: "Seleccionar color del grupo",
     selectGroupIcon: (icon: string) => `Seleccionar icono ${icon} del grupo`,
@@ -57,7 +60,7 @@ export const shell = {
     deleteGroupMessage: (group: string, projectCount: number) =>
       `Esto elimina permanentemente ${group}, ${projectCount} ${projectCount === 1 ? "proyecto" : "proyectos"
       }, y todos los datos de tareas dentro. Los eventos vinculados permanecen en el calendario sin proyecto.`,
-    deleteGroupConfirm: "Eliminar grupo (Enter)",
+    deleteGroupConfirm: "Eliminar grupo",
     empty: "Sin proyectos",
   },
   iconPicker: {

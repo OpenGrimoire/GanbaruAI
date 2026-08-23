@@ -9,8 +9,10 @@ import {
   DEFAULT_CALENDAR_VIEW_MODE,
   DEFAULT_MUSIC_PAUSE_ON_POMODORO_PAUSE,
   DEFAULT_PROFILE_DISPLAY_NAME,
+  DEFAULT_PROFILE_IMAGE_PATH,
   DEFAULT_PROFILE_FULL_NAME,
   PROFILE_DISPLAY_NAME_MAX_CHARS,
+  isProfileImagePath,
   PROFILE_FULL_NAME_MAX_CHARS,
   DEFAULT_CALENDAR_TIME_FORMAT,
   CALENDAR_VIEW_MODES,
@@ -221,6 +223,16 @@ describe("profile preferences", () => {
       ok: true,
       value: "",
     });
+  });
+
+  it("accepts only managed raster profile image paths", () => {
+    expect(DEFAULT_PROFILE_IMAGE_PATH).toBeNull();
+    expect(isProfileImagePath(`profile/${"a".repeat(64)}.png`)).toBe(true);
+    expect(isProfileImagePath(`profile/${"b".repeat(64)}.jpeg`)).toBe(true);
+    expect(isProfileImagePath("profile/image.png")).toBe(false);
+    expect(isProfileImagePath(`profile/nested/${"a".repeat(64)}.webp`)).toBe(false);
+    expect(isProfileImagePath(`project-icons/${"a".repeat(64)}.png`)).toBe(false);
+    expect(isProfileImagePath(`profile/${"a".repeat(64)}.svg`)).toBe(false);
   });
 
   it("trims profile full names while allowing an empty value", () => {
