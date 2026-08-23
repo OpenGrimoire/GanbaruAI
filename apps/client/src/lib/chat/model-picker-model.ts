@@ -9,6 +9,7 @@ import type {
 import { rankedModels } from "./composer-model";
 import {
   compareCompanyModels,
+  formatModelDisplayName,
   integrationCompany,
   modelCompany,
   type ModelCompanyIdentity,
@@ -52,8 +53,8 @@ export function compactModelName(
   displayName: string,
   familyId: ProviderFamilyId | null,
 ): string {
-  if (familyId !== "codex") return displayName;
-  return displayName.replace(/^GPT-/i, "").replaceAll("-", " ");
+  const compactName = familyId === "codex" ? displayName.replace(/^GPT-/i, "") : displayName;
+  return formatModelDisplayName(compactName);
 }
 
 /** Formats an option label for the compact Chat model control. */

@@ -80,7 +80,7 @@
 
 <div
   class={cn(
-    activeTab === "teammates"
+    activeTab === "teammates" || activeTab === "providers"
       ? "grid h-full min-h-0 grid-rows-[auto_minmax(0,1fr)] gap-6"
       : "flex flex-col gap-6 pb-4",
   )}

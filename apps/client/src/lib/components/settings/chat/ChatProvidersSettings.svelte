@@ -1,5 +1,5 @@
 <script lang="ts">
-  import Check from "@lucide/svelte/icons/check";
+  import Mail from "@lucide/svelte/icons/mail";
   import Pencil from "@lucide/svelte/icons/pencil";
   import Plus from "@lucide/svelte/icons/plus";
   import RefreshCw from "@lucide/svelte/icons/refresh-cw";
@@ -13,13 +13,18 @@
     ProviderRefreshResult,
   } from "$lib/chat/contracts";
   import { chatErrorMessage } from "$lib/chat/error-presentation";
-  import { compareCompanyModels, modelCompany, modelIdAddsInformation } from "$lib/chat/model-company";
+  import {
+    compareCompanyModels,
+    formatModelDisplayName,
+    modelCompany,
+    shouldShowModelId,
+  } from "$lib/chat/model-company";
   import ChatModelAvatar from "$lib/components/chat/ChatModelAvatar.svelte";
+  import CalendarScrollbar from "$lib/components/calendar/CalendarScrollbar.svelte";
   import ConfirmDialog from "$lib/components/ui/ConfirmDialog.svelte";
   import { formatNumber } from "$lib/i18n/formatters";
   import { getLocalization } from "$lib/i18n/translator.svelte";
   import { getChat } from "$lib/stores/chat.svelte";
-  import RedactedSensitiveText from "../RedactedSensitiveText.svelte";
   import SettingSwitch from "../SettingSwitch.svelte";
   import type { ChatProviderSetupTarget } from "../types";
 
@@ -47,6 +52,8 @@
   let customError = $state<string | null>(null);
   let operationError = $state<string | null>(null);
   let removeId = $state<string | null>(null);
+  let directoryScrollElement = $state<HTMLElement>();
+  let detailScrollElement = $state<HTMLElement>();
   const families = $derived(chat.settings?.providerFamilies ?? []);
   const providers = $derived(chat.settings?.providerInstances ?? []);
   const selectedFamily = $derived(
@@ -72,7 +79,7 @@
     const familyId = selectedProvider?.configuration.familyId ?? "";
     return [...(selectedProvider?.modelCatalog?.models ?? [])]
       .filter((model) => !query
-        || model.displayName.toLocaleLowerCase(localization.locale).includes(query)
+        || formatModelDisplayName(model.displayName).toLocaleLowerCase(localization.locale).includes(query)
         || model.id.toLocaleLowerCase(localization.locale).includes(query))
       .sort((left, right) => {
         const favoriteOrder = Number(favorites.has(right.id)) - Number(favorites.has(left.id));
@@ -130,8 +137,9 @@
     resetCatalogState();
   }
 
-  function selectProvider(instanceId: string): void {
-    if (instanceId === selectedProviderId) return;
+  function selectProvider(familyId: string, instanceId: string): void {
+    if (familyId === selectedFamilyId && instanceId === selectedProviderId) return;
+    selectedFamilyId = familyId;
     selectedProviderId = instanceId;
     resetCatalogState();
   }
@@ -360,268 +368,339 @@
   function errorMessage(error: unknown): string {
     return chatErrorMessage(error, t("settings.chat.providers.operationFailed"));
   }
+
+  function providerCliName(
+    family: ProviderFamilyMetadataRead,
+    provider: ProviderInstanceRead,
+  ): string {
+    const executable = provider.configuration.executable.trim().replaceAll("\\", "/");
+    return executable.split("/").at(-1)
+      || providerFamilyCliName(family);
+  }
+
+  function providerFamilyCliName(family: ProviderFamilyMetadataRead): string {
+    return family.defaultExecutableCandidates[0] || family.familyId;
+  }
+
+  function providerCliSummary(
+    family: ProviderFamilyMetadataRead,
+    provider: ProviderInstanceRead,
+  ): string {
+    const cliName = providerCliName(family, provider);
+    return provider.lastProbe?.version ? `${cliName} ${provider.lastProbe.version}` : cliName;
+  }
 </script>
 
 <section class="provider-settings" data-chat-settings-subsection="providers">
-  <header class="page-heading">
-    <h2>{t("settings.chat.providers.heading")}</h2>
-    <button type="button" class="refresh-all" disabled={refreshingAll} onclick={() => void refreshAll()}>
+  <header class="directory-header">
+    <div>
+      <h2>{t("settings.chat.providers.heading")}</h2>
+      <p>{t("settings.chat.providers.description")}</p>
+    </div>
+    <button type="button" class="settings-button" disabled={refreshingAll} onclick={() => void refreshAll()}>
       <RefreshCw size={13} class={refreshingAll ? "animate-spin" : undefined} />
       {refreshingAll ? t("settings.chat.providers.scanning") : t("settings.chat.providers.refreshAll")}
     </button>
   </header>
 
-  {#if refreshResult && (refreshResult.providersDiscovered > 0 || refreshResult.issues > 0)}
-    <p class="refresh-summary" class:attention={refreshResult.issues > 0}>{refreshSummary(refreshResult)}</p>
-  {/if}
-  {#if operationError}<p role="alert" class="operation-error">{operationError}</p>{/if}
-
   {#if chat.loading}
-    <p class="families-empty">{t("common.loading")}</p>
+    <p class="empty-copy" role="status">{t("common.loading")}</p>
   {:else if families.length === 0}
-    <p class="families-empty">{t("settings.chat.providers.noIntegrations")}</p>
+    <p class="empty-copy">{t("settings.chat.providers.noIntegrations")}</p>
   {:else}
-    <div class="family-tabs" role="tablist" aria-label={t("settings.chat.providers.familyTabs") }>
-      {#each families as family (family.familyId)}
-        {@const active = family.familyId === selectedFamily?.familyId}
-        {@const state = familyState(family)}
-        <button
-          type="button"
-          role="tab"
-          aria-selected={active}
-          class:active
-          onclick={() => selectFamily(family.familyId)}
-        >
-          <ChatModelAvatar familyId={family.familyId} label={family.displayName} size={27} />
-          <span>
-            <strong>{family.displayName}</strong>
-            <small data-state={state}><i></i>{familyStateLabel(family)}</small>
-          </span>
-        </button>
-      {/each}
-    </div>
-
-    {#if selectedFamily}
-      <div class="family-workspace" role="tabpanel">
-        <section class="configurations-section">
-          <h3>{t("settings.chat.providers.configurations")}</h3>
-
-          {#if familyProviders.length === 0}
-            <p class="configuration-empty">{t("settings.chat.providers.noConfigurations", selectedFamily.displayName)}</p>
-          {:else}
-            <div class="configuration-list">
-              {#each familyProviders as provider (provider.configuration.instanceId)}
-                {@const instanceId = provider.configuration.instanceId}
-                {@const active = instanceId === selectedProvider?.configuration.instanceId}
-                {@const busy = refreshingAll || busyIds.includes(instanceId)}
-                <div class="configuration-row">
-                  <div class="configuration-identity">
+    <div class="directory-layout">
+      <aside class="directory-panel">
+        <div class="scroll-frame">
+          <div bind:this={directoryScrollElement} class="directory-scroll hide-scrollbar">
+            <nav class="provider-directory" aria-label={t("settings.chat.providers.familyTabs")}>
+              {#each families as family (family.familyId)}
+                {@const instances = providersForFamily(family.familyId)}
+                {#if instances.length === 0}
+                  {@const active = family.familyId === selectedFamily?.familyId && !selectedProvider}
+                  {@const state = familyState(family)}
+                  <button
+                    type="button"
+                    class="provider-row"
+                    class:active
+                    aria-current={active ? "page" : undefined}
+                    onclick={() => selectFamily(family.familyId)}
+                  >
+                    <ChatModelAvatar familyId={family.familyId} label={family.displayName} size={32} />
+                    <span class="directory-summary">
+                      <strong>{family.displayName}</strong>
+                      <small data-state={state}><i></i>{familyStateLabel(family)}</small>
+                    </span>
+                  </button>
+                {:else}
+                  {#each instances as provider (provider.configuration.instanceId)}
+                    {@const instanceId = provider.configuration.instanceId}
+                    {@const active = instanceId === selectedProvider?.configuration.instanceId}
                     <button
                       type="button"
-                      class="configuration-select"
-                      aria-pressed={active}
-                      onclick={() => selectProvider(instanceId)}
+                      class="provider-row"
+                      class:active
+                      aria-current={active ? "page" : undefined}
+                      onclick={() => selectProvider(family.familyId, instanceId)}
                     >
-                      <span class="configuration-name">
+                      <ChatModelAvatar familyId={family.familyId} label={family.displayName} size={32} />
+                      <span class="directory-summary">
                         <strong>{provider.configuration.label}</strong>
-                        {#if active && familyProviders.length > 1}
-                          <Check size={13} strokeWidth={2.5} class="shrink-0 text-foreground" />
-                        {/if}
+                        <small data-state={providerState(provider)}><i></i>{providerStateLabel(provider)}</small>
                       </span>
                     </button>
-                    <small>
-                      <span class="configuration-state" data-state={providerState(provider)}>
-                        <i></i>{providerStateLabel(provider)}
-                      </span>
-                      {#if provider.lastProbe?.version}
-                        <span>{t("settings.chat.providers.versionValue", provider.lastProbe.version)}</span>
-                      {/if}
-                      {#if provider.lastProbe?.accountLabel}
-                        <RedactedSensitiveText
-                          value={provider.lastProbe.accountLabel}
-                          revealLabel={t("settings.chat.providers.revealAccount")}
-                          hideLabel={t("settings.chat.providers.hideAccount")}
-                        />
-                      {/if}
-                    </small>
-                  </div>
-
-                  <div class="configuration-actions">
-                    <SettingSwitch
-                      checked={provider.configuration.enabled}
-                      ariaLabel={provider.configuration.enabled
-                        ? t("settings.chat.providers.disable")
-                        : t("settings.chat.providers.enable")}
-                      disabled={busy}
-                      onChange={(enabled) => void setEnabled(provider, enabled)}
-                    />
-                    <button
-                      type="button"
-                      class="icon-action"
-                      aria-label={t("settings.chat.providers.configure")}
-                      title={t("settings.chat.providers.configure")}
-                      onclick={() => onOpenProviderSetup({ mode: "edit", instanceId })}
-                    >
-                      <Pencil size={14} />
-                    </button>
-                    <button
-                      type="button"
-                      class="icon-action"
-                      disabled={busy}
-                      aria-label={t("settings.chat.providers.refresh")}
-                      title={t("settings.chat.providers.refresh")}
-                      onclick={() => void refreshProvider(provider)}
-                    >
-                      <RefreshCw size={14} class={busy ? "animate-spin" : undefined} />
-                    </button>
-                    <button
-                      type="button"
-                      class="icon-action destructive"
-                      disabled={busy}
-                      aria-label={t("settings.chat.providers.remove")}
-                      title={t("settings.chat.providers.remove")}
-                      onclick={() => { removeId = instanceId; }}
-                    >
-                      <Trash2 size={14} />
-                    </button>
-                  </div>
-                </div>
+                  {/each}
+                {/if}
               {/each}
-            </div>
-          {/if}
+            </nav>
+          </div>
+          <CalendarScrollbar scrollContainer={directoryScrollElement} wheelPassthrough />
+        </div>
+      </aside>
 
-          {#if selectedFamily.implementationStatus === "available"}
-            <button type="button" class="add-configuration" onclick={() => openProviderSetup(selectedFamily.familyId)}>
-              <Plus size={13} />
-              {familyProviders.length === 0
-                ? t("settings.chat.providers.setUp", selectedFamily.displayName)
-                : t("settings.chat.providers.addAnother", selectedFamily.displayName)}
-            </button>
-          {:else}
-            <p class="integration-unavailable">
-              {selectedFamily.unavailableReason ?? t("settings.chat.providers.notAvailable")}
-            </p>
-          {/if}
-        </section>
-
-        {#if selectedProvider}
-          {@const selectedBusy = refreshingAll || busyIds.includes(selectedProvider.configuration.instanceId)}
-          {#if selectedProvider.lastProbe?.state === "authentication_required"}
-            <p class="provider-notice">{t("settings.chat.providers.loginHelp")}</p>
-          {/if}
-
-          <section class="catalog-section">
-            <header class="catalog-heading">
-              <div>
-                <h3>{t("settings.chat.models.heading")}</h3>
-                <span>{t("settings.chat.models.modelCount", selectedProvider.modelCatalog?.models.length ?? 0)}</span>
-              </div>
-              {#if acceptsCustomModels}
-                <button type="button" class="compact-action" disabled={selectedBusy} onclick={() => { customOpen = !customOpen; }}>
-                  <Plus size={13} />
-                  {t("settings.chat.models.addCustom")}
-                </button>
-              {/if}
-            </header>
-
-            <label class="model-search">
-              <Search size={14} />
-              <input
-                type="search"
-                bind:value={search}
-                aria-label={t("settings.chat.models.search")}
-                placeholder={t("settings.chat.models.search")}
-              />
-            </label>
-
-            {#if selectedProvider.modelCatalog?.stale}
-              <p class="catalog-warning">{t("settings.chat.models.catalogStale")}</p>
-            {/if}
-
-            {#if customOpen && acceptsCustomModels}
-              <section class="custom-model-editor">
-                <label>
-                  <span>{t("settings.chat.models.customId")}</span>
-                  <input bind:value={customId} />
-                </label>
-                <label>
-                  <span>{t("settings.chat.models.customLabel")}</span>
-                  <input bind:value={customLabel} />
-                </label>
-                <button type="button" class="compact-action" disabled={selectedBusy} onclick={() => void saveCustomModel()}>
-                  {t("settings.chat.models.saveCustom")}
-                </button>
-                {#if customError}<p role="alert">{customError}</p>{/if}
-              </section>
-            {/if}
-
-            {#if models.length === 0}
-              <p class="models-empty">
-                {search.trim() ? t("settings.chat.models.noSearchResults") : t("settings.chat.models.empty")}
-              </p>
-            {:else}
-              <div class="model-list">
-                {#each models as model (model.id)}
-                  {@const company = modelCompany(selectedProvider.configuration.familyId, model)}
-                  <div class="model-row">
-                    <ChatModelAvatar familyId={company.iconFamilyId} label={company.name} size={25} />
-                    <div class="model-identity">
-                      <span class="model-name">{model.displayName}</span>
-                      <div class="model-meta">
-                        {#if modelIdAddsInformation(model)}<span class="model-id">{model.id}</span>{/if}
-                        {#if model.contextLimit}
-                          <span>{t("settings.chat.models.context", formatNumber(localization.locale, model.contextLimit))}</span>
-                        {/if}
-                        {#if model.availability !== "available"}
-                          <span class="text-status-tentative">
-                            {model.availability === "stale"
-                              ? t("settings.chat.models.stale")
-                              : model.availability === "deprecated"
-                                ? t("settings.chat.models.deprecated")
-                                : t("settings.chat.models.unavailable")}
-                          </span>
-                        {/if}
-                        {#if model.custom}<span>{t("settings.chat.models.custom")}</span>{/if}
-                      </div>
+      <div class="detail-panel">
+        {#if selectedFamily}
+          <div class="detail-scroll-frame">
+            <div bind:this={detailScrollElement} class="detail-scroll hide-scrollbar">
+              <div class="editor-heading">
+                <ChatModelAvatar
+                  familyId={selectedFamily.familyId}
+                  label={selectedFamily.displayName}
+                  size={38}
+                />
+                <div class="editor-title">
+                  <div class="editor-identity">
+                    <div class="editor-label-line">
+                      <h3>{selectedProvider?.configuration.label ?? selectedFamily.displayName}</h3>
+                      <span
+                        class="editor-state"
+                        data-state={selectedProvider ? providerState(selectedProvider) : familyState(selectedFamily)}
+                        aria-label={selectedProvider ? providerStateLabel(selectedProvider) : familyStateLabel(selectedFamily)}
+                        data-app-tooltip={selectedProvider ? providerStateLabel(selectedProvider) : familyStateLabel(selectedFamily)}
+                      ><i></i></span>
                     </div>
-                    <div class="model-actions">
+                    <div class="editor-subtitle-line">
+                      <p>
+                        {selectedProvider
+                          ? providerCliSummary(selectedFamily, selectedProvider)
+                          : providerFamilyCliName(selectedFamily)}
+                      </p>
+                      {#if selectedProvider?.lastProbe?.accountLabel}
+                        <button
+                          type="button"
+                          class="editor-account"
+                          aria-label={`${t("settings.chat.providers.account")}: ${selectedProvider.lastProbe.accountLabel}`}
+                          data-app-tooltip={selectedProvider.lastProbe.accountLabel}
+                          data-app-tooltip-keep-on-click="true"
+                        ><Mail size={12} strokeWidth={1.8} /></button>
+                      {/if}
+                    </div>
+                  </div>
+                  {#if selectedProvider}
+                    {@const headerInstanceId = selectedProvider.configuration.instanceId}
+                    {@const headerBusy = refreshingAll || busyIds.includes(headerInstanceId)}
+                    <div class="header-actions">
                       <SettingSwitch
-                        checked={isVisible(model.id)}
-                        ariaLabel={isVisible(model.id) ? t("settings.chat.models.hide") : t("settings.chat.models.show")}
-                        disabled={selectedBusy}
-                        onChange={(visible) => void setVisible(model.id, visible)}
+                        checked={selectedProvider.configuration.enabled}
+                        ariaLabel={selectedProvider.configuration.enabled
+                          ? t("settings.chat.providers.disable")
+                          : t("settings.chat.providers.enable")}
+                        disabled={headerBusy}
+                        onChange={(enabled) => void setEnabled(selectedProvider, enabled)}
                       />
                       <button
                         type="button"
-                        class="favorite-action"
-                        aria-label={t("settings.chat.models.favorite")}
-                        aria-pressed={selectedProvider.configuration.favoriteModelIds.includes(model.id)}
-                        onclick={() => void toggleFavorite(model.id)}
+                        class="icon-action"
+                        aria-label={t("settings.chat.providers.configure")}
+                        data-app-tooltip={t("settings.chat.providers.configure")}
+                        onclick={() => onOpenProviderSetup({ mode: "edit", instanceId: headerInstanceId })}
                       >
-                        <Star
-                          size={14}
-                          fill={selectedProvider.configuration.favoriteModelIds.includes(model.id) ? "currentColor" : "none"}
-                        />
+                        <Pencil size={14} />
                       </button>
-                      {#if model.custom}
-                        <button
-                          type="button"
-                          class="remove-custom"
-                          disabled={selectedBusy}
-                          onclick={() => void removeCustomModel(model.id)}
-                        >
-                          {t("settings.chat.models.removeCustom")}
-                        </button>
-                      {/if}
+                      <button
+                        type="button"
+                        class="icon-action"
+                        disabled={headerBusy}
+                        aria-label={t("settings.chat.providers.refresh")}
+                        data-app-tooltip={t("settings.chat.providers.refresh")}
+                        onclick={() => void refreshProvider(selectedProvider)}
+                      >
+                        <RefreshCw size={14} class={headerBusy ? "animate-spin" : undefined} />
+                      </button>
+                      <button
+                        type="button"
+                        class="icon-action destructive"
+                        disabled={headerBusy}
+                        aria-label={t("settings.chat.providers.remove")}
+                        data-app-tooltip={t("settings.chat.providers.remove")}
+                        onclick={() => { removeId = headerInstanceId; }}
+                      >
+                        <Trash2 size={14} />
+                      </button>
                     </div>
-                  </div>
-                {/each}
+                  {/if}
+                </div>
               </div>
-            {/if}
-          </section>
+
+              {#if refreshResult && (refreshResult.providersDiscovered > 0 || refreshResult.issues > 0)}
+                <p class="refresh-summary" class:attention={refreshResult.issues > 0} role="status">
+                  {refreshSummary(refreshResult)}
+                </p>
+              {/if}
+              {#if operationError}<p role="alert" class="operation-error">{operationError}</p>{/if}
+
+              {#if selectedProvider}
+                {@const instanceId = selectedProvider.configuration.instanceId}
+                {@const selectedBusy = refreshingAll || busyIds.includes(instanceId)}
+                <div class="editor-content">
+                  {#if selectedProvider.lastProbe?.state === "authentication_required"}
+                    <p class="provider-notice">{t("settings.chat.providers.loginHelp")}</p>
+                  {/if}
+
+                  <section class="editor-section catalog-section">
+                    {#if acceptsCustomModels}
+                      <div class="catalog-actions">
+                        <button type="button" class="compact-action" disabled={selectedBusy} onclick={() => { customOpen = !customOpen; }}>
+                          <Plus size={13} />
+                          {t("settings.chat.models.addCustom")}
+                        </button>
+                      </div>
+                    {/if}
+
+                    <label class="model-search">
+                      <Search size={14} />
+                      <input
+                        type="search"
+                        bind:value={search}
+                        aria-label={t("settings.chat.models.search")}
+                        placeholder={t("settings.chat.models.search")}
+                      />
+                    </label>
+
+                    {#if selectedProvider.modelCatalog?.stale}
+                      <p class="catalog-warning">{t("settings.chat.models.catalogStale")}</p>
+                    {/if}
+
+                    {#if customOpen && acceptsCustomModels}
+                      <section class="custom-model-editor">
+                        <label>
+                          <span>{t("settings.chat.models.customId")}</span>
+                          <input bind:value={customId} />
+                        </label>
+                        <label>
+                          <span>{t("settings.chat.models.customLabel")}</span>
+                          <input bind:value={customLabel} />
+                        </label>
+                        <button type="button" class="compact-action" disabled={selectedBusy} onclick={() => void saveCustomModel()}>
+                          {t("settings.chat.models.saveCustom")}
+                        </button>
+                        {#if customError}<p role="alert">{customError}</p>{/if}
+                      </section>
+                    {/if}
+
+                    {#if models.length === 0}
+                      <p class="models-empty">
+                        {search.trim() ? t("settings.chat.models.noSearchResults") : t("settings.chat.models.empty")}
+                      </p>
+                    {:else}
+                      <div class="model-list">
+                        {#each models as model (model.id)}
+                          {@const company = modelCompany(selectedProvider.configuration.familyId, model)}
+                          {@const showModelId = shouldShowModelId(model)}
+                          {@const showModelMetadata = showModelId
+                            || Boolean(model.contextLimit)
+                            || model.availability !== "available"
+                            || model.custom}
+                          <div class="model-row">
+                            <ChatModelAvatar familyId={company.iconFamilyId} label={company.name} size={25} />
+                            <div class="model-identity">
+                              <span class="model-name">{formatModelDisplayName(model.displayName)}</span>
+                              {#if showModelMetadata}
+                                <div class="model-meta">
+                                  {#if showModelId}<span class="model-id">{model.id}</span>{/if}
+                                  {#if model.contextLimit}
+                                    <span>{t("settings.chat.models.context", formatNumber(localization.locale, model.contextLimit))}</span>
+                                  {/if}
+                                  {#if model.availability !== "available"}
+                                    <span class="text-status-tentative">
+                                      {model.availability === "stale"
+                                        ? t("settings.chat.models.stale")
+                                        : model.availability === "deprecated"
+                                          ? t("settings.chat.models.deprecated")
+                                          : t("settings.chat.models.unavailable")}
+                                    </span>
+                                  {/if}
+                                  {#if model.custom}<span>{t("settings.chat.models.custom")}</span>{/if}
+                                </div>
+                              {/if}
+                            </div>
+                            <div class="model-actions">
+                              <SettingSwitch
+                                checked={isVisible(model.id)}
+                                ariaLabel={isVisible(model.id) ? t("settings.chat.models.hide") : t("settings.chat.models.show")}
+                                disabled={selectedBusy}
+                                onChange={(visible) => void setVisible(model.id, visible)}
+                              />
+                              <button
+                                type="button"
+                                class="favorite-action"
+                                aria-label={t("settings.chat.models.favorite")}
+                                aria-pressed={selectedProvider.configuration.favoriteModelIds.includes(model.id)}
+                                onclick={() => void toggleFavorite(model.id)}
+                              >
+                                <Star
+                                  size={14}
+                                  fill={selectedProvider.configuration.favoriteModelIds.includes(model.id) ? "currentColor" : "none"}
+                                />
+                              </button>
+                              {#if model.custom}
+                                <button
+                                  type="button"
+                                  class="icon-action destructive"
+                                  disabled={selectedBusy}
+                                  aria-label={t("settings.chat.models.removeCustom")}
+                                  data-app-tooltip={t("settings.chat.models.removeCustom")}
+                                  onclick={() => void removeCustomModel(model.id)}
+                                >
+                                  <Trash2 size={14} />
+                                </button>
+                              {/if}
+                            </div>
+                          </div>
+                        {/each}
+                      </div>
+                    {/if}
+
+                    {#if selectedFamily.implementationStatus === "available"}
+                      <button
+                        type="button"
+                        class="add-configuration-text"
+                        onclick={() => openProviderSetup(selectedFamily.familyId)}
+                      >{t("settings.chat.providers.addAnother", selectedFamily.displayName)}</button>
+                    {/if}
+                  </section>
+                </div>
+              {:else}
+                <section class="empty-configuration">
+                  <p>
+                    {selectedFamily.implementationStatus === "available"
+                      ? t("settings.chat.providers.noConfigurations", selectedFamily.displayName)
+                      : selectedFamily.unavailableReason ?? t("settings.chat.providers.notAvailable")}
+                  </p>
+                  {#if selectedFamily.implementationStatus === "available"}
+                    <button
+                      type="button"
+                      class="add-configuration-text"
+                      onclick={() => openProviderSetup(selectedFamily.familyId)}
+                    >{t("settings.chat.providers.setUp", selectedFamily.displayName)}</button>
+                  {/if}
+                </section>
+              {/if}
+            </div>
+            <CalendarScrollbar scrollContainer={detailScrollElement} wheelPassthrough />
+          </div>
         {/if}
       </div>
-    {/if}
+    </div>
   {/if}
 </section>
 
@@ -637,55 +716,58 @@
 {/if}
 
 <style>
-  .provider-settings { display:grid; gap:0.8rem; }
-  .page-heading { display:flex; min-width:0; align-items:center; justify-content:space-between; gap:0.75rem; padding-inline:0.25rem; }
-  .page-heading h2 { font-size:calc(0.866667rem * var(--type-scale)); font-weight:600; }
-  .refresh-all,.compact-action { display:inline-flex; height:1.75rem; align-items:center; justify-content:center; gap:0.35rem; border:1px solid var(--border); border-radius:0.375rem; background:var(--card); padding-inline:0.6rem; color:var(--foreground); font-size:calc(0.72rem * var(--type-scale)); font-weight:500; }
-  .refresh-all:hover:not(:disabled),.compact-action:hover:not(:disabled) { background:var(--accent); }
-  .refresh-summary,.operation-error { padding-inline:0.25rem; font-size:calc(0.7rem * var(--type-scale)); }
+  .provider-settings { display:grid; height:100%; min-height:0; grid-template-rows:auto minmax(0,1fr); gap:0.8rem; }
+  .directory-header { display:flex; flex-wrap:wrap; align-items:start; justify-content:space-between; gap:0.75rem; padding-inline:0.25rem; }
+  .directory-header h2 { font-size:calc(0.866667rem * var(--type-scale)); font-weight:600; }
+  .directory-header p { margin-top:0.25rem; color:var(--muted-foreground); font-size:calc(0.8rem * var(--type-scale)); }
+  .settings-button,.compact-action { display:inline-flex; min-height:1.9rem; align-items:center; justify-content:center; gap:0.35rem; border:1px solid var(--border); border-radius:0.42rem; background:var(--background); padding:0.3rem 0.65rem; color:var(--foreground); font-size:calc(0.733333rem * var(--type-scale)); font-weight:600; line-height:1; white-space:nowrap; }
+  .settings-button:hover:not(:disabled),.compact-action:hover:not(:disabled) { background:var(--accent); }
+  .empty-copy { padding:0.7rem 0.25rem; color:var(--muted-foreground); font-size:calc(0.72rem * var(--type-scale)); }
+  .directory-layout { display:grid; min-height:0; isolation:isolate; grid-template-columns:minmax(12.5rem,0.62fr) minmax(0,1.6fr); }
+  .directory-panel { position:relative; z-index:1; min-width:0; min-height:0; padding-right:0.75rem; }
+  .scroll-frame,.detail-scroll-frame { position:relative; height:100%; min-height:0; }
+  .directory-scroll,.detail-scroll { height:100%; overflow-y:auto; overscroll-behavior:contain; }
+  .provider-directory { display:grid; align-content:start; gap:0; padding:0.15rem 0.2rem 0.15rem 0; }
+  .provider-row { display:grid; min-width:0; grid-template-columns:auto minmax(0,1fr); align-items:center; gap:0.55rem; margin-inline:0.2rem; border-radius:0.5rem; padding:0.6rem; text-align:left; }
+  .provider-row:hover,.provider-row.active { background:var(--accent); color:var(--accent-foreground); }
+  .directory-summary { display:grid; min-width:0; }
+  .directory-summary strong,.directory-summary small { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .directory-summary strong { font-size:calc(0.8rem * var(--type-scale)); font-weight:600; }
+  .directory-summary small { display:flex; min-width:0; align-items:center; gap:0.3rem; margin-top:0.05rem; color:var(--muted-foreground); font-size:calc(0.65rem * var(--type-scale)); }
+  .directory-summary small i,.editor-state i { width:0.38rem; height:0.38rem; flex:0 0 auto; border-radius:50%; background:var(--status-tentative); }
+  .directory-summary small[data-state="healthy"] i,.editor-state[data-state="healthy"] i { background:var(--action-confirm); }
+  .directory-summary small[data-state="disabled"] i,.editor-state[data-state="disabled"] i { background:var(--muted-foreground); opacity:0.7; }
+  .directory-summary small[data-state="unconfigured"] i,.editor-state[data-state="unconfigured"] i { border:1px solid currentColor; background:transparent; }
+  .detail-panel { position:relative; z-index:2; min-width:0; min-height:0; border-left:1px solid var(--border); padding-left:1rem; }
+  .detail-scroll { display:grid; align-content:start; gap:1rem; padding:0.2rem 0.75rem 1rem 0; }
+  .editor-heading { display:grid; min-width:0; grid-template-columns:auto minmax(0,1fr); align-items:center; gap:0.65rem; padding-inline:0.25rem; }
+  .editor-title { display:grid; min-width:0; grid-template-columns:minmax(0,1fr) auto; align-items:center; gap:0.75rem; }
+  .editor-identity { display:grid; min-width:0; }
+  .editor-label-line,.editor-subtitle-line { display:flex; min-width:0; align-items:center; }
+  .editor-label-line { gap:0.3rem; }
+  .editor-subtitle-line { gap:0.65rem; }
+  .editor-heading h3 { overflow:hidden; font-size:calc(0.833333rem * var(--type-scale)); font-weight:600; text-overflow:ellipsis; white-space:nowrap; }
+  .editor-heading p { overflow:hidden; min-width:0; margin-top:0.08rem; color:var(--muted-foreground); font-size:calc(0.7rem * var(--type-scale)); text-overflow:ellipsis; white-space:nowrap; }
+  .editor-state { display:inline-grid; width:0.7rem; height:0.7rem; flex:0 0 auto; place-items:center; }
+  .editor-account { display:inline-grid; width:1rem; height:1rem; flex:0 0 auto; place-items:center; border-radius:0.2rem; color:var(--muted-foreground); }
+  .editor-account:hover,.editor-account:focus-visible { color:var(--foreground); }
+  .header-actions { display:flex; flex-shrink:0; align-items:center; gap:0.3rem; }
+  .refresh-summary,.operation-error { border-left:2px solid var(--action-confirm); padding:0.15rem 0.25rem 0.15rem 0.65rem; font-size:calc(0.68rem * var(--type-scale)); }
   .refresh-summary { color:var(--muted-foreground); }
-  .refresh-summary.attention,.catalog-warning,.provider-notice,.integration-unavailable { color:var(--status-tentative); }
+  .refresh-summary.attention,.catalog-warning,.provider-notice { color:var(--status-tentative); }
+  .refresh-summary.attention,.operation-error { border-left-color:var(--destructive); }
   .operation-error,.custom-model-editor p { color:var(--destructive); }
-  .families-empty { border-block:1px solid var(--border); padding:2rem 0.25rem; color:var(--muted-foreground); font-size:calc(0.78rem * var(--type-scale)); text-align:center; }
-  .family-tabs { display:flex; flex-wrap:wrap; gap:0.25rem; border:1px solid var(--border); border-radius:0.375rem; padding:0.25rem; }
-  .family-tabs > button { display:flex; min-width:6.2rem; min-height:2.9rem; flex:1 1 6.2rem; align-items:center; gap:0.4rem; border-radius:0.25rem; padding:0.35rem 0.4rem; color:var(--muted-foreground); text-align:left; }
-  .family-tabs > button:hover { background:color-mix(in srgb,var(--accent) 55%,transparent); color:var(--foreground); }
-  .family-tabs > button.active { background:var(--accent); color:var(--accent-foreground); }
-  .family-tabs > button > span { display:grid; min-width:0; gap:0.08rem; }
-  .family-tabs strong { overflow:hidden; font-size:calc(0.74rem * var(--type-scale)); font-weight:600; text-overflow:ellipsis; white-space:nowrap; }
-  .family-tabs small { display:flex; min-width:0; align-items:center; gap:0.3rem; overflow:hidden; font-size:calc(0.62rem * var(--type-scale)); font-weight:400; text-overflow:ellipsis; white-space:nowrap; }
-  .family-tabs small i,.configuration-state i { width:0.38rem; height:0.38rem; flex:0 0 auto; border-radius:999px; background:var(--status-tentative); }
-  .family-tabs small[data-state="healthy"] i,.configuration-state[data-state="healthy"] i { background:var(--action-confirm); }
-  .family-tabs small[data-state="disabled"] i,.configuration-state[data-state="disabled"] i { background:var(--muted-foreground); opacity:0.7; }
-  .family-tabs small[data-state="unconfigured"] i { border:1px solid currentColor; background:transparent; }
-  .family-workspace { min-width:0; }
-  .configurations-section { display:grid; gap:0.55rem; padding-top:0.2rem; }
-  .configurations-section > h3 { padding-inline:0.25rem; font-size:calc(0.8rem * var(--type-scale)); font-weight:600; }
-  .configuration-list { display:grid; border-top:1px solid var(--border); }
-  .configuration-row { display:grid; grid-template-columns:minmax(12rem,1fr) auto; align-items:center; gap:0.5rem; border-bottom:1px solid var(--border); padding:0.55rem 0.25rem; }
-  .configuration-select { display:block; min-width:0; text-align:left; }
-  .configuration-identity { display:grid; min-width:0; gap:0.12rem; }
-  .configuration-name { display:flex; min-width:0; align-items:center; gap:0.35rem; }
-  .configuration-name > strong { overflow:hidden; color:var(--foreground); font-size:calc(0.77rem * var(--type-scale)); font-weight:600; text-overflow:ellipsis; white-space:nowrap; }
-  .configuration-identity > small { display:flex; min-width:0; flex-wrap:wrap; gap:0.25rem 0.65rem; color:var(--muted-foreground); font-size:calc(0.64rem * var(--type-scale)); }
-  .configuration-state { display:inline-flex; align-items:center; gap:0.3rem; }
-  .configuration-actions { display:flex; flex-shrink:0; align-items:center; gap:0.3rem; }
-  .icon-action,.favorite-action { display:inline-grid; width:1.75rem; height:1.75rem; place-items:center; border:1px solid var(--border); border-radius:0.375rem; background:var(--card); color:var(--muted-foreground); }
+  .editor-content { display:grid; align-content:start; gap:1rem; }
+  .editor-section { display:grid; min-width:0; gap:0.65rem; }
+  .catalog-section { gap:0; }
+  .catalog-actions { display:flex; justify-content:flex-end; padding:0 0.25rem 0.65rem; }
+  .icon-action,.favorite-action { display:inline-grid; width:1.75rem; height:1.75rem; place-items:center; border:1px solid var(--border); border-radius:0.375rem; background:var(--background); color:var(--muted-foreground); }
   .icon-action:hover:not(:disabled),.favorite-action:hover { background:var(--accent); color:var(--foreground); }
-  .icon-action.destructive,.remove-custom { color:var(--destructive); }
-  button:disabled { cursor:not-allowed; opacity:0.5; }
-  .configuration-empty { border-block:1px solid var(--border); padding:0.85rem 0.25rem; color:var(--muted-foreground); font-size:calc(0.72rem * var(--type-scale)); }
-  .add-configuration { display:inline-flex; width:max-content; min-height:1.8rem; align-items:center; gap:0.35rem; margin-left:0.15rem; border-radius:0.375rem; padding:0.25rem 0.45rem; color:var(--foreground); font-size:calc(0.72rem * var(--type-scale)); font-weight:500; }
-  .add-configuration:hover { background:var(--accent); }
-  .integration-unavailable,.provider-notice,.catalog-warning { padding:0.45rem 0.25rem; font-size:calc(0.7rem * var(--type-scale)); }
-  .catalog-section { min-width:0; margin-top:1.05rem; border-top:1px solid var(--border); padding-top:0.8rem; }
-  .catalog-heading { display:flex; align-items:center; justify-content:space-between; gap:0.6rem; padding:0 0.25rem 0.65rem; }
-  .catalog-heading > div { display:flex; min-width:0; align-items:baseline; gap:0.5rem; }
-  .catalog-heading h3 { font-size:calc(0.8rem * var(--type-scale)); font-weight:600; }
-  .catalog-heading span { color:var(--muted-foreground); font-size:calc(0.68rem * var(--type-scale)); }
-  .model-search { display:grid; grid-template-columns:auto minmax(0,1fr); align-items:center; gap:0.45rem; border-block:1px solid var(--border); padding:0.45rem 0.25rem; color:var(--muted-foreground); }
+  .icon-action.destructive { color:var(--destructive); }
+  .provider-notice,.catalog-warning { padding:0.25rem; font-size:calc(0.68rem * var(--type-scale)); }
+  .model-search { display:grid; grid-template-columns:auto minmax(0,1fr); align-items:center; gap:0.45rem; border-block:1px solid var(--border); padding:0.5rem 0.25rem; color:var(--muted-foreground); }
   .model-search input { min-width:0; background:transparent; color:var(--foreground); font-size:calc(0.75rem * var(--type-scale)); outline:none; }
-  .model-search:focus-within { border-color:var(--ring); color:var(--foreground); }
+  .model-search:focus-within { color:var(--foreground); }
   .custom-model-editor { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr) auto; align-items:end; gap:0.6rem; border-bottom:1px solid var(--border); padding:0.65rem 0.25rem; }
   .custom-model-editor label { display:grid; min-width:0; gap:0.3rem; color:var(--muted-foreground); font-size:calc(0.68rem * var(--type-scale)); }
   .custom-model-editor input { min-width:0; height:2rem; border:1px solid var(--border); border-radius:0.375rem; background:var(--background); padding:0.3rem 0.55rem; color:var(--foreground); outline:none; }
@@ -693,24 +775,27 @@
   .custom-model-editor p { grid-column:1/-1; font-size:calc(0.68rem * var(--type-scale)); }
   .model-list { display:grid; }
   .model-row { display:grid; grid-template-columns:auto minmax(0,1fr) auto; align-items:center; gap:0.65rem; border-bottom:1px solid var(--border); padding:0.62rem 0.25rem; }
-  .model-row:last-child { border-bottom:0; }
-  .model-identity { display:grid; min-width:0; gap:0.16rem; }
+  .model-identity { display:grid; min-width:0; align-content:center; gap:0.16rem; }
   .model-name { overflow:hidden; color:var(--foreground); font-size:calc(0.8rem * var(--type-scale)); font-weight:550; line-height:1.1rem; text-overflow:ellipsis; white-space:nowrap; }
   .model-meta { display:flex; min-width:0; flex-wrap:wrap; gap:0.15rem 0.42rem; color:var(--muted-foreground); font-size:calc(0.66rem * var(--type-scale)); line-height:1rem; }
   .model-meta > span + span::before { margin-right:0.42rem; content:"·"; }
   .model-id { overflow:hidden; max-width:22rem; font-family:var(--font-mono,monospace); text-overflow:ellipsis; white-space:nowrap; }
   .model-actions { display:flex; flex-shrink:0; align-items:center; gap:0.45rem; }
   .favorite-action[aria-pressed="true"] { color:var(--status-tentative); }
-  .remove-custom { min-height:1.8rem; border-radius:0.375rem; padding-inline:0.45rem; font-size:calc(0.68rem * var(--type-scale)); }
-  .remove-custom:hover:not(:disabled) { background:var(--accent); }
   .models-empty { padding:0.9rem 0.25rem; color:var(--muted-foreground); font-size:calc(0.75rem * var(--type-scale)); }
-  :global(.dark) .refresh-all,
-  :global(.dark) .compact-action,
-  :global(.dark) .icon-action,
-  :global(.dark) .favorite-action { background:transparent; }
+  .add-configuration-text { width:max-content; margin:0.6rem 0.25rem 0; color:var(--muted-foreground); font-size:calc(0.7rem * var(--type-scale)); font-weight:600; text-align:left; }
+  .add-configuration-text:hover { color:var(--foreground); text-decoration:underline; text-underline-offset:0.18rem; }
+  .empty-configuration { display:grid; justify-items:start; gap:0.7rem; padding:0.25rem; color:var(--muted-foreground); font-size:calc(0.72rem * var(--type-scale)); }
+  .empty-configuration .add-configuration-text { margin:0; }
+  button:disabled { cursor:not-allowed; opacity:0.5; }
+  :global(.dark) .settings-button,:global(.dark) .compact-action,:global(.dark) .icon-action,:global(.dark) .favorite-action { background:transparent; }
+  @media (max-width:700px) {
+    .directory-layout { grid-template-columns:1fr; grid-template-rows:minmax(8rem,30%) minmax(0,1fr); }
+    .directory-panel { border-bottom:1px solid var(--border); padding:0 0 0.75rem; }
+    .detail-panel { border-left:0; padding:0.8rem 0 0; }
+    .detail-scroll { padding-right:0.35rem; }
+  }
   @media (max-width:540px) {
-    .configuration-row { grid-template-columns:1fr; }
-    .configuration-actions { grid-column:1; grid-row:auto; justify-content:flex-end; }
     .custom-model-editor { grid-template-columns:1fr; align-items:stretch; }
     .custom-model-editor p { grid-column:auto; }
     .model-actions { gap:0.2rem; }

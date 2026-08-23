@@ -825,7 +825,7 @@
           disabled={saving || testing || !validation.valid}
           onclick={() => void save()}
         >
-          <Save size={13} />
+          {#if target.mode === "edit"}<Save size={13} />{/if}
           {target.mode === "edit" ? t("settings.chat.setup.save") : t("settings.chat.setup.create")}
         </button>
       </div>

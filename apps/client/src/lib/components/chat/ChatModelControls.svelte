@@ -21,7 +21,7 @@
     providerAvailable,
     readComposerModelSelection,
   } from "$lib/chat/composer-model";
-  import { modelCompany } from "$lib/chat/model-company";
+  import { formatModelDisplayName, modelCompany } from "$lib/chat/model-company";
   import {
     buildFavoriteModelEntries,
     buildModelCompanySections,
@@ -934,10 +934,10 @@
                             {@const company = modelCompany(favorite.provider.configuration.familyId, favorite.model)}
                             <div class="model-row">
                               <button type="button" class="model-choice" disabled={!providerAvailable(favorite.provider) || favorite.model.availability === "unavailable"} title={favorite.model.availability === "available" ? undefined : metadata.join(" · ")} onclick={() => chooseModel(favorite.provider, favorite.model.id, false)}>
-                                <span class="favorite-model-label"><ChatProviderIcon familyId={company.iconFamilyId} label={company.name} monochrome size={14} /><strong>{favorite.model.displayName}</strong></span>
+                                <span class="favorite-model-label"><ChatProviderIcon familyId={company.iconFamilyId} label={company.name} monochrome size={14} /><strong>{formatModelDisplayName(favorite.model.displayName)}</strong></span>
                                 {#if favorite.provider.configuration.instanceId === provider?.configuration.instanceId && selection.modelId === favorite.model.id}<Check size={15} />{/if}
                               </button>
-                              <button type="button" class="model-favorite active" aria-label={`${t("chat.composer.favorite")}: ${favorite.model.displayName}`} aria-pressed="true" onclick={() => void toggleModelFavorite(favorite.provider, favorite.model.id)}><Star size={16} fill="currentColor" /></button>
+                              <button type="button" class="model-favorite active" aria-label={`${t("chat.composer.favorite")}: ${formatModelDisplayName(favorite.model.displayName)}`} aria-pressed="true" onclick={() => void toggleModelFavorite(favorite.provider, favorite.model.id)}><Star size={16} fill="currentColor" /></button>
                             </div>
                           {/each}
                           {#if favoriteModelEntries.length === 0}<p>{modelQuery ? t("chat.composer.noFavoriteMatches") : t("chat.composer.noFavoriteModels")}</p>{/if}
@@ -961,10 +961,10 @@
                               {@const metadata = modelMetadata(entry.model.contextLimit, entry.model.availability)}
                               <div class="model-row">
                                 <button type="button" class="model-choice" disabled={!providerAvailable(entry.provider) || entry.model.availability === "unavailable"} title={entry.model.availability === "available" ? undefined : metadata.join(" · ")} onclick={() => chooseModel(entry.provider, entry.model.id, false)}>
-                                  <span><strong>{entry.model.displayName}</strong></span>
+                                  <span><strong>{formatModelDisplayName(entry.model.displayName)}</strong></span>
                                   {#if entry.provider.configuration.instanceId === provider?.configuration.instanceId && selection.modelId === entry.model.id}<Check size={15} />{/if}
                                 </button>
-                                <button type="button" class="model-favorite" class:active={entry.provider.configuration.favoriteModelIds.includes(entry.model.id)} aria-label={`${t("chat.composer.favorite")}: ${entry.model.displayName}`} aria-pressed={entry.provider.configuration.favoriteModelIds.includes(entry.model.id)} onclick={() => void toggleModelFavorite(entry.provider, entry.model.id)}><Star size={16} fill={entry.provider.configuration.favoriteModelIds.includes(entry.model.id) ? "currentColor" : "none"} /></button>
+                                <button type="button" class="model-favorite" class:active={entry.provider.configuration.favoriteModelIds.includes(entry.model.id)} aria-label={`${t("chat.composer.favorite")}: ${formatModelDisplayName(entry.model.displayName)}`} aria-pressed={entry.provider.configuration.favoriteModelIds.includes(entry.model.id)} onclick={() => void toggleModelFavorite(entry.provider, entry.model.id)}><Star size={16} fill={entry.provider.configuration.favoriteModelIds.includes(entry.model.id) ? "currentColor" : "none"} /></button>
                               </div>
                             {/each}
                             {#each section.setupFamilies as family (family.familyId)}

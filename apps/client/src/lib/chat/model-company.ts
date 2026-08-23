@@ -95,19 +95,34 @@ export function integrationCompany(familyId: string): ModelCompanyIdentity {
 }
 
 /**
- * Reports whether the catalog ID adds information beyond the display name.
+ * Formats a provider model name for human-facing controls.
  *
- * Case and ordinary word separators are presentation differences, not distinct
- * identities. Provider prefixes, aliases, dated versions, and other additional
- * tokens keep the exact ID visible.
+ * Provider catalogs commonly use identifier-style hyphens in display names.
+ * The UI presents those separators as spaces while preserving the catalog value
+ * used for provider requests.
+ *
+ * @param displayName - Display name supplied by the provider catalog.
+ * @returns A compact human-facing model name.
+ */
+export function formatModelDisplayName(displayName: string): string {
+  return displayName.trim().replace(/-+/g, " ").replace(/\s+/g, " ");
+}
+
+/**
+ * Reports whether a custom model's exact ID should accompany its display name.
+ *
+ * Provider-managed aliases and versioned IDs are implementation details. Custom
+ * model IDs remain visible when their user-defined label does not identify the
+ * exact provider value.
  *
  * @param model - Catalog model whose visible identity is being composed.
- * @returns Whether the exact model ID should appear beside the display name.
+ * @returns Whether the exact custom model ID should appear below the name.
  */
-export function modelIdAddsInformation(
-  model: Pick<ProviderModel, "id" | "displayName">,
+export function shouldShowModelId(
+  model: Pick<ProviderModel, "id" | "displayName" | "custom">,
 ): boolean {
-  return normalizeVisibleModelIdentity(model.id) !== normalizeVisibleModelIdentity(model.displayName);
+  return model.custom
+    && normalizeVisibleModelIdentity(model.id) !== normalizeVisibleModelIdentity(model.displayName);
 }
 
 /**

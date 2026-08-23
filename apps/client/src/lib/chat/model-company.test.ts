@@ -2,10 +2,11 @@ import { describe, expect, it } from "vitest";
 import type { ProviderModel } from "$lib/chat/contracts";
 import {
   compareCompanyModels,
+  formatModelDisplayName,
   integrationCompany,
   modelCompany,
   modelCompanyForIdentity,
-  modelIdAddsInformation,
+  shouldShowModelId,
   type ModelCompanyId,
 } from "./model-company";
 
@@ -45,14 +46,20 @@ describe("Chat model companies", () => {
   });
 
   it("hides exact IDs that only repeat the formatted display name", () => {
-    expect(modelIdAddsInformation(model("gpt-5.6-sol", "GPT-5.6-Sol"))).toBe(false);
-    expect(modelIdAddsInformation(model("claude_4_5_sonnet", "Claude 4.5 Sonnet"))).toBe(false);
+    expect(shouldShowModelId(model("gpt-5.6-sol", "GPT-5.6-Sol"))).toBe(false);
+    expect(shouldShowModelId(model("claude_4_5_sonnet", "Claude 4.5 Sonnet"))).toBe(false);
   });
 
-  it("keeps exact IDs with provider, alias, or version information", () => {
-    expect(modelIdAddsInformation(model("anthropic/claude-sonnet-4-5", "Claude Sonnet 4.5"))).toBe(true);
-    expect(modelIdAddsInformation(model("claude-sonnet-4-5-20250929", "Claude Sonnet 4.5"))).toBe(true);
-    expect(modelIdAddsInformation(model("default", "Claude Opus 4.8"))).toBe(true);
+  it("hides provider-managed aliases and keeps distinct custom model IDs", () => {
+    expect(shouldShowModelId(model("anthropic/claude-sonnet-4-5", "Claude Sonnet 4.5"))).toBe(false);
+    expect(shouldShowModelId(model("claude-sonnet-4-5-20250929", "Claude Sonnet 4.5"))).toBe(false);
+    expect(shouldShowModelId(model("default", "Claude Opus 4.8"))).toBe(false);
+    expect(shouldShowModelId({ ...model("team-model-id", "Team model"), custom: true })).toBe(true);
+  });
+
+  it("formats provider display names without identifier-style hyphens", () => {
+    expect(formatModelDisplayName("GPT-5.6-Sol")).toBe("GPT 5.6 Sol");
+    expect(formatModelDisplayName("Claude-Sonnet-4.5")).toBe("Claude Sonnet 4.5");
   });
 
   it("orders OpenAI models newest-first and strongest-first within a generation", () => {
