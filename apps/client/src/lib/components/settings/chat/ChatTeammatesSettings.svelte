@@ -7,11 +7,9 @@
   import Eye from "@lucide/svelte/icons/eye";
   import EyeOff from "@lucide/svelte/icons/eye-off";
   import Folder from "@lucide/svelte/icons/folder";
-  import Hash from "@lucide/svelte/icons/hash";
   import Ellipsis from "@lucide/svelte/icons/ellipsis";
   import Plus from "@lucide/svelte/icons/plus";
   import Search from "@lucide/svelte/icons/search";
-  import SlidersHorizontal from "@lucide/svelte/icons/sliders-horizontal";
   import Trash2 from "@lucide/svelte/icons/trash-2";
   import X from "@lucide/svelte/icons/x";
   import * as chatApi from "$lib/api/chat";
@@ -74,8 +72,7 @@
   import ChatModelAvatar from "$lib/components/chat/ChatModelAvatar.svelte";
   import ChatModelControls from "$lib/components/chat/ChatModelControls.svelte";
   import ChatParticipantAvatar from "$lib/components/chat/ChatParticipantAvatar.svelte";
-  import ProjectIcon from "$lib/components/projects/ProjectIcon.svelte";
-  type ChatChannelAccessPickerComponent = typeof import("./ChatChannelAccessPicker.svelte").default;
+  type ChatChannelAccessBrowserComponent = typeof import("./ChatChannelAccessBrowser.svelte").default;
   type ChatChannelScopeControlsComponent = typeof import("./ChatChannelScopeControls.svelte").default;
   type ChatAccessProfilesManagerComponent = typeof import("./ChatAccessProfilesManager.svelte").default;
 
@@ -103,29 +100,6 @@
     durableAccess: ChatTeammateAccessRead;
   }
 
-  interface AccessChannelNode {
-    access: ChatTeammateChannelAccessInput;
-    channel: ChatChannelRead | null;
-    name: string;
-  }
-
-  interface AccessProjectNode {
-    id: string;
-    name: string;
-    icon: string;
-    sortOrder: number;
-    channels: AccessChannelNode[];
-  }
-
-  interface AccessGroupNode {
-    id: string;
-    name: string;
-    icon: string;
-    sortOrder: number;
-    projects: AccessProjectNode[];
-    channels: AccessChannelNode[];
-  }
-
   const chat = getChat();
   const projects = getProjects();
   const { t } = getLocalization();
@@ -142,7 +116,6 @@
   let saving = $state(false);
   let error = $state<string | null>(null);
   let errorField = $state<string | null>(null);
-  let savedNotice = $state(false);
   let directoryScrollElement = $state<HTMLElement>();
   let detailScrollElement = $state<HTMLElement>();
 
@@ -180,15 +153,13 @@
   let profileManagerOpen = $state(false);
   let toolsMenuOpen = $state(false);
   let profileManagerLoading = $state(false);
-  let ChatChannelAccessPicker = $state<ChatChannelAccessPickerComponent | null>(null);
+  let ChatChannelAccessBrowser = $state<ChatChannelAccessBrowserComponent | null>(null);
   let ChatChannelScopeControls = $state<ChatChannelScopeControlsComponent | null>(null);
   let ChatAccessProfilesManager = $state<ChatAccessProfilesManagerComponent | null>(null);
   let toolsMenuElement = $state<HTMLDivElement>();
   let toolsMenuTrigger = $state<HTMLButtonElement>();
   let profileManagerLoad: Promise<void> | null = null;
-  let expandedChannelIds = $state<Set<string>>(new Set());
-  let expandedAccessGroupIds = $state<Set<string>>(new Set());
-  let expandedAccessProjectIds = $state<Set<string>>(new Set());
+  let focusedAccessChannelId = $state<string | null>(null);
   let advancedChannelIds = $state<Set<string>>(new Set());
 
   let lifecycleAction = $state<LifecycleAction | null>(null);
@@ -236,7 +207,10 @@
   ))));
   const activeNavigationChannels = $derived(navigationChannels.filter((channel) => channel.archivedAt === null));
   const selectedChannelIds = $derived(new Set(accessDraft.map((channel) => channel.channelId)));
-  const accessHierarchy = $derived.by(buildAccessHierarchy);
+  const focusedAccessChannel = $derived(channelById(focusedAccessChannelId ?? ""));
+  const focusedAccessDraft = $derived(accessDraft.find((channel) => (
+    channel.channelId === focusedAccessChannelId
+  )) ?? null);
   const profileCeilings = $derived(new Map(accessProfiles.map((profile) => [
     profile.id,
     profile.latestRevision.maximumFolderCapability,
@@ -371,11 +345,11 @@
 
   async function loadChannelAccessControls(): Promise<void> {
     try {
-      const [pickerModule, scopeControlsModule] = await Promise.all([
-        import("./ChatChannelAccessPicker.svelte"),
+      const [browserModule, scopeControlsModule] = await Promise.all([
+        import("./ChatChannelAccessBrowser.svelte"),
         import("./ChatChannelScopeControls.svelte"),
       ]);
-      ChatChannelAccessPicker = pickerModule.default;
+      ChatChannelAccessBrowser = browserModule.default;
       ChatChannelScopeControls = scopeControlsModule.default;
     } catch (cause: unknown) {
       errorField = null;
@@ -546,10 +520,7 @@
     clearAccessConflict();
     creating = true;
     selectedId = null;
-    expandedChannelIds = new Set();
-    expandedAccessGroupIds = new Set();
-    expandedAccessProjectIds = new Set();
-    if (channelId) revealAccessChannel(channelId);
+    focusedAccessChannelId = channelId;
     displayName = "";
     role = "";
     instructions = "";
@@ -573,7 +544,6 @@
     accessPreviewSnapshot = null;
     error = null;
     errorField = null;
-    savedNotice = false;
   }
 
   function cancelCreate(): void {
@@ -596,11 +566,8 @@
     accessPreviewSnapshot = null;
     error = null;
     errorField = null;
-    savedNotice = false;
     accessDraft = [];
-    expandedChannelIds = new Set();
-    expandedAccessGroupIds = new Set();
-    expandedAccessProjectIds = new Set();
+    focusedAccessChannelId = null;
     displayName = teammate.participant.displayName;
     role = teammate.role;
     instructions = teammate.instructions;
@@ -635,9 +602,11 @@
       profileAvatar = copyVersionedJson(teammate.participant.avatar);
       teammateDefaultRuntimeApproval = durableDraft.teammateDefaultRuntimeApproval;
       accessDraft = copyChannelAccessInputs(durableDraft.channels);
+      focusedAccessChannelId = initialChannelId
+        ?? durableDraft.channels[0]?.channelId
+        ?? null;
       setStudioDraftBaseline(durableDraft);
       if (initialChannelId) {
-        revealAccessChannel(initialChannelId);
         if (!accessDraft.some((channel) => channel.channelId === initialChannelId)) {
           accessDraft = [...accessDraft, defaultChannelAccess(initialChannelId)];
         }
@@ -745,7 +714,6 @@
     accessPreviewSnapshot = null;
     error = null;
     errorField = null;
-    savedNotice = false;
     void tick().then(() => recoveryNoticeElement?.focus());
   }
 
@@ -854,64 +822,10 @@
     return navigationChannels.find((channel) => channel.id === channelId) ?? null;
   }
 
-  function buildAccessHierarchy(): AccessGroupNode[] {
-    const groups = new Map<string, AccessGroupNode>();
-    for (const access of accessDraft) {
-      const channel = channelById(access.channelId);
-      const project = projects.projects.find((entry) => entry.id === channel?.projectId);
-      const group = projects.groups.find((entry) => entry.id === project?.groupId);
-      const groupId = group?.id ?? "unknown-group";
-      const projectId = project?.id ?? `unknown-project:${channel?.projectId ?? access.channelId}`;
-      let groupNode = groups.get(groupId);
-      if (!groupNode) {
-        groupNode = {
-          id: groupId,
-          name: group?.name ?? t("settings.chat.teammates.unknownGroup"),
-          icon: group?.icon ?? "folder",
-          sortOrder: group?.sortOrder ?? Number.MAX_SAFE_INTEGER,
-          projects: [],
-          channels: [],
-        };
-        groups.set(groupId, groupNode);
-      }
-      let projectNode = groupNode.projects.find((entry) => entry.id === projectId);
-      if (!projectNode) {
-        projectNode = {
-          id: projectId,
-          name: project?.name ?? t("settings.chat.teammates.unknownProject"),
-          icon: project?.icon ?? "folder",
-          sortOrder: project?.sortOrder ?? Number.MAX_SAFE_INTEGER,
-          channels: [],
-        };
-        groupNode.projects.push(projectNode);
-      }
-      const channelNode: AccessChannelNode = {
-        access,
-        channel,
-        name: channel?.name ?? t("settings.chat.teammates.unavailableChannel"),
-      };
-      projectNode.channels.push(channelNode);
-      groupNode.channels.push(channelNode);
-    }
-    return [...groups.values()]
-      .map((group) => ({
-        ...group,
-        projects: group.projects
-          .map((project) => ({
-            ...project,
-            channels: [...project.channels].sort((left, right) => left.name.localeCompare(right.name)),
-          }))
-          .sort((left, right) => left.sortOrder - right.sortOrder || left.name.localeCompare(right.name)),
-      }))
-      .sort((left, right) => left.sortOrder - right.sortOrder || left.name.localeCompare(right.name));
-  }
-
-  function revealAccessChannel(channelId: string): void {
-    const channel = channelById(channelId);
-    const project = projects.projects.find((entry) => entry.id === channel?.projectId);
-    if (project) expandedAccessProjectIds = new Set([...expandedAccessProjectIds, project.id]);
-    if (project?.groupId) expandedAccessGroupIds = new Set([...expandedAccessGroupIds, project.groupId]);
-    expandedChannelIds = new Set([...expandedChannelIds, channelId]);
+  function channelAncestry(channel: ChatChannelRead): string {
+    const project = projects.projects.find((entry) => entry.id === channel.projectId);
+    const group = projects.groups.find((entry) => entry.id === project?.groupId);
+    return `${group?.name ?? t("settings.chat.teammates.unknownGroup")} / ${project?.name ?? t("settings.chat.teammates.unknownProject")}`;
   }
 
   function updateAccessChannel(
@@ -923,27 +837,17 @@
     accessPreviewSnapshot = null;
   }
 
-  function setChannelSelected(channelId: string, selectedValue: boolean): void {
-    if (selectedValue && !accessDraft.some((channel) => channel.channelId === channelId)) {
-      accessDraft = [...accessDraft, defaultChannelAccess(channelId)];
-    } else if (!selectedValue) {
-      accessDraft = accessDraft.filter((channel) => channel.channelId !== channelId);
-      const nextExpanded = new Set(expandedChannelIds);
-      nextExpanded.delete(channelId);
-      expandedChannelIds = nextExpanded;
-    }
-    accessPreview = null;
-    accessPreviewSnapshot = null;
-  }
-
   function setBoundedSelection(channelIds: readonly string[], selectedValue: boolean): void {
     const next = toggleSelectionGroup([...channelIds], selectedChannelIds, selectedValue);
     const byId = new Map(accessDraft.map((channel) => [channel.channelId, channel]));
     accessDraft = [...next].map((channelId) => byId.get(channelId) ?? defaultChannelAccess(channelId));
-    const nextExpanded = new Set([...expandedChannelIds].filter((channelId) => next.has(channelId)));
-    expandedChannelIds = nextExpanded;
     accessPreview = null;
     accessPreviewSnapshot = null;
+  }
+
+  function handleChannelSelection(channelIds: readonly string[], selectedValue: boolean): void {
+    if (channelIds.length === 1) focusedAccessChannelId = channelIds[0] ?? null;
+    setBoundedSelection(channelIds, selectedValue);
   }
 
   function setPresetForChannels(
@@ -1202,7 +1106,6 @@
     saving = true;
     error = null;
     errorField = null;
-    savedNotice = false;
     conflictRecoveryNotice = null;
     try {
       if (creatingAtStart) {
@@ -1260,7 +1163,6 @@
         profileAvatar = copyVersionedJson(refreshed.participant.avatar);
       }
       setStudioDraftBaseline(savedDraft);
-      savedNotice = currentDraftSnapshot === draftSnapshotForDraft(savedDraft);
     } catch (cause: unknown) {
       if (teammateId && chatErrorCode(cause) === "stale_revision") {
         error = null;
@@ -1339,6 +1241,26 @@
   {@const selectedProfile = accessProfiles.find((profile) => profile.id === channelAccess.accessProfileId) ?? null}
   {@const preset = channelCapabilityPreset(channelAccess.capabilities)}
   <div class="access-details">
+    <div class="membership-controls">
+      <div class="field">
+        <span>{t("settings.chat.teammates.channelBehavior")}</span>
+        {#if ChatChannelScopeControls}
+          {@const ScopeControls = ChatChannelScopeControls}
+          <ScopeControls channels={[channelAccess]} disabled={archivedMode} onPresetChange={(nextPreset) => setPresetForChannels([channelAccess.channelId], nextPreset)} />
+        {/if}
+      </div>
+      <div class="field work-access-field">
+        <span>{t("settings.chat.teammates.workAccess")}</span>
+        <ChatControlMenu
+          value={channelAccess.accessProfileId}
+          options={accessProfileOptions}
+          ariaLabel={t("settings.chat.teammates.workAccess")}
+          onChange={(profileId) => setAccessProfileForChannels([channelAccess.channelId], profileId)}
+          disabled={archivedMode}
+          showTooltip={false}
+        />
+      </div>
+    </div>
     {#if channelAccess.capabilities.readHistory}
       <div class="field history-field"><span>{t("settings.chat.teammates.history")}</span><CustomSelect inline class="w-full" value={channelAccess.historyBoundary.kind} options={historyOptions} ariaLabel={t("settings.chat.teammates.history")} disabled={archivedMode} onChange={(value) => updateAccessChannel(channelAccess.channelId, (channel) => ({ ...channel, historyBoundary: value === "fromGrant" ? { kind: "fromGrant" } : { kind: "entire" } }))} /></div>
     {/if}
@@ -1349,17 +1271,6 @@
         <div><SettingsCheckbox checked={channelAccess.capabilities.participate} label={t("settings.chat.teammates.participate")} disabled={archivedMode} onChange={(checked) => updateAccessChannel(channelAccess.channelId, (channel) => ({ ...channel, capabilities: { ...channel.capabilities, participate: checked } }))} /><span><strong>{t("settings.chat.teammates.participate")}</strong><small>{t("settings.chat.teammates.participateDescription")}</small></span></div>
       </fieldset>
     {/if}
-    <div class="work-access-row">
-      <span><strong>{t("settings.chat.teammates.workAccess")}</strong><small>{t("settings.chat.teammates.workAccessDescription")}</small></span>
-      <ChatControlMenu
-        value={channelAccess.accessProfileId}
-        options={accessProfileOptions}
-        ariaLabel={t("settings.chat.teammates.workAccess")}
-        onChange={(profileId) => setAccessProfileForChannels([channelAccess.channelId], profileId)}
-        disabled={archivedMode}
-        showTooltip={false}
-      />
-    </div>
     {#if selectedProfile?.latestRevision.maximumFolderCapability !== "none"}
       <fieldset class="folder-access" disabled={archivedMode}>
         <legend>{t("settings.chat.teammates.foldersForChannel")}</legend>
@@ -1516,82 +1427,35 @@
 
                 <section class="editor-section access-section">
                   <div class="section-heading"><h4>{t("settings.chat.teammates.accessSection")}</h4></div>
-                  {#if ChatChannelAccessPicker && ChatChannelScopeControls}
-                    {@const AccessPicker = ChatChannelAccessPicker}
-                    {@const ScopeControls = ChatChannelScopeControls}
-                    <div class="access-tools">
-                      <AccessPicker
+                  {#if ChatChannelAccessBrowser && ChatChannelScopeControls}
+                    {@const AccessBrowser = ChatChannelAccessBrowser}
+                    <AccessBrowser
                       channels={activeNavigationChannels}
                       {selectedChannelIds}
+                      focusedChannelId={focusedAccessChannelId}
                       disabled={archivedMode || accessProfiles.length === 0}
-                      onSelectionChange={setBoundedSelection}
+                      onSelectionChange={handleChannelSelection}
+                      onFocusChange={(channelId) => { focusedAccessChannelId = channelId; }}
                     />
-                    </div>
-
-                    {#if providerResourceBlockers[0]}
-                      <p class="resource-summary-error" role="alert">{providerResourceBlockers[0]}</p>
-                    {/if}
-
-                    {#if loadingAccess}<p class="empty-copy" role="status">{t("common.loading")}</p>{:else if accessDraft.length === 0}<p class="empty-access">{t("settings.chat.teammates.inertUntilAdded")}</p>{:else}
-                      <div class="access-list">
-                      {#each accessHierarchy as group (group.id)}
-                        {@const groupExpanded = expandedAccessGroupIds.has(group.id)}
-                        {@const groupChannelIds = group.channels.map((channel) => channel.access.channelId)}
-                        {@const groupAccess = group.channels.map((channel) => channel.access)}
-                        <section class="access-group">
-                          <div class="access-scope-row group-scope-row">
-                            <button type="button" class="scope-summary" aria-expanded={groupExpanded} onclick={() => { const next = new Set(expandedAccessGroupIds); if (groupExpanded) next.delete(group.id); else next.add(group.id); expandedAccessGroupIds = next; }}>
-                              <ChevronRight size={14} class={groupExpanded ? "expanded" : undefined} />
-                              <ProjectIcon name={group.icon} size={14} strokeWidth={1.6} emojiScale={0.94} />
-                              <span><strong>{group.name}</strong><small>{t("settings.chat.teammates.channelCount", group.channels.length)}</small></span>
-                            </button>
-                            <ScopeControls channels={groupAccess} disabled={archivedMode} onPresetChange={(preset) => setPresetForChannels(groupChannelIds, preset)} />
-                            <button type="button" class="icon-button danger" disabled={archivedMode} aria-label={t("settings.chat.teammates.removeGroupAccess", group.name)} onclick={() => setBoundedSelection(groupChannelIds, false)}><Trash2 size={14} /></button>
-                          </div>
-
-                          {#if groupExpanded}
-                            <div class="access-projects">
-                              {#each group.projects as project (project.id)}
-                                {@const projectExpanded = expandedAccessProjectIds.has(project.id)}
-                                {@const projectChannelIds = project.channels.map((channel) => channel.access.channelId)}
-                                {@const projectAccess = project.channels.map((channel) => channel.access)}
-                                {@const singleChannel = project.channels.length === 1 ? project.channels[0] : null}
-                                <section class="access-project">
-                                  <div class="access-scope-row project-scope-row">
-                                    <button type="button" class="scope-summary" aria-expanded={projectExpanded} onclick={() => { const next = new Set(expandedAccessProjectIds); if (projectExpanded) next.delete(project.id); else next.add(project.id); expandedAccessProjectIds = next; }}>
-                                      <ChevronRight size={13} class={projectExpanded ? "expanded" : undefined} />
-                                      <ProjectIcon name={project.icon} size={13} strokeWidth={1.6} emojiScale={0.94} />
-                                      <span><strong>{project.name}</strong><small>{singleChannel ? `#${singleChannel.name}` : t("settings.chat.teammates.channelCount", project.channels.length)}</small></span>
-                                    </button>
-                                    <ScopeControls channels={projectAccess} disabled={archivedMode} onPresetChange={(preset) => setPresetForChannels(projectChannelIds, preset)} />
-                                    <button type="button" class="icon-button danger" disabled={archivedMode} aria-label={t("settings.chat.teammates.removeProjectAccess", project.name)} onclick={() => setBoundedSelection(projectChannelIds, false)}><Trash2 size={14} /></button>
-                                  </div>
-
-                                  {#if projectExpanded && singleChannel}
-                                    {@render channelDetails(singleChannel.access)}
-                                  {:else if projectExpanded}
-                                    <div class="access-channels">
-                                      {#each project.channels as channelNode (channelNode.access.channelId)}
-                                        {@const channelExpanded = expandedChannelIds.has(channelNode.access.channelId)}
-                                        <div class="access-channel">
-                                          <div class="access-scope-row channel-scope-row">
-                                            <div class="channel-identity"><Hash size={13} /><strong>{channelNode.name}</strong></div>
-                                            <ScopeControls channels={[channelNode.access]} disabled={archivedMode} onPresetChange={(preset) => setPresetForChannels([channelNode.access.channelId], preset)} />
-                                            <button type="button" class="icon-button" class:active={channelExpanded} aria-label={t("settings.chat.teammates.editChannelAccess")} aria-expanded={channelExpanded} onclick={() => { const next = new Set(expandedChannelIds); if (channelExpanded) next.delete(channelNode.access.channelId); else next.add(channelNode.access.channelId); expandedChannelIds = next; }}><SlidersHorizontal size={13} /></button>
-                                            <button type="button" class="icon-button danger" disabled={archivedMode} aria-label={t("settings.chat.teammates.removeChannel", channelNode.name)} onclick={() => setChannelSelected(channelNode.access.channelId, false)}><Trash2 size={14} /></button>
-                                          </div>
-                                          {#if channelExpanded}{@render channelDetails(channelNode.access)}{/if}
-                                        </div>
-                                      {/each}
-                                    </div>
-                                  {/if}
-                                </section>
-                              {/each}
-                            </div>
+                    {#if loadingAccess}
+                      <p class="empty-copy" role="status">{t("common.loading")}</p>
+                    {:else if focusedAccessChannel}
+                      <div class="focused-membership">
+                        <div class="focused-membership-heading">
+                          <strong>{focusedAccessChannel.name}</strong>
+                          <small>{channelAncestry(focusedAccessChannel)}</small>
+                        </div>
+                        {#if focusedAccessDraft}
+                          {@render channelDetails(focusedAccessDraft)}
+                          {#if providerResourceIssuesForChannel(focusedAccessDraft)[0]}
+                            <p class="resource-summary-error" role="alert">{providerResourceIssuesForChannel(focusedAccessDraft)[0]}</p>
                           {/if}
-                        </section>
-                      {/each}
+                        {:else}
+                          <p class="empty-access">{t("settings.chat.teammates.selectChannelAccess")}</p>
+                        {/if}
                       </div>
+                    {:else}
+                      <p class="empty-access">{t("settings.chat.teammates.noChannels")}</p>
                     {/if}
                   {:else}
                     <p class="empty-copy" role="status">{t("common.loading")}</p>
@@ -1606,7 +1470,7 @@
             <CalendarScrollbar scrollContainer={detailScrollElement} wheelPassthrough />
           </div>
 
-          <footer class="editor-footer"><div>{#if creating}<button type="button" class="secondary-button" onclick={cancelCreate}><X size={14} />{t("common.cancel")}</button>{:else if selected && archivedMode}<button type="button" class="danger-button" disabled={selected.hasDurableHistory} onclick={() => requestLifecycle("delete")}><Trash2 size={14} />{t("settings.chat.teammates.deletePermanently")}</button>{:else if selected}<button type="button" class="secondary-button" disabled={selected.activeAssignmentCount > 0} onclick={() => requestLifecycle("archive")}><Archive size={14} />{t("settings.chat.teammates.archive")}</button>{/if}{#if lifecycleError}<span class="field-error" role="alert">{lifecycleError}</span>{/if}</div><div class="save-area">{#if error && errorField !== "displayName" && errorField !== "role"}<span class="field-error" role="alert">{error}</span>{/if}{#if savedNotice}<span class="saved" role="status">{t("settings.chat.teammates.saved")}</span>{/if}{#if archivedMode}<button type="button" class="primary-button" onclick={() => void restoreSelected()}><ArchiveRestore size={14} />{t("settings.chat.teammates.restore")}</button>{:else}<button type="submit" class="primary-button" disabled={saving || !canSave}>{saving ? t("settings.chat.teammates.saving") : creating ? t("settings.chat.teammates.createInert") : t("settings.chat.teammates.save")}</button>{/if}</div></footer>
+          <footer class="editor-footer"><div>{#if creating}<button type="button" class="secondary-button" onclick={cancelCreate}><X size={14} />{t("common.cancel")}</button>{:else if selected && archivedMode}<button type="button" class="danger-button" disabled={selected.hasDurableHistory} onclick={() => requestLifecycle("delete")}><Trash2 size={14} />{t("settings.chat.teammates.deletePermanently")}</button>{:else if selected}<button type="button" class="secondary-button" disabled={selected.activeAssignmentCount > 0} onclick={() => requestLifecycle("archive")}><Archive size={14} />{t("settings.chat.teammates.archive")}</button>{/if}{#if lifecycleError}<span class="field-error" role="alert">{lifecycleError}</span>{/if}</div><div class="save-area">{#if error && errorField !== "displayName" && errorField !== "role"}<span class="field-error" role="alert">{error}</span>{/if}{#if archivedMode}<button type="button" class="primary-button" onclick={() => void restoreSelected()}><ArchiveRestore size={14} />{t("settings.chat.teammates.restore")}</button>{:else}<button type="submit" class="primary-button" disabled={saving || !canSave}>{saving ? t("settings.chat.teammates.saving") : creating ? t("settings.chat.teammates.createInert") : t("settings.chat.teammates.save")}</button>{/if}</div></footer>
         </form>
       {:else}
         <div class="empty-detail"><Bot size={24} /><p>{t("settings.chat.teammates.selectPrompt")}</p></div>
@@ -1638,7 +1502,7 @@
 
 
 <style>
-  .header-actions,.access-tools,.editor-footer,.save-area { display:flex; align-items:center; }
+  .header-actions,.editor-footer,.save-area { display:flex; align-items:center; }
   .header-actions,.save-area { gap:0.45rem; }
   .primary-button,.secondary-button,.danger-button { display:inline-flex; min-height:2rem; align-items:center; justify-content:center; gap:0.38rem; border-radius:0.42rem; padding:0.35rem 0.7rem; font-size:calc(0.733333rem * var(--type-scale)); font-weight:600; }
   .primary-button { background:var(--primary); color:var(--primary-foreground); }
@@ -1697,36 +1561,16 @@
   .conflict-panel ul { display:grid; gap:0.1rem; margin-top:0.45rem; padding-left:1rem; }
   .conflict-actions { display:flex; flex-wrap:wrap; justify-content:flex-end; gap:0.4rem; }
   .conflict-recovery-notice { margin-bottom:1rem; border:1px solid color-mix(in srgb,var(--action-confirm) 45%,var(--border)); border-radius:0.5rem; background:color-mix(in srgb,var(--action-confirm) 8%,transparent); padding:0.6rem 0.7rem; color:var(--foreground); font-size:calc(0.68rem * var(--type-scale)); outline:0; }
-  .access-tools { padding-inline:0.25rem; }
-  .icon-button { display:grid; width:1.8rem; height:1.8rem; place-items:center; border-radius:0.4rem; color:var(--muted-foreground); }
-  .icon-button.active { background:var(--accent); color:var(--foreground); }
-  .empty-access { color:var(--muted-foreground); font-size:calc(0.7rem * var(--type-scale)); }
-  .access-list,.access-group,.access-project,.access-channel { display:grid; min-width:0; }
-  .access-list { gap:0.2rem; }
-  .access-scope-row { display:grid; min-width:0; grid-template-columns:minmax(8rem,1fr) minmax(8rem,auto) auto; align-items:center; gap:0.35rem; }
-  .group-scope-row { min-height:2.75rem; }
-  .project-scope-row,.channel-scope-row { min-height:2.5rem; }
-  .channel-scope-row { grid-template-columns:minmax(8rem,1fr) minmax(8rem,auto) auto auto; }
-  .scope-summary { display:grid; min-width:0; grid-template-columns:1rem 1rem minmax(0,1fr); align-items:center; gap:0.4rem; border-radius:0.4rem; padding:0.3rem 0.35rem; text-align:left; }
-  .scope-summary:hover { background:color-mix(in srgb,var(--accent) 58%,transparent); }
-  .scope-summary > span { display:grid; min-width:0; }
-  .scope-summary strong,.scope-summary small { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-  .scope-summary strong { font-size:calc(0.72rem * var(--type-scale)); font-weight:600; }
-  .scope-summary small { color:var(--muted-foreground); font-size:calc(0.61rem * var(--type-scale)); font-weight:400; }
-  .scope-summary > :global(svg:first-child) { transition:transform 120ms ease; }
-  .scope-summary > :global(svg.expanded:first-child) { transform:rotate(90deg); }
-  .access-projects { display:grid; padding-left:1.15rem; }
-  .access-channels { display:grid; padding-left:1.15rem; }
-  .channel-identity { display:flex; min-width:0; align-items:center; gap:0.45rem; padding-left:0.4rem; }
-  .channel-identity strong { overflow:hidden; font-size:calc(0.7rem * var(--type-scale)); font-weight:550; text-overflow:ellipsis; white-space:nowrap; }
-  .icon-button.danger:hover { background:color-mix(in srgb,var(--destructive) 12%,transparent); color:var(--destructive); }
-  .access-details { display:grid; gap:0.75rem; padding:0.45rem 0.2rem 0.8rem 2.4rem; }
+  .empty-access { padding-inline:0.25rem; color:var(--muted-foreground); font-size:calc(0.68rem * var(--type-scale)); }
+  .focused-membership { display:grid; min-width:0; gap:0.65rem; padding:0.05rem 0.25rem 0; }
+  .focused-membership-heading { display:grid; min-width:0; }
+  .focused-membership-heading strong { overflow:hidden; font-size:calc(0.75rem * var(--type-scale)); font-weight:600; text-overflow:ellipsis; white-space:nowrap; }
+  .focused-membership-heading small { overflow:hidden; margin-top:0.05rem; color:var(--muted-foreground); font-size:calc(0.63rem * var(--type-scale)); text-overflow:ellipsis; white-space:nowrap; }
+  .access-details { display:grid; gap:0.75rem; padding:0; }
+  .membership-controls { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:0.7rem; }
+  .membership-controls :global(.scope-controls) { justify-content:flex-start; }
+  .membership-controls :global(.control-trigger) { width:100%; max-width:11.5rem; justify-content:flex-start; border:1px solid var(--border); border-radius:0.45rem; background:var(--background); color:var(--foreground); }
   .history-field { width:min(14rem,100%); }
-  .work-access-row { display:flex; max-width:34rem; align-items:center; justify-content:space-between; gap:1rem; }
-  .work-access-row > span { display:grid; min-width:0; }
-  .work-access-row strong { font-size:calc(0.7rem * var(--type-scale)); font-weight:600; }
-  .work-access-row small { margin-top:0.12rem; color:var(--muted-foreground); font-size:calc(0.62rem * var(--type-scale)); line-height:0.9rem; }
-  .work-access-row :global(.control-trigger) { max-width:11rem; border:1px solid var(--border); border-radius:0.45rem; background:var(--background); color:var(--foreground); }
   .resource-summary-error { max-width:34rem; color:var(--destructive); font-size:calc(0.64rem * var(--type-scale)); line-height:0.95rem; }
   fieldset { display:grid; gap:0.4rem; }
   fieldset legend { margin-bottom:0.15rem; font-size:calc(0.7rem * var(--type-scale)); font-weight:650; }
@@ -1747,10 +1591,9 @@
   .editor-footer { justify-content:space-between; gap:0.75rem; border-top:1px solid var(--border); padding:0.65rem 0.85rem; }
   .editor-footer > div { display:flex; min-width:0; align-items:center; gap:0.5rem; }
   .field-error { color:var(--destructive); font-size:calc(0.65rem * var(--type-scale)); }
-  .saved { color:var(--action-confirm); font-size:calc(0.65rem * var(--type-scale)); }
   .empty-detail { display:grid; height:100%; place-items:center; align-content:center; gap:0.5rem; color:var(--muted-foreground); font-size:calc(0.73rem * var(--type-scale)); }
   @media (max-width:900px) { .field-grid.compact { grid-template-columns:repeat(2,minmax(0,1fr)); }.folder-row { grid-template-columns:auto auto minmax(7rem,1fr); }.folder-controls { grid-column:3; justify-content:flex-start; } }
-  @media (max-width:700px) { .directory-panel { border-right:0; border-bottom:1px solid var(--border); }.directory-list { grid-template-columns:repeat(auto-fill,minmax(11rem,1fr)); }.field-grid,.field-grid.compact,.capability-switches { grid-template-columns:1fr; }.capability-switches legend { grid-column:auto; }.conflict-panel { grid-template-columns:1fr; }.conflict-actions { justify-content:stretch; }.conflict-actions button { flex:1; }.access-scope-row { grid-template-columns:minmax(0,1fr) auto; }.access-scope-row :global(.scope-controls) { grid-column:1; justify-self:start; }.work-access-row { align-items:flex-start; flex-direction:column; gap:0.4rem; }.editor-footer { align-items:stretch; flex-direction:column; }.editor-footer > div,.save-area { justify-content:space-between; }.save-area .primary-button { flex:1; } }
+  @media (max-width:700px) { .directory-panel { border-right:0; border-bottom:1px solid var(--border); }.directory-list { grid-template-columns:repeat(auto-fill,minmax(11rem,1fr)); }.field-grid,.field-grid.compact,.capability-switches,.membership-controls { grid-template-columns:1fr; }.capability-switches legend { grid-column:auto; }.conflict-panel { grid-template-columns:1fr; }.conflict-actions { justify-content:stretch; }.conflict-actions button { flex:1; }.editor-footer { align-items:stretch; flex-direction:column; }.editor-footer > div,.save-area { justify-content:space-between; }.save-area .primary-button { flex:1; } }
   @media (pointer:coarse) { .conflict-actions button,.conflict-panel > button { min-height:44px; } }
 
   .teammate-settings { display:grid; height:100%; min-height:0; grid-template-rows:auto minmax(0,1fr); gap:0.8rem; }
