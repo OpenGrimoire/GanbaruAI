@@ -218,7 +218,7 @@ An expansion never reactivates an old run, source handle, continuation, or quara
 
 ## Settings and review
 
-Teammates is the primary complete access editor, but it keeps the same dimensions and visual grammar as every other Settings area. A quiet identity directory and one continuous editor restore the established master-detail layout. The editor leads with the teammate avatar, identity, model, and approval behavior, then presents channel access as a flat list in the same form. It does not introduce a wider administration surface, nested decorative cards, count pills, or a separate Overview and Access dashboard.
+Teammates is the primary complete access editor, but it keeps the same dimensions and visual grammar as every other Settings area. The resident view is a quiet full-width identity directory. Selecting or creating a teammate opens one continuous editor in a focused modal that matches the Access profiles manager rather than reserving a second settings column. The editor leads with the teammate avatar, identity, model, and approval behavior, then presents channel access in the same form. It does not introduce a wider administration surface, nested decorative cards, count pills, or a separate Overview and Access dashboard.
 
 Channel membership and configuration share one flat browser embedded in the teammate editor. Its Group, Project, and Channel columns are visible together, with the first available path open immediately. Clicking a group replaces the Project column, clicking a project replaces the Channel column, and clicking a channel focuses its options without changing authority. The hierarchy uses names and shared checkboxes without decorative resource icons, floating panels, membership cards, or separate removal controls.
 
