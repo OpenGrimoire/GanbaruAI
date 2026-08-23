@@ -337,9 +337,9 @@ fn windows_replacement_paths(parent: &Path) -> (PathBuf, PathBuf, PathBuf) {
 
 #[cfg(windows)]
 fn windows_replace_file(target: &Path, replacement: &Path, backup: &Path) -> std::io::Result<()> {
+    use ::windows::core::PCWSTR;
+    use ::windows::Win32::Storage::FileSystem::{ReplaceFileW, REPLACE_FILE_FLAGS};
     use std::os::windows::ffi::OsStrExt;
-    use windows::core::PCWSTR;
-    use windows::Win32::Storage::FileSystem::{ReplaceFileW, REPLACE_FILE_FLAGS};
 
     fn wide(path: &Path) -> Vec<u16> {
         path.as_os_str().encode_wide().chain(Some(0)).collect()

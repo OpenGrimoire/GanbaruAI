@@ -211,10 +211,7 @@ pub fn spawn_provider_process(config: ProviderProcessConfig) -> ChatResult<Provi
     let limit = config.stderr_limit_bytes;
     let stderr_task = tokio::spawn(async move {
         let mut chunk = [0_u8; 4096];
-        loop {
-            let Ok(read) = stderr_reader.read(&mut chunk).await else {
-                break;
-            };
+        while let Ok(read) = stderr_reader.read(&mut chunk).await {
             if read == 0 {
                 break;
             }
