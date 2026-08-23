@@ -2,6 +2,7 @@
   import { onMount, tick, untrack } from "svelte";
   import Archive from "@lucide/svelte/icons/archive";
   import ArchiveRestore from "@lucide/svelte/icons/archive-restore";
+  import Bot from "@lucide/svelte/icons/bot";
   import ChevronRight from "@lucide/svelte/icons/chevron-right";
   import Eye from "@lucide/svelte/icons/eye";
   import EyeOff from "@lucide/svelte/icons/eye-off";
@@ -99,6 +100,26 @@
     durableAccess: ChatTeammateAccessRead;
   }
 
+  interface TeammateAccessSummaryChannel {
+    channel: ChatChannelRead;
+    access: ChatTeammateChannelAccessInput;
+    sortOrder: number;
+  }
+
+  interface TeammateAccessSummaryProject {
+    id: string;
+    name: string;
+    sortOrder: number;
+    channels: TeammateAccessSummaryChannel[];
+  }
+
+  interface TeammateAccessSummaryGroup {
+    id: string;
+    name: string;
+    sortOrder: number;
+    projects: TeammateAccessSummaryProject[];
+  }
+
   const chat = getChat();
   const projects = getProjects();
   const { t } = getLocalization();
@@ -117,9 +138,11 @@
   let errorField = $state<string | null>(null);
   let directoryScrollElement = $state<HTMLElement>();
   let detailScrollElement = $state<HTMLElement>();
-  let editorDialogElement = $state<HTMLDivElement>();
-  let editorReturnFocusElement: HTMLElement | null = null;
-  let closeConfirmationOpen = $state(false);
+  let saveButtonElement = $state<HTMLButtonElement>();
+  let accessDialogOpen = $state(false);
+  let accessDialogElement = $state<HTMLDivElement>();
+  let accessDialogScrollElement = $state<HTMLElement>();
+  let accessDialogReturnFocusElement: HTMLElement | null = null;
 
   let displayName = $state("");
   let role = $state("");
@@ -209,6 +232,57 @@
   ))));
   const activeNavigationChannels = $derived(navigationChannels.filter((channel) => channel.archivedAt === null));
   const selectedChannelIds = $derived(new Set(accessDraft.map((channel) => channel.channelId)));
+  const accessSummaryGroups = $derived.by(() => {
+    const projectById = new Map(projects.projects.map((project) => [project.id, project]));
+    const groupById = new Map(projects.groups.map((group) => [group.id, group]));
+    const channelOrder = new Map(activeNavigationChannels.map((channel, index) => [channel.id, index]));
+    const grouped = new Map<string, TeammateAccessSummaryGroup>();
+
+    for (const access of accessDraft) {
+      const channel = navigationChannels.find((entry) => entry.id === access.channelId);
+      if (!channel) continue;
+      const project = projectById.get(channel.projectId);
+      const group = groupById.get(project?.groupId ?? "");
+      const groupId = group?.id ?? `unknown-group:${project?.groupId ?? channel.projectId}`;
+      let summaryGroup = grouped.get(groupId);
+      if (!summaryGroup) {
+        summaryGroup = {
+          id: groupId,
+          name: group?.name ?? t("settings.chat.teammates.unknownGroup"),
+          sortOrder: group?.sortOrder ?? Number.MAX_SAFE_INTEGER,
+          projects: [],
+        };
+        grouped.set(groupId, summaryGroup);
+      }
+      let summaryProject = summaryGroup.projects.find((entry) => entry.id === channel.projectId);
+      if (!summaryProject) {
+        summaryProject = {
+          id: channel.projectId,
+          name: project?.name ?? t("settings.chat.teammates.unknownProject"),
+          sortOrder: project?.sortOrder ?? Number.MAX_SAFE_INTEGER,
+          channels: [],
+        };
+        summaryGroup.projects.push(summaryProject);
+      }
+      summaryProject.channels.push({
+        channel,
+        access,
+        sortOrder: channelOrder.get(channel.id) ?? Number.MAX_SAFE_INTEGER,
+      });
+    }
+
+    return [...grouped.values()]
+      .sort((left, right) => left.sortOrder - right.sortOrder || left.name.localeCompare(right.name))
+      .map((group) => ({
+        ...group,
+        projects: group.projects
+          .sort((left, right) => left.sortOrder - right.sortOrder || left.name.localeCompare(right.name))
+          .map((project) => ({
+            ...project,
+            channels: project.channels.sort((left, right) => left.sortOrder - right.sortOrder),
+          })),
+      }));
+  });
   const focusedAccessChannel = $derived(channelById(focusedAccessChannelId ?? ""));
   const focusedAccessDraft = $derived(accessDraft.find((channel) => (
     channel.channelId === focusedAccessChannelId
@@ -313,12 +387,11 @@
     }
     if (initialTeammateId && allDirectoryTeammates.some((entry) => entry.participant.id === initialTeammateId)) {
       selectedId = initialTeammateId;
+      accessDialogOpen = Boolean(initialChannelId);
+      return;
     }
-  });
-
-  $effect(() => {
-    if (!creating && !selected) return;
-    void tick().then(() => editorDialogElement?.focus());
+    if (chat.teammates.length === 0) beginCreate(initialChannelId ?? null);
+    else selectedId = chat.teammates[0]?.participant.id ?? null;
   });
 
   $effect(() => {
@@ -329,6 +402,11 @@
       return;
     }
     untrack(() => initializeSelectedTeammate(teammate));
+  });
+
+  $effect(() => {
+    if (!accessDialogOpen) return;
+    void tick().then(() => accessDialogElement?.focus());
   });
 
   $effect(() => {
@@ -520,12 +598,9 @@
     conflictRecoveryNotice = null;
   }
 
-  function beginCreate(
-    channelId: string | null = null,
-    returnFocusElement: HTMLElement | null = null,
-  ): void {
+  function beginCreate(channelId: string | null = null): void {
     clearAccessConflict();
-    editorReturnFocusElement = returnFocusElement;
+    accessDialogReturnFocusElement = null;
     creating = true;
     selectedId = null;
     focusedAccessChannelId = channelId;
@@ -552,51 +627,39 @@
     accessPreviewSnapshot = null;
     error = null;
     errorField = null;
-    lifecycleError = null;
+    accessDialogOpen = Boolean(channelId);
   }
 
-  function openTeammate(teammateId: string, returnFocusElement: HTMLElement): void {
-    closeConfirmationOpen = false;
-    editorReturnFocusElement = returnFocusElement;
-    lifecycleError = null;
-    creating = false;
-    selectedId = teammateId;
-  }
-
-  function closeEditor(): void {
-    const returnFocusElement = editorReturnFocusElement;
-    editorReturnFocusElement = null;
+  function cancelCreate(): void {
     clearAccessConflict();
     creating = false;
-    selectedId = null;
+    selectedId = chat.teammates[0]?.participant.id ?? null;
     profileBaseline = null;
     accessBaseline = null;
     studioDraftBaseline = null;
     accessPreview = null;
     accessPreviewSnapshot = null;
+    accessDialogOpen = false;
+  }
+
+  function openAccessDialog(returnFocusElement: HTMLElement | null = null): void {
+    accessDialogReturnFocusElement = returnFocusElement;
+    accessDialogOpen = true;
+  }
+
+  function closeAccessDialog(): void {
+    const returnFocusElement = accessDialogReturnFocusElement;
+    accessDialogReturnFocusElement = null;
+    accessDialogOpen = false;
     void tick().then(() => returnFocusElement?.focus());
   }
 
-  function requestCloseEditor(): void {
-    if (saving || lifecycleBusy) return;
-    if (dirty) {
-      closeConfirmationOpen = true;
-      return;
-    }
-    closeEditor();
-  }
-
-  function handleKeydown(event: KeyboardEvent): void {
-    if (event.key !== "Escape" || (!creating && !selected)) return;
-    if (profileManagerOpen || lifecycleAction || closeConfirmationOpen) return;
-    if (toolsMenuOpen) {
-      toolsMenuOpen = false;
-      return;
-    }
+  function handleAccessDialogKeydown(event: KeyboardEvent): void {
+    if (event.key !== "Escape" || !accessDialogOpen || profileManagerOpen) return;
     if (event.defaultPrevented || document.querySelector("[data-app-floating-surface]")) return;
     event.preventDefault();
     event.stopPropagation();
-    requestCloseEditor();
+    closeAccessDialog();
   }
 
   function initializeSelectedTeammate(teammate: ChatAiTeammateRead): void {
@@ -888,8 +951,79 @@
   }
 
   function handleChannelSelection(channelIds: readonly string[], selectedValue: boolean): void {
-    if (channelIds.length === 1) focusedAccessChannelId = channelIds[0] ?? null;
+    if (channelIds.length === 1 || (
+      selectedValue
+      && !channelIds.includes(focusedAccessChannelId ?? "")
+    )) {
+      focusedAccessChannelId = channelIds[0] ?? null;
+    }
     setBoundedSelection(channelIds, selectedValue);
+  }
+
+  function channelPresetSummary(channel: ChatTeammateChannelAccessInput): string {
+    const preset = channelCapabilityPreset(channel.capabilities);
+    if (preset === "contextSource") {
+      return t("settings.chat.teammates.presetControls.contextSource.label");
+    }
+    if (preset === "isolatedResponder") {
+      return t("settings.chat.teammates.presetControls.isolatedResponder.label");
+    }
+    if (preset === "collaborator") {
+      return t("settings.chat.teammates.presetControls.collaborator.label");
+    }
+    return t("settings.chat.teammates.presets.custom");
+  }
+
+  function accessProfileLabel(accessProfileId: string): string {
+    const profile = accessProfiles.find((entry) => entry.id === accessProfileId);
+    if (!profile) return t("settings.chat.teammates.profileUnavailable");
+    return profile.builtinKey
+      ? t(`settings.chat.teammates.profiles.${profile.builtinKey}`)
+      : profile.displayName;
+  }
+
+  function channelAccessSummary(channel: ChatTeammateChannelAccessInput): string {
+    const folders = channel.folderGrants.length > 0
+      ? t("settings.chat.teammates.folderCount", channel.folderGrants.length)
+      : t("settings.chat.teammates.noWorkResources");
+    return t(
+      "settings.chat.teammates.channelAccessSummary",
+      channelPresetSummary(channel),
+      accessProfileLabel(channel.accessProfileId),
+      folders,
+    );
+  }
+
+  function openAccessChannel(
+    channelId: string,
+    returnFocusElement: HTMLElement | null = null,
+  ): void {
+    focusedAccessChannelId = channelId;
+    openAccessDialog(returnFocusElement);
+  }
+
+  function overflowTooltip(node: HTMLElement, label: string): {
+    update: (nextLabel: string) => void;
+    destroy: () => void;
+  } {
+    let currentLabel = label;
+    const sync = (): void => {
+      if (node.scrollWidth - node.clientWidth > 2) node.dataset.appTooltip = currentLabel;
+      else delete node.dataset.appTooltip;
+    };
+    const observer = new ResizeObserver(sync);
+    observer.observe(node);
+    queueMicrotask(sync);
+    return {
+      update(nextLabel: string): void {
+        currentLabel = nextLabel;
+        sync();
+      },
+      destroy(): void {
+        observer.disconnect();
+        delete node.dataset.appTooltip;
+      },
+    };
   }
 
   function setPresetForChannels(
@@ -1014,6 +1148,15 @@
         ? { ...grant, runtimeApprovalOverride: policy }
         : grant),
     }));
+  }
+
+  function teammateDirectoryStatus(teammate: ChatAiTeammateRead): string {
+    const health = teammate.configurationState === "healthy"
+      ? t("settings.chat.teammates.available")
+      : t("settings.chat.teammates.needsSetup");
+    return teammate.participant.archivedAt
+      ? `${health} · ${t("settings.chat.teammates.archived")}`
+      : health;
   }
 
   async function recoverFolder(folderId: string, bindingStatus: string, managed: boolean): Promise<void> {
@@ -1178,6 +1321,7 @@
           accessPreview = await chatApi.previewChatTeammateAccess(request);
           accessPreviewSnapshot = requestSnapshot;
           if (accessPreviewNeedsConfirmation(accessPreview)) {
+            openAccessDialog(saveButtonElement ?? null);
             return;
           }
         }
@@ -1196,6 +1340,7 @@
         profileAvatar = copyVersionedJson(refreshed.participant.avatar);
       }
       setStudioDraftBaseline(savedDraft);
+      if (accessDialogOpen) closeAccessDialog();
     } catch (cause: unknown) {
       if (teammateId && chatErrorCode(cause) === "stale_revision") {
         error = null;
@@ -1336,13 +1481,13 @@
   </div>
 {/snippet}
 
-<svelte:window onkeydown={handleKeydown} />
+<svelte:window onkeydown={handleAccessDialogKeydown} />
 
 <section class="teammate-settings" data-chat-settings-subsection="teammates">
   <header class="directory-header">
     <div><h2>{t("settings.chat.teammates.heading")}</h2><p>{t("settings.chat.teammates.description")}</p></div>
     <div class="header-actions">
-      <button type="button" class="settings-button" disabled={creating || dirty} onclick={(event) => beginCreate(null, event.currentTarget)}><Plus size={13} />{t("settings.chat.teammates.add")}</button>
+      <button type="button" class="settings-button" disabled={creating || dirty} onclick={() => beginCreate(null)}><Plus size={13} />{t("settings.chat.teammates.add")}</button>
       {#if archivedTeammates.length > 0}
         {@const archiveFilterLabel = showArchived ? t("settings.chat.teammates.hideArchived") : t("settings.chat.teammates.includeArchived")}
         <button type="button" class="archive-filter" aria-label={archiveFilterLabel} aria-pressed={showArchived} data-app-tooltip={archiveFilterLabel} disabled={creating || dirty || lifecycleBusy} onclick={() => { showArchived = !showArchived; }}><Archive size={14} /><span aria-hidden="true">{#if showArchived}<Eye size={8} />{:else}<EyeOff size={8} />{/if}</span></button>
@@ -1358,41 +1503,31 @@
     </div>
   </header>
 
-  <div class="directory-panel">
+  <div class="directory-layout">
+    <aside class="directory-panel">
       {#if allDirectoryTeammates.length > 8}<label class="directory-search"><Search size={13} /><input bind:value={directoryQuery} aria-label={t("settings.chat.teammates.searchDirectory")} placeholder={t("settings.chat.teammates.searchDirectory")} /></label>{/if}
       <div class="scroll-frame">
         <div bind:this={directoryScrollElement} class="directory-scroll hide-scrollbar">
           <nav aria-label={t("settings.chat.teammates.directoryLabel")} class="directory-list teammate-directory">
+            {#if creating}
+              <button type="button" class="directory-row active" aria-current="page"><span class="draft-avatar">{#if draftCompany}<ChatModelAvatar familyId={draftCompany.iconFamilyId} label={draftCompany.name} size={30} />{:else}<Plus size={15} />{/if}</span><span><strong>{displayName.trim() || t("settings.chat.teammates.name")}</strong><small>{role.trim() || t("settings.chat.teammates.role")}</small></span></button>
+            {/if}
             {#each filteredDirectoryTeammates as teammate (teammate.participant.id)}
-              <button type="button" class="directory-row" disabled={lifecycleBusy} onclick={(event) => openTeammate(teammate.participant.id, event.currentTarget)}>
+              <button type="button" class:active={!creating && selectedId === teammate.participant.id} class="directory-row" aria-current={!creating && selectedId === teammate.participant.id ? "page" : undefined} disabled={dirty || lifecycleBusy} onclick={() => { creating = false; selectedId = teammate.participant.id; }}>
                 <span class="directory-avatar"><ChatParticipantAvatar participant={teammate.participant} {teammate} size={32} /></span>
-                <span class="directory-summary">
-                  <span class="directory-name-line">
-                    <strong>{teammate.participant.displayName}</strong>
-                    <span
-                      class="health-dot"
-                      data-state={teammate.configurationState}
-                      data-app-tooltip={teammate.configurationState === "healthy" ? t("settings.chat.teammates.available") : t("settings.chat.teammates.needsSetup")}
-                      role="img"
-                      aria-label={teammate.configurationState === "healthy" ? t("settings.chat.teammates.available") : t("settings.chat.teammates.needsSetup")}
-                    ></span>
-                  </span>
-                  <small>{teammate.role}</small>
-                </span>
+                <span class="directory-summary"><strong>{teammate.participant.displayName}</strong><small>{teammate.role}</small></span>
               </button>
             {/each}
-            {#if loadingDirectory}<p class="empty-copy" role="status">{t("common.loading")}</p>{:else if filteredDirectoryTeammates.length === 0}<p class="empty-copy">{t("settings.chat.teammates.empty")}</p>{/if}
+            {#if loadingDirectory}<p class="empty-copy" role="status">{t("common.loading")}</p>{:else if !creating && filteredDirectoryTeammates.length === 0}<p class="empty-copy">{t("settings.chat.teammates.empty")}</p>{/if}
           </nav>
         </div>
         <CalendarScrollbar scrollContainer={directoryScrollElement} wheelPassthrough />
       </div>
-  </div>
-</section>
+    </aside>
 
-{#if creating || selected}
-  <div class="editor-backdrop" role="presentation" onclick={(event) => { if (event.target === event.currentTarget) requestCloseEditor(); }}>
-    <div bind:this={editorDialogElement} class="teammate-editor" role="dialog" aria-modal="true" aria-labelledby="teammate-editor-title" tabindex="-1">
-        <form class="editor" aria-busy={saving || conflictLoading} onsubmit={(event) => { event.preventDefault(); void save(); }}>
+    <div class="detail-panel">
+      {#if creating || selected}
+        <form class="editor teammate-editor" aria-busy={saving || conflictLoading} onsubmit={(event) => { event.preventDefault(); void save(); }}>
           <div class="editor-scroll-frame">
             <div bind:this={detailScrollElement} class="editor-scroll hide-scrollbar">
               <div class="editor-heading">
@@ -1401,17 +1536,19 @@
                 {:else if selected}<ChatParticipantAvatar participant={selected.participant} teammate={selected} size={38} />{/if}
                 <div class="editor-title">
                   <div class="editor-name-line">
-                    <h3 id="teammate-editor-title">{displayName.trim() || t("settings.chat.teammates.name")}</h3>
+                    <h3>{displayName.trim() || t("settings.chat.teammates.name")}</h3>
                     {#if creating}
-                      <span class="health-dot" data-state={draftConfigurationState} data-app-tooltip={draftConfigurationState === "healthy" ? t("settings.chat.teammates.available") : t("settings.chat.teammates.needsSetup")} role="img" aria-label={draftConfigurationState === "healthy" ? t("settings.chat.teammates.available") : t("settings.chat.teammates.needsSetup")}></span>
+                      <span class="editor-state" data-state={draftConfigurationState}><i></i>{draftConfigurationState === "healthy" ? t("settings.chat.teammates.available") : t("settings.chat.teammates.needsSetup")}</span>
                     {:else if selected}
-                      <span class="health-dot" data-state={selected.configurationState} data-app-tooltip={selected.configurationState === "healthy" ? t("settings.chat.teammates.available") : t("settings.chat.teammates.needsSetup")} role="img" aria-label={selected.configurationState === "healthy" ? t("settings.chat.teammates.available") : t("settings.chat.teammates.needsSetup")}></span>
-                      {#if archivedMode}<span class="archived-state" data-app-tooltip={t("settings.chat.teammates.archived")} role="img" aria-label={t("settings.chat.teammates.archived")}><Archive size={12} /></span>{/if}
+                      {#if archivedMode}
+                        <span class="editor-state archived-state"><Archive size={12} />{t("settings.chat.teammates.archived")}</span>
+                      {:else}
+                        <span class="editor-state" data-state={selected.configurationState}><i></i>{selected.configurationState === "healthy" ? t("settings.chat.teammates.available") : t("settings.chat.teammates.needsSetup")}</span>
+                      {/if}
                     {/if}
                   </div>
                   <p>{role.trim() || t("settings.chat.teammates.role")}</p>
                 </div>
-                <button type="button" class="editor-close" aria-label={t("common.close")} onclick={requestCloseEditor}><X size={16} /></button>
               </div>
 
               {#if conflictLoading}
@@ -1470,42 +1607,50 @@
 
                 <section class="editor-section access-section">
                   <div class="section-heading"><h4>{t("settings.chat.teammates.accessSection")}</h4></div>
-                  {#if ChatChannelAccessBrowser && ChatChannelScopeControls}
-                    {@const AccessBrowser = ChatChannelAccessBrowser}
-                    <AccessBrowser
-                      channels={activeNavigationChannels}
-                      {selectedChannelIds}
-                      focusedChannelId={focusedAccessChannelId}
-                      disabled={archivedMode || accessProfiles.length === 0}
-                      onSelectionChange={handleChannelSelection}
-                      onFocusChange={(channelId) => { focusedAccessChannelId = channelId; }}
-                    />
-                    {#if loadingAccess}
-                      <p class="empty-copy" role="status">{t("common.loading")}</p>
-                    {:else if focusedAccessChannel}
-                      <div class="focused-membership">
-                        <div class="focused-membership-heading">
-                          <strong>{focusedAccessChannel.name}</strong>
-                          <small>{channelAncestry(focusedAccessChannel)}</small>
-                        </div>
-                        {#if focusedAccessDraft}
-                          {@render channelDetails(focusedAccessDraft)}
-                          {#if providerResourceIssuesForChannel(focusedAccessDraft)[0]}
-                            <p class="resource-summary-error" role="alert">{providerResourceIssuesForChannel(focusedAccessDraft)[0]}</p>
-                          {/if}
-                        {:else}
-                          <p class="empty-access">{t("settings.chat.teammates.selectChannelAccess")}</p>
-                        {/if}
-                      </div>
-                    {:else}
-                      <p class="empty-access">{t("settings.chat.teammates.noChannels")}</p>
-                    {/if}
-                  {:else}
-                    <p class="empty-copy" role="status">{t("common.loading")}</p>
-                  {/if}
-
-                  {#if accessPreview}
-                    <aside class="impact-preview" role={accessPreview.issues.length ? "alert" : "status"}><div><strong>{accessPreview.issues.length ? t("settings.chat.teammates.accessIssuesTitle") : accessPreview.isExpansion ? t("settings.chat.teammates.expansionTitle") : t("settings.chat.teammates.reductionTitle")}</strong><p>{t("settings.chat.teammates.impactSummary", accessPreview.addedChannelIds.length, accessPreview.removedChannelIds.length)}</p>{#each accessPreview.issues as issue}<small>{issue.message}</small>{/each}</div>{#if accessPreview.issues.length === 0}<button type="button" class="primary-button" disabled={saving || !canSave || accessPreviewSnapshot !== currentDraftSnapshot} onclick={() => void save(true)}>{t("settings.chat.teammates.applyAccessChanges")}</button>{/if}</aside>
+                  <button
+                    type="button"
+                    class="access-configure-button"
+                    aria-label={t("settings.chat.teammates.configureChannelAccess")}
+                    disabled={loadingAccess}
+                    onclick={(event) => openAccessDialog(event.currentTarget)}
+                  >
+                    <span>{t("settings.chat.teammates.configureChannelAccessAction")}</span>
+                    <ChevronRight size={13} />
+                  </button>
+                  {#if accessSummaryGroups.length > 0}
+                    <div class="access-summary-tree">
+                      {#each accessSummaryGroups as summaryGroup (summaryGroup.id)}
+                        <section class="access-summary-group">
+                          <h5 use:overflowTooltip={summaryGroup.name}>{summaryGroup.name}</h5>
+                          {#each summaryGroup.projects as summaryProject (summaryProject.id)}
+                            <div class="access-summary-project">
+                              <h6 use:overflowTooltip={summaryProject.name}>{summaryProject.name}</h6>
+                              {#each summaryProject.channels as summaryChannel (summaryChannel.channel.id)}
+                                {@const summary = channelAccessSummary(summaryChannel.access)}
+                                <button
+                                  type="button"
+                                  class="access-summary-row"
+                                  aria-label={`${summaryChannel.channel.name}, ${summaryGroup.name}, ${summaryProject.name}, ${summary}`}
+                                  data-app-tooltip-disabled="true"
+                                  onclick={(event) => openAccessChannel(summaryChannel.channel.id, event.currentTarget)}
+                                >
+                                  <strong use:overflowTooltip={summaryChannel.channel.name}>#{summaryChannel.channel.name}</strong>
+                                  <span class="access-summary-values">
+                                    <span>{channelPresetSummary(summaryChannel.access)}</span>
+                                    <span>{accessProfileLabel(summaryChannel.access.accessProfileId)}</span>
+                                    {#if summaryChannel.access.folderGrants.length > 0}
+                                      <span>{t("settings.chat.teammates.folderCount", summaryChannel.access.folderGrants.length)}</span>
+                                    {/if}
+                                  </span>
+                                </button>
+                              {/each}
+                            </div>
+                          {/each}
+                        </section>
+                      {/each}
+                    </div>
+                  {:else if !loadingAccess}
+                    <p class="access-summary-empty">{t("settings.chat.teammates.noAccessTitle")}</p>
                   {/if}
                 </section>
               </div>
@@ -1513,8 +1658,76 @@
             <CalendarScrollbar scrollContainer={detailScrollElement} wheelPassthrough />
           </div>
 
-          <footer class="editor-footer"><div>{#if creating}<button type="button" class="secondary-button" onclick={requestCloseEditor}><X size={14} />{t("common.cancel")}</button>{:else if selected && archivedMode}<button type="button" class="danger-button" disabled={selected.hasDurableHistory} onclick={() => requestLifecycle("delete")}><Trash2 size={14} />{t("settings.chat.teammates.deletePermanently")}</button>{:else if selected}<button type="button" class="secondary-button" disabled={selected.activeAssignmentCount > 0} onclick={() => requestLifecycle("archive")}><Archive size={14} />{t("settings.chat.teammates.archive")}</button>{/if}{#if lifecycleError}<span class="field-error" role="alert">{lifecycleError}</span>{/if}</div><div class="save-area">{#if error && errorField !== "displayName" && errorField !== "role"}<span class="field-error" role="alert">{error}</span>{/if}{#if archivedMode}<button type="button" class="primary-button" onclick={() => void restoreSelected()}><ArchiveRestore size={14} />{t("settings.chat.teammates.restore")}</button>{:else}<button type="submit" class="primary-button" disabled={saving || !canSave}>{saving ? t("settings.chat.teammates.saving") : creating ? t("settings.chat.teammates.createInert") : t("settings.chat.teammates.save")}</button>{/if}</div></footer>
+          <footer class="editor-footer"><div>{#if creating}<button type="button" class="secondary-button" onclick={cancelCreate}><X size={14} />{t("common.cancel")}</button>{:else if selected && archivedMode}<button type="button" class="danger-button" disabled={selected.hasDurableHistory} onclick={() => requestLifecycle("delete")}><Trash2 size={14} />{t("settings.chat.teammates.deletePermanently")}</button>{:else if selected}<button type="button" class="secondary-button" disabled={selected.activeAssignmentCount > 0} onclick={() => requestLifecycle("archive")}><Archive size={14} />{t("settings.chat.teammates.archive")}</button>{/if}{#if lifecycleError}<span class="field-error" role="alert">{lifecycleError}</span>{/if}</div><div class="save-area">{#if error && errorField !== "displayName" && errorField !== "role"}<span class="field-error" role="alert">{error}</span>{/if}{#if archivedMode}<button type="button" class="primary-button" onclick={() => void restoreSelected()}><ArchiveRestore size={14} />{t("settings.chat.teammates.restore")}</button>{:else}<button bind:this={saveButtonElement} type="submit" class="primary-button" disabled={saving || !canSave}>{saving ? t("settings.chat.teammates.saving") : creating ? t("settings.chat.teammates.createInert") : t("settings.chat.teammates.save")}</button>{/if}</div></footer>
         </form>
+      {:else}
+        <div class="empty-detail"><Bot size={24} /><p>{t("settings.chat.teammates.selectPrompt")}</p></div>
+      {/if}
+    </div>
+  </div>
+</section>
+
+{#if accessDialogOpen}
+  <div class="channel-access-backdrop" role="presentation" onclick={(event) => { if (event.target === event.currentTarget) closeAccessDialog(); }}>
+    <div bind:this={accessDialogElement} class="channel-access-dialog" role="dialog" aria-modal="true" aria-labelledby="channel-access-dialog-title" tabindex="-1">
+      <header>
+        <div>
+          <h3 id="channel-access-dialog-title">{t("settings.chat.teammates.accessSection")}</h3>
+          <p>{displayName.trim() || t("settings.chat.teammates.name")}</p>
+        </div>
+        <button type="button" aria-label={t("common.close")} onclick={closeAccessDialog}><X size={16} /></button>
+      </header>
+
+      {#if ChatChannelAccessBrowser && ChatChannelScopeControls}
+        {@const AccessBrowser = ChatChannelAccessBrowser}
+        <div class="channel-access-body">
+          <div class="channel-access-browser-pane">
+            <AccessBrowser
+              channels={activeNavigationChannels}
+              {selectedChannelIds}
+              focusedChannelId={focusedAccessChannelId}
+              disabled={archivedMode || accessProfiles.length === 0}
+              onSelectionChange={handleChannelSelection}
+              onFocusChange={(channelId) => { focusedAccessChannelId = channelId; }}
+            />
+          </div>
+          <div class="channel-access-inspector-frame">
+            <div bind:this={accessDialogScrollElement} class="channel-access-inspector hide-scrollbar">
+            {#if loadingAccess}
+              <p class="empty-copy" role="status">{t("common.loading")}</p>
+            {:else if focusedAccessChannel}
+              <div class="focused-membership">
+                <div class="focused-membership-heading">
+                  <strong>{focusedAccessChannel.name}</strong>
+                  <small>{channelAncestry(focusedAccessChannel)}</small>
+                </div>
+                {#if focusedAccessDraft}
+                  {@render channelDetails(focusedAccessDraft)}
+                  {#if providerResourceIssuesForChannel(focusedAccessDraft)[0]}
+                    <p class="resource-summary-error" role="alert">{providerResourceIssuesForChannel(focusedAccessDraft)[0]}</p>
+                  {/if}
+                {:else}
+                  <p class="empty-access">{t("settings.chat.teammates.selectChannelAccess")}</p>
+                {/if}
+              </div>
+            {:else}
+              <p class="empty-access">{t("settings.chat.teammates.noChannels")}</p>
+            {/if}
+
+              {#if accessPreview}
+                <aside class="impact-preview" role={accessPreview.issues.length ? "alert" : "status"}><div><strong>{accessPreview.issues.length ? t("settings.chat.teammates.accessIssuesTitle") : accessPreview.isExpansion ? t("settings.chat.teammates.expansionTitle") : t("settings.chat.teammates.reductionTitle")}</strong><p>{t("settings.chat.teammates.impactSummary", accessPreview.addedChannelIds.length, accessPreview.removedChannelIds.length)}</p>{#each accessPreview.issues as issue}<small>{issue.message}</small>{/each}</div>{#if accessPreview.issues.length === 0}<button type="button" class="primary-button" disabled={saving || !canSave || accessPreviewSnapshot !== currentDraftSnapshot} onclick={() => void save(true)}>{t("settings.chat.teammates.applyAccessChanges")}</button>{/if}</aside>
+              {/if}
+            </div>
+            <CalendarScrollbar scrollContainer={accessDialogScrollElement} wheelPassthrough />
+          </div>
+        </div>
+      {:else}
+        <p class="empty-copy" role="status">{t("common.loading")}</p>
+      {/if}
+
+      <footer>
+        <button type="button" class="primary-button" onclick={closeAccessDialog}>{t("common.done")}</button>
+      </footer>
     </div>
   </div>
 {/if}
@@ -1528,17 +1741,6 @@
     danger={lifecycleAction === "delete"}
     onConfirm={() => void confirmLifecycle()}
     onCancel={() => { lifecycleAction = null; lifecycleTarget = null; }}
-  />
-{/if}
-
-{#if closeConfirmationOpen}
-  <ConfirmDialog
-    title={t("settings.chat.teammates.discardDraftTitle")}
-    message={t("settings.chat.teammates.discardDraftMessage")}
-    confirmLabel={t("settings.chat.teammates.discardDraft")}
-    cancelLabel={t("settings.chat.teammates.keepEditing")}
-    onConfirm={() => { closeConfirmationOpen = false; closeEditor(); }}
-    onCancel={() => { closeConfirmationOpen = false; }}
   />
 {/if}
 
@@ -1565,7 +1767,7 @@
   .directory-scroll,.editor-scroll { height:100%; overflow-y:auto; overscroll-behavior:contain; }
   .directory-list { display:grid; align-content:start; gap:0.15rem; padding-right:0.35rem; }
   .directory-row { display:grid; min-width:0; grid-template-columns:auto minmax(0,1fr) auto; align-items:center; gap:0.55rem; border-radius:0.5rem; padding:0.55rem; text-align:left; }
-  .directory-row:hover { background:var(--accent); color:var(--accent-foreground); }
+  .directory-row:hover,.directory-row.active { background:var(--accent); color:var(--accent-foreground); }
   .directory-row > span:not(.channel-count) { display:grid; min-width:0; }
   .directory-row strong,.directory-row small { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
   .directory-row strong { font-size:calc(0.766667rem * var(--type-scale)); }
@@ -1573,17 +1775,17 @@
   .draft-avatar { display:grid; width:1.9rem; height:1.9rem; place-items:center; border:1px dashed var(--border); border-radius:0.45rem; color:var(--muted-foreground); }
   .draft-avatar.large { width:2.4rem; height:2.4rem; }
   .empty-copy { padding:0.7rem; color:var(--muted-foreground); font-size:calc(0.7rem * var(--type-scale)); }
+  .detail-panel { min-width:0; min-height:0; }
   .editor { display:grid; height:100%; min-height:0; grid-template-rows:minmax(0,1fr) auto; }
-  .editor-heading { display:grid; min-width:0; grid-template-columns:auto minmax(0,1fr) auto; align-items:center; gap:0.65rem; padding-inline:0.25rem; }
+  .editor-heading { display:grid; min-width:0; grid-template-columns:auto minmax(0,1fr); align-items:center; gap:0.65rem; padding-inline:0.25rem; }
   .editor-title { min-width:0; }
-  .editor-name-line { display:flex; min-width:0; align-items:center; gap:0.38rem; }
+  .editor-name-line { display:flex; min-width:0; align-items:center; justify-content:space-between; gap:0.75rem; }
   .editor-heading h3 { overflow:hidden; font-size:calc(0.833333rem * var(--type-scale)); font-weight:600; text-overflow:ellipsis; white-space:nowrap; }
   .editor-heading p { overflow:hidden; margin-top:0.08rem; color:var(--muted-foreground); font-size:calc(0.7rem * var(--type-scale)); text-overflow:ellipsis; white-space:nowrap; }
-  .health-dot { width:0.4rem; height:0.4rem; flex:0 0 auto; border-radius:50%; background:var(--status-tentative); }
-  .health-dot[data-state="healthy"] { background:var(--action-confirm); }
-  .archived-state { display:grid; width:0.9rem; height:0.9rem; flex:0 0 auto; place-items:center; color:var(--muted-foreground); }
-  .editor-close { display:grid; width:2rem; height:2rem; place-items:center; border-radius:0.42rem; color:var(--muted-foreground); }
-  .editor-close:hover { background:var(--accent); color:var(--foreground); }
+  .editor-state { display:flex; flex-shrink:0; align-items:center; gap:0.32rem; color:var(--muted-foreground); font-size:calc(0.65rem * var(--type-scale)); white-space:nowrap; }
+  .editor-state i { width:0.38rem; height:0.38rem; border-radius:999px; background:var(--status-tentative); }
+  .editor-state[data-state="healthy"] i { background:var(--action-confirm); }
+  .archived-state { color:var(--muted-foreground); }
   .editor-content { display:grid; align-content:start; gap:1rem; }
   .section-heading h4 { font-size:calc(0.8rem * var(--type-scale)); font-weight:600; }
   .field-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:0.75rem; }
@@ -1642,8 +1844,9 @@
   .editor-footer { justify-content:space-between; gap:0.75rem; border-top:1px solid var(--border); padding:0.65rem 0.85rem; }
   .editor-footer > div { display:flex; min-width:0; align-items:center; gap:0.5rem; }
   .field-error { color:var(--destructive); font-size:calc(0.65rem * var(--type-scale)); }
+  .empty-detail { display:grid; height:100%; place-items:center; align-content:center; gap:0.5rem; color:var(--muted-foreground); font-size:calc(0.73rem * var(--type-scale)); }
   @media (max-width:900px) { .field-grid.compact { grid-template-columns:repeat(2,minmax(0,1fr)); }.folder-row { grid-template-columns:auto auto minmax(7rem,1fr); }.folder-controls { grid-column:3; justify-content:flex-start; } }
-  @media (max-width:700px) { .field-grid,.field-grid.compact,.capability-switches,.membership-controls { grid-template-columns:1fr; }.capability-switches legend { grid-column:auto; }.conflict-panel { grid-template-columns:1fr; }.conflict-actions { justify-content:stretch; }.conflict-actions button { flex:1; }.editor-footer { align-items:stretch; flex-direction:column; }.editor-footer > div,.save-area { justify-content:space-between; }.save-area .primary-button { flex:1; } }
+  @media (max-width:700px) { .directory-panel { border-right:0; border-bottom:1px solid var(--border); }.directory-list { grid-template-columns:repeat(auto-fill,minmax(11rem,1fr)); }.field-grid,.field-grid.compact,.capability-switches,.membership-controls { grid-template-columns:1fr; }.capability-switches legend { grid-column:auto; }.conflict-panel { grid-template-columns:1fr; }.conflict-actions { justify-content:stretch; }.conflict-actions button { flex:1; }.editor-footer { align-items:stretch; flex-direction:column; }.editor-footer > div,.save-area { justify-content:space-between; }.save-area .primary-button { flex:1; } }
   @media (pointer:coarse) { .conflict-actions button,.conflict-panel > button { min-height:44px; } }
 
   .teammate-settings { display:grid; height:100%; min-height:0; grid-template-rows:auto minmax(0,1fr); gap:0.8rem; }
@@ -1660,23 +1863,35 @@
   .archive-filter { position:relative; display:grid; width:1.9rem; height:1.9rem; place-items:center; border-radius:0.42rem; color:var(--muted-foreground); }
   .archive-filter:hover,.archive-filter[aria-pressed="true"] { background:var(--accent); color:var(--foreground); }
   .archive-filter > span { position:absolute; right:0.08rem; bottom:0.08rem; display:grid; width:0.72rem; height:0.72rem; place-items:center; border-radius:50%; background:var(--background); }
-  .directory-panel { position:relative; display:grid; min-width:0; min-height:0; grid-template-rows:auto minmax(0,1fr); gap:0.45rem; }
+  .directory-layout { display:grid; min-height:0; isolation:isolate; grid-template-columns:minmax(12.5rem,0.62fr) minmax(0,1.6fr); overflow:visible; border:0; border-radius:0; background:transparent; }
+  .directory-panel { position:relative; z-index:1; display:grid; min-width:0; min-height:0; grid-template-rows:auto minmax(0,1fr); gap:0.45rem; border:0; padding:0 0.75rem 0 0; }
   .directory-search { display:flex; height:1.9rem; align-items:center; gap:0.35rem; border-bottom:1px solid var(--border); padding-inline:0.35rem; color:var(--muted-foreground); }
   .directory-search input { width:100%; min-width:0; background:transparent; color:var(--foreground); outline:0; font-size:calc(0.733333rem * var(--type-scale)); }
-  .directory-list { grid-template-columns:repeat(3,minmax(0,1fr)); gap:0.4rem; padding:0.15rem 0.2rem; }
-  .directory-row { min-height:3.25rem; grid-template-columns:auto minmax(0,1fr); margin:0; background:color-mix(in srgb,var(--accent) 42%,transparent); padding:0.6rem; }
-  .directory-row:hover { background:color-mix(in srgb,var(--accent) 72%,transparent); color:var(--accent-foreground); }
+  .directory-list { gap:0; padding:0.15rem 0.2rem 0.15rem 0; }
+  .directory-row { grid-template-columns:auto minmax(0,1fr); margin-inline:0.2rem; padding:0.6rem; }
+  .directory-row:hover,.directory-row.active { background:var(--accent); color:var(--accent-foreground); }
   .directory-avatar { position:relative; display:grid; }
   .directory-summary { display:grid; min-width:0; }
-  .directory-name-line { display:flex; min-width:0; align-items:center; gap:0.35rem; }
   .directory-summary strong,.directory-summary small { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-  .directory-name-line strong { min-width:0; }
   .directory-summary strong { font-size:calc(0.8rem * var(--type-scale)); font-weight:600; }
   .directory-summary small { margin-top:0.05rem; color:var(--muted-foreground); font-size:calc(0.68rem * var(--type-scale)); }
-  .editor-backdrop { position:fixed; z-index:80; inset:0; display:grid; place-items:center; background:color-mix(in srgb,#000 48%,transparent); padding:1rem; }
-  .teammate-editor { width:min(56rem,90vw); height:min(40rem,80dvh); grid-template-rows:minmax(0,1fr) auto; overflow:hidden; border:1px solid var(--border); border-radius:0.75rem; background:var(--card); color:var(--card-foreground); box-shadow:0 24px 70px color-mix(in srgb,#000 35%,transparent); outline:0; }
-  .editor-scroll { display:grid; align-content:start; gap:1rem; padding:1rem; }
+  .detail-panel { position:relative; z-index:2; min-width:0; min-height:0; border-left:1px solid var(--border); padding-left:1rem; }
+  .teammate-editor { grid-template-rows:minmax(0,1fr) auto; }
+  .editor-scroll { display:grid; align-content:start; gap:1rem; padding:0.2rem 0.75rem 1rem 0; }
   .editor-section { display:grid; gap:0.75rem; border:0; padding:0; }
+  .access-section { grid-template-columns:max-content max-content minmax(0,1fr); align-items:center; column-gap:0.4rem; row-gap:0.75rem; }
+  .access-configure-button { display:inline-flex; min-height:1.25rem; align-items:center; justify-content:center; gap:0.22rem; padding:0.05rem 0.1rem; color:var(--muted-foreground); font-size:calc(0.666667rem * var(--type-scale)); font-weight:600; white-space:nowrap; }
+  .access-configure-button:hover:not(:disabled) { color:var(--foreground); filter:none; }
+  .access-summary-tree { display:grid; grid-column:1/-1; gap:0.8rem; padding-right:0.25rem; }
+  .access-summary-group { display:grid; gap:0.45rem; }
+  .access-summary-group > h5 { min-width:0; overflow:hidden; color:var(--foreground); font-size:calc(0.716667rem * var(--type-scale)); font-weight:650; text-overflow:ellipsis; white-space:nowrap; }
+  .access-summary-project { display:grid; gap:0; padding-left:0.55rem; }
+  .access-summary-project > h6 { min-width:0; overflow:hidden; margin-bottom:0.18rem; color:var(--foreground); font-size:calc(0.656667rem * var(--type-scale)); font-weight:600; text-overflow:ellipsis; white-space:nowrap; }
+  .access-summary-row { display:grid; min-width:0; grid-template-columns:minmax(7.5rem,0.72fr) minmax(0,1.28fr); align-items:start; gap:0.65rem; border-radius:0.38rem; padding:0.16rem 0.35rem; text-align:left; }
+  .access-summary-row:hover { background:var(--accent); color:var(--accent-foreground); }
+  .access-summary-row > strong { min-width:0; overflow:hidden; color:var(--muted-foreground); font-size:calc(0.696667rem * var(--type-scale)); font-weight:600; text-overflow:ellipsis; white-space:nowrap; }
+  .access-summary-values { display:flex; min-width:0; flex-wrap:wrap; align-items:center; gap:0.15rem 0.55rem; color:var(--muted-foreground); font-size:calc(0.636667rem * var(--type-scale)); line-height:0.95rem; }
+  .access-summary-empty { grid-column:1/-1; padding-inline:0.25rem; color:var(--muted-foreground); font-size:calc(0.66rem * var(--type-scale)); }
   .impact-preview { display:flex; align-items:flex-start; justify-content:space-between; gap:0.75rem; border:0; border-left:2px solid var(--destructive); border-radius:0; background:transparent; padding:0.15rem 0 0.15rem 0.65rem; }
   .access-details { border:0; }
   .capability-switches { gap:0; }
@@ -1687,12 +1902,24 @@
   .disclosure-button :global(svg) { transition:transform 120ms ease; }
   .disclosure-button :global(svg.expanded) { transform:rotate(90deg); }
   .advanced-fields { width:min(30rem,100%); }
-  .editor-footer { padding:0.65rem 0.8rem; }
+  .editor-footer { padding:0.65rem 0.75rem 0.65rem 0; }
   .editor-footer button { white-space:nowrap; }
   .primary-button,.secondary-button,.danger-button { white-space:nowrap; }
-  .teammate-editor input[type="radio"] { appearance:none; width:0.9rem; height:0.9rem; border:1px solid var(--border); border-radius:50%; background:var(--background); }
-  .teammate-editor input[type="radio"]:checked { border:0.25rem solid var(--primary); }
-  @media (max-width:900px) { .directory-list { grid-template-columns:repeat(2,minmax(0,1fr)); } }
-  @media (max-width:700px) { .teammate-editor { width:100%; height:94dvh; }.field-grid,.field-grid.compact,.capability-switches { grid-template-columns:1fr; }.folder-row { grid-template-columns:auto auto minmax(7rem,1fr); }.folder-controls { grid-column:3; justify-content:flex-start; } }
-  @media (max-width:520px) { .directory-list { grid-template-columns:1fr; } }
+  .teammate-settings input[type="radio"],.channel-access-dialog input[type="radio"] { appearance:none; width:0.9rem; height:0.9rem; border:1px solid var(--border); border-radius:50%; background:var(--background); }
+  .teammate-settings input[type="radio"]:checked,.channel-access-dialog input[type="radio"]:checked { border:0.25rem solid var(--primary); }
+  .channel-access-backdrop { position:fixed; z-index:80; inset:0; display:grid; place-items:center; background:color-mix(in srgb,#000 48%,transparent); padding:1rem; }
+  .channel-access-dialog { display:grid; width:min(56rem,90vw); height:min(40rem,80dvh); grid-template-rows:auto minmax(0,1fr) auto; overflow:hidden; border:1px solid var(--border); border-radius:0.75rem; background:var(--card); color:var(--card-foreground); box-shadow:0 24px 70px color-mix(in srgb,#000 35%,transparent); outline:0; }
+  .channel-access-dialog > header { display:flex; align-items:center; justify-content:space-between; gap:1rem; border-bottom:1px solid var(--border); padding:0.8rem 0.95rem; }
+  .channel-access-dialog > header h3 { font-size:calc(0.9rem * var(--type-scale)); font-weight:650; }
+  .channel-access-dialog > header p { margin-top:0.15rem; color:var(--muted-foreground); font-size:calc(0.67rem * var(--type-scale)); line-height:1rem; }
+  .channel-access-dialog > header button { display:grid; width:2rem; height:2rem; place-items:center; border-radius:0.42rem; }
+  .channel-access-dialog > header button:hover { background:var(--accent); }
+  .channel-access-body { display:grid; min-width:0; min-height:0; grid-template-columns:minmax(0,1.75fr) minmax(17.5rem,1fr); }
+  .channel-access-browser-pane { min-width:0; min-height:0; padding:0.2rem 0.35rem 0.2rem 0.95rem; }
+  .channel-access-inspector-frame { position:relative; min-width:0; min-height:0; border-left:1px solid color-mix(in srgb,var(--border) 70%,transparent); }
+  .channel-access-inspector { display:grid; height:100%; box-sizing:border-box; align-content:start; gap:0.9rem; overflow-y:auto; overscroll-behavior:contain; padding:0.8rem 0.95rem 1rem; }
+  .channel-access-inspector .focused-membership { padding:0; }
+  .channel-access-dialog > footer { display:flex; align-items:center; justify-content:flex-end; border-top:1px solid var(--border); padding:0.65rem 0.8rem; }
+  @media (max-width:760px) { .channel-access-body { grid-template-columns:1fr; grid-template-rows:minmax(16rem,0.85fr) minmax(12rem,1fr); }.channel-access-inspector-frame { border-top:1px solid color-mix(in srgb,var(--border) 70%,transparent); border-left:0; } }
+  @media (max-width:700px) { .teammate-settings { grid-template-rows:auto minmax(0,1fr); }.directory-layout { grid-template-columns:1fr; grid-template-rows:minmax(7rem,28%) minmax(0,1fr); }.directory-panel { border-bottom:1px solid var(--border); padding:0 0 0.75rem; }.detail-panel { border-top:0; border-left:0; padding:0.8rem 0 0; }.directory-list { grid-template-columns:repeat(auto-fill,minmax(11rem,1fr)); }.field-grid,.field-grid.compact,.capability-switches { grid-template-columns:1fr; }.folder-row { grid-template-columns:auto auto minmax(7rem,1fr); }.folder-controls { grid-column:3; justify-content:flex-start; }.editor-footer { padding-right:0; }.channel-access-dialog { width:100%; height:94dvh; } }
 </style>

@@ -181,7 +181,8 @@
   .access-browser {
     display:grid;
     min-width:0;
-    height:31rem;
+    height:100%;
+    min-height:0;
     grid-template-columns:repeat(3,minmax(0,1fr));
   }
 

@@ -71,6 +71,8 @@ export const chatSettings = {
     accessDescription: "Access is explicit per channel. Profiles are ceilings, not grants.",
     addChannels: "Add channels",
     addChannel: "Add channel",
+    configureChannelAccess: "Configure channel access",
+    configureChannelAccessAction: "Configure",
     editChannelAccess: "Edit channel access",
     removeGroupAccess: (group: string) => `Remove access to channels in ${group}`,
     removeProjectAccess: (project: string) => `Remove access to channels in ${project}`,

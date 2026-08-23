@@ -74,6 +74,8 @@ export const chatSettings = {
     accessDescription: "El acceso es explícito por canal. Los perfiles son límites, no permisos.",
     addChannels: "Agregar canales",
     addChannel: "Agregar canal",
+    configureChannelAccess: "Configurar acceso a canales",
+    configureChannelAccessAction: "Configurar",
     editChannelAccess: "Editar acceso al canal",
     removeGroupAccess: (group: string) => `Quitar el acceso a los canales de ${group}`,
     removeProjectAccess: (project: string) => `Quitar el acceso a los canales de ${project}`,
