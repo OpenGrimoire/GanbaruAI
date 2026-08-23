@@ -239,6 +239,21 @@ describe("ChatWorkspaceHeader", () => {
     expect(collapsed.querySelector("[data-chat-new-channel-button]")).not.toBeNull();
   });
 
+  it("uses one members icon and portals the roster outside the Chat header", async () => {
+    const target = setup(true);
+    const rosterTrigger = target.querySelector<HTMLButtonElement>("[data-chat-roster-trigger]");
+
+    expect(rosterTrigger?.querySelectorAll("svg")).toHaveLength(1);
+    expect(rosterTrigger?.textContent?.trim()).toBe("");
+
+    rosterTrigger?.click();
+    await tick();
+
+    const roster = document.querySelector("#chat-channel-roster");
+    expect(roster?.parentElement).toBe(document.body);
+    expect(roster?.classList.contains("roster-popover")).toBe(true);
+  });
+
   it("opens the current project's complete channel navigator from the channel segment", async () => {
     const target = setup(true);
     const channelTrigger = target.querySelector("[data-chat-channel-trigger]");

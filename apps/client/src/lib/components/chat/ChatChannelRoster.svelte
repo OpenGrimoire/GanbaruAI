@@ -6,6 +6,11 @@
   import Trash2 from "@lucide/svelte/icons/trash-2";
   import Users from "@lucide/svelte/icons/users";
   import * as chatApi from "$lib/api/chat";
+  import {
+    pickSelectPopoverGeometry,
+    type SelectPopoverGeometry,
+    type SelectPopoverRect,
+  } from "$lib/components/settings/customSelectPosition";
   import type {
     ChatChannelMembershipRemovalPreview,
     ChatTeammateAccessRead,
@@ -13,6 +18,7 @@
   import { channelCapabilityPreset } from "$lib/chat/teammate-access";
   import { getLocalization } from "$lib/i18n/translator.svelte";
   import { getChat } from "$lib/stores/chat.svelte";
+  import { portal } from "$lib/utils/portal";
   import ChatParticipantAvatar from "./ChatParticipantAvatar.svelte";
   import ConfirmDialog from "$lib/components/ui/ConfirmDialog.svelte";
 
@@ -22,7 +28,18 @@
   let query = $state("");
   let anchor = $state<HTMLDivElement | null>(null);
   let trigger = $state<HTMLButtonElement | null>(null);
+  let popover = $state<HTMLDivElement | null>(null);
   let searchInput = $state<HTMLInputElement | null>(null);
+  let popoverReady = $state(false);
+  let popoverGeometry = $state<SelectPopoverGeometry>({
+    top: 0,
+    left: 0,
+    width: null,
+    minWidth: 0,
+    maxWidth: 0,
+    maxHeight: 0,
+    placement: "below",
+  });
   let accessByTeammate = $state<Map<string, ChatTeammateAccessRead>>(new Map());
   let loadRequest = 0;
   let showAdd = $state(false);
@@ -53,19 +70,63 @@
     if (!open) return;
     const closeOutside = (event: PointerEvent) => {
       const target = event.target;
-      if (target instanceof Node && !anchor?.contains(target)) open = false;
+      if (target instanceof Node && !anchor?.contains(target) && !popover?.contains(target)) open = false;
     };
+    const reposition = () => positionPopover();
     window.addEventListener("pointerdown", closeOutside, true);
-    return () => window.removeEventListener("pointerdown", closeOutside, true);
+    window.addEventListener("resize", reposition);
+    window.addEventListener("scroll", reposition, true);
+    return () => {
+      window.removeEventListener("pointerdown", closeOutside, true);
+      window.removeEventListener("resize", reposition);
+      window.removeEventListener("scroll", reposition, true);
+    };
   });
+
+  function rect(value: DOMRect): SelectPopoverRect {
+    return {
+      top: value.top,
+      right: value.right,
+      bottom: value.bottom,
+      left: value.left,
+      width: value.width,
+      height: value.height,
+    };
+  }
+
+  function positionPopover(): void {
+    if (!trigger || !popover) return;
+    popoverGeometry = pickSelectPopoverGeometry({
+      triggerRect: rect(trigger.getBoundingClientRect()),
+      boundaryRect: {
+        top: 0,
+        right: window.innerWidth,
+        bottom: window.innerHeight,
+        left: 0,
+        width: window.innerWidth,
+        height: window.innerHeight,
+      },
+      contentHeight: popover.scrollHeight,
+      contentWidth: popover.scrollWidth,
+      horizontalAlign: "end",
+    });
+    popoverReady = true;
+  }
+
+  function popoverStyle(): string {
+    if (!popoverReady) return "visibility:hidden;top:0;left:0;";
+    return `visibility:visible;top:${popoverGeometry.top}px;left:${popoverGeometry.left}px;width:${popoverGeometry.width ?? 336}px;max-height:${popoverGeometry.maxHeight}px;`;
+  }
 
   async function toggle(): Promise<void> {
     open = !open;
     if (!open) return;
     query = "";
     showAdd = false;
+    popoverReady = false;
     void loadAccess();
     await tick();
+    positionPopover();
     searchInput?.focus();
   }
 
@@ -214,11 +275,11 @@
 <svelte:window onkeydown={handleKeydown} />
 
 <div bind:this={anchor} class="roster-anchor">
-  <button bind:this={trigger} type="button" class="roster-trigger" aria-label={t("chat.organization.manageMembers")} aria-haspopup="dialog" aria-controls={open ? "chat-channel-roster" : undefined} aria-expanded={open} onclick={() => void toggle()}>
-    {#if memberships.length === 0}<Users size={14} />{:else}<span class="avatar-stack">{#each memberships.slice(0, 3) as membership, index (membership.participant.id)}<span style={`z-index:${3 - index}`}><ChatParticipantAvatar participant={membership.participant} size={20} /></span>{/each}</span><b>{memberships.length}</b>{/if}
+  <button bind:this={trigger} type="button" class="roster-trigger" aria-label={t("chat.organization.manageMembers")} aria-haspopup="dialog" aria-controls={open ? "chat-channel-roster" : undefined} aria-expanded={open} data-chat-roster-trigger onclick={() => void toggle()}>
+    <Users size={15} />
   </button>
   {#if open}
-    <div id="chat-channel-roster" class="roster-popover" role="dialog" aria-label={t("chat.organization.channelRoster")}>
+    <div bind:this={popover} use:portal id="chat-channel-roster" class="roster-popover" role="dialog" aria-label={t("chat.organization.channelRoster")} data-app-floating-surface style={popoverStyle()}>
       <header><div><strong>{channel ? `#${channel.name}` : t("chat.organization.channelRoster")}</strong><small>{t("chat.organization.members", memberships.length)}</small></div><button type="button" aria-label={t("chat.organization.addTeammate")} aria-expanded={showAdd} onclick={() => { showAdd = !showAdd; }}><Plus size={14} /></button></header>
       <label class="roster-search"><Search size={13} /><input bind:this={searchInput} bind:value={query} placeholder={t("chat.organization.searchMembers")} aria-label={t("chat.organization.searchMembers")} /></label>
       <div class="roster-list">
@@ -247,12 +308,9 @@
 
 <style>
   .roster-anchor { position:relative; }
-  .roster-trigger { display:flex; height:1.75rem; min-width:1.75rem; align-items:center; justify-content:center; gap:0.25rem; border-radius:0.375rem; padding-inline:0.25rem; color:var(--foreground); }
+  .roster-trigger { display:flex; width:1.75rem; height:1.75rem; align-items:center; justify-content:center; border-radius:0.375rem; color:var(--foreground); }
   .roster-trigger:hover,.roster-trigger[aria-expanded="true"] { background:var(--accent); }
-  .roster-trigger b { min-width:1rem; color:var(--muted-foreground); font-size:calc(0.6rem * var(--type-scale)); }
-  .avatar-stack { display:flex; align-items:center; padding-left:0.25rem; }
-  .avatar-stack > span { display:grid; margin-left:-0.3rem; border:1px solid var(--background); border-radius:0.3rem; }
-  .roster-popover { position:absolute; z-index:90; top:calc(100% + 0.35rem); right:0; display:grid; width:min(21rem,calc(100vw - 1rem)); max-height:min(28rem,70dvh); grid-template-rows:auto auto minmax(0,1fr) auto; border:1px solid var(--border); border-radius:0.65rem; background:var(--popover); color:var(--popover-foreground); box-shadow:0 18px 42px color-mix(in srgb,#000 22%,transparent); overflow:hidden; }
+  .roster-popover { position:fixed; z-index:90; display:grid; width:min(21rem,calc(100vw - 1rem)); grid-template-rows:auto auto minmax(0,1fr) auto; border:1px solid var(--border); border-radius:0.65rem; background:var(--popover); color:var(--popover-foreground); box-shadow:0 18px 42px color-mix(in srgb,#000 22%,transparent); overflow:hidden; }
   .roster-popover > header { display:flex; align-items:center; justify-content:space-between; gap:0.5rem; border-bottom:1px solid var(--border); padding:0.65rem; }
   .roster-popover > header div { display:grid; }
   .roster-popover > header strong { font-size:calc(0.75rem * var(--type-scale)); }
