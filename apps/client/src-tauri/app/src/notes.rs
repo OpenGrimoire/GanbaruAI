@@ -6,10 +6,12 @@ mod data_source_csv_export;
 mod file_assets;
 mod html_export;
 mod json_graph_export;
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 mod notion_export_import;
 mod page_cover_assets;
 mod page_icon_assets;
 pub(crate) mod project_history;
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 pub mod working_markdown;
 
 use ganbaru_notes::notes::{
@@ -281,6 +283,7 @@ pub async fn notes_import_notion_api<R: Runtime>(
     project_history::mutation_result(&pool, value).await
 }
 
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 #[tauri::command]
 pub async fn notes_import_notion_export_folder<R: Runtime>(
     app: AppHandle<R>,
@@ -312,6 +315,7 @@ pub async fn notes_export_html_page<R: Runtime>(
     html_export::export_page(&pool, request).await
 }
 
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 #[tauri::command]
 pub async fn notes_pick_and_write_html_archive<R: Runtime>(
     app: AppHandle<R>,
@@ -332,6 +336,7 @@ pub async fn notes_export_json_graph<R: Runtime>(
     json_graph_export::export_graph(&pool, request).await
 }
 
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 #[tauri::command]
 pub async fn notes_pick_and_write_json_graph<R: Runtime>(
     app: AppHandle<R>,
@@ -352,6 +357,7 @@ pub async fn notes_export_agent_bridge<R: Runtime>(
     agent_bridge_export::export_bridge(&pool, request).await
 }
 
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 #[tauri::command]
 pub async fn notes_pick_and_write_agent_bridge<R: Runtime>(
     app: AppHandle<R>,
@@ -808,6 +814,7 @@ pub async fn notes_export_data_source_csv<R: Runtime>(
     data_source_csv_export::export_csv(&pool, &data_source_id, request).await
 }
 
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 #[tauri::command]
 pub async fn notes_pick_and_write_data_source_csv<R: Runtime>(
     app: AppHandle<R>,

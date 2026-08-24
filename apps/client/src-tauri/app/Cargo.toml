@@ -11,37 +11,41 @@ doctest = false
 
 [dependencies]
 ammonia = { workspace = true }
-axum = { workspace = true }
 base64 = { workspace = true }
 chrono = { workspace = true }
 flate2 = { workspace = true }
-ganbaru-chat = { path = "../../../../crates/ganbaru-chat" }
 ganbaru-chat-contracts = { path = "../../../../crates/ganbaru-chat-contracts" }
-ganbaru-chat-providers = { path = "../../../../crates/ganbaru-chat-providers" }
 ganbaru-db = { path = "../../../../crates/ganbaru-db" }
 ganbaru-notes = { path = "../../../../crates/ganbaru-notes" }
 ganbaru-working-folders = { path = "../../../../crates/ganbaru-working-folders" }
-keyring = { workspace = true }
-notify = { workspace = true }
-notify-rust = { workspace = true }
-portable-pty = { workspace = true }
 reqwest = { workspace = true }
-rmcp = { workspace = true }
-rodio = { workspace = true }
 rustls = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 sha2 = { workspace = true }
 sqlx = { workspace = true }
 tauri = { workspace = true }
-tauri-plugin-dialog = { workspace = true }
 tauri-plugin-opener = { workspace = true }
-tauri-plugin-updater = { workspace = true }
 tokio = { workspace = true }
 zip = { workspace = true }
 
-[target.'cfg(unix)'.dependencies]
+[target.'cfg(all(unix, not(any(target_os = "android", target_os = "ios"))))'.dependencies]
 libc = { workspace = true }
+
+[target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
+axum = { workspace = true }
+ganbaru-chat = { path = "../../../../crates/ganbaru-chat" }
+ganbaru-chat-providers = { path = "../../../../crates/ganbaru-chat-providers" }
+keyring = { workspace = true }
+notify = { workspace = true }
+notify-rust = { workspace = true }
+portable-pty = { workspace = true }
+rmcp = { workspace = true }
+rodio = { workspace = true }
+tauri = { workspace = true, features = ["tray-icon", "image-png", "unstable"] }
+tauri-plugin-dialog = { workspace = true }
+tauri-plugin-single-instance = { workspace = true }
+tauri-plugin-updater = { workspace = true }
 
 [target.'cfg(target_os = "linux")'.dependencies]
 cairo-rs = { workspace = true }
@@ -62,9 +66,6 @@ objc2-app-kit = { workspace = true }
 objc2-core-foundation = { workspace = true }
 objc2-foundation = { workspace = true }
 objc2-web-kit = { workspace = true }
-
-[target.'cfg(any(target_os = "macos", windows, target_os = "linux"))'.dependencies]
-tauri-plugin-single-instance = { workspace = true }
 
 [dev-dependencies]
 ganbaru-chat = { path = "../../../../crates/ganbaru-chat", features = ["test-support"] }

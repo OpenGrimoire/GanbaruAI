@@ -4,17 +4,17 @@
     {
       "name": "Projects",
       "module": "src/lib/components/projects/ProjectsView.svelte",
-      "maxSourceModules": 346
+      "maxSourceModules": 349
     },
     {
       "name": "Notes",
       "module": "src/lib/components/notes/NotesView.svelte",
-      "maxSourceModules": 346
+      "maxSourceModules": 349
     },
     {
       "name": "Chat",
       "module": "src/lib/components/chat/ChatWorkspace.svelte",
-      "maxSourceModules": 346
+      "maxSourceModules": 349
     }
   ],
   "shell": {
@@ -266,6 +266,8 @@
     "src/lib/components/notes/NotesNotionExportImportDialog.svelte"
   ],
   "forbiddenModuleSubstrings": [
+    "src/lib/components/projects/ProjectMobileListView.svelte",
+    "src/lib/stores/mobile-back-stack.svelte.ts",
     "/node_modules/react/",
     "/node_modules/react-dom/"
   ]

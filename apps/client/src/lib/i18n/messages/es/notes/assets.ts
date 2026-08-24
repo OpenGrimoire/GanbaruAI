@@ -42,5 +42,12 @@ export const assets = {
   pageCoverPasteHint: "Pega una imagen aquí",
   pageCoverImageTypes: "PNG, JPG o WebP",
   pageCoverUploadFailed: "No se pudo cargar esa imagen.",
+  pageCoverUnsupportedType: "Usa una imagen PNG, JPG o WebP.",
+  pageCoverTooLarge: (megabytes: number) => `Usa una imagen de no más de ${megabytes} MB.`,
+  pageCoverInvalidImage: "El archivo tiene un encabezado PNG, JPG o WebP no válido o que no coincide.",
+  pageCoverDimensionsTooLarge: (pixels: number) =>
+    `Usa una imagen que no supere los ${pixels} píxeles de ancho ni de alto.`,
+  pageCoverPixelCountTooLarge: (megapixels: number) =>
+    `Usa una imagen de no más de ${megapixels} megapíxeles.`,
   pageCoverUnavailable: "Portada no disponible"
 } as const satisfies MessageShape<typeof enAssets>;

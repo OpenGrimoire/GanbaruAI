@@ -7,6 +7,8 @@
     selectDateRangeStart,
   } from "$lib/calendar/date-range-selection";
   import { getLocalization } from "$lib/i18n/translator.svelte";
+  import { activateModalFocus } from "$lib/modal-focus";
+  import { BUILD_PLATFORM_PROFILE, platformHasCapability } from "$lib/platform";
   import type {
     ProjectChecklistItem,
     ProjectCustomField,
@@ -20,6 +22,7 @@
   } from "$lib/projects/types";
   import { getCalendar } from "$lib/stores/calendar.svelte";
   import { getProjects } from "$lib/stores/projects.svelte";
+  import { getMobileBackStack } from "$lib/stores/mobile-back-stack.svelte";
   import { getTheme } from "$lib/stores/theme.svelte";
   import { cn } from "$lib/utils";
   import type { ProjectTaskModalLayout } from "$lib/projects/project-toolbar";
@@ -73,8 +76,14 @@
   const calendar = getCalendar();
   const theme = getTheme();
   const { t } = getLocalization();
+  const mobileBackStack = getMobileBackStack();
+  const androidSystemBackAvailable = platformHasCapability(
+    BUILD_PLATFORM_PROFILE,
+    "system.android-back",
+  );
 
   let detailDraftTaskId = $state<string | null>(null);
+  let detailDialog = $state<HTMLDivElement | null>(null);
   let detailDraftUpdatedAt = $state<string | null>(null);
   let detailTitle = $state("");
   let detailDescription = $state("");
@@ -316,6 +325,36 @@
     }
     closeTaskDetailImmediately();
   }
+
+  $effect(() => {
+    if (!androidSystemBackAvailable) return;
+    return mobileBackStack.activate({
+      handle: requestTaskDetailClose,
+    });
+  });
+
+  $effect(() => {
+    if (!androidSystemBackAvailable || !datePickerTarget) return;
+    return mobileBackStack.activate({
+      handle: () => {
+        datePickerTarget = null;
+      },
+    });
+  });
+
+  $effect(() => {
+    if (!androidSystemBackAvailable || !customFieldDatePickerTarget) return;
+    return mobileBackStack.activate({
+      handle: () => {
+        customFieldDatePickerTarget = null;
+      },
+    });
+  });
+
+  $effect(() => {
+    if (!selectedTask || !detailDialog || discardCloseConfirmOpen) return;
+    return activateModalFocus(detailDialog);
+  });
 
   function confirmDiscardTaskDetail(): void {
     discardCloseConfirmOpen = false;
@@ -681,16 +720,23 @@
     <!-- svelte-ignore a11y_no_static_element_interactions -->
     <div
       class="fixed inset-0 z-70 flex items-center justify-center bg-black/30 p-3"
+      style={androidSystemBackAvailable
+        ? "padding: calc(var(--safe-area-top) + 0.75rem) calc(var(--safe-area-right) + 0.75rem) calc(var(--safe-area-bottom) + 0.75rem) calc(var(--safe-area-left) + 0.75rem)"
+        : undefined}
       onclick={requestTaskDetailClose}
     >
     <div
+      bind:this={detailDialog}
       class={cn(
-        "flex min-h-0 flex-col overflow-hidden border border-border bg-card text-card-foreground",
-        layout === "fullscreen" && "h-[calc(100dvh-1rem)] w-[calc(100vw-1rem)] rounded-md",
+        "task-detail-dialog",
+        "flex max-h-full max-w-full min-h-0 flex-col overflow-hidden border border-border bg-card text-card-foreground",
+        layout === "fullscreen" && androidSystemBackAvailable && "h-full w-full rounded-md",
+        layout === "fullscreen" && !androidSystemBackAvailable && "h-[calc(100dvh-1rem)] w-[calc(100vw-1rem)] rounded-md",
         layout === "sheet" && "h-[min(88dvh,48rem)] w-[calc(100vw-1rem)] max-w-3xl rounded-md",
         layout === "modal" && "h-[min(86dvh,54rem)] w-[min(56rem,calc(100vw-2rem))] rounded-md",
       )}
       role="dialog"
+      data-mobile={androidSystemBackAvailable || undefined}
       aria-modal="true"
       aria-label={t("projects.detail.title")}
       tabindex="-1"
@@ -954,5 +1000,12 @@
 
   .task-detail-section-first {
     padding-top: 0;
+  }
+
+  .task-detail-dialog[data-mobile="true"] :global(button),
+  .task-detail-dialog[data-mobile="true"] :global(input),
+  .task-detail-dialog[data-mobile="true"] :global(select),
+  .task-detail-dialog[data-mobile="true"] :global(textarea) {
+    min-height: 3rem;
   }
 </style>

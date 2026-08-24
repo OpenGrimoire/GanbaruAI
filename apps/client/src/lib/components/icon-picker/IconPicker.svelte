@@ -19,6 +19,16 @@
   import { contrastRatio } from "$lib/components/ui/colorMath";
   import { getLocalization } from "$lib/i18n/translator.svelte";
   import {
+    inspectManagedImageFile,
+    MANAGED_ICON_IMAGE_MAX_BYTES,
+    MANAGED_ICON_IMAGE_MAX_MEGABYTES,
+    MANAGED_IMAGE_MAX_DIMENSION_PIXELS,
+    MANAGED_IMAGE_MAX_MEGAPIXELS,
+    MANAGED_IMAGE_FILE_ACCEPT,
+    normalizeManagedImageDataUrl,
+  } from "$lib/browser-file-policy";
+  import { BUILD_PLATFORM_PROFILE, platformHasCapability } from "$lib/platform";
+  import {
     PROJECT_EMOJI_ENTRIES,
     type ProjectEmojiCategoryId,
   } from "$lib/projects/project-emoji-catalog";
@@ -65,6 +75,7 @@
     ProjectLucideIconEntry,
     ProjectLucideIconNode,
   } from "$lib/projects/project-lucide-catalog.generated";
+  import { getMobileBackStack } from "$lib/stores/mobile-back-stack.svelte";
   import { getProjects } from "$lib/stores/projects.svelte";
   import { getTheme } from "$lib/stores/theme.svelte";
   import { resolveAppTokens, resolveCalendarTokens } from "$lib/stores/themes";
@@ -117,8 +128,19 @@
   } = $props();
 
   const { t } = getLocalization();
+  const mobileBackStack = getMobileBackStack();
   const projects = getProjects();
   const theme = getTheme();
+  const nativeFilePickerAvailable = platformHasCapability(
+    BUILD_PLATFORM_PROFILE,
+    "storage.native-file-picker",
+  );
+  const remoteImageUrlsAvailable = $derived(platformHasCapability(
+    BUILD_PLATFORM_PROFILE,
+    uploadAdapter?.selectExternalUrl
+      ? "notes.external-image-references"
+      : "content.managed-image-downloads",
+  ));
   const recentConfigKey = "projects.iconPicker.recent";
   const askEveryTimeConfigKey = "projects.iconPicker.askEveryTime";
   const defaultColorConfigKey = "projects.iconPicker.defaultColor";
@@ -141,6 +163,8 @@
   let open = $state(false);
   let activeTab = $state<ProjectIconPickerTab>("icons");
   let triggerElement = $state<HTMLElement | undefined>();
+  let uploadFileInput = $state<HTMLInputElement | undefined>();
+  let customEmojiFileInput = $state<HTMLInputElement | undefined>();
   let panelElement = $state<HTMLElement | undefined>();
   let customPanelElement = $state<HTMLElement | undefined>();
   let customEmojiTriggerElement = $state<HTMLButtonElement | undefined>();
@@ -656,13 +680,50 @@
     refreshGridScrollState();
   }
 
-  function fileToDataUrl(file: File): Promise<string> {
+  async function fileToDataUrl(file: File): Promise<string> {
+    const inspection = await inspectManagedImageFile(file, MANAGED_ICON_IMAGE_MAX_BYTES);
+    if (!inspection.ok) {
+      const { issue } = inspection;
+      if (issue === "unsupported-type") {
+        return Promise.reject(new Error(t("projects.iconPicker.uploadUnsupportedType")));
+      }
+      if (issue === "too-large") {
+        return Promise.reject(new Error(t(
+          "projects.iconPicker.uploadTooLarge",
+          MANAGED_ICON_IMAGE_MAX_MEGABYTES,
+        )));
+      }
+      if (issue === "invalid-image") {
+        return Promise.reject(new Error(t("projects.iconPicker.uploadInvalidImage")));
+      }
+      if (issue === "dimensions-too-large") {
+        return Promise.reject(new Error(t(
+          "projects.iconPicker.uploadDimensionsTooLarge",
+          MANAGED_IMAGE_MAX_DIMENSION_PIXELS,
+        )));
+      }
+      if (issue === "too-many-pixels") {
+        return Promise.reject(new Error(t(
+          "projects.iconPicker.uploadPixelCountTooLarge",
+          MANAGED_IMAGE_MAX_MEGAPIXELS,
+        )));
+      }
+      return Promise.reject(new Error(t("projects.iconPicker.uploadFailed")));
+    }
     return new Promise((resolve, reject) => {
       const reader = new FileReader();
       reader.onerror = () => reject(new Error(t("projects.iconPicker.uploadFailed")));
       reader.onload = () => {
         if (typeof reader.result === "string") {
-          resolve(reader.result);
+          const dataUrl = normalizeManagedImageDataUrl(
+            reader.result,
+            inspection.metadata.mimeType,
+          );
+          if (dataUrl) {
+            resolve(dataUrl);
+            return;
+          }
+          reject(new Error(t("projects.iconPicker.uploadFailed")));
         } else {
           reject(new Error(t("projects.iconPicker.uploadFailed")));
         }
@@ -684,6 +745,10 @@
   }
 
   async function chooseUploadFile(): Promise<void> {
+    if (!nativeFilePickerAvailable) {
+      uploadFileInput?.click();
+      return;
+    }
     uploading = true;
     uploadError = null;
     try {
@@ -702,6 +767,33 @@
       uploading = false;
       await refreshPanelPlacement();
     }
+  }
+
+  async function saveUploadFile(file: File): Promise<void> {
+    uploading = true;
+    uploadError = null;
+    try {
+      const asset = await saveUploadPastedFile(file);
+      if (uploadAdapter?.selectPickedAssetImmediately) {
+        await uploadAdapter.selectAsset(asset);
+        closePicker();
+      } else {
+        uploadDraft = asset;
+      }
+    } catch (error) {
+      uploadError = error instanceof Error ? error.message : String(error);
+    } finally {
+      uploading = false;
+      await refreshPanelPlacement();
+    }
+  }
+
+  async function handleUploadFileInput(event: Event): Promise<void> {
+    const input = event.currentTarget;
+    if (!(input instanceof HTMLInputElement)) return;
+    const file = input.files?.[0];
+    input.value = "";
+    if (file) await saveUploadFile(file);
   }
 
   async function downloadUploadUrl(): Promise<void> {
@@ -731,22 +823,7 @@
     const file = event.clipboardData?.files[0];
     if (!file) return;
     event.preventDefault();
-    uploading = true;
-    uploadError = null;
-    try {
-      const asset = await saveUploadPastedFile(file);
-      if (uploadAdapter?.selectPickedAssetImmediately) {
-        await uploadAdapter.selectAsset(asset);
-        closePicker();
-      } else {
-        uploadDraft = asset;
-      }
-    } catch (error) {
-      uploadError = error instanceof Error ? error.message : String(error);
-    } finally {
-      uploading = false;
-      await refreshPanelPlacement();
-    }
+    await saveUploadFile(file);
   }
 
   async function selectUploadDraft(): Promise<void> {
@@ -762,6 +839,10 @@
   }
 
   async function chooseCustomEmojiFile(): Promise<void> {
+    if (!nativeFilePickerAvailable) {
+      customEmojiFileInput?.click();
+      return;
+    }
     customEmojiError = null;
     try {
       customEmojiDraft = await pickProjectIconImageFile();
@@ -770,16 +851,28 @@
     }
   }
 
-  async function handleCustomEmojiPaste(event: ClipboardEvent): Promise<void> {
-    const file = event.clipboardData?.files[0];
-    if (!file) return;
-    event.preventDefault();
+  async function saveCustomEmojiFile(file: File): Promise<void> {
     customEmojiError = null;
     try {
       customEmojiDraft = await saveProjectIconPastedFile(file);
     } catch (error) {
       customEmojiError = error instanceof Error ? error.message : String(error);
     }
+  }
+
+  async function handleCustomEmojiFileInput(event: Event): Promise<void> {
+    const input = event.currentTarget;
+    if (!(input instanceof HTMLInputElement)) return;
+    const file = input.files?.[0];
+    input.value = "";
+    if (file) await saveCustomEmojiFile(file);
+  }
+
+  async function handleCustomEmojiPaste(event: ClipboardEvent): Promise<void> {
+    const file = event.clipboardData?.files[0];
+    if (!file) return;
+    event.preventDefault();
+    await saveCustomEmojiFile(file);
   }
 
   async function saveCustomEmoji(): Promise<void> {
@@ -843,6 +936,11 @@
 
   onMount(() => {
     if (initiallyOpen) void openPicker();
+  });
+
+  $effect(() => {
+    if (!open) return;
+    return mobileBackStack.activate({ handle: closePicker });
   });
 
   $effect(() => {
@@ -969,6 +1067,25 @@
   </button>
 {/if}
 
+<input
+  bind:this={uploadFileInput}
+  class="sr-only"
+  type="file"
+  accept={MANAGED_IMAGE_FILE_ACCEPT}
+  aria-hidden="true"
+  tabindex="-1"
+  onchange={(event) => { void handleUploadFileInput(event); }}
+/>
+<input
+  bind:this={customEmojiFileInput}
+  class="sr-only"
+  type="file"
+  accept={MANAGED_IMAGE_FILE_ACCEPT}
+  aria-hidden="true"
+  tabindex="-1"
+  onchange={(event) => { void handleCustomEmojiFileInput(event); }}
+/>
+
 {#if open}
   <div
     bind:this={panelElement}
@@ -1020,6 +1137,7 @@
         bind:skinTonePanelOpen
         bind:iconColorPanelOpen
         bind:customEmojiPanelOpen
+        allowCustomEmojiCreate={showUpload}
         {gridScrollable}
         {gridCanScrollUp}
         {gridCanScrollDown}
@@ -1082,6 +1200,7 @@
         onDiscardDraft={discardUploadDraft}
         onSelectDraft={selectUploadDraft}
         onDownloadUrl={downloadUploadUrl}
+        remoteUrlAvailable={remoteImageUrlsAvailable}
       />
     {/if}
   </div>

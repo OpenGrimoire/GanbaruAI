@@ -4,6 +4,7 @@ use tauri::{AppHandle, Manager, Runtime};
 
 pub use ganbaru_db::DatabasePoolRegistry as DatabaseState;
 
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 pub const BENCHMARK_SQLITE_URL: &str = "sqlite:benchmark.sqlite";
 
 const ALLOWED_SQLITE_FILES: &[&str] = &["ganbaru-ai.sqlite", "benchmark.sqlite"];
@@ -43,11 +44,13 @@ pub async fn connect_sqlite<R: Runtime>(
     registry.connect_path(path).await
 }
 
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 pub async fn close_sqlite_pool<R: Runtime>(app: &AppHandle<R>, db_url: &str) -> Result<(), String> {
     let path = resolve_sqlite_path(app, db_url)?;
     app.state::<DatabaseState>().close_path(path).await
 }
 
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 pub async fn close_all_sqlite_pools<R: Runtime>(app: &AppHandle<R>) -> Result<(), String> {
     app.state::<DatabaseState>().close_all().await
 }

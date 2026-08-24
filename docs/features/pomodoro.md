@@ -118,7 +118,7 @@ Music can follow manual focus pauses through the Music settings page. The `Pause
 
 - `completed`: the event's end time was reached.
 - `stopped`: the user clicked stop.
-- `interrupted`: the app crashed or was killed (recovery sets this from the heartbeat).
+- `interrupted`: startup recovery could not safely continue an open run. Desktop closes at its last heartbeat; Android can instead resume one valid, unexpired phase in place.
 - `reconfigured`: the user changed the pomodoro config mid-session, ending this run and starting a new one with the updated config.
 - `block_transition`: the timer moved to a new event (consecutive or overlapping), starting a new run on that event with state inherited from this one.
 

@@ -39,5 +39,12 @@ export const assets = {
   pageCoverPasteHint: "Paste an image here",
   pageCoverImageTypes: "PNG, JPG, or WebP",
   pageCoverUploadFailed: "Could not load that image.",
+  pageCoverUnsupportedType: "Use a PNG, JPG, or WebP image.",
+  pageCoverTooLarge: (megabytes: number) => `Use an image no larger than ${megabytes} MB.`,
+  pageCoverInvalidImage: "The file has an invalid or mismatched PNG, JPG, or WebP header.",
+  pageCoverDimensionsTooLarge: (pixels: number) =>
+    `Use an image no wider or taller than ${pixels} pixels.`,
+  pageCoverPixelCountTooLarge: (megapixels: number) =>
+    `Use an image with no more than ${megapixels} megapixels.`,
   pageCoverUnavailable: "Cover unavailable"
 } as const;

@@ -85,18 +85,18 @@ pub async fn calendar_add_event<R: Runtime>(
     }
     let music_updated_at = super::time::calendar_timestamp_millis(&event.updated_at)
         .ok_or_else(|| "updated_at must be a valid calendar timestamp".to_string())?;
-    crate::music::library::contexts::replace_assignments_in_transaction(
+    crate::music_context::replace_assignments_in_transaction(
         &mut tx,
-        crate::music::library::MusicAssignmentOwnerKind::EventSnapshot,
+        crate::music_context::MusicAssignmentOwnerKind::EventSnapshot,
         &event.id,
         event.music_snapshot_assignments.clone(),
         music_updated_at,
     )
     .await
     .map_err(|error| error.to_string())?;
-    crate::music::library::contexts::replace_assignments_in_transaction(
+    crate::music_context::replace_assignments_in_transaction(
         &mut tx,
-        crate::music::library::MusicAssignmentOwnerKind::EventOverride,
+        crate::music_context::MusicAssignmentOwnerKind::EventOverride,
         &event.id,
         event.music_override_assignments.clone(),
         music_updated_at,

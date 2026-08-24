@@ -11,9 +11,12 @@
 use chrono::{DateTime, SecondsFormat, Utc};
 use std::collections::BTreeMap;
 use std::fs;
-use std::io::{Read, Write};
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
+use std::io::Read;
+use std::io::Write;
 use std::path::{Path, PathBuf};
 use tauri::{Manager, Runtime};
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 use tauri_plugin_dialog::{DialogExt, FilePath};
 
 static APP_STATE_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
@@ -326,6 +329,7 @@ fn select_vault<R: Runtime>(app: &tauri::AppHandle<R>, info: &VaultInfo) -> Resu
     })
 }
 
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 async fn pick_folder(
     app: &tauri::AppHandle,
     title: &str,
@@ -345,14 +349,23 @@ async fn pick_folder(
         .ok_or_else(|| "folder picker closed without returning a result".to_string())?
 }
 
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 fn existing_documents_directory(app: &tauri::AppHandle) -> Option<PathBuf> {
     app.path().document_dir().ok().filter(|path| path.is_dir())
 }
 
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 fn default_data_parent(app: &tauri::AppHandle) -> Result<PathBuf, String> {
     app.path()
         .document_dir()
         .map_err(|e| format!("find Documents folder: {e}"))
+}
+
+#[cfg(any(target_os = "android", target_os = "ios"))]
+fn default_data_parent(app: &tauri::AppHandle) -> Result<PathBuf, String> {
+    app.path()
+        .app_data_dir()
+        .map_err(|e| format!("find private application data folder: {e}"))
 }
 
 fn default_data_folder_path(app: &tauri::AppHandle) -> Result<PathBuf, String> {
@@ -402,6 +415,7 @@ pub fn vault_active_info(app: tauri::AppHandle) -> Result<Option<VaultInfo>, Str
     vault_info_from_path(&PathBuf::from(path)).map(Some)
 }
 
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 #[tauri::command]
 pub async fn vault_pick_create(app: tauri::AppHandle) -> Result<Option<VaultInfo>, String> {
     let Some(path) =
@@ -413,6 +427,7 @@ pub async fn vault_pick_create(app: tauri::AppHandle) -> Result<Option<VaultInfo
     Ok(Some(info))
 }
 
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 #[tauri::command]
 pub async fn vault_pick_open(app: tauri::AppHandle) -> Result<Option<VaultInfo>, String> {
     let Some(path) = pick_folder(
@@ -430,6 +445,7 @@ pub async fn vault_pick_open(app: tauri::AppHandle) -> Result<Option<VaultInfo>,
     Ok(Some(info))
 }
 
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 #[tauri::command]
 pub fn vault_select_recent(app: tauri::AppHandle, path: String) -> Result<VaultInfo, String> {
     let state = read_app_state(&app)?;
@@ -446,6 +462,7 @@ pub fn vault_select_recent(app: tauri::AppHandle, path: String) -> Result<VaultI
     Ok(info)
 }
 
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 #[tauri::command]
 pub fn vault_reveal_active(app: tauri::AppHandle) -> Result<(), String> {
     let path = active_vault_path(&app)?;
@@ -461,11 +478,13 @@ pub fn active_vault_path<R: Runtime>(app: &tauri::AppHandle<R>) -> Result<PathBu
     Ok(path)
 }
 
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 pub(crate) fn active_vault_id<R: Runtime>(app: &tauri::AppHandle<R>) -> Result<String, String> {
     let path = active_vault_path(app)?;
     Ok(read_vault_manifest(&path)?.vault_id)
 }
 
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 pub fn active_database_path<R: Runtime>(app: &tauri::AppHandle<R>) -> Result<PathBuf, String> {
     Ok(database_path(&active_vault_path(app)?))
 }
@@ -596,6 +615,7 @@ fn require_absolute_path(path: &Path) -> Result<(), String> {
     }
 }
 
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 fn require_extension(path: &Path, allowed: &[&str], label: &str) -> Result<(), String> {
     require_absolute_path(path)?;
     let ext = path
@@ -615,11 +635,13 @@ fn require_extension(path: &Path, allowed: &[&str], label: &str) -> Result<(), S
     }
 }
 
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 fn dialog_path(path: FilePath) -> Result<PathBuf, String> {
     path.into_path()
         .map_err(|e| format!("selected path is not a local file: {e}"))
 }
 
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 fn default_file_name(input: &str, fallback_stem: &str, extension: &str) -> String {
     let trimmed = input.trim();
     let from_input = Path::new(trimmed)
@@ -638,6 +660,7 @@ fn default_file_name(input: &str, fallback_stem: &str, extension: &str) -> Strin
     }
 }
 
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 fn read_text_file_capped(path: &Path, max_bytes: u64, label: &str) -> Result<String, String> {
     require_absolute_path(path)?;
     let metadata = fs::metadata(path).map_err(|e| format!("failed to inspect {label}: {e}"))?;
@@ -685,6 +708,7 @@ fn write_text_file_atomically(path: &Path, contents: &str) -> Result<(), String>
     Ok(())
 }
 
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 fn pick_open_path(
     app: &tauri::AppHandle,
     title: &str,
@@ -703,6 +727,7 @@ fn pick_open_path(
     picker.blocking_pick_file().map(dialog_path).transpose()
 }
 
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 fn pick_save_path(
     app: &tauri::AppHandle,
     title: &str,
@@ -724,25 +749,30 @@ fn pick_save_path(
 }
 
 #[cfg(target_os = "linux")]
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 fn reveal_vault_folder(path: &Path) -> Result<(), String> {
     spawn_file_manager_command("xdg-open", [path.as_os_str()])
 }
 
 #[cfg(target_os = "macos")]
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 fn reveal_vault_folder(path: &Path) -> Result<(), String> {
     spawn_file_manager_command("open", [path.as_os_str()])
 }
 
 #[cfg(windows)]
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 fn reveal_vault_folder(path: &Path) -> Result<(), String> {
     spawn_file_manager_command("explorer.exe", [path.as_os_str()])
 }
 
 #[cfg(not(any(target_os = "linux", target_os = "macos", windows)))]
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 fn reveal_vault_folder(_path: &Path) -> Result<(), String> {
     Err("opening Ganbaru AI folders is not implemented for this platform".to_string())
 }
 
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 fn spawn_file_manager_command<I, S>(program: &str, args: I) -> Result<(), String>
 where
     I: IntoIterator<Item = S>,
@@ -758,6 +788,7 @@ where
         .map_err(|e| format!("open Ganbaru AI folder: {e}"))
 }
 
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 fn existing_downloads_directory(app: &tauri::AppHandle) -> Option<PathBuf> {
     app.path().download_dir().ok().filter(|path| path.is_dir())
 }
@@ -767,26 +798,32 @@ fn existing_downloads_directory(app: &tauri::AppHandle) -> Option<PathBuf> {
 /// Calendar (one .ics per calendar a user owns or subscribes to is usually
 /// < 50) and protects against pathological inputs that could DoS the read
 /// loop.
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 const ICS_ZIP_MAX_ENTRIES: usize = 1024;
 
 /// Hard cap on the uncompressed size of a single entry, in bytes. 25 MiB
 /// is large enough for a multi-decade calendar with thousands of events
 /// (text-only iCalendar averages ~1 KiB per event) while clearly rejecting
 /// decompression bombs.
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 const ICS_ZIP_MAX_ENTRY_BYTES: u64 = 25 * 1024 * 1024;
 
 /// Hard cap on the aggregate uncompressed size across every entry. Keeps a
 /// zip with many oversized entries from defeating the per-entry guard.
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 const ICS_ZIP_MAX_TOTAL_BYTES: u64 = 250 * 1024 * 1024;
 
 /// Plain `.ics` imports share the zip per-entry cap so the import flow has
 /// one clear maximum payload size regardless of container.
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 const ICS_PLAIN_MAX_BYTES: u64 = ICS_ZIP_MAX_ENTRY_BYTES;
 
 /// Theme JSON is small configuration data. One MiB leaves room for custom
 /// comments and future tokens while rejecting accidental large-file picks.
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 const THEME_JSON_MAX_BYTES: u64 = 1024 * 1024;
 
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 #[derive(Debug, serde::Serialize)]
 pub struct IcsZipEntry {
     /// File-name-only basename (no directory components) so an entry path
@@ -814,6 +851,7 @@ pub struct IcsZipEntry {
 /// - Only entries whose extension matches `.ics` are returned. Anything
 ///   else (`__MACOSX/`, `.DS_Store`, signature files, archived metadata)
 ///   is silently skipped so the importer never sees them.
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 fn read_ics_zip_entries_from_path(path: &Path) -> Result<Vec<IcsZipEntry>, String> {
     require_extension(path, &["zip"], "ICS zip import")?;
 
@@ -911,6 +949,7 @@ fn read_ics_zip_entries_from_path(path: &Path) -> Result<Vec<IcsZipEntry>, Strin
     Ok(entries)
 }
 
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 fn read_plain_ics_entry_from_path(path: &Path) -> Result<IcsZipEntry, String> {
     require_extension(path, &["ics"], "ICS import")?;
     let contents = read_text_file_capped(path, ICS_PLAIN_MAX_BYTES, "ICS import")?;
@@ -924,6 +963,7 @@ fn read_plain_ics_entry_from_path(path: &Path) -> Result<IcsZipEntry, String> {
 /// Open a native file picker and read one `.ics` file or every `.ics` entry
 /// inside one `.zip` bundle. The selected path never crosses the IPC
 /// boundary, and Rust re-validates the extension before reading.
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 #[tauri::command]
 pub async fn vault_pick_and_read_ics_import(
     app: tauri::AppHandle,
@@ -953,6 +993,7 @@ pub async fn vault_pick_and_read_ics_import(
 
 /// Open a native save dialog and write a calendar `.ics` export. The
 /// selected path stays in Rust and must still have a `.ics` extension.
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 #[tauri::command]
 pub async fn vault_pick_and_write_ics_export(
     app: tauri::AppHandle,
@@ -977,6 +1018,7 @@ pub async fn vault_pick_and_write_ics_export(
 }
 
 /// Open a native file picker and read a theme `.json` file with a small cap.
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 #[tauri::command]
 pub async fn vault_pick_and_read_theme_json(
     app: tauri::AppHandle,
@@ -989,6 +1031,7 @@ pub async fn vault_pick_and_read_theme_json(
 }
 
 /// Open a native save dialog and write a theme `.json` export.
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 #[tauri::command]
 pub async fn vault_pick_and_write_theme_json(
     app: tauri::AppHandle,

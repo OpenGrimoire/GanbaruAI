@@ -55,6 +55,7 @@
     persistedSegmentsByEvent = new Map<string, PersistedSegment[]>(),
     visibleStartMinute = 0,
     visibleEndMinute = 1440,
+    allowPointerEditing = true,
   }: {
     date: Date;
     positionedEvents: PositionedEvent[];
@@ -72,6 +73,7 @@
     persistedSegmentsByEvent?: ReadonlyMap<string, PersistedSegment[]>;
     visibleStartMinute?: number;
     visibleEndMinute?: number;
+    allowPointerEditing?: boolean;
     onEventClick: (event: CalendarEvent, rect?: DOMRect) => void;
     onEventPrefetch?: (event: CalendarEvent) => void;
     onDragStart: (eventId: string, e: PointerEvent, forceEdge?: "resize-top" | "resize-bottom") => void;
@@ -459,7 +461,7 @@
   }
 
   function handleColumnAreaPointerDown(e: PointerEvent) {
-    if (e.button !== 0 || draggingEventId) return;
+    if (!allowPointerEditing || e.button !== 0 || draggingEventId) return;
 
     // Calculate position from actual click coordinates
     if (!columnEl) return;
@@ -517,7 +519,7 @@
   }
 
   function handleRailAreaPointerDown(e: PointerEvent) {
-    if (e.button !== 0 || !columnEl || draggingEventId || panelOpen) return;
+    if (!allowPointerEditing || e.button !== 0 || !columnEl || draggingEventId || panelOpen) return;
     const colRect = columnEl.getBoundingClientRect();
     // Only handle clicks in the rail zone (left of columnEl)
     if (e.clientX >= colRect.left) return;
@@ -612,14 +614,16 @@
       preview={previewedIds?.has(pos.event.id) === true}
       grabbing={pos.event.id === grabbingId}
       animateLayout={layoutAnimationActive}
-      canDrag={!panelOpen || pos.event.id === editingId}
+      canDrag={allowPointerEditing && (!panelOpen || pos.event.id === editingId)}
       isPast={!isPendingCreateEventId(pos.event.id) && (
         isPast || (isToday && currentTimeMinute >= 0 && effectiveMinuteRange(pos.event, dateStr).endMinute <= currentTimeMinute)
       )}
       inResizeZone={hoverResizeBlockId === pos.event.id}
       onclick={(rect) => { if (!didDrag) onEventClick(pos.event, rect); }}
       onprefetch={() => onEventPrefetch?.(pos.event)}
-      onpointerdown={(e) => onDragStart(pos.event.id, e, getBlockEdgeFromClick(pos.event.id, e))}
+      onpointerdown={(e) => {
+        if (allowPointerEditing) onDragStart(pos.event.id, e, getBlockEdgeFromClick(pos.event.id, e));
+      }}
     />
   {/each}
 

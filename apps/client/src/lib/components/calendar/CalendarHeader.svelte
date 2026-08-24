@@ -6,6 +6,7 @@
     isToday,
   } from "./utils";
   import { getCalendars } from "$lib/stores/calendars.svelte";
+  import { getMobileBackStack } from "$lib/stores/mobile-back-stack.svelte";
   import { onMount, tick } from "svelte";
   import ChevronLeft from "@lucide/svelte/icons/chevron-left";
   import ChevronRight from "@lucide/svelte/icons/chevron-right";
@@ -25,6 +26,7 @@
   const calendarsStore = getCalendars();
   const settingsLauncher = getSettingsLauncher();
   const calZoom = getCalendarZoom();
+  const mobileBackStack = getMobileBackStack();
   const localization = getLocalization();
   const { t } = localization;
   const locale = $derived(localization.locale);
@@ -42,35 +44,40 @@
     onNavigate,
     onViewChange,
     onDaySelect,
+    mobileLayout = false,
   }: {
     anchorDate: Date;
     viewMode: CalendarViewMode;
     onNavigate: (direction: "today" | "back" | "forward") => void;
     onViewChange: (mode: CalendarViewMode) => void;
     onDaySelect: (date: Date) => void;
+    mobileLayout?: boolean;
   } = $props();
 
-  const viewOptions = $derived.by((): {
-    mode: CalendarViewMode;
-    label: string;
-    title: string;
-    shortcuts: string[];
-  }[] => [
-    { mode: "day", label: "1d", title: t("calendar.toolbar.dayView"), shortcuts: ["1"] },
-    {
-      mode: "workweek",
-      label: "5d",
-      title: t("calendar.toolbar.workCycleView"),
-      shortcuts: ["2"],
-    },
-    { mode: "week", label: "7d", title: t("calendar.toolbar.weekView"), shortcuts: ["3"] },
-    {
-      mode: "month",
-      label: "31d",
-      title: t("calendar.toolbar.monthView"),
-      shortcuts: ["4"],
-    },
-  ]);
+  const viewOptions = $derived.by(() => {
+    const options: {
+      mode: CalendarViewMode;
+      label: string;
+      title: string;
+      shortcuts: string[];
+    }[] = [
+      { mode: "day", label: "1d", title: t("calendar.toolbar.dayView"), shortcuts: ["1"] },
+      {
+        mode: "workweek",
+        label: "5d",
+        title: t("calendar.toolbar.workCycleView"),
+        shortcuts: ["2"],
+      },
+      { mode: "week", label: "7d", title: t("calendar.toolbar.weekView"), shortcuts: ["3"] },
+      {
+        mode: "month",
+        label: "31d",
+        title: t("calendar.toolbar.monthView"),
+        shortcuts: ["4"],
+      },
+    ];
+    return options.filter((option) => !mobileLayout || option.mode === "day");
+  });
   const todayShortcuts = ["0"] as const;
 
   function shortcutTitle(shortcuts: readonly string[]): string {
@@ -80,6 +87,24 @@
     if (labels.length === 1) return labels[0];
     return formatList(locale, labels, { type: "disjunction" });
   }
+
+  $effect(() => {
+    if (!mobileLayout || !showMiniCalendar) return;
+    return mobileBackStack.activate({
+      handle: () => {
+        showMiniCalendar = false;
+      },
+    });
+  });
+
+  $effect(() => {
+    if (!mobileLayout || !showAccountPicker) return;
+    return mobileBackStack.activate({
+      handle: () => {
+        showAccountPicker = false;
+      },
+    });
+  });
 
   // Keyboard shortcuts for view switching and "today". Arrow-key navigation is
   // owned by CalendarView so target readiness gating and stale-event drops
@@ -102,14 +127,17 @@
           onViewChange("day");
           break;
         case "2":
+          if (mobileLayout) break;
           e.preventDefault();
           onViewChange("workweek");
           break;
         case "3":
+          if (mobileLayout) break;
           e.preventDefault();
           onViewChange("week");
           break;
         case "4":
+          if (mobileLayout) break;
           e.preventDefault();
           onViewChange("month");
           break;
@@ -117,7 +145,9 @@
     }
 
     window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown);
+    };
   });
 
   const isOnToday = $derived(isToday(anchorDate));
@@ -127,6 +157,7 @@
   );
 
   function handleHeaderClick() {
+    showAccountPicker = false;
     showMiniCalendar = !showMiniCalendar;
   }
 
@@ -166,14 +197,14 @@
 <!-- svelte-ignore a11y_no_static_element_interactions -->
 <div
   data-calendar-edit-close-zone
-  class="flex shrink-0 items-center gap-1 px-3"
+  class="flex shrink-0 items-center gap-1 {mobileLayout ? 'px-1' : 'px-3'}"
   style="height: var(--cal-header-row-h); background-color: var(--cal-header-bg); border-bottom: 1px solid var(--sidebar);"
   onwheel={handleToolbarWheel}
 >
   <!-- Back arrow -->
   <button
     onclick={() => onNavigate("back")}
-    class="flex h-7 w-6 items-center justify-center rounded-md text-foreground transition-colors hover:bg-accent"
+    class="flex items-center justify-center rounded-md text-foreground transition-colors hover:bg-accent {mobileLayout ? 'h-12 w-12' : 'h-7 w-6'}"
     title={t("calendar.toolbar.previousTitle", shortcutTitle(["←"]))}
     aria-label={t("calendar.toolbar.previous")}
   >
@@ -181,11 +212,11 @@
   </button>
 
   <!-- Month/year label with mini calendar popover -->
-  <div class="relative">
+  <div class="relative {mobileLayout ? 'min-w-0 flex-1' : ''}">
     <button
       bind:this={miniCalendarButton}
       onclick={handleHeaderClick}
-      class="flex h-7 items-center rounded-md px-1.5 text-identity font-medium leading-none text-foreground transition-colors {showMiniCalendar ? 'bg-accent' : 'hover:bg-accent'}"
+      class="flex items-center rounded-md px-1.5 text-identity font-medium leading-none text-foreground transition-colors {mobileLayout ? 'h-12 w-full min-w-0 justify-start truncate' : 'h-7'} {showMiniCalendar ? 'bg-accent' : 'hover:bg-accent'}"
     >
       {formatMonthYear(anchorDate, locale)}
     </button>
@@ -213,7 +244,7 @@
   <!-- Forward arrow -->
   <button
     onclick={() => onNavigate("forward")}
-    class="flex h-7 w-6 items-center justify-center rounded-md text-foreground transition-colors hover:bg-accent"
+    class="flex items-center justify-center rounded-md text-foreground transition-colors hover:bg-accent {mobileLayout ? 'h-12 w-12' : 'h-7 w-6'}"
     title={t("calendar.toolbar.nextTitle", shortcutTitle(["→"]))}
     aria-label={t("calendar.toolbar.next")}
   >
@@ -221,9 +252,12 @@
   </button>
 
   <!-- Spacer -->
-  <div class="flex-1"></div>
+  {#if !mobileLayout}
+    <div class="flex-1"></div>
+  {/if}
 
   <!-- View selector -->
+  {#if !mobileLayout}
   <div class="flex items-center gap-0.5">
     <button
       onclick={() => calZoom.zoomStep(-1)}
@@ -259,12 +293,13 @@
       </button>
     {/each}
   </div>
+  {/if}
 
   <!-- Today button -->
   <button
     onclick={() => onNavigate("today")}
     disabled={isOnToday}
-    class="ml-1 flex h-7 w-7 items-center justify-center rounded-md transition-colors {isOnToday
+    class="ml-1 flex items-center justify-center rounded-md transition-colors {mobileLayout ? 'h-12 w-12' : 'h-7 w-7'} {isOnToday
       ? 'text-muted-foreground/30 cursor-default'
       : 'text-foreground hover:bg-accent'}"
     title={t("calendar.toolbar.goToToday", shortcutTitle(todayShortcuts))}
@@ -275,8 +310,11 @@
   <!-- Calendar account picker -->
   <div class="relative ml-1">
     <button
-      onclick={() => { showAccountPicker = !showAccountPicker; }}
-      class="flex h-7 w-7 items-center justify-center rounded-md text-foreground transition-colors hover:bg-accent"
+      onclick={() => {
+        showMiniCalendar = false;
+        showAccountPicker = !showAccountPicker;
+      }}
+      class="flex items-center justify-center rounded-md text-foreground transition-colors hover:bg-accent {mobileLayout ? 'h-12 w-12' : 'h-7 w-7'}"
       title={t("calendar.toolbar.calendars")}
       aria-label={t("calendar.toolbar.calendars")}
     >
@@ -294,7 +332,7 @@
           {@const displayName = calendarDisplayName(cal)}
           <button
             onclick={() => calendarsStore.toggleVisibility(cal.id)}
-            class="flex w-full cursor-pointer items-center gap-2 rounded px-1.5 py-1.5 hover:bg-accent"
+            class="flex w-full cursor-pointer items-center gap-2 rounded px-1.5 hover:bg-accent {mobileLayout ? 'min-h-12 py-2' : 'py-1.5'}"
           >
             <span
               class="flex h-4 w-4 shrink-0 items-center justify-center rounded-sm border {checked ? 'border-primary bg-primary' : 'border-muted-foreground'}"
@@ -311,6 +349,7 @@
             {/if}
           </button>
         {/each}
+        {#if !mobileLayout}
         <div class="my-1.5 border-t border-border"></div>
         <button
           onclick={() => {
@@ -322,6 +361,7 @@
           <Settings size={14} />
           <span>{t("calendar.toolbar.settings")}</span>
         </button>
+        {/if}
       </div>
     {/if}
   </div>

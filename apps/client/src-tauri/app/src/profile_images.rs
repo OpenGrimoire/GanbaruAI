@@ -1,12 +1,22 @@
 use base64::{engine::general_purpose, Engine as _};
+use ganbaru_notes::image_metadata::{
+    parse_managed_image_metadata, validate_managed_image_dimensions, ManagedImageDimensionError,
+    ManagedImageMetadata, ManagedImageMetadataError,
+};
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 use serde::Serialize;
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 use sha2::{Digest, Sha256};
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
+use std::io::Write;
 use std::{
     fs,
-    io::Write,
     path::{Component, Path, PathBuf},
 };
-use tauri::{AppHandle, Manager, Runtime};
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
+use tauri::Manager;
+use tauri::{AppHandle, Runtime};
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 use tauri_plugin_dialog::{DialogExt, FilePath};
 
 use crate::vault;
@@ -18,40 +28,18 @@ const PROFILE_IMAGE_ALLOWED_EXTENSIONS: &[&str] = &["png", "jpg", "jpeg", "webp"
 
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 pub struct ProfileImageAsset {
     pub relative_path: String,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum ProfileImageKind {
-    Png,
-    Jpeg,
-    Webp,
-}
-
-impl ProfileImageKind {
-    fn extension(self) -> &'static str {
-        match self {
-            Self::Png => "png",
-            Self::Jpeg => "jpg",
-            Self::Webp => "webp",
-        }
-    }
-
-    fn mime_type(self) -> &'static str {
-        match self {
-            Self::Png => "image/png",
-            Self::Jpeg => "image/jpeg",
-            Self::Webp => "image/webp",
-        }
-    }
-}
-
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 fn dialog_path(path: FilePath) -> Result<PathBuf, String> {
     path.into_path()
         .map_err(|error| format!("selected path is not a local file: {error}"))
 }
 
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 fn profile_image_start_directory<R: Runtime>(app: &AppHandle<R>) -> Option<PathBuf> {
     app.path().picture_dir().ok().filter(|path| path.is_dir())
 }
@@ -98,19 +86,6 @@ fn profile_image_unsupported_type_error() -> String {
     "Use PNG, JPG, or WebP. SVG is blocked for security because it can contain interactive or external content.".to_string()
 }
 
-fn sniff_profile_image_kind(bytes: &[u8]) -> Result<ProfileImageKind, String> {
-    if bytes.starts_with(&[0x89, b'P', b'N', b'G', 0x0d, 0x0a, 0x1a, 0x0a]) {
-        return Ok(ProfileImageKind::Png);
-    }
-    if bytes.starts_with(&[0xff, 0xd8, 0xff]) {
-        return Ok(ProfileImageKind::Jpeg);
-    }
-    if bytes.len() >= 12 && &bytes[0..4] == b"RIFF" && &bytes[8..12] == b"WEBP" {
-        return Ok(ProfileImageKind::Webp);
-    }
-    Err(profile_image_unsupported_type_error())
-}
-
 fn ensure_profile_image_size(bytes: &[u8]) -> Result<(), String> {
     if bytes.is_empty() {
         return Err("profile image is empty".to_string());
@@ -121,6 +96,25 @@ fn ensure_profile_image_size(bytes: &[u8]) -> Result<(), String> {
         ));
     }
     Ok(())
+}
+
+fn profile_image_metadata_error(error: ManagedImageMetadataError) -> String {
+    match error {
+        ManagedImageMetadataError::UnsupportedFormat => profile_image_unsupported_type_error(),
+        ManagedImageMetadataError::MalformedHeader(reason) => {
+            format!("profile image header is malformed: {reason}")
+        }
+    }
+}
+
+fn profile_image_dimension_error(error: ManagedImageDimensionError) -> String {
+    format!("profile image {error}")
+}
+
+fn validate_profile_image(bytes: &[u8]) -> Result<ManagedImageMetadata, String> {
+    let metadata = parse_managed_image_metadata(bytes).map_err(profile_image_metadata_error)?;
+    validate_managed_image_dimensions(metadata).map_err(profile_image_dimension_error)?;
+    Ok(metadata)
 }
 
 fn read_file_capped(path: &Path) -> Result<Vec<u8>, String> {
@@ -138,6 +132,7 @@ fn read_file_capped(path: &Path) -> Result<Vec<u8>, String> {
     Ok(bytes)
 }
 
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 fn content_hash(bytes: &[u8]) -> String {
     let digest = Sha256::digest(bytes);
     let mut output = String::with_capacity(digest.len() * 2);
@@ -147,6 +142,7 @@ fn content_hash(bytes: &[u8]) -> String {
     output
 }
 
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 fn write_binary_file_atomically(path: &Path, bytes: &[u8]) -> Result<(), String> {
     let parent = path
         .parent()
@@ -170,12 +166,13 @@ fn write_binary_file_atomically(path: &Path, bytes: &[u8]) -> Result<(), String>
     fs::rename(&temporary_path, path).map_err(|error| format!("save profile image: {error}"))
 }
 
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 fn save_profile_image_bytes<R: Runtime>(
     app: &AppHandle<R>,
     bytes: Vec<u8>,
 ) -> Result<ProfileImageAsset, String> {
     ensure_profile_image_size(&bytes)?;
-    let kind = sniff_profile_image_kind(&bytes)?;
+    let kind = validate_profile_image(&bytes)?.kind;
     let file_name = format!("{}.{}", content_hash(&bytes), kind.extension());
     let relative_path = format!("{PROFILE_IMAGE_DIR}/{file_name}");
     let path = active_profile_image_dir(app)?.join(file_name);
@@ -193,6 +190,7 @@ fn profile_image_asset_path<R: Runtime>(
     Ok(active_profile_image_dir(app)?.join(file_name))
 }
 
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 #[tauri::command]
 pub async fn profile_image_pick_file<R: Runtime>(
     app: AppHandle<R>,
@@ -220,7 +218,7 @@ pub fn profile_image_asset_data_url<R: Runtime>(
 ) -> Result<String, String> {
     let path = profile_image_asset_path(&app, &relative_path)?;
     let bytes = read_file_capped(&path)?;
-    let kind = sniff_profile_image_kind(&bytes)?;
+    let kind = validate_profile_image(&bytes)?.kind;
     Ok(format!(
         "data:{};base64,{}",
         kind.mime_type(),
@@ -243,30 +241,34 @@ pub fn profile_image_delete_file<R: Runtime>(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use ganbaru_notes::image_metadata::ManagedImageKind;
+
+    fn png(width: u32, height: u32) -> Vec<u8> {
+        let mut bytes = vec![0; 33];
+        bytes[..8].copy_from_slice(b"\x89PNG\r\n\x1a\n");
+        bytes[8..12].copy_from_slice(&13u32.to_be_bytes());
+        bytes[12..16].copy_from_slice(b"IHDR");
+        bytes[16..20].copy_from_slice(&width.to_be_bytes());
+        bytes[20..24].copy_from_slice(&height.to_be_bytes());
+        bytes
+    }
 
     #[test]
-    fn profile_image_kind_accepts_supported_images() {
+    fn profile_image_metadata_accepts_bounded_images() {
         assert_eq!(
-            sniff_profile_image_kind(&[0x89, b'P', b'N', b'G', 0x0d, 0x0a, 0x1a, 0x0a]).unwrap(),
-            ProfileImageKind::Png
+            validate_profile_image(&png(4032, 3024)).unwrap().kind,
+            ManagedImageKind::Png
         );
-        assert_eq!(
-            sniff_profile_image_kind(&[0xff, 0xd8, 0xff, 0xdb]).unwrap(),
-            ProfileImageKind::Jpeg
-        );
-        assert_eq!(
-            sniff_profile_image_kind(b"RIFFxxxxWEBPmore").unwrap(),
-            ProfileImageKind::Webp
-        );
+        assert!(validate_profile_image(&png(5000, 4000)).is_err());
     }
 
     #[test]
     fn profile_image_kind_rejects_unsafe_or_unknown_images() {
         assert!(
-            sniff_profile_image_kind(br#"<svg xmlns="http://www.w3.org/2000/svg"></svg>"#).is_err()
+            validate_profile_image(br#"<svg xmlns="http://www.w3.org/2000/svg"></svg>"#).is_err()
         );
-        assert!(sniff_profile_image_kind(b"GIF89amore").is_err());
-        assert!(sniff_profile_image_kind(b"not-image").is_err());
+        assert!(validate_profile_image(b"GIF89amore").is_err());
+        assert!(validate_profile_image(b"not-image").is_err());
     }
 
     #[test]

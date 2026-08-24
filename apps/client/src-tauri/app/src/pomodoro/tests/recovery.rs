@@ -4,7 +4,7 @@ use crate::db::run_migrations;
 use sqlx::Row;
 
 #[test]
-fn close_run_clamps_end_to_active_segment_start() {
+fn close_run_clamps_end_to_the_latest_open_activity_boundary() {
     tauri::async_runtime::block_on(async {
         let pool = sqlx::sqlite::SqlitePoolOptions::new()
             .max_connections(1)
@@ -50,7 +50,7 @@ fn close_run_clamps_end_to_active_segment_start() {
         .unwrap();
         sqlx::query(
             "INSERT INTO pomodoro_pauses (id, segment_id, started_at, reason)
-                 VALUES ('pause-1', 'segment-1', '2026-05-29T10:05:00Z', 'idle')",
+                 VALUES ('pause-1', 'segment-1', '2026-05-29T10:07:00Z', 'idle')",
         )
         .execute(&pool)
         .await
@@ -86,9 +86,9 @@ fn close_run_clamps_end_to_active_segment_start() {
         let run_end: String = row.try_get("run_end").unwrap();
         let segment_end: String = row.try_get("segment_end").unwrap();
         let pause_end: String = row.try_get("pause_end").unwrap();
-        assert_eq!(run_end, "2026-05-29T10:05:00Z");
-        assert_eq!(segment_end, "2026-05-29T10:05:00Z");
-        assert_eq!(pause_end, "2026-05-29T10:05:00Z");
+        assert_eq!(run_end, "2026-05-29T10:07:00Z");
+        assert_eq!(segment_end, "2026-05-29T10:07:00Z");
+        assert_eq!(pause_end, "2026-05-29T10:07:00Z");
     });
 }
 
@@ -141,5 +141,316 @@ fn crash_recovery_closes_run_and_segment_at_last_heartbeat() {
         assert_eq!(row.get::<String, _>("segment_end"), "2026-05-29T10:10:00Z");
         assert_eq!(row.get::<String, _>("segment_status"), "interrupted");
         assert_eq!(row.get::<String, _>("segment_end_reason"), "crash_recovery");
+    });
+}
+
+#[test]
+fn mobile_recovery_resumes_a_valid_running_phase_from_persisted_work_time() {
+    tauri::async_runtime::block_on(async {
+        let pool = migrated_pool_with_event().await;
+        let mut tx = pool.begin().await.unwrap();
+        insert_run_tx(
+            &mut tx,
+            &run_write(PomodoroRunRhythm::Count {
+                focus_duration_minutes: 40,
+                short_break_minutes: 5,
+                long_break_minutes: 10,
+                long_break_after_focus_count: 4,
+            }),
+            &initial_segment(),
+        )
+        .await
+        .unwrap();
+        sqlx::query("UPDATE pomodoro_runs SET last_heartbeat = ? WHERE id = ?")
+            .bind("2026-05-29T10:09:30Z")
+            .bind("run-1")
+            .execute(&mut *tx)
+            .await
+            .unwrap();
+        tx.commit().await.unwrap();
+
+        let result =
+            super::super::recovery::recover_mobile_run_from_pool(&pool, "2026-05-29T10:10:00Z")
+                .await
+                .unwrap();
+        let PomodoroMobileRecoveryRead::Resumed { run } = result else {
+            panic!("expected resumable mobile pomodoro run");
+        };
+
+        assert_eq!(run.run_id, "run-1");
+        assert_eq!(run.block_id, "event-1");
+        assert_eq!(run.segment.id, "segment-1");
+        assert_eq!(run.phase_elapsed_seconds, 600);
+        assert_eq!(run.phase_work_duration_seconds, 2_400);
+        assert_eq!(run.remaining_seconds, 1_800);
+        assert!(run.is_running);
+        assert_eq!(run.open_pause_reason, None);
+        assert_eq!(run.completed_focus_count, 0);
+        assert!(!run.focus_extension_used);
+
+        let ended_at: Option<String> =
+            sqlx::query_scalar("SELECT ended_at FROM pomodoro_runs WHERE id = 'run-1'")
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        assert_eq!(ended_at, None);
+    });
+}
+
+#[test]
+fn mobile_recovery_preserves_a_paused_phase_without_counting_time_away() {
+    tauri::async_runtime::block_on(async {
+        let pool = migrated_pool_with_event().await;
+        let mut tx = pool.begin().await.unwrap();
+        insert_run_tx(
+            &mut tx,
+            &run_write(PomodoroRunRhythm::Count {
+                focus_duration_minutes: 40,
+                short_break_minutes: 5,
+                long_break_minutes: 10,
+                long_break_after_focus_count: 4,
+            }),
+            &initial_segment(),
+        )
+        .await
+        .unwrap();
+        sqlx::query(
+            "INSERT INTO pomodoro_pauses (id, segment_id, started_at, ended_at, reason)
+             VALUES ('pause-closed', 'segment-1', '2026-05-29T10:04:00Z',
+                     '2026-05-29T10:06:00Z', 'manual'),
+                    ('pause-open', 'segment-1', '2026-05-29T10:15:00Z', NULL, 'manual')",
+        )
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+        sqlx::query("UPDATE pomodoro_runs SET last_heartbeat = ? WHERE id = ?")
+            .bind("2026-05-29T10:19:30Z")
+            .bind("run-1")
+            .execute(&mut *tx)
+            .await
+            .unwrap();
+        tx.commit().await.unwrap();
+
+        let result =
+            super::super::recovery::recover_mobile_run_from_pool(&pool, "2026-05-29T10:20:00Z")
+                .await
+                .unwrap();
+        let PomodoroMobileRecoveryRead::Resumed { run } = result else {
+            panic!("expected paused mobile pomodoro run");
+        };
+
+        assert!(!run.is_running);
+        assert_eq!(run.open_pause_reason.as_deref(), Some("manual"));
+        assert_eq!(run.phase_elapsed_seconds, 780);
+        assert_eq!(run.remaining_seconds, 1_620);
+        assert_eq!(run.segment.pause_log.len(), 2);
+        assert_eq!(run.segment.pause_log[1].ended_at, None);
+    });
+}
+
+#[test]
+fn mobile_recovery_closes_an_expired_phase_at_its_proven_deadline() {
+    tauri::async_runtime::block_on(async {
+        let pool = migrated_pool_with_event().await;
+        let mut tx = pool.begin().await.unwrap();
+        insert_run_tx(
+            &mut tx,
+            &run_write(PomodoroRunRhythm::Count {
+                focus_duration_minutes: 40,
+                short_break_minutes: 5,
+                long_break_minutes: 10,
+                long_break_after_focus_count: 4,
+            }),
+            &initial_segment(),
+        )
+        .await
+        .unwrap();
+        sqlx::query("UPDATE pomodoro_runs SET last_heartbeat = ? WHERE id = ?")
+            .bind("2026-05-29T10:39:30Z")
+            .bind("run-1")
+            .execute(&mut *tx)
+            .await
+            .unwrap();
+        tx.commit().await.unwrap();
+
+        let result =
+            super::super::recovery::recover_mobile_run_from_pool(&pool, "2026-05-29T10:45:00Z")
+                .await
+                .unwrap();
+        let PomodoroMobileRecoveryRead::Closed {
+            reason,
+            closed_run_ids,
+        } = result
+        else {
+            panic!("expected expired phase closure");
+        };
+        assert_eq!(reason, "phase_expired");
+        assert_eq!(closed_run_ids, ["run-1"]);
+
+        let row = sqlx::query(
+            "SELECT r.ended_at, r.end_reason AS run_end_reason,
+                    s.actual_end, s.end_reason AS segment_end_reason
+             FROM pomodoro_runs r
+             JOIN pomodoro_segments s ON s.run_id = r.id
+             WHERE r.id = 'run-1'",
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(row.get::<String, _>("ended_at"), "2026-05-29T10:40:00.000Z");
+        assert_eq!(row.get::<String, _>("run_end_reason"), "interrupted");
+        assert_eq!(
+            row.get::<String, _>("actual_end"),
+            "2026-05-29T10:40:00.000Z"
+        );
+        assert_eq!(row.get::<String, _>("segment_end_reason"), "crash_recovery");
+    });
+}
+
+#[test]
+fn mobile_recovery_closes_a_paused_run_when_its_event_window_expired() {
+    tauri::async_runtime::block_on(async {
+        let pool = migrated_pool_with_event().await;
+        let mut tx = pool.begin().await.unwrap();
+        insert_run_tx(
+            &mut tx,
+            &run_write(PomodoroRunRhythm::Count {
+                focus_duration_minutes: 40,
+                short_break_minutes: 5,
+                long_break_minutes: 10,
+                long_break_after_focus_count: 4,
+            }),
+            &initial_segment(),
+        )
+        .await
+        .unwrap();
+        sqlx::query(
+            "INSERT INTO pomodoro_pauses (id, segment_id, started_at, reason)
+             VALUES ('pause-open', 'segment-1', '2026-05-29T10:10:00Z', 'manual')",
+        )
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+        sqlx::query("UPDATE pomodoro_runs SET last_heartbeat = ? WHERE id = ?")
+            .bind("2026-05-29T10:59:30Z")
+            .bind("run-1")
+            .execute(&mut *tx)
+            .await
+            .unwrap();
+        tx.commit().await.unwrap();
+
+        let result =
+            super::super::recovery::recover_mobile_run_from_pool(&pool, "2026-05-29T11:05:00Z")
+                .await
+                .unwrap();
+        let PomodoroMobileRecoveryRead::Closed { reason, .. } = result else {
+            panic!("expected expired event closure");
+        };
+        assert_eq!(reason, "run_window_expired");
+
+        let row = sqlx::query("SELECT ended_at, end_reason FROM pomodoro_runs WHERE id = 'run-1'")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        assert_eq!(row.get::<String, _>("ended_at"), "2026-05-29T11:00:00.000Z");
+        assert_eq!(row.get::<String, _>("end_reason"), "completed");
+    });
+}
+
+#[test]
+fn mobile_recovery_closes_all_runs_when_the_single_run_invariant_is_broken() {
+    tauri::async_runtime::block_on(async {
+        let pool = migrated_pool_with_event().await;
+        let mut tx = pool.begin().await.unwrap();
+        sqlx::query("DROP INDEX idx_pomodoro_runs_single_open")
+            .execute(&mut *tx)
+            .await
+            .unwrap();
+        sqlx::query("DROP INDEX idx_pomodoro_segments_single_active")
+            .execute(&mut *tx)
+            .await
+            .unwrap();
+        let run = run_write(PomodoroRunRhythm::Count {
+            focus_duration_minutes: 40,
+            short_break_minutes: 5,
+            long_break_minutes: 10,
+            long_break_after_focus_count: 4,
+        });
+        insert_run_tx(&mut tx, &run, &initial_segment())
+            .await
+            .unwrap();
+        let mut second_run = run_write(PomodoroRunRhythm::Count {
+            focus_duration_minutes: 40,
+            short_break_minutes: 5,
+            long_break_minutes: 10,
+            long_break_after_focus_count: 4,
+        });
+        second_run.id = "run-2".to_string();
+        let mut second_segment = initial_segment();
+        second_segment.id = "segment-2".to_string();
+        second_segment.run_id = "run-2".to_string();
+        insert_run_tx(&mut tx, &second_run, &second_segment)
+            .await
+            .unwrap();
+        tx.commit().await.unwrap();
+
+        let result =
+            super::super::recovery::recover_mobile_run_from_pool(&pool, "2026-05-29T10:10:00Z")
+                .await
+                .unwrap();
+        let PomodoroMobileRecoveryRead::Closed {
+            reason,
+            closed_run_ids,
+        } = result
+        else {
+            panic!("expected multiple run recovery closure");
+        };
+        assert_eq!(reason, "multiple_open_runs");
+        assert_eq!(closed_run_ids, ["run-1", "run-2"]);
+
+        let open_count: i64 =
+            sqlx::query_scalar("SELECT COUNT(*) FROM pomodoro_runs WHERE ended_at IS NULL")
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        assert_eq!(open_count, 0);
+    });
+}
+
+#[test]
+fn mobile_recovery_closes_a_rhythm_snapshot_the_frontend_cannot_restore() {
+    tauri::async_runtime::block_on(async {
+        let pool = migrated_pool_with_event().await;
+        let mut tx = pool.begin().await.unwrap();
+        insert_run_tx(
+            &mut tx,
+            &run_write(PomodoroRunRhythm::Count {
+                focus_duration_minutes: 40,
+                short_break_minutes: 5,
+                long_break_minutes: 10,
+                long_break_after_focus_count: 4,
+            }),
+            &initial_segment(),
+        )
+        .await
+        .unwrap();
+        sqlx::query(
+            "UPDATE pomodoro_run_count_rhythms
+             SET focus_duration_minutes = 121
+             WHERE run_id = 'run-1'",
+        )
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+        tx.commit().await.unwrap();
+
+        let result =
+            super::super::recovery::recover_mobile_run_from_pool(&pool, "2026-05-29T10:10:00Z")
+                .await
+                .unwrap();
+        let PomodoroMobileRecoveryRead::Closed { reason, .. } = result else {
+            panic!("expected invalid rhythm closure");
+        };
+        assert_eq!(reason, "invalid_state");
     });
 }

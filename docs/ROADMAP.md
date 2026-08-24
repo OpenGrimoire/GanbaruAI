@@ -1,6 +1,6 @@
 # Roadmap
 
-Phased development plan for Ganbaru AI. Each phase produces a working, testable increment. Phases are sequential; each builds on prior phases.
+Phased development plan for Ganbaru AI. Each phase produces a working, testable increment. Feature dependencies are sequential where noted. Platform foundations can start earlier when they do not depend on a later feature layer.
 
 ---
 
@@ -235,27 +235,47 @@ Multi-device sync and real-time collaboration via CRDTs and E2E encryption, with
 
 ---
 
-## Phase 10: mobile
+## Phase 10: Android-first mobile
 
-Tauri v2 mobile builds delivering a focused subset of the desktop experience.
+Tauri v2 mobile builds deliver a focused version of Ganbaru AI through platform-appropriate native adapters. Android is the first target, with Android 10, API level 29, as the minimum and API level 36 as the initial target and compile SDK. The durable architecture and UX contract lives in [features/mobile.md](features/mobile.md).
+
+**Implemented foundation:**
+
+- Shared Svelte 5, Vite, Tauri v2, typed frontend boundaries, SQLite services, and Tauri-free Rust domain crates
+- A stable production identifier, an official `.dev` Android debug application ID suffix, an Android override with API level 29 minimum and one visible `main` window, and a Tauri mobile library entry point
+- Separate desktop and mobile Rust composition roots, target-scoped desktop dependencies, a least-privilege Android capability, and an app-private mobile default vault
+- A typed build-platform profile and frontend capability registry that restrict mobile routes to Calendar, Projects, and Notes and excludes desktop detached-view behavior
+- An initial one-WebView shell with phone bottom navigation, a larger-window rail, lazy Calendar, Projects, and Notes destinations, a lazy global Quick notes surface, mobile Calendar day mode, Projects list mode, Notes adaptations, Pomodoro and Settings sheets, VisualViewport tracking, a bounded native four-edge inset bridge, native system-bar theme contrast, nested root-yielding Back handling, and localized mobile copy
+- A build-time mobile frontend entry and adapter graph that excludes the desktop App shell, Chat workspace and store, desktop music player, native desktop media controls, Doomscrolling runtime, benchmark surfaces, and working-folder panels from Android production assets
+- Permission-free Android document selection for preflighted managed image assets and Notes database CSV files up to 512 KiB, including browser and Rust MIME, dimension, and pixel-count checks, while larger or binary transfers remain reserved for the native streaming content-URI adapter
+- Atomic mobile Pomodoro cold-start reconciliation that resumes one valid unexpired running or paused phase and closes malformed, ambiguous, or expired state, plus lifecycle-triggered best-effort flushes for configuration, Notes, and Quick notes
+- A production Android bundle contract with destination-specific source-module ceilings, required mobile adapters, and explicit exclusions for desktop and heavyweight editor graphs
+- A reviewed generated Android project that builds ARM64, ARMv7, x86, and x86_64 Rust libraries into a universal debug APK and AAB with API level 36, pinned Gradle, Android Gradle Plugin, Build Tools and NDK versions, Java and Kotlin 17 bytecode, 16 KB compatible 64-bit native alignment, privacy-preserving backup exclusions, a narrow capture FileProvider, and only the base network permission
+- Initial physical acceptance on the Android 10, API level 29, ARM64 reference phone for installation, cold start, background process restart, root Back, light system-bar contrast, portrait and landscape insets, compact bottom navigation, wide navigation rail, and the primary Calendar, Projects, Notes, Quick notes, Pomodoro, and Settings surfaces
+
+Native Storage Access Framework, notification, alarm, deep-link and Media3 adapters, encrypted user-controlled backup, complete adaptive destination and backup UX, predictive Back and gesture-navigation validation, emulator validation, signing, CI, and distribution are not implemented yet.
 
 **Includes:**
 
-- Tauri v2 mobile builds: iOS and Android targets from the same Svelte + Rust codebase
-- Mobile-adaptive layouts: responsive UI for all shared features, touch-optimized interactions
-- Sleep alarm: iOS UNNotificationRequest with alarm-style scheduling, Android AlarmManager with SCHEDULE_EXACT_ALARM permission
-- Alarm-to-diary flow: morning alarm dismissal triggers morning diary, morning playlist starts; setting evening alarm triggers evening diary
-- Sleep duration tracking: alarm-set to dismissal time, feeds into sleep quality suggestions
-- App-level Doomscrolling: iOS Screen Time API (Family Controls framework), Android UsageStatsManager, with graceful degradation when permissions unavailable
-- Mobile Pomodoro: notification-based breaks (no fullscreen overlay), timer continues in background
-- Mobile calendar and notes: full editing capability, synced via phase 9
-- Mobile Chat and review: authorized channels, DMs, attention items, task discussions, proposals, and deliverable review, without local coding-agent processes or desktop workspace tools
-- Mobile sync: connects to Hocuspocus server from phase 9
-- Calendar notifications as calls to action (reminders to return to desktop for upcoming session blocks)
+- Android build foundation: legal stable package identity, generated native project, app-private canonical vault, separate mobile Rust composition, least-privilege mobile capabilities, release signing design, and Android CI compilation
+- Storage interoperability: canonical SQLite and managed assets in app-private storage, with Storage Access Framework content URIs limited to import, export, backup, restore, attachments, and selected external media
+- One-Activity mobile shell: compact bottom navigation, larger-window navigation rail and list-detail layouts, system Back, predictive Back preparation, edge-to-edge insets, input-method resizing, lifecycle restoration, and process-death recovery
+- Mobile-adaptive Calendar, Projects, Notes, Quick notes, Settings, themes, localization, and touch interactions without hover or precision-drag requirements
+- Mobile Pomodoro: persisted boundary deadlines, native notifications or alarms, foreground reconciliation, and notification-based breaks without a fullscreen overlay or a continuously running background timer
+- Android music adapter: Media3, ExoPlayer, MediaSessionService, system media controls, and selected content URI sources behind shared queue and transport contracts
+- Sleep alarm: a separately reviewed exact-alarm path only when justified by Android policy and user expectations, with an inexact or unavailable state handled explicitly
+- Alarm-to-diary flow: morning alarm dismissal can open the morning diary and start an eligible morning playlist; setting the evening alarm can open the evening diary
+- Responsible Android Doomscrolling: opt-in usage awareness first, targeted package visibility, no broad installed-app access, and no Accessibility Service or overlay used to imitate desktop process blocking
+- Mobile Chat and review after sync: authorized channels, DMs, attention items, task discussions, proposals, and deliverable review without local coding-agent processes or desktop workspace tools
+- Mobile sync through the permission-aware Phase 9 protocol
+- Calendar notifications as calls to action, including reminders to return to desktop for upcoming session blocks
+- iOS adapters after the Android contracts and shared mobile UX are stable, without assuming identical operating-system capabilities
 
-**Depends on:** phase 9 (sync for multi-device), phase 3 (diary system), phase 6 (music for alarm playlists)
+**Delivery order:** Android build foundation, offline core, focus and storage interoperability, native media, connected experience, policy-sensitive features, then iOS alignment. The build foundation and offline Android core do not wait for Phase 9.
 
-**Out of scope:** work environment management, edge panel, fullscreen break overlay, browser extension, desktop activity monitoring. All of these are blocked by mobile OS sandboxing
+**Depends on:** phases 1 and 2 for the offline structured-data and Notes foundation; phase 6 for shared music contracts; phase 3 for diary and sleep-alarm flows; phase 9 only for sync, cross-device Chat, and collaboration
+
+**Out of scope:** local coding-agent processes and terminals, external working-folder execution, work environment management, tray, global shortcuts, self-updater, edge panel, detached windows, fullscreen break overlay, browser extension, always-on-top windows, and desktop activity monitoring. These require desktop authority or a separate platform design.
 
 **Complexity:** large
 
@@ -330,10 +350,10 @@ Every system from the product spec is accounted for:
 | E2E encryption                                                   | 9             |
 | Human identity, scoped membership, channels, and DMs              | 9             |
 | Permission-aware collaboration and AI context                    | 9             |
-| Mobile (Tauri v2, iOS/Android)                                   | 10            |
+| Android-first mobile (Tauri v2; iOS adapters later)              | 10            |
 | Mobile Chat communication and task review                       | 10            |
 | Sleep alarm (mobile)                                              | 10            |
-| Doomscrolling (mobile/app-level)                                 | 10            |
+| Doomscrolling (mobile awareness and policy-reviewed controls)    | 10            |
 | BYOK AI teammates (OpenAI, compatible APIs, Ollama)              | 11            |
 | AI: natural language calendar management                         | 11            |
 | AI: mood-aware motivation                                        | 11            |

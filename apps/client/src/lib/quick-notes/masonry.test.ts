@@ -3,6 +3,7 @@ import type { QuickNote } from "./types";
 import {
   applyQuickNoteGroupOrder,
   moveQuickNoteId,
+  quickNoteMobileMasonryMaxColumns,
   quickNoteMasonryInsertion,
   quickNoteMasonryLayout,
 } from "./masonry";
@@ -20,6 +21,19 @@ describe("Quick note masonry layout", () => {
     expect(layout.columns).toBe(1);
     expect(layout.positions[1]?.top).toBe(52);
     expect(layout.height).toBe(102);
+  });
+
+  it("limits mobile density by phone, tablet, and wide breakpoints", () => {
+    expect(quickNoteMobileMasonryMaxColumns(599)).toBe(1);
+    expect(quickNoteMobileMasonryMaxColumns(600)).toBe(2);
+    expect(quickNoteMobileMasonryMaxColumns(899)).toBe(2);
+    expect(quickNoteMobileMasonryMaxColumns(900)).toBe(3);
+    expect(quickNoteMobileMasonryMaxColumns(Number.NaN)).toBe(1);
+  });
+
+  it("respects an explicit mobile column limit", () => {
+    expect(quickNoteMasonryLayout(700, [40, 40, 40], 210, 12, 1).columns).toBe(1);
+    expect(quickNoteMasonryLayout(1_000, [40, 40, 40], 210, 12, 2).columns).toBe(2);
   });
 
   it("chooses the insertion whose dragged top-left matches an uneven masonry slot", () => {

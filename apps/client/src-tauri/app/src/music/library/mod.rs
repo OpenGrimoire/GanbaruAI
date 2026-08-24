@@ -1,18 +1,24 @@
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 pub(crate) mod commands;
 pub(crate) mod contexts;
 mod defaults;
 mod error;
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 pub(crate) mod fixtures;
 mod interchange;
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 mod item_repair;
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 pub(crate) mod local_refresh;
 mod models;
 mod playback;
 mod playlist_edits;
 mod queries;
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 mod relink;
 mod rows;
 mod search;
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 pub(crate) mod soundscapes;
 mod source_lifecycle;
 mod validation;

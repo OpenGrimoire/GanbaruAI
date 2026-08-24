@@ -7,12 +7,18 @@ use std::{
     path::{Component, Path, PathBuf},
 };
 
+use crate::image_metadata::{
+    parse_managed_image_metadata, validate_managed_image_dimensions, ManagedImageDimensionError,
+    ManagedImageKind, ManagedImageMetadata, ManagedImageMetadataError,
+};
+
 use super::assets::{
     self, NotesManagedAssetWrite, NOTES_ASSET_SOURCE_LOCAL_UPLOAD, NOTES_ASSET_STATE_AVAILABLE,
 };
 
-const PAGE_COVER_MAX_DISPLAY_MEGABYTES: usize = 10;
+const PAGE_COVER_MAX_DISPLAY_MEGABYTES: usize = 8;
 const PAGE_COVER_MAX_BYTES: usize = PAGE_COVER_MAX_DISPLAY_MEGABYTES * 1024 * 1024;
+const PAGE_COVER_MAX_BASE64_CHARS: usize = PAGE_COVER_MAX_BYTES.div_ceil(3) * 4;
 const PAGE_COVER_DIR: &str = "notes/page-covers";
 pub const PAGE_COVER_ALLOWED_EXTENSIONS: &[&str] = &["png", "jpg", "jpeg", "webp"];
 
@@ -24,31 +30,6 @@ pub struct NotePageCoverAssetDto {
     pub content_type: String,
     pub byte_size: i64,
     pub sha256: String,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum PageCoverImageKind {
-    Png,
-    Jpeg,
-    Webp,
-}
-
-impl PageCoverImageKind {
-    fn extension(self) -> &'static str {
-        match self {
-            Self::Png => "png",
-            Self::Jpeg => "jpg",
-            Self::Webp => "webp",
-        }
-    }
-
-    fn content_type(self) -> &'static str {
-        match self {
-            Self::Png => "image/png",
-            Self::Jpeg => "image/jpeg",
-            Self::Webp => "image/webp",
-        }
-    }
 }
 
 fn active_page_cover_dir(vault_root: &Path) -> PathBuf {
@@ -96,19 +77,6 @@ fn page_cover_unsupported_type_error() -> String {
     "Use PNG, JPG, or WebP. SVG is blocked for security because it can contain interactive or external content.".to_string()
 }
 
-fn sniff_page_cover_kind(bytes: &[u8]) -> Result<PageCoverImageKind, String> {
-    if bytes.starts_with(&[0x89, b'P', b'N', b'G', 0x0d, 0x0a, 0x1a, 0x0a]) {
-        return Ok(PageCoverImageKind::Png);
-    }
-    if bytes.starts_with(&[0xff, 0xd8, 0xff]) {
-        return Ok(PageCoverImageKind::Jpeg);
-    }
-    if bytes.len() >= 12 && &bytes[0..4] == b"RIFF" && &bytes[8..12] == b"WEBP" {
-        return Ok(PageCoverImageKind::Webp);
-    }
-    Err(page_cover_unsupported_type_error())
-}
-
 fn ensure_page_cover_size(bytes: &[u8]) -> Result<(), String> {
     if bytes.is_empty() {
         return Err("page cover image is empty".to_string());
@@ -119,6 +87,25 @@ fn ensure_page_cover_size(bytes: &[u8]) -> Result<(), String> {
         ));
     }
     Ok(())
+}
+
+fn page_cover_metadata_error(error: ManagedImageMetadataError) -> String {
+    match error {
+        ManagedImageMetadataError::UnsupportedFormat => page_cover_unsupported_type_error(),
+        ManagedImageMetadataError::MalformedHeader(reason) => {
+            format!("page cover image header is malformed: {reason}")
+        }
+    }
+}
+
+fn page_cover_dimension_error(error: ManagedImageDimensionError) -> String {
+    format!("page cover image {error}")
+}
+
+fn validate_page_cover_image(bytes: &[u8]) -> Result<ManagedImageMetadata, String> {
+    let metadata = parse_managed_image_metadata(bytes).map_err(page_cover_metadata_error)?;
+    validate_managed_image_dimensions(metadata).map_err(page_cover_dimension_error)?;
+    Ok(metadata)
 }
 
 fn hex_hash(bytes: &[u8]) -> String {
@@ -168,25 +155,40 @@ pub fn read_file_capped(path: &Path) -> Result<Vec<u8>, String> {
 
 pub fn decode_page_cover_data_url(data_url: &str) -> Result<Vec<u8>, String> {
     let trimmed = data_url.trim();
-    let Some((metadata, payload)) = trimmed.split_once(',') else {
+    let Some((data_url_metadata, payload)) = trimmed.split_once(',') else {
         return Err("page cover data URL is malformed".to_string());
     };
-    if !metadata.starts_with("data:image/") || !metadata.ends_with(";base64") {
+    let Some(declared_mime_type) = data_url_metadata
+        .strip_prefix("data:")
+        .and_then(|metadata| metadata.strip_suffix(";base64"))
+    else {
         return Err("page cover data URL must be a base64 image".to_string());
+    };
+    if ManagedImageKind::from_mime_type(declared_mime_type).is_none() {
+        return Err("page cover data URL must be a PNG, JPEG, or WebP image".to_string());
+    }
+    if payload.len() > PAGE_COVER_MAX_BASE64_CHARS {
+        return Err(format!(
+            "page cover image exceeds the {PAGE_COVER_MAX_DISPLAY_MEGABYTES} MB limit"
+        ));
     }
     let bytes = general_purpose::STANDARD
         .decode(payload)
         .map_err(|e| format!("decode page cover data URL: {e}"))?;
     ensure_page_cover_size(&bytes)?;
+    let metadata = validate_page_cover_image(&bytes)?;
+    if !metadata.kind.matches_mime_type(declared_mime_type) {
+        return Err("page cover data URL MIME type does not match its image contents".to_string());
+    }
     Ok(bytes)
 }
 
 fn page_cover_data_url(bytes: &[u8]) -> Result<String, String> {
     ensure_page_cover_size(bytes)?;
-    let kind = sniff_page_cover_kind(bytes)?;
+    let kind = validate_page_cover_image(bytes)?.kind;
     Ok(format!(
         "data:{};base64,{}",
-        kind.content_type(),
+        kind.mime_type(),
         general_purpose::STANDARD.encode(bytes)
     ))
 }
@@ -198,7 +200,7 @@ pub async fn save_page_cover_bytes(
     original_name: Option<String>,
 ) -> Result<NotePageCoverAssetDto, String> {
     ensure_page_cover_size(&bytes)?;
-    let kind = sniff_page_cover_kind(&bytes)?;
+    let kind = validate_page_cover_image(&bytes)?.kind;
     let sha256 = hex_hash(&bytes);
     let file_name = format!("{}.{}", sha256, kind.extension());
     let relative_path = format!("{PAGE_COVER_DIR}/{file_name}");
@@ -225,7 +227,7 @@ pub async fn save_page_cover_bytes(
     .bind(&sha256)
     .bind(&relative_path)
     .bind(&original_name)
-    .bind(kind.content_type())
+    .bind(kind.mime_type())
     .bind(bytes.len() as i64)
     .bind(&sha256)
     .execute(&mut *tx)
@@ -236,7 +238,7 @@ pub async fn save_page_cover_bytes(
         NotesManagedAssetWrite {
             relative_path: &relative_path,
             original_name: original_name.as_deref(),
-            content_type: kind.content_type(),
+            content_type: kind.mime_type(),
             byte_size: bytes.len() as i64,
             sha256: &sha256,
             source_type: NOTES_ASSET_SOURCE_LOCAL_UPLOAD,
@@ -251,7 +253,7 @@ pub async fn save_page_cover_bytes(
     Ok(NotePageCoverAssetDto {
         relative_path,
         original_name,
-        content_type: kind.content_type().to_string(),
+        content_type: kind.mime_type().to_string(),
         byte_size: bytes.len() as i64,
         sha256,
     })
@@ -280,19 +282,32 @@ pub async fn page_cover_asset_data_url(
 mod tests {
     use super::*;
 
+    fn png(width: u32, height: u32) -> Vec<u8> {
+        let mut bytes = vec![0; 33];
+        bytes[..8].copy_from_slice(b"\x89PNG\r\n\x1a\n");
+        bytes[8..12].copy_from_slice(&13u32.to_be_bytes());
+        bytes[12..16].copy_from_slice(b"IHDR");
+        bytes[16..20].copy_from_slice(&width.to_be_bytes());
+        bytes[20..24].copy_from_slice(&height.to_be_bytes());
+        bytes
+    }
+
     #[test]
-    fn sniff_page_cover_kind_accepts_supported_images() {
+    fn page_cover_validation_accepts_bounded_image_metadata() {
         assert_eq!(
-            sniff_page_cover_kind(&[0x89, b'P', b'N', b'G', 0x0d, 0x0a, 0x1a, 0x0a]).unwrap(),
-            PageCoverImageKind::Png,
+            validate_page_cover_image(&png(4032, 3024)).unwrap().kind,
+            ManagedImageKind::Png
         );
+        assert!(validate_page_cover_image(&png(5000, 4000)).is_err());
+    }
+
+    #[test]
+    fn page_cover_data_url_rejects_mime_signature_mismatch() {
+        let payload = general_purpose::STANDARD.encode(png(100, 50));
+        assert!(decode_page_cover_data_url(&format!("data:image/png;base64,{payload}")).is_ok());
         assert_eq!(
-            sniff_page_cover_kind(&[0xff, 0xd8, 0xff, 0xdb]).unwrap(),
-            PageCoverImageKind::Jpeg,
-        );
-        assert_eq!(
-            sniff_page_cover_kind(b"RIFFxxxxWEBP").unwrap(),
-            PageCoverImageKind::Webp,
+            decode_page_cover_data_url(&format!("data:image/jpeg;base64,{payload}")).unwrap_err(),
+            "page cover data URL MIME type does not match its image contents"
         );
     }
 

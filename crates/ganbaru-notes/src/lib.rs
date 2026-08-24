@@ -1,5 +1,6 @@
 //! Notes domain, persistence, transfers, history, assets, and validation.
 
+pub mod image_metadata;
 pub mod notes;
 
 pub use notes::models::*;

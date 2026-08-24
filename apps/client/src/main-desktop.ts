@@ -1,0 +1,181 @@
+import { Temporal } from "@js-temporal/polyfill";
+(globalThis as unknown as { Temporal: typeof Temporal }).Temporal = Temporal;
+import "@fontsource-variable/inter";
+import "./app.css";
+import { mount } from "svelte";
+import { invoke } from "@tauri-apps/api/core";
+import { getCurrentWindow } from "@tauri-apps/api/window";
+import { ensureConfigLoaded, flushConfig } from "./lib/vault/config";
+import { getActiveVaultInfo } from "./lib/vault/state";
+import {
+  getLocalization,
+  initializeLocalizationFromConfig,
+} from "./lib/i18n/translator.svelte";
+import { DEFAULT_LANGUAGE_PREFERENCE } from "./lib/i18n/locales";
+import {
+  clearPreVaultLanguagePreference,
+  readPreVaultLanguagePreference,
+} from "./lib/i18n/pre-vault-language";
+import { hydrateUserThemes } from "./lib/stores/theme.svelte";
+import {
+  parsePomodoroBlockedScreenState,
+  pomodoroBlockedScreenPalette,
+  pomodoroBlockedScreenStateFromOverlayKind,
+  type PomodoroBlockedScreenState,
+} from "./lib/components/pomodoro/blocked-screen";
+import { applyPlatformProfileToDocument } from "./lib/platform";
+
+applyPlatformProfileToDocument();
+
+interface BenchmarkBootProbe {
+  vaultMode?: "user" | "benchmark";
+  stage?: string;
+  harnessVersion?: string;
+  datasetVersion?: string;
+  startedAt?: string;
+  updatedAt?: string;
+}
+
+function pomodoroOverlayInitialStateFromLocation(): PomodoroBlockedScreenState {
+  const params = new URLSearchParams(window.location.search);
+  const screenState = params.get("screenState");
+  if (screenState !== null) {
+    return parsePomodoroBlockedScreenState(screenState);
+  }
+  return pomodoroBlockedScreenStateFromOverlayKind(params.get("overlayKind"));
+}
+
+function preparePomodoroOverlayDocument(): void {
+  const { background } = pomodoroBlockedScreenPalette(
+    pomodoroOverlayInitialStateFromLocation(),
+  );
+  const app = document.getElementById("app");
+  document.documentElement.style.backgroundColor = background;
+  document.body.style.backgroundColor = background;
+  if (app) app.style.backgroundColor = background;
+}
+
+async function hasFreshBenchmarkResumeState(): Promise<boolean> {
+  try {
+    const {
+      HARNESS_VERSION,
+      DENSE_DATASET_VERSION,
+      isBenchmarkPendingStage,
+      isFreshBenchmarkPendingAge,
+      isFreshBenchmarkTotalAge,
+    } = await import("./lib/benchmark/types");
+    const json = await invoke<string | null>("read_benchmark_state");
+    if (!json) return false;
+    const parsed = JSON.parse(json) as BenchmarkBootProbe;
+    return parsed.vaultMode === "benchmark"
+      && isBenchmarkPendingStage(parsed.stage)
+      && parsed.harnessVersion === HARNESS_VERSION
+      && parsed.datasetVersion === DENSE_DATASET_VERSION
+      && isFreshBenchmarkTotalAge(parsed)
+      && isFreshBenchmarkPendingAge(parsed);
+  } catch (err) {
+    console.error("benchmark boot probe failed", err);
+    return false;
+  }
+}
+
+function safeStorage(): Storage | undefined {
+  if (typeof window === "undefined") return undefined;
+  try {
+    return window.localStorage;
+  } catch {
+    return undefined;
+  }
+}
+
+async function applyPreVaultLanguagePreference(): Promise<void> {
+  const storage = safeStorage();
+  const preference = readPreVaultLanguagePreference(storage);
+  if (!preference) return;
+  const applied = await getLocalization().setLanguagePreference(preference);
+  if (!applied) return;
+  await flushConfig();
+  clearPreVaultLanguagePreference(storage);
+}
+
+// Boot order: validate the active Ganbaru AI folder, hydrate root
+// config.json, load user themes from SQLite, then mount App. Config and theme
+// reads block first paint so the initial render matches what the user has on
+// disk, with no flash of defaults.
+const appPromise = (async () => {
+  const preVaultPreference = readPreVaultLanguagePreference(safeStorage());
+  await getLocalization().setLanguagePreference(
+    preVaultPreference ?? DEFAULT_LANGUAGE_PREFERENCE,
+    { persist: false },
+  );
+
+  const windowKind = new URLSearchParams(window.location.search).get("ganbaruWindow");
+  if (windowKind === "pomodoroOverlay") {
+    preparePomodoroOverlayDocument();
+    const { default: PomodoroOverlayWindow } = await import(
+      "$lib/components/pomodoro/PomodoroOverlayWindow.svelte"
+    );
+    return mount(PomodoroOverlayWindow, {
+      target: document.getElementById("app")!,
+    });
+  }
+  if (windowKind === "pomodoroOverlayBlocker") {
+    preparePomodoroOverlayDocument();
+    const { default: PomodoroOverlayBlocker } = await import(
+      "$lib/components/pomodoro/PomodoroOverlayBlocker.svelte"
+    );
+    return mount(PomodoroOverlayBlocker, {
+      target: document.getElementById("app")!,
+    });
+  }
+
+  async function mountVaultSetupView(initialError: string | null) {
+    const { default: VaultSetupView } = await import(
+      "$lib/components/vault/VaultSetupView.svelte"
+    );
+    return mount(VaultSetupView, {
+      target: document.getElementById("app")!,
+      props: {
+        initialError,
+        onReady: () => {
+          window.location.reload();
+        },
+      },
+    });
+  }
+
+  try {
+    const activeVault = await getActiveVaultInfo();
+    if (!activeVault) {
+      return await mountVaultSetupView(null);
+    }
+    await ensureConfigLoaded();
+    await initializeLocalizationFromConfig();
+    await applyPreVaultLanguagePreference();
+    const benchmarkResumePending = await hasFreshBenchmarkResumeState();
+    if (!benchmarkResumePending) {
+      await hydrateUserThemes();
+    }
+  } catch (err) {
+    const vaultError = err instanceof Error ? err.message : String(err);
+    return await mountVaultSetupView(vaultError);
+  }
+
+  const { default: App } = await import("./App.svelte");
+  return mount(App, {
+    target: document.getElementById("app")!,
+  });
+})();
+
+void appPromise
+  .then(async () => {
+    if (getCurrentWindow().label !== "main") return;
+    await document.fonts.ready;
+    await new Promise<void>((resolve) => window.setTimeout(resolve, 0));
+    await invoke("reveal_main_window");
+  })
+  .catch((error: unknown) => {
+    console.error("Failed to reveal the initialized main window:", error);
+  });
+
+export default appPromise;

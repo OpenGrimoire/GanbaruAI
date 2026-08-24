@@ -2,6 +2,7 @@ import {
   createLazyComponentLoader,
   type LazyComponentImporter,
 } from "$lib/lazy-component-loader";
+import { importNotesProjectVersionHistoryModal } from "$lib/components/notes/notes-project-platform-importers";
 
 export type NotesSurfaceKind = "archive" | "trash";
 
@@ -36,7 +37,7 @@ const SURFACE_IMPORTERS = {
 } satisfies Readonly<Record<NotesSurfaceKind, LazyComponentImporter<LoadedNotesSurface>>>;
 
 const OPTIONAL_IMPORTERS = {
-  "project-history": () => import("./NotesProjectVersionHistoryModal.svelte")
+  "project-history": () => importNotesProjectVersionHistoryModal()
     .then((module) => ({
       default: { kind: "project-history" as const, component: module.default },
     })),

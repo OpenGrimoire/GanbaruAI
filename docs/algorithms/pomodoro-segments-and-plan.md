@@ -68,7 +68,7 @@ This rule has three consequences:
 
 1. **Skipped breaks have no break segment row.** If the user sets `skipNextBreak`, no break segment is created. The next focus segment starts immediately. The skip is also logged as `pomodoro_run_events.event_type = skip_break`, so analytics can distinguish an intentional skip from a missing break row.
 2. **Future segments do not exist.** At any moment in an active session, only the current segment and previously completed segments exist as rows. The future is computed on the fly for rendering (see `features/pomodoro-progress-displays.md`) and by the state machine for transitions.
-3. **Crash recovery is simple.** A crash leaves the active segment with `status = active` and `actual_end = NULL`. Recovery sets `status = interrupted` and `actual_end = run.last_heartbeat`. No future segments need cleanup because none exist.
+3. **Recovery stays bounded.** An unexpected exit leaves the active segment with `status = active` and `actual_end = NULL`. Desktop orphan cleanup interrupts it at the run heartbeat. Android cold recovery can resume the same segment in place when the run, phase, and pause chronology are still valid, or interrupt it at a proven safe boundary when they are not. No future segment rows need cleanup because none exist.
 
 The alternative (write all planned segments at session start, then update them as they complete) would require constant synchronization between the plan and the user's actual behavior, plus a "planned but never ran" status to handle skips and early stops. The lazy approach avoids both.
 
@@ -100,7 +100,7 @@ When a run ends, `pomodoro_runs.end_reason` is set to one of:
 |--------|---------|
 | `completed` | Event time expired. The session ran to the end of its block. |
 | `stopped` | User clicked stop. |
-| `interrupted` | App crashed or was killed. Recovery sets this from the heartbeat. |
+| `interrupted` | Recovery could not safely resume the open run. Desktop uses the last heartbeat; Android uses a validated heartbeat, event deadline, or phase deadline according to the closure reason. |
 | `reconfigured` | User changed the pomodoro config mid-session, ending this run and starting a new one with the updated config. |
 | `block_transition` | Timer moved to a new event (consecutive or overlapping), starting a new run on that event with state inherited from this one. |
 
@@ -167,7 +167,7 @@ Events written by the timer include:
 | `block_transition` | A run closes because control moved to another event. |
 | `stop` | A run closes because the user stopped it. |
 | `complete` | A run closes because the event window ended. |
-| `crash_recovery` | Recovery closes a run left open by a crash. |
+| `crash_recovery` | Recovery closes an open run that cannot safely continue. A valid Android in-place resume does not add this event. |
 
 Focus extension updates the active focus segment's `planned_end` and writes an `extend_focus` event with the extension duration in seconds. This preserves both the visible plan change and the behavioral decision that caused it.
 

@@ -47,6 +47,7 @@
     onTzAbbrModeChange,
     onWheelNavigate,
     onDayHeaderClick,
+    allowPointerEditing = true,
   }: {
     anchorDate: Date;
     events: CalendarEvent[];
@@ -70,6 +71,7 @@
     onTzAbbrModeChange?: (mode: TimezoneAbbrMode) => void;
     onWheelNavigate?: (direction: "back" | "forward") => void;
     onDayHeaderClick?: () => void;
+    allowPointerEditing?: boolean;
   } = $props();
 
   /** Stable empty fallback so the day column keeps a consistent prop reference. */
@@ -412,21 +414,23 @@
             {dayLabel}
           </span>
         </div>
-        <!-- svelte-ignore a11y_no_static_element_interactions -->
-        <!-- svelte-ignore a11y_click_events_have_key_events -->
-        <div
-          class="absolute inset-x-0 bottom-0 cursor-pointer transition-colors hover:bg-foreground/10"
-          style="height: 6px;"
-          onclick={(e) => {
-            e.stopPropagation();
-            onEventCreate(
-              `${dateStr} 00:00`,
-              `${dateStr} 00:00`,
-              true,
-              allDayCreateAnchorFromHeader(e.currentTarget as HTMLElement),
-            );
-          }}
-        ></div>
+        {#if allowPointerEditing}
+          <!-- svelte-ignore a11y_no_static_element_interactions -->
+          <!-- svelte-ignore a11y_click_events_have_key_events -->
+          <div
+            class="absolute inset-x-0 bottom-0 cursor-pointer transition-colors hover:bg-foreground/10"
+            style="height: 6px;"
+            onclick={(e) => {
+              e.stopPropagation();
+              onEventCreate(
+                `${dateStr} 00:00`,
+                `${dateStr} 00:00`,
+                true,
+                allDayCreateAnchorFromHeader(e.currentTarget as HTMLElement),
+              );
+            }}
+          ></div>
+        {/if}
       </div>
     </div>
 
@@ -522,6 +526,7 @@
           onCreateStart={drag.handleCreateStart}
           isActiveEvent={isActiveCalendarEvent}
           isEventLocked={isLockedCalendarEvent}
+          {allowPointerEditing}
         />
       </div>
       </div>

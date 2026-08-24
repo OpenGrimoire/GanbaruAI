@@ -10,6 +10,7 @@
   } from "$lib/notes/page-icon";
   import type { NotesPageIcon } from "$lib/notes/types";
   import type { ProjectLucideIconNode } from "$lib/projects/project-lucide-catalog.generated";
+  import { BUILD_PLATFORM_PROFILE, platformHasCapability } from "$lib/platform";
   import FileText from "@lucide/svelte/icons/file-text";
   import LucideNodeIcon from "$lib/components/projects/LucideNodeIcon.svelte";
 
@@ -33,7 +34,11 @@
   let lucideRequestId = 0;
 
   const assetPath = $derived(notesPageIconAssetPath(icon));
-  const externalUrl = $derived(notesPageIconExternalUrl(icon));
+  const remoteImageUrlsAvailable = platformHasCapability(
+    BUILD_PLATFORM_PROFILE,
+    "notes.external-image-references",
+  );
+  const externalUrl = $derived(remoteImageUrlsAvailable ? notesPageIconExternalUrl(icon) : null);
   const nativeName = $derived(icon?.type === "icon" ? icon.icon.name : null);
   const nativeColor = $derived(icon?.type === "icon" ? notesPageNativeIconColor(icon.icon.color) : undefined);
   const nativeStyle = $derived(nativeColor ? `color: ${nativeColor};` : undefined);

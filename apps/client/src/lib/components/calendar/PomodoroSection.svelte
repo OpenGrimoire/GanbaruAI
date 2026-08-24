@@ -57,6 +57,7 @@
     idleTimeoutEnabled = $bindable(true),
     expanded,
     readonlyInteractive = false,
+    idleDetectionAvailable = true,
     ontoggle,
     onexpand,
     onchange,
@@ -72,6 +73,7 @@
     idleTimeoutEnabled: boolean;
     expanded: boolean;
     readonlyInteractive?: boolean;
+    idleDetectionAvailable?: boolean;
     ontoggle: () => void;
     onexpand: () => void;
     onchange: () => void;
@@ -436,6 +438,7 @@
           <span>{t("calendar.pomodoro.custom")}</span>
         </button>
       {/if}
+      {#if idleDetectionAvailable}
       <div class="mt-1 border-t border-border/40 px-0 pt-0.5">
         <button
           onclick={() => { idleTimeoutEnabled = !idleTimeoutEnabled; onchange(); }}
@@ -447,6 +450,7 @@
           <span>{t("calendar.pomodoro.pauseOnInactivity")}</span>
         </button>
       </div>
+      {/if}
     </div>
   {/if}
 </div>

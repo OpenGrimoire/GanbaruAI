@@ -1,8 +1,14 @@
-use super::{NoteHtmlArchiveSaveDto, NoteHtmlExportDto, NoteHtmlExportRequest};
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
+use super::NoteHtmlArchiveSaveDto;
+use super::{NoteHtmlExportDto, NoteHtmlExportRequest};
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 use crate::vault;
 use sqlx::SqlitePool;
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 use std::path::PathBuf;
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 use tauri::{AppHandle, Runtime};
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 use tauri_plugin_dialog::{DialogExt, FilePath};
 
 pub async fn export_page(
@@ -12,6 +18,7 @@ pub async fn export_page(
     ganbaru_notes::notes::html_export::export_page(pool, request).await
 }
 
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 pub async fn pick_and_write_archive<R: Runtime>(
     app: &AppHandle<R>,
     pool: &SqlitePool,
@@ -34,6 +41,7 @@ pub async fn pick_and_write_archive<R: Runtime>(
     ganbaru_notes::notes::html_export_archive::write_archive(&asset_root, &path, &mut archive)
 }
 
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 fn dialog_path(path: FilePath) -> Result<PathBuf, String> {
     path.into_path()
         .map_err(|error| format!("selected path is not a local file: {error}"))

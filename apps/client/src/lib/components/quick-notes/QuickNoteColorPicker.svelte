@@ -5,10 +5,13 @@
   import type { EventColor } from "$lib/components/calendar/types";
   import { contrastRatio } from "$lib/components/ui/colorMath";
   import { getLocalization } from "$lib/i18n/translator.svelte";
+  import { activateModalFocus } from "$lib/modal-focus";
+  import { getMobileBackStack } from "$lib/stores/mobile-back-stack.svelte";
   import { resolveCalendarTokens, type Theme } from "$lib/stores/themes";
   import { portal } from "$lib/utils/portal";
 
   const PALETTE_COLUMNS = 4;
+  const MOBILE_PALETTE_COLUMNS = 5;
   const PALETTE_SWATCH_REM = 1.375;
   const PALETTE_GAP_REM = 0.5;
   const PALETTE_PADDING_REM = 0.625;
@@ -19,16 +22,20 @@
     theme,
     onselect,
     buttonClass = "",
+    mobileLayout = false,
   }: {
     color: EventColor;
     theme: Theme;
     onselect: (color: EventColor) => void;
     buttonClass?: string;
+    mobileLayout?: boolean;
   } = $props();
 
   const { t } = getLocalization();
+  const mobileBackStack = getMobileBackStack();
   let open = $state(false);
   let button = $state<HTMLButtonElement | null>(null);
+  let palette = $state<HTMLDivElement | null>(null);
   let palettePosition = $state({ left: PALETTE_EDGE_PX, top: PALETTE_EDGE_PX });
   const calendarTokens = $derived(resolveCalendarTokens(theme));
   const pickerBg = $derived(calendarTokens["--cal-bg"]);
@@ -85,21 +92,63 @@
     computePalettePosition();
   }
 
-  function choose(next: EventColor): void {
-    onselect(next);
+  function closePicker(): void {
     open = false;
     void tick().then(() => button?.focus());
   }
 
-  const paletteStyle = $derived(`
-    left: ${palettePosition.left}px;
-    top: ${palettePosition.top}px;
-    grid-template-columns: repeat(${PALETTE_COLUMNS}, ${PALETTE_SWATCH_REM}rem);
-    background-color: ${pickerBg};
-    color: ${pickerText};
-    --selection-border: ${selectionBorder};
-    --tw-ring-color: ${pickerRing};
-  `);
+  function choose(next: EventColor): void {
+    onselect(next);
+    closePicker();
+  }
+
+  function handlePickerKeydown(event: KeyboardEvent): void {
+    if (event.key !== "Escape") return;
+    event.preventDefault();
+    event.stopPropagation();
+    closePicker();
+  }
+
+  const paletteStyle = $derived(mobileLayout
+    ? `
+      left: calc(var(--visual-viewport-offset-left) + var(--safe-area-left) + 0.5rem);
+      right: calc(var(--safe-area-right) + 0.5rem);
+      bottom: calc(var(--keyboard-inset) + var(--safe-area-bottom) + 0.5rem);
+      max-width: 30rem;
+      max-height: calc(var(--visual-viewport-height) - var(--safe-area-top) - var(--safe-area-bottom) - 1rem);
+      margin-inline: auto;
+      grid-template-columns: repeat(${MOBILE_PALETTE_COLUMNS}, 3rem);
+      justify-content: center;
+      background-color: ${pickerBg};
+      color: ${pickerText};
+      --selection-border: ${selectionBorder};
+      --tw-ring-color: ${pickerRing};
+    `
+    : `
+      left: ${palettePosition.left}px;
+      top: ${palettePosition.top}px;
+      grid-template-columns: repeat(${PALETTE_COLUMNS}, ${PALETTE_SWATCH_REM}rem);
+      background-color: ${pickerBg};
+      color: ${pickerText};
+      --selection-border: ${selectionBorder};
+      --tw-ring-color: ${pickerRing};
+    `);
+
+  $effect(() => {
+    if (!open) return;
+    const deactivateBack = mobileLayout
+      ? mobileBackStack.activate({ handle: closePicker })
+      : () => undefined;
+    const deactivateFocus = palette
+      ? activateModalFocus(palette)
+      : () => undefined;
+    window.addEventListener("keydown", handlePickerKeydown, true);
+    return () => {
+      deactivateBack();
+      deactivateFocus();
+      window.removeEventListener("keydown", handlePickerKeydown, true);
+    };
+  });
 </script>
 
 <button
@@ -110,7 +159,7 @@
   title={t("quickNotes.action.color")}
   aria-haspopup="dialog"
   aria-expanded={open}
-  onclick={() => { if (open) open = false; else void openPicker(); }}
+  onclick={() => { if (open) closePicker(); else void openPicker(); }}
 >
   <Palette class="size-4" strokeWidth={1.5} aria-hidden="true" />
 </button>
@@ -121,20 +170,23 @@
     type="button"
     class="fixed inset-0 z-90 cursor-default"
     aria-label={t("common.close")}
-    onclick={() => { open = false; }}
+    onclick={closePicker}
   ></button>
   <div
+    bind:this={palette}
     use:portal
-    class="fixed z-100 grid gap-2 rounded-lg p-2.5 shadow-lg ring-1"
+    class={mobileLayout ? "fixed z-100 grid gap-1 overflow-y-auto overscroll-contain rounded-2xl p-2 shadow-lg ring-1" : "fixed z-100 grid gap-2 rounded-lg p-2.5 shadow-lg ring-1"}
     style={paletteStyle}
     role="dialog"
+    aria-modal="true"
     aria-label={t("quickNotes.action.color")}
+    tabindex="-1"
   >
     {#each EVENT_COLOR_OPTIONS as entry, index}
       {@const resolved = getEventColor(entry, theme)}
       <button
         type="button"
-        class="quick-note-color-swatch size-5.5 rounded-[3px]"
+        class={mobileLayout ? "quick-note-color-swatch min-h-12 min-w-12 rounded-xl" : "quick-note-color-swatch size-5.5 rounded-[3px]"}
         class:swatch-selected={color === entry}
         style="background-color: {resolved.bg};"
         aria-label={`${t("quickNotes.action.color")} ${index + 1}`}

@@ -1,14 +1,17 @@
 import { describe, expect, it } from "vitest";
 import {
   APP_VIEWS,
+  availableAppViews,
   canDetachMainView,
   isDetachableTabView,
   isView,
+  isViewAvailable,
   firstMainView,
   mainTabViews,
   parseInitialViewSearch,
   viewLabel,
 } from "./navigation";
+import { platformProfileFor } from "./platform";
 
 describe("navigation helpers", () => {
   it("accepts registered views only", () => {
@@ -34,6 +37,18 @@ describe("navigation helpers", () => {
     expect(parseInitialViewSearch("?view=music")).toBeUndefined();
     expect(parseInitialViewSearch("?view=settings")).toBeUndefined();
     expect(parseInitialViewSearch("")).toBeUndefined();
+  });
+
+  it("rejects unavailable Android views from direct and query navigation", () => {
+    const android = platformProfileFor("android");
+
+    expect(availableAppViews(android)).toEqual(["calendar", "projects", "notes"]);
+    expect(isViewAvailable("notes", android)).toBe(true);
+    expect(isViewAvailable("chat", android)).toBe(false);
+    expect(parseInitialViewSearch("?view=notes", android)).toBe("notes");
+    expect(parseInitialViewSearch("?view=chat", android)).toBeUndefined();
+    expect(mainTabViews(new Set(), android)).toEqual(["calendar", "projects", "notes"]);
+    expect(canDetachMainView(new Set(), android)).toBe(false);
   });
 
   it("provides user-facing labels for every view", () => {

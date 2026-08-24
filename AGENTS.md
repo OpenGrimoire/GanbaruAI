@@ -56,6 +56,7 @@ apps/
           chat/: local coding-agent shell, timeline, composer, interactive requests, inspector, file browser, terminal, navigation, and archive
           icon-picker/: shared icon, emoji, custom emoji, and image picker
           music/: player controls, source parsing, playlist management surfaces
+          mobile/: adaptive phone and tablet shell, navigation, settings, and overlays
           notes/: Notes navigation, editor, databases, history, transfer, and project surfaces
           perf/: memory and performance diagnostics surfaces
           pomodoro/: timer display, controls, break screen, and idle overlay
@@ -96,7 +97,9 @@ apps/
         utils/: shared helpers, formatters
         vault/: frontend data folder config and state
         windows/: detached window helpers
-      app.css, app.d.ts: global styles, type declarations
+      App.svelte, MobileApp.svelte: desktop and mobile Svelte shell roots
+      main-desktop.ts, main-mobile.ts, main.ts: platform bootstraps and virtual entry selector
+      app.css, app.d.ts, virtual-modules.d.ts: global styles and type declarations
     static/: static assets (fonts, icons, sounds)
     scripts/: repo-owned maintenance and diagnostics scripts
     src-tauri/: Tauri package, build script, configuration, and platform entries
@@ -105,15 +108,17 @@ apps/
         lib.rs: mobile-only Tauri entry that preserves Android and iOS library outputs
       app/: ganbaru-tauri-app ordinary Rust library
         src/: Tauri commands, managed state, setup and exit hooks, and platform integrations
+          desktop_runtime.rs, mobile_runtime.rs: platform-specific Tauri composition roots
           db.rs, db_path.rs, vault.rs: active-folder authorization and SQLite adapter boundary
           calendar_events/, calendar_import/, calendar_reads/: split calendar persistence, import, and query services
           calendar_description.rs, calendar_import.rs, calendar_reads.rs, calendars.rs, recurrence.rs: calendar command roots and shared logic
-          chat.rs, chat/: Tauri Chat adapters, application command flows, and platform integrations
+          chat.rs, chat/: desktop Tauri Chat adapters, application command flows, and platform integrations
             coordination_commands/, send/, interaction/: messages, scheduling, turn orchestration, attachments, drafts, and follow-ups
             checkpoints/, restore_commands/: authorization cleanup and restoration workflows over the core Chat service
             preview/, workspace_observer/: browser previews, webviews, and workspace change observation
             settings/: provider discovery, native credentials, preferences, model mapping, and pickers
             benchmark/, tests/: dense benchmark support and Tauri integration tests
+          chat_mobile.rs: mobile-compatible Chat configuration and vault contract surface
           notes.rs, notes/: Notes Tauri command adapters, working-Markdown composition, dialogs, and asset authorization
           pomodoro.rs, pomodoro/: timer commands, DTOs, persistence, validation, reads, and tests
           projects.rs, projects/: project commands, DTOs, persistence, validation, history, custom fields, and templates
@@ -132,7 +137,7 @@ apps/
       gen/schemas/: generated Tauri schema files
       examples/: Rust example targets
       icons/: app icons
-      build.rs, tauri.conf.json, tauri.dev.conf.json, Cargo.toml
+      build.rs, tauri.conf.json, tauri.dev.conf.json, tauri.android.conf.json, Cargo.toml
     index.html, package.json, svelte.config.js, vite.config.ts, tsconfig.json
 crates/
   ganbaru-working-folders/: Tauri-free working-folder IDs, repository kinds, timestamps, bindings, and device-state operations

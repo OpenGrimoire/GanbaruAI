@@ -1,4 +1,21 @@
 import type { MenuAimPoint, MenuAimRect, MenuAimSide } from "./menu-aim";
+import type { ProjectNavigatorPanelMode } from "./project-toolbar";
+
+export type ProjectPickerMobilePane = "groups" | "projects" | "search";
+export type ProjectPickerMobileBackAction =
+  | "close-group-creator"
+  | "close-project-creator"
+  | "clear-search"
+  | "show-groups"
+  | "close-picker";
+
+export interface ProjectPickerMobileState {
+  mode: ProjectNavigatorPanelMode;
+  activeGroupId: string | null;
+  searchActive: boolean;
+  createGroupOpen: boolean;
+  createProjectGroupId: string | null;
+}
 
 export interface ProjectPickerPanelBounds {
   left: number;
@@ -56,6 +73,26 @@ function projectPickerSubpanelFallbackVisibleRows(projectCount: number, visibleR
 
 function projectPickerRoundedStyleValue(value: number): number {
   return Math.round(value);
+}
+
+/** Resolve the single visible pane used by the compact project selector. */
+export function projectPickerMobilePane(
+  state: Pick<ProjectPickerMobileState, "mode" | "activeGroupId" | "searchActive">,
+): ProjectPickerMobilePane {
+  if (state.searchActive) return "search";
+  if (state.mode === "groups" && state.activeGroupId === null) return "groups";
+  return "projects";
+}
+
+/** Resolve the next nested layer consumed by Android Back inside the selector. */
+export function projectPickerMobileBackAction(
+  state: ProjectPickerMobileState,
+): ProjectPickerMobileBackAction {
+  if (state.createProjectGroupId !== null) return "close-project-creator";
+  if (state.createGroupOpen) return "close-group-creator";
+  if (state.searchActive) return "clear-search";
+  if (state.mode === "groups" && state.activeGroupId !== null) return "show-groups";
+  return "close-picker";
 }
 
 export function projectPickerPanelEstimatedListHeight(input: {

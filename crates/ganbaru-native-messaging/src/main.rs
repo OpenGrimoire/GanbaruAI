@@ -477,8 +477,8 @@ fn config_dir_candidates() -> Vec<PathBuf> {
     }
 
     let ids = [
-        "org.opengrimoire.ganbaru-ai",
-        "org.opengrimoire.ganbaru-ai.dev",
+        "org.opengrimoire.ganbaruai",
+        "org.opengrimoire.ganbaruai.dev",
     ];
     let mut candidates = Vec::new();
 

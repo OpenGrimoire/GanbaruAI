@@ -9,23 +9,16 @@ import {
   isPomodoroWindowCommand,
   isPomodoroWindowSnapshot,
   type PomodoroWindowCommand,
-  type PomodoroWindowSnapshot,
 } from "./pomodoro-window-sync";
+import type {
+  PomodoroWindowCoordinator,
+  PomodoroWindowCoordinatorContext,
+} from "./pomodoro-window-coordinator-contract";
 
-interface PomodoroWindowCoordinatorContext {
-  isCoordinator(): boolean;
-  beforePublishSnapshot(): void;
-  buildSnapshot(): PomodoroWindowSnapshot;
-  applySnapshot(snapshot: PomodoroWindowSnapshot): void;
-  handleCommand(command: PomodoroWindowCommand): void;
-}
-
-export interface PomodoroWindowCoordinator {
-  publishSnapshot(): void;
-  sendCommand(command: PomodoroWindowCommand): void;
-  forwardCommand(command: PomodoroWindowCommand): boolean;
-  init(): void;
-}
+export type {
+  PomodoroWindowCoordinator,
+  PomodoroWindowCoordinatorContext,
+} from "./pomodoro-window-coordinator-contract";
 
 const POMODORO_WINDOW_SYNC_EVENT = "pomodoro-window-sync";
 const POMODORO_WINDOW_COMMAND_EVENT = "pomodoro-window-command";

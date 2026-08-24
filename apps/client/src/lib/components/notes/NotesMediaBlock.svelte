@@ -8,6 +8,7 @@
   } from "$lib/api/notes-file-assets";
   import { formatNumber } from "$lib/i18n/formatters";
   import { getLocalization } from "$lib/i18n/translator.svelte";
+  import { BUILD_PLATFORM_PROFILE, platformHasCapability } from "$lib/platform";
   import {
     mediaCaptionPlainText,
     mediaDisplayNameFromSource,
@@ -52,6 +53,11 @@
     | NotesAudioBlock
     | NotesFileBlock
     | NotesPdfBlock;
+
+  const nativeFilePickerAvailable = platformHasCapability(
+    BUILD_PLATFORM_PROFILE,
+    "storage.native-file-picker",
+  );
 
   let {
     block,
@@ -417,19 +423,21 @@
         </p>
       {/if}
     </div>
-    <button
-      type="button"
-      class="mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground disabled:cursor-wait disabled:opacity-40"
-      aria-label={localAssetPath
-        ? t("notes.replaceLocalMedia", t(`notes.blockType.${mediaType}`))
-        : t("notes.chooseLocalMedia", t(`notes.blockType.${mediaType}`))}
-      disabled={isPickingLocalFile}
-      onclick={() => {
-        void chooseLocalFile();
-      }}
-    >
-      <Upload class="size-4" />
-    </button>
+    {#if nativeFilePickerAvailable}
+      <button
+        type="button"
+        class="mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground disabled:cursor-wait disabled:opacity-40"
+        aria-label={localAssetPath
+          ? t("notes.replaceLocalMedia", t(`notes.blockType.${mediaType}`))
+          : t("notes.chooseLocalMedia", t(`notes.blockType.${mediaType}`))}
+        disabled={isPickingLocalFile}
+        onclick={() => {
+          void chooseLocalFile();
+        }}
+      >
+        <Upload class="size-4" />
+      </button>
+    {/if}
     {#if localAssetPath}
       <button
         type="button"

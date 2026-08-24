@@ -23,13 +23,16 @@ import {
   type PomodoroSegmentEndReason,
 } from "./pomodoro-backend-writes";
 import { createPomodoroRunRepository } from "./pomodoro-run-repository";
-import { createPomodoroEffects } from "./pomodoro-effects.svelte";
-import { createPomodoroWindowCoordinator } from "./pomodoro-window-coordinator";
+import { createPomodoroEffects } from "$lib/stores/pomodoro-effects.svelte";
+import {
+  createPomodoroWindowCoordinator,
+} from "$lib/stores/pomodoro-window-coordinator";
+import { getPomodoroRuntimeEnvironment } from "$lib/stores/pomodoro-runtime-environment";
 import { createPomodoroSegmentController } from "./pomodoro-segment-controller";
 import { createPomodoroIdleController } from "./pomodoro-idle-controller";
 import { createPomodoroClockController } from "./pomodoro-clock-controller";
 import type { PomodoroRuntime } from "./pomodoro-runtime";
-import { createPomodoroDoomscrollingController } from "./pomodoro-doomscrolling-controller";
+import { createPomodoroDoomscrollingController } from "$lib/stores/pomodoro-doomscrolling-controller";
 import { createPomodoroTimerRuntime } from "./pomodoro-timer-runtime";
 import { createPomodoroWindowStateController } from "./pomodoro-window-state-controller";
 import { createPomodoroActiveBlockController } from "./pomodoro-active-block-controller";
@@ -41,8 +44,12 @@ import { createPomodoroExtensionController } from "./pomodoro-extension-controll
 import { createPomodoroOvertimeController } from "./pomodoro-overtime-controller";
 import { createPomodoroPhaseController } from "./pomodoro-phase-controller";
 import { createPomodoroTickController } from "./pomodoro-tick-controller";
+import {
+  applyRecoveredMobileRun,
+  type PomodoroMobileRecoveryResult,
+} from "./pomodoro-mobile-recovery";
 import { isAdaptiveCountConfig } from "./pomodoro-adaptive-decisions";
-import { getCurrentWindow } from "@tauri-apps/api/window";
+import { BUILD_PLATFORM_PROFILE, platformHasCapability } from "$lib/platform";
 import {
   type PomodoroConfig,
   DEFAULT_CONFIG,
@@ -54,7 +61,12 @@ import {
   type PomodoroWindowCommand,
 } from "./pomodoro-window-sync";
 
-const pomodoroCoordinator = getCurrentWindow().label === "main";
+const pomodoroEnvironment = getPomodoroRuntimeEnvironment();
+const pomodoroCoordinator = pomodoroEnvironment.isCoordinator;
+const desktopPomodoroEffectsAvailable = platformHasCapability(
+  BUILD_PLATFORM_PROFILE,
+  "runtime.desktop-pomodoro-effects",
+);
 
 const DEFAULT_FOCUS_SECONDS = focusDurationMinutesAtPosition(DEFAULT_CONFIG, 1) * TIME_MULTIPLIER;
 
@@ -200,6 +212,7 @@ const {
 } = timerRuntime;
 
 function writeCurrentDoomscrollingRuntimeState(force = false): void {
+  if (!desktopPomodoroEffectsAvailable) return;
   doomscrollingController.writeCurrentState(force);
 }
 
@@ -324,6 +337,7 @@ const effects = createPomodoroEffects({
   canPauseResume: () => canPauseResumeSession(),
   canAddFocusTime: () => canExtendFocusTime(),
   pausedFocusPulseActive,
+  desktopIntegrationsAvailable: () => desktopPomodoroEffectsAvailable,
   notificationShown: () => notificationShown,
   setNotificationShown: (value) => {
     notificationShown = value;
@@ -419,6 +433,7 @@ const segmentController = createPomodoroSegmentController({
 }, runRepository);
 
 const idleController = createPomodoroIdleController({
+  nativeIdleDetectionAvailable: desktopPomodoroEffectsAvailable,
   get phase() {
     return phase;
   },
@@ -780,6 +795,7 @@ const suspendController = createPomodoroSuspendController({
 const commandController = createPomodoroCommandController({
   runtime,
   isCoordinator: () => pomodoroCoordinator,
+  nativeEventListener: pomodoroEnvironment.nativeEventListener,
   publishWindowSnapshot,
   setDismissedBlockId,
   clearBlockExpired: clearBlockExpiredInternal,
@@ -965,6 +981,30 @@ function skipSession(): void {
 
 async function cleanupOrphansInternal(): Promise<void> {
   await sessionController.cleanupOrphans();
+}
+
+async function recoverMobileRunInternal(): Promise<PomodoroMobileRecoveryResult> {
+  const result = await runRepository.recoverMobileRun();
+  if (result.kind !== "resumed") return result;
+  applyRecoveredMobileRun(result.run, {
+    runtime,
+    nativeIdleDetectionAvailable: desktopPomodoroEffectsAvailable,
+    stopVisualTick,
+    stopPausedOpportunityCountdown,
+    stopOvertime,
+    stopIdleChecking: idleController.stopChecking,
+    initListeners,
+    refreshFutureSegments: (blockId, eventDate) =>
+      segmentController.refreshFutureSegmentsForActiveWindow(blockId, eventDate),
+    startHeartbeat,
+    startVisualTick,
+    startPausedOpportunityCountdown,
+    startIdleChecking: idleController.startChecking,
+    scheduleBreakEndWarning: effects.scheduleBreakEndWarning,
+    updateTray: effects.updateTray,
+    publishWindowSnapshot,
+  });
+  return result;
 }
 
 // Public API
@@ -1154,6 +1194,10 @@ export function getPomodoro() {
     async cleanupOrphans() {
       if (forwardWindowCommand({ kind: "cleanup-orphans" })) return;
       await cleanupOrphansInternal();
+    },
+    /** Restore one valid Android run or close persisted state that cannot resume safely. */
+    async recoverMobileRun() {
+      return recoverMobileRunInternal();
     },
   };
 }

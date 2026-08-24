@@ -18,8 +18,10 @@
   import { getProjects } from "$lib/stores/projects.svelte";
   import { deleteActionForCalendarEvent } from "./occurrence-protection";
   import { getPreferences } from "$lib/stores/preferences.svelte";
+  import { getMobileBackStack } from "$lib/stores/mobile-back-stack.svelte";
   import { getViewport } from "$lib/stores/viewport.svelte";
   import { getLocalization } from "$lib/i18n/translator.svelte";
+  import { BUILD_PLATFORM_PROFILE, platformHasCapability } from "$lib/platform";
   import { cn } from "$lib/utils";
   import { formatShortcut, hasOnlyShortcutModifier, hasShortcutModifier } from "$lib/keyboard-shortcuts";
   import { moveRovingIndex } from "./event-panel-utils";
@@ -36,7 +38,7 @@
     canRunEventPanelSave,
   } from "./event-panel-actions-controller.svelte";
   import type { PanelSaveData } from "./event-panel-payloads";
-  import { getMusicContextAssignments, getMusicPlaylistSummaries } from "$lib/api/music-library";
+  import { getMusicContextAssignments, getMusicPlaylistSummaries } from "$lib/music/platform-library";
   import MusicSoundtrackAssignmentEditor from "$lib/components/music/MusicSoundtrackAssignmentEditor.svelte";
   import {
     completeMusicAssignmentDrafts,
@@ -56,11 +58,25 @@
   import Smile from "@lucide/svelte/icons/smile";
   import Eye from "@lucide/svelte/icons/eye";
   import Lock from "@lucide/svelte/icons/lock";
+  import X from "@lucide/svelte/icons/x";
 
 
   const theme = getTheme();
+  const musicAssignmentsAvailable = platformHasCapability(
+    BUILD_PLATFORM_PROFILE,
+    "music.context-assignments",
+  );
+  const notificationSchedulingAvailable = platformHasCapability(
+    BUILD_PLATFORM_PROFILE,
+    "notifications.native-scheduling",
+  );
+  const nativeIdleDetectionAvailable = platformHasCapability(
+    BUILD_PLATFORM_PROFILE,
+    "pomodoro.native-idle-detection",
+  );
   const projects = getProjects();
   const preferences = getPreferences();
+  const mobileBackStack = getMobileBackStack();
   const viewport = getViewport();
   const localization = getLocalization();
   const { t } = localization;
@@ -68,6 +84,7 @@
 
   let {
     mode,
+    mobileLayout = false,
     panelSessionKey = 0,
     start,
     end,
@@ -99,6 +116,7 @@
     onSurfaceStatusChange,
   }: {
     mode: "create" | "edit";
+    mobileLayout?: boolean;
     panelSessionKey?: number;
     start?: string;
     end?: string;
@@ -180,7 +198,7 @@
   const handleProjectSelect = (projectId: string | undefined): void => {
     const changed = session.projectId !== projectId;
     session.handleProjectSelect(projectId);
-    if (changed) void adoptProjectMusicSnapshot(projectId);
+    if (changed && musicAssignmentsAvailable) void adoptProjectMusicSnapshot(projectId);
   };
 
   let musicSnapshots = $state<MusicContextAssignmentDraft[]>(completeMusicAssignmentDrafts([]));
@@ -212,6 +230,7 @@
   }
 
   async function initializeMusicAssignments(key: string): Promise<void> {
+    if (!musicAssignmentsAvailable) return;
     const generation = ++musicLoadGeneration;
     const snapshotGeneration = ++musicSnapshotGeneration;
     const overrideGeneration = ++musicOverrideGeneration;
@@ -255,6 +274,7 @@
   }
 
   async function adoptProjectMusicSnapshot(projectId: string | undefined): Promise<void> {
+    if (!musicAssignmentsAvailable) return;
     const generation = ++musicSnapshotGeneration;
     musicAssignmentsLoading = true;
     musicAssignmentsError = null;
@@ -288,7 +308,12 @@
   let lastAutoOpenedMusicSession: number | null = null;
 
   $effect(() => {
-    if (!openMusicSection || panelSessionKey === undefined || panelSessionKey === lastAutoOpenedMusicSession) return;
+    if (
+      !musicAssignmentsAvailable
+      || !openMusicSection
+      || panelSessionKey === undefined
+      || panelSessionKey === lastAutoOpenedMusicSession
+    ) return;
     lastAutoOpenedMusicSession = panelSessionKey;
     openSection = "music";
   });
@@ -300,7 +325,8 @@
   });
   const panelWidth = $derived(geometry.width);
   const panelLayout = $derived(geometry.layout);
-  const panelCanDrag = $derived(geometry.canDrag);
+  const activePanelLayout = $derived(mobileLayout ? "fullscreen" : panelLayout);
+  const panelCanDrag = $derived(!mobileLayout && geometry.canDrag);
   const stackedDateTime = $derived(geometry.stackedDateTime);
 
   function isSectionEnabled(s: Section): boolean {
@@ -433,6 +459,11 @@
     } else if (mode === "create") {
       const createData = initialCreateData ?? {};
       session.initializeCreate(createData, start ?? "", end ?? "", initialAllDay);
+      if (!notificationSchedulingAvailable) {
+        session.notifEnabled = false;
+        session.notifSelected = new Set();
+        session.customNotifs = [];
+      }
     }
 
     dateTime.resetInteraction();
@@ -449,7 +480,7 @@
       (onInitialSync ?? onChange)?.(session.changesPayload());
     }
     session.initialized = true;
-    if (!parked) void initializeMusicAssignments(key);
+    if (!parked && musicAssignmentsAvailable) void initializeMusicAssignments(key);
 
     if (!parked && mode === "create") {
       const selectKey = key;
@@ -493,6 +524,27 @@
     }
   });
 
+  $effect(() => {
+    if (!dateTime.datepickerOpen) return;
+    return mobileBackStack.activate({
+      handle: () => dateTime.cancelDatePicker("start"),
+    });
+  });
+
+  $effect(() => {
+    if (!dateTime.timePickerTarget) return;
+    return mobileBackStack.activate({
+      handle: () => dateTime.closeTimePicker(),
+    });
+  });
+
+  $effect(() => {
+    if (!dateTime.endDatepickerOpen) return;
+    return mobileBackStack.activate({
+      handle: () => dateTime.cancelDatePicker("end"),
+    });
+  });
+
   // Sync date/time from event prop when block is dragged/resized externally.
   // Only updates time fields, not title/description/etc. which the user may
   // have edited in the panel. The session's diff-based dirty tracking handles
@@ -515,7 +567,7 @@
   const saveControlsDisabled = $derived(
     (controlsDisabled && !pomodoroReadOnlyInteractive) || session.savePending || !saveReady,
   );
-  const eventPanelBodyConstrained = $derived(geometry.bodyConstrained);
+  const eventPanelBodyConstrained = $derived(mobileLayout || geometry.bodyConstrained);
 
   // ─── Emit changes ───────────────────────────────────────────────
   /**
@@ -540,6 +592,11 @@
   // it would overflow the viewport.
   const panelStyle = $derived(geometry.style);
   const parkedPanelStyle = $derived(geometry.parkedStyle);
+  const activePanelStyle = $derived(
+    mobileLayout
+      ? "position:fixed; left:calc(var(--visual-viewport-offset-left) + var(--safe-area-left)); top:calc(var(--visual-viewport-offset-top) + var(--safe-area-top)); width:calc(var(--visual-viewport-width) - var(--safe-area-left) - var(--safe-area-right)); height:calc(var(--visual-viewport-height) - var(--safe-area-top) - var(--safe-area-bottom)); z-index:50;"
+      : panelStyle,
+  );
 
 
   const shortDate = $derived.by(() => {
@@ -573,8 +630,12 @@
     if (!externalDirty && !musicAssignmentsDirty && mode !== "create" && (!hadSaveableTimeDraft || !committedTimeDraft)) return;
     const data: PanelSaveData = {
       ...session.saveData(),
-      musicSnapshotAssignments: persistedMusicAssignmentDrafts(musicSnapshots),
-      musicOverrideAssignments: persistedMusicAssignmentDrafts(musicOverrides),
+      ...(musicAssignmentsAvailable
+        ? {
+            musicSnapshotAssignments: persistedMusicAssignmentDrafts(musicSnapshots),
+            musicOverrideAssignments: persistedMusicAssignmentDrafts(musicOverrides),
+          }
+        : {}),
     };
     const s = isRecurring ? session.scope : undefined;
     session.savePending = true;
@@ -805,11 +866,12 @@
 <div
   bind:this={geometry.panelEl}
   class="panel-root flex flex-col"
-  data-layout={panelLayout}
+  data-layout={activePanelLayout}
+  data-mobile={mobileLayout || undefined}
   data-readonly={controlsDisabled || undefined}
   data-parked={parked || undefined}
   aria-hidden={parked || undefined}
-  style="box-shadow: 0 0 2px 0px var(--panel-edge), 0 1px 2px var(--panel-shadow); {parked ? parkedPanelStyle : panelStyle} background-color: var(--panel-bg); visibility: {session.initialized && geometry.positionReady && !parked ? 'visible' : 'hidden'};"
+  style="box-shadow: 0 0 2px 0px var(--panel-edge), 0 1px 2px var(--panel-shadow); {parked ? parkedPanelStyle : activePanelStyle} background-color: var(--panel-bg); visibility: {session.initialized && geometry.positionReady && !parked ? 'visible' : 'hidden'};"
   onclick={handlePanelClick}
   onkeydown={handlePanelArrowKeydown}
 >
@@ -821,15 +883,39 @@
       panelCanDrag ? "cursor-grab active:cursor-grabbing" : "cursor-default",
     )}
     style="background-color: var(--sidebar);"
-    onpointerdown={(event) => geometry.handleDragStart(event)}
-    onpointermove={(event) => geometry.handleDragMove(event)}
-    onpointerup={() => geometry.handleDragEnd()}
-    onpointercancel={() => geometry.handleDragEnd()}
-    onlostpointercapture={() => geometry.handleDragEnd()}
+    onpointerdown={(event) => {
+      if (panelCanDrag) geometry.handleDragStart(event);
+    }}
+    onpointermove={(event) => {
+      if (panelCanDrag) geometry.handleDragMove(event);
+    }}
+    onpointerup={() => {
+      if (panelCanDrag) geometry.handleDragEnd();
+    }}
+    onpointercancel={() => {
+      if (panelCanDrag) geometry.handleDragEnd();
+    }}
+    onlostpointercapture={() => {
+      if (panelCanDrag) geometry.handleDragEnd();
+    }}
   >
+    {#if mobileLayout && !parked}
+      <div class="w-12" aria-hidden="true"></div>
+    {/if}
     <div class="flex flex-1 items-center justify-center py-2.5">
       <div class="h-[1.5px] w-9 bg-muted-foreground/50"></div>
     </div>
+    {#if mobileLayout && !parked}
+      <button
+        type="button"
+        aria-label={t("common.close")}
+        onclick={onClose}
+        onpointerdown={(event) => event.stopPropagation()}
+        class="flex h-12 w-12 shrink-0 items-center justify-center text-muted-foreground active:bg-accent"
+      >
+        <X size={22} aria-hidden="true" />
+      </button>
+    {/if}
   </div>
 
   <div
@@ -895,10 +981,11 @@
       <ProjectSelector
         selectedProjectId={session.projectId}
         disabled={controlsDisabled}
+        {mobileLayout}
         onSelect={handleProjectSelect}
       />
       {#if !controlsDisabled}
-        <ColorPicker color={session.color} theme={theme.current} onselect={(color) => {
+        <ColorPicker color={session.color} theme={theme.current} {mobileLayout} onselect={(color) => {
           session.color = color;
           session.emitChange();
         }} />
@@ -1175,12 +1262,14 @@
           bind:idleTimeoutEnabled={session.idleTimeoutEnabled}
           expanded={openSection === "pomodoro"}
           readonlyInteractive={pomodoroReadOnlyInteractive}
+          idleDetectionAvailable={nativeIdleDetectionAvailable}
           ontoggle={() => handleToggle("pomodoro")}
           onexpand={() => handleExpand("pomodoro")}
           onchange={() => session.emitChange()} />
       {/if}
 
       <!-- 3) Notifications -->
+      {#if notificationSchedulingAvailable}
       <NotificationsSection
         enabled={session.notifEnabled}
         bind:selected={session.notifSelected}
@@ -1189,6 +1278,7 @@
         ontoggle={() => handleToggle("notifications")}
         onexpand={() => handleExpand("notifications")}
         onchange={() => session.emitChange()} />
+      {/if}
 
       <!-- 4) Repeat -->
       <RecurrenceSection
@@ -1201,7 +1291,7 @@
         onchange={() => session.emitChange()} />
 
       <!-- 5) Music -->
-      {#if timedSectionsVisible}
+      {#if timedSectionsVisible && musicAssignmentsAvailable}
         <div class="flex flex-col rounded-none overflow-hidden" style="background-color: var(--panel-contrast);">
           <div class="section-header flex items-stretch">
             <div aria-hidden="true" class="flex w-10 shrink-0 items-center justify-center text-muted-foreground/50">
@@ -1249,7 +1339,7 @@
   <div
     class={cn(
       "shrink-0 px-4",
-      panelLayout === "fullscreen" ? "pb-2 pt-1" : "pb-3.5 pt-1.5",
+      activePanelLayout === "fullscreen" ? "pb-2 pt-1" : "pb-3.5 pt-1.5",
     )}
     style="background-color: var(--panel-bg);"
   >
@@ -1328,6 +1418,21 @@
     font-variant-numeric: tabular-nums;
     min-height: 0;
     overflow: hidden;
+  }
+
+  .panel-root[data-mobile="true"] :global(button),
+  .panel-root[data-mobile="true"] :global(input),
+  .panel-root[data-mobile="true"] :global(select) {
+    min-height: 3rem;
+  }
+
+  .panel-root[data-mobile="true"] .time-input-shell {
+    min-height: 3rem;
+  }
+
+  .panel-root[data-mobile="true"] .panel-footer-actions :global(button),
+  .panel-root[data-mobile="true"] .panel-footer-actions :global(div) {
+    min-height: 3rem;
   }
 
   .date-time-grid {

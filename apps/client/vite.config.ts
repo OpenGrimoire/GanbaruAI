@@ -8,11 +8,36 @@ import { fileURLToPath } from "node:url";
 
 const host = process.env.TAURI_DEV_HOST;
 const TAURI_DEV_READY_PATH = "/__ganbaru-ai_dev_ready";
+const TAURI_BUILD_PLATFORMS = ["linux", "windows", "macos", "android", "ios"] as const;
+const ANDROID_WEBVIEW_BUILD_TARGET = "chrome111";
+type TauriBuildPlatform = (typeof TAURI_BUILD_PLATFORMS)[number];
+type DesktopBuildPlatform = Extract<TauriBuildPlatform, "linux" | "windows" | "macos">;
+const TAURI_BUILD_PLATFORM_SET = new Set<string>(TAURI_BUILD_PLATFORMS);
 const configDir = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(configDir, "../..");
 const appVersion = readAppVersion();
 const buildRef = `${appVersion}+${readGitCommit()}${isGitDirty() ? "-dirty" : ""}`;
 const githubRepository = process.env.GANBARU_AI_RELEASE_REPOSITORY ?? "opengrimoire/ganbaru-ai";
+const buildPlatform = resolveTauriBuildPlatform(process.env.TAURI_ENV_PLATFORM);
+const mobileBuild = buildPlatform === "android" || buildPlatform === "ios";
+const androidBuild = buildPlatform === "android";
+
+function hostDesktopBuildPlatform(): DesktopBuildPlatform {
+  if (process.platform === "win32") return "windows";
+  if (process.platform === "darwin") return "macos";
+  return "linux";
+}
+
+function isTauriBuildPlatform(value: string): value is TauriBuildPlatform {
+  return TAURI_BUILD_PLATFORM_SET.has(value);
+}
+
+function resolveTauriBuildPlatform(value: string | undefined): TauriBuildPlatform {
+  if (value === undefined || value.length === 0) return hostDesktopBuildPlatform();
+  if (value === "darwin") return "macos";
+  if (isTauriBuildPlatform(value)) return value;
+  throw new Error(`Unsupported TAURI_ENV_PLATFORM value: ${value}`);
+}
 
 function readAppVersion(): string {
   const raw = readFileSync(path.join(configDir, "package.json"), "utf8");
@@ -254,14 +279,119 @@ export default defineConfig({
   define: {
     __GANBARU_AI_BUILD_REF__: JSON.stringify(buildRef),
     __GANBARU_AI_GITHUB_REPOSITORY__: JSON.stringify(githubRepository),
+    __GANBARU_AI_BUILD_PLATFORM__: JSON.stringify(buildPlatform),
   },
   resolve: {
     alias: {
+      "$lib/api/db": path.resolve(
+        configDir,
+        mobileBuild
+          ? "src/lib/api/db.mobile.ts"
+          : "src/lib/api/db.ts",
+      ),
+      "$lib/music/platform-library": path.resolve(
+        configDir,
+        mobileBuild
+          ? "src/lib/music/platform-library.mobile.ts"
+          : "src/lib/music/platform-library.ts",
+      ),
+      "$lib/window-sync-transport": path.resolve(
+        configDir,
+        mobileBuild
+          ? "src/lib/window-sync-transport.mobile.ts"
+          : "src/lib/window-sync-transport.ts",
+      ),
+      "$lib/stores/pomodoro-effects.svelte": path.resolve(
+        configDir,
+        mobileBuild
+          ? "src/lib/stores/pomodoro-effects.mobile.svelte.ts"
+          : "src/lib/stores/pomodoro-effects.svelte.ts",
+      ),
+      "$lib/stores/pomodoro-doomscrolling-controller": path.resolve(
+        configDir,
+        mobileBuild
+          ? "src/lib/stores/pomodoro-doomscrolling-controller.mobile.ts"
+          : "src/lib/stores/pomodoro-doomscrolling-controller.ts",
+      ),
+      "$lib/stores/pomodoro-window-coordinator": path.resolve(
+        configDir,
+        mobileBuild
+          ? "src/lib/stores/pomodoro-window-coordinator.mobile.ts"
+          : "src/lib/stores/pomodoro-window-coordinator.ts",
+      ),
+      "$lib/stores/pomodoro-runtime-environment": path.resolve(
+        configDir,
+        mobileBuild
+          ? "src/lib/stores/pomodoro-runtime-environment.mobile.ts"
+          : "src/lib/stores/pomodoro-runtime-environment.ts",
+      ),
+      "$lib/stores/mobile-back-stack.svelte": path.resolve(
+        configDir,
+        androidBuild
+          ? "src/lib/stores/mobile-back-stack.svelte.ts"
+          : "src/lib/stores/mobile-back-stack.desktop.ts",
+      ),
+      "$lib/components/projects/project-component-registry": path.resolve(
+        configDir,
+        mobileBuild
+          ? "src/lib/components/projects/project-component-registry.mobile.ts"
+          : "src/lib/components/projects/project-component-registry.ts",
+      ),
+      "$lib/components/notes/notes-working-markdown-platform": path.resolve(
+        configDir,
+        mobileBuild
+          ? "src/lib/components/notes/notes-working-markdown-platform.mobile.ts"
+          : "src/lib/components/notes/notes-working-markdown-platform.ts",
+      ),
+      "$lib/components/notes/notes-editor-platform-importers": path.resolve(
+        configDir,
+        mobileBuild
+          ? "src/lib/components/notes/notes-editor-platform-importers.mobile.ts"
+          : "src/lib/components/notes/notes-editor-platform-importers.ts",
+      ),
+      "$lib/components/notes/notes-project-platform-importers": path.resolve(
+        configDir,
+        mobileBuild
+          ? "src/lib/components/notes/notes-project-platform-importers.mobile.ts"
+          : "src/lib/components/notes/notes-project-platform-importers.ts",
+      ),
+      "$lib/components/music/MusicSoundtrackAssignmentEditor.svelte": path.resolve(
+        configDir,
+        mobileBuild
+          ? "src/lib/components/mobile/MobileNoopMusicAssignmentEditor.svelte"
+          : "src/lib/components/music/MusicSoundtrackAssignmentEditor.svelte",
+      ),
+      "$lib/components/projects/ProjectSettingsWorkingFoldersSection.svelte": path.resolve(
+        configDir,
+        mobileBuild
+          ? "src/lib/components/mobile/MobileNoopProjectWorkingFoldersSection.svelte"
+          : "src/lib/components/projects/ProjectSettingsWorkingFoldersSection.svelte",
+      ),
+      "$lib/components/notes/NotesWorkingMarkdownEditor.svelte": path.resolve(
+        configDir,
+        mobileBuild
+          ? "src/lib/components/mobile/MobileNoopNotesWorkingMarkdownEditor.svelte"
+          : "src/lib/components/notes/NotesWorkingMarkdownEditor.svelte",
+      ),
+      "$lib/components/notes/NotesProjectSettingsPanel.svelte": path.resolve(
+        configDir,
+        mobileBuild
+          ? "src/lib/components/mobile/MobileNoopNotesProjectSettingsPanel.svelte"
+          : "src/lib/components/notes/NotesProjectSettingsPanel.svelte",
+      ),
       $lib: path.resolve("./src/lib"),
+      "virtual:ganbaru-ai-platform-entry": path.resolve(
+        configDir,
+        mobileBuild
+          ? "src/main-mobile.ts"
+          : "src/main-desktop.ts",
+      ),
     },
   },
   clearScreen: false,
   build: {
+    target: androidBuild ? ANDROID_WEBVIEW_BUILD_TARGET : undefined,
+    cssTarget: androidBuild ? ANDROID_WEBVIEW_BUILD_TARGET : undefined,
     rolldownOptions: {
       preserveEntrySignatures: "allow-extension",
       output: {

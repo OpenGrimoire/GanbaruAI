@@ -15,6 +15,7 @@
   import type { NotesWorkingMarkdownFileRef } from "$lib/notes/types";
   import { getNotes } from "$lib/stores/notes.svelte";
   import { getProjects } from "$lib/stores/projects.svelte";
+  import { getMobileBackStack } from "$lib/stores/mobile-back-stack.svelte";
   import { getViewport } from "$lib/stores/viewport.svelte";
   import { isAppShortcutBlockedTarget, isEditableKeyboardTarget } from "$lib/utils";
   import {
@@ -29,12 +30,25 @@
   } from "./notes-component-registry";
   import NotesEditor from "./NotesEditor.svelte";
   import NotesProjectHome from "./NotesProjectHome.svelte";
-  import NotesProjectSettingsPanel from "./NotesProjectSettingsPanel.svelte";
+  import NotesProjectSettingsPanel from "$lib/components/notes/NotesProjectSettingsPanel.svelte";
   import NotesWorkspaceHeader from "./NotesWorkspaceHeader.svelte";
-  import NotesWorkingMarkdownEditor from "./NotesWorkingMarkdownEditor.svelte";
+  import NotesWorkingMarkdownEditor from "$lib/components/notes/NotesWorkingMarkdownEditor.svelte";
+  import {
+    EMPTY_NOTES_MUSIC_MENTION_CONTEXT,
+    type NotesMusicMentionContext,
+  } from "./notes-block-mention-targets";
+
+  let {
+    mobileLayout = false,
+    musicMentionContext = EMPTY_NOTES_MUSIC_MENTION_CONTEXT,
+  }: {
+    mobileLayout?: boolean;
+    musicMentionContext?: NotesMusicMentionContext;
+  } = $props();
 
   const notes = getNotes();
   const projects = getProjects();
+  const mobileBackStack = getMobileBackStack();
   const viewport = getViewport();
   const { t } = getLocalization();
 
@@ -117,6 +131,8 @@
       ? surfaceLoadStates[activeSurfaceKind] ?? null
       : null,
   );
+  const showProjectExplorer = $derived(!mobileLayout || activeSurfaceKind === "home");
+  const showPrimaryContent = $derived(!mobileLayout || activeSurfaceKind !== "home");
   const projectHistoryLoadState = $derived(optionalLoadStates["project-history"] ?? null);
   const confirmDialogLoadState = $derived(optionalLoadStates["confirm-dialog"] ?? null);
 
@@ -173,6 +189,35 @@
     });
   }
 
+  $effect(() => {
+    if (!mobileLayout || notes.selectedPageId === null) return;
+    return mobileBackStack.activate({
+      handle: () => {
+        if (!beforeDocumentNavigation()) return;
+        void notes.closeContextualPage();
+        clearMobileNotesHash();
+      },
+    });
+  });
+
+  $effect(() => {
+    if (!mobileLayout || notes.viewMode !== "archive") return;
+    return mobileBackStack.activate({
+      handle: () => {
+        notes.closeArchive();
+      },
+    });
+  });
+
+  $effect(() => {
+    if (!mobileLayout || notes.viewMode !== "trash") return;
+    return mobileBackStack.activate({
+      handle: () => {
+        notes.closeTrash();
+      },
+    });
+  });
+
   onMount(() => {
     async function openHashTarget(): Promise<void> {
       const target = parseNotesLinkHash(window.location.hash);
@@ -222,11 +267,15 @@
   });
 
   $effect(() => {
-    if (projectVersionHistoryOpen) requestNotesOptionalComponent("project-history");
+    if (!mobileLayout && projectVersionHistoryOpen) {
+      requestNotesOptionalComponent("project-history");
+    }
   });
 
   $effect(() => {
-    if (projectSettingsDiscardConfirmOpen) requestNotesOptionalComponent("confirm-dialog");
+    if (!mobileLayout && projectSettingsDiscardConfirmOpen) {
+      requestNotesOptionalComponent("confirm-dialog");
+    }
   });
 
   function showProjectHome(): void {
@@ -266,6 +315,7 @@
   }
 
   function selectWorkingMarkdownFile(file: NotesWorkingMarkdownFileRef): void {
+    if (mobileLayout) return;
     const unchanged = selectedWorkingMarkdownFile?.workingFolderId === file.workingFolderId
       && selectedWorkingMarkdownFile.relativePath === file.relativePath;
     if (unchanged) return;
@@ -349,6 +399,19 @@
 
   function closePagePeek(): void {
     void notes.closeContextualPage();
+    if (mobileLayout) clearMobileNotesHash();
+  }
+
+  function clearMobileNotesHash(): void {
+    if (!window.location.hash) return;
+    const previousUrl = window.location.href;
+    const nextUrl = new URL(previousUrl);
+    nextUrl.hash = "";
+    window.history.replaceState(window.history.state, "", nextUrl);
+    window.dispatchEvent(new HashChangeEvent("hashchange", {
+      oldURL: previousUrl,
+      newURL: nextUrl.href,
+    }));
   }
 
   function showSelectedPageAs(openMode: NotesPageOpenMode): void {
@@ -438,26 +501,30 @@
 <div
   bind:this={notesRootElement}
   class="notes-view-root flex h-full min-h-0 flex-col overflow-hidden text-foreground"
+  class:notes-view-mobile={mobileLayout}
   style="background-color: var(--cal-bg);"
   data-first-use-shell="notes"
 >
-  <NotesWorkspaceHeader
-    {selectedProject}
-    {selectedGroup}
-    {selectedProjectId}
-    selectedPage={topBarSelectedPage}
-    {explorerCollapsed}
-    {creationFolderId}
-    {showInactiveProjects}
-    onShowInactiveProjectsChange={(value) => {
-      showInactiveProjects = value;
-    }}
-    onProjectSelected={handleProjectSelected}
-    onShowHome={showProjectHome}
-    {projectSettingsOpen}
-    onToggleProjectSettings={toggleProjectSettings}
-  />
-  {#if projectSettingsOpen && selectedProjectId}
+  {#if !mobileLayout || activeSurfaceKind !== "editor" || !showFullPageEditor}
+    <NotesWorkspaceHeader
+      {mobileLayout}
+      {selectedProject}
+      {selectedGroup}
+      {selectedProjectId}
+      selectedPage={topBarSelectedPage}
+      {explorerCollapsed}
+      {creationFolderId}
+      {showInactiveProjects}
+      onShowInactiveProjectsChange={(value) => {
+        showInactiveProjects = value;
+      }}
+      onProjectSelected={handleProjectSelected}
+      onShowHome={showProjectHome}
+      {projectSettingsOpen}
+      onToggleProjectSettings={toggleProjectSettings}
+    />
+  {/if}
+  {#if !mobileLayout && projectSettingsOpen && selectedProjectId}
     <NotesProjectSettingsPanel
         projectId={selectedProjectId}
         popoverBoundaryElement={notesRootElement}
@@ -470,7 +537,7 @@
         onOpenTrash={openTrashFromProjectSettings}
     />
   {/if}
-  {#if projectVersionHistoryOpen && selectedProject}
+  {#if !mobileLayout && projectVersionHistoryOpen && selectedProject}
     {#if projectHistoryLoadState?.status === "ready" && projectHistoryLoadState.component.kind === "project-history"}
       {@const NotesProjectVersionHistoryModal = projectHistoryLoadState.component.component}
       <NotesProjectVersionHistoryModal
@@ -500,7 +567,7 @@
       </div>
     {/if}
   {/if}
-  {#if projectSettingsDiscardConfirmOpen}
+  {#if !mobileLayout && projectSettingsDiscardConfirmOpen}
     {#if confirmDialogLoadState?.status === "ready" && confirmDialogLoadState.component.kind === "confirm-dialog"}
       {@const ConfirmDialog = confirmDialogLoadState.component.component}
       <ConfirmDialog
@@ -528,61 +595,71 @@
     {/if}
   {/if}
   <div class="notes-view-layout relative flex min-h-0 flex-1 overflow-hidden">
-    <NotesProjectHome
-      projectId={selectedProjectId}
-      bind:explorerCollapsed
-      {creationFolderId}
-      {selectedWorkingMarkdownFile}
-      onSelectWorkingMarkdownFile={selectWorkingMarkdownFile}
-      onBeforeDocumentNavigation={beforeDocumentNavigation}
-      onCreationFolderChange={(folderId) => {
-        creationFolderOverride = folderId;
-      }}
-    />
-    <div class={showSidePeek ? "flex min-w-0 basis-1/2 overflow-hidden" : "flex min-w-0 flex-1 overflow-hidden"}>
-      {#if !notes.loaded && notes.loadError}
-        <div class="flex min-w-0 flex-1 flex-col items-center justify-center gap-3 p-4 text-center" role="alert" data-notes-first-use-state>
-          <p class="text-sm text-destructive">{t("notes.loadFailed", notes.loadError)}</p>
-          <button
-            type="button"
-            class="min-h-9 rounded-md border border-border px-3 text-sm hover:bg-accent"
-            onclick={() => {
-              void notes.load().catch((error) => {
-                console.error("retry Notes load failed", error);
-              });
-            }}
-          >
-            {t("common.retry")}
-          </button>
-        </div>
-      {:else if selectedWorkingMarkdownFile}
-        <NotesWorkingMarkdownEditor
-          file={selectedWorkingMarkdownFile}
-          onDirtyChange={(dirty) => { workingMarkdownDirty = dirty; }}
-        />
-      {:else if activeSurfaceKind === "archive" || activeSurfaceKind === "trash"}
-        {#if activeSurfaceLoadState?.status === "ready" && activeSurfaceLoadState.component.kind === activeSurfaceKind}
-          {@const ActiveNotesSurface = activeSurfaceLoadState.component.component}
-          <ActiveNotesSurface />
-        {:else if activeSurfaceLoadState?.status === "failed"}
-          <div class="flex min-w-0 flex-1 flex-col items-center justify-center gap-3 p-4 text-center" role="alert">
-            <p class="text-sm text-destructive">{t("common.viewLoadFailed", activeSurfaceKind === "archive" ? t("notes.archive") : t("notes.trash"))}</p>
-            <button type="button" class="min-h-9 rounded-md border border-border px-3 text-sm hover:bg-accent" onclick={() => requestNotesSurface(activeSurfaceKind, true)}>{t("common.retry")}</button>
+    {#if showProjectExplorer}
+      <NotesProjectHome
+        {mobileLayout}
+        projectId={selectedProjectId}
+        bind:explorerCollapsed
+        {creationFolderId}
+        {selectedWorkingMarkdownFile}
+        onSelectWorkingMarkdownFile={selectWorkingMarkdownFile}
+        onBeforeDocumentNavigation={beforeDocumentNavigation}
+        onCreationFolderChange={(folderId) => {
+          creationFolderOverride = folderId;
+        }}
+      />
+    {/if}
+    {#if showPrimaryContent}
+      <div class={showSidePeek ? "flex min-w-0 basis-1/2 overflow-hidden" : "flex min-w-0 flex-1 overflow-hidden"}>
+        {#if !notes.loaded && notes.loadError}
+          <div class="flex min-w-0 flex-1 flex-col items-center justify-center gap-3 p-4 text-center" role="alert" data-notes-first-use-state>
+            <p class="text-sm text-destructive">{t("notes.loadFailed", notes.loadError)}</p>
+            <button
+              type="button"
+              class="rounded-md border border-border px-3 text-sm hover:bg-accent {mobileLayout ? 'min-h-12' : 'min-h-9'}"
+              onclick={() => {
+                void notes.load().catch((error) => {
+                  console.error("retry Notes load failed", error);
+                });
+              }}
+            >
+              {t("common.retry")}
+            </button>
+          </div>
+        {:else if !mobileLayout && selectedWorkingMarkdownFile}
+          <NotesWorkingMarkdownEditor
+            file={selectedWorkingMarkdownFile}
+            onDirtyChange={(dirty) => { workingMarkdownDirty = dirty; }}
+          />
+        {:else if activeSurfaceKind === "archive" || activeSurfaceKind === "trash"}
+          {#if activeSurfaceLoadState?.status === "ready" && activeSurfaceLoadState.component.kind === activeSurfaceKind}
+            {@const ActiveNotesSurface = activeSurfaceLoadState.component.component}
+            <ActiveNotesSurface />
+          {:else if activeSurfaceLoadState?.status === "failed"}
+            <div class="flex min-w-0 flex-1 flex-col items-center justify-center gap-3 p-4 text-center" role="alert">
+              <p class="text-sm text-destructive">{t("common.viewLoadFailed", activeSurfaceKind === "archive" ? t("notes.archive") : t("notes.trash"))}</p>
+              <button type="button" class="rounded-md border border-border px-3 text-sm hover:bg-accent {mobileLayout ? 'min-h-12' : 'min-h-9'}" onclick={() => requestNotesSurface(activeSurfaceKind, true)}>{t("common.retry")}</button>
+            </div>
+          {:else}
+            <div class="flex min-w-0 flex-1 items-center justify-center p-4 text-sm text-muted-foreground" aria-busy="true">{t("common.loading")}</div>
+          {/if}
+        {:else if showFullPageEditor}
+          <NotesEditor
+            projectId={selectedProjectId}
+            openMode="full"
+            onClose={closePagePeek}
+            onOpenModeChange={showSelectedPageAs}
+            {musicMentionContext}
+          />
+        {:else if mobileLayout && activeSurfaceKind === "editor"}
+          <div class="flex min-w-0 flex-1 items-center justify-center p-4 text-sm text-muted-foreground" aria-busy="true">
+            {t("common.loading")}
           </div>
         {:else}
-          <div class="flex min-w-0 flex-1 items-center justify-center p-4 text-sm text-muted-foreground" aria-busy="true">{t("common.loading")}</div>
+          <div class="min-w-0 flex-1"></div>
         {/if}
-      {:else if showFullPageEditor}
-        <NotesEditor
-          projectId={selectedProjectId}
-          openMode="full"
-          onClose={closePagePeek}
-          onOpenModeChange={showSelectedPageAs}
-        />
-      {:else}
-        <div class="min-w-0 flex-1"></div>
-      {/if}
-    </div>
+      </div>
+    {/if}
 
     {#if showSidePeek}
       <div
@@ -596,6 +673,7 @@
           openMode="side"
           onClose={closePagePeek}
           onOpenModeChange={showSelectedPageAs}
+          {musicMentionContext}
         />
       </div>
     {/if}
@@ -619,6 +697,7 @@
             openMode="center"
             onClose={closePagePeek}
             onOpenModeChange={showSelectedPageAs}
+            {musicMentionContext}
           />
         </div>
       </div>
@@ -637,7 +716,7 @@
   }
 
   @container notes-view (max-width: 34rem) {
-    :global(.notes-project-explorer) {
+    .notes-view-root:not(.notes-view-mobile) :global(.notes-project-explorer) {
       display: none;
     }
   }

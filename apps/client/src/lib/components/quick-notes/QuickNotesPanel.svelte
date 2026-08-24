@@ -34,19 +34,28 @@
   } from "$lib/quick-notes/initial-snapshot";
   import type { QuickNote, QuickNotesCollection, QuickNoteTag } from "$lib/quick-notes/types";
   import { listenForQuickNotesChanges, publishQuickNotesChanged } from "$lib/quick-notes/window-sync";
+  import { getMobileBackStack } from "$lib/stores/mobile-back-stack.svelte";
   import { getTheme } from "$lib/stores/theme.svelte";
   import ConfirmDialog from "$lib/components/ui/ConfirmDialog.svelte";
   import QuickNoteEditorModal from "./QuickNoteEditorModal.svelte";
   import QuickNoteTagManager from "./QuickNoteTagManager.svelte";
   import QuickNotesMasonry from "./QuickNotesMasonry.svelte";
 
-  let { onclose }: { onclose: () => void } = $props();
+  let {
+    onclose,
+    mobileLayout = false,
+  }: {
+    onclose: () => void;
+    mobileLayout?: boolean;
+  } = $props();
 
   const { t } = getLocalization();
   const theme = getTheme();
+  const mobileBackStack = getMobileBackStack();
   const initialSnapshot = readQuickNotesInitialSnapshot();
   let panel = $state<HTMLDivElement | null>(null);
   let searchInput = $state<HTMLInputElement | null>(null);
+  let searchButton = $state<HTMLButtonElement | null>(null);
   let collection = $state<QuickNotesCollection>("active");
   let renderedCollection = $state<QuickNotesCollection>("active");
   let selectedTagId = $state<string | null>(null);
@@ -93,6 +102,16 @@
       : collection === "trash"
         ? t("quickNotes.empty.trash")
         : null);
+  const childOverlayOpen = $derived(editorNote !== undefined || deleteTarget !== null || confirmEmptyTrash);
+  const panelClass = $derived(mobileLayout
+    ? "fixed z-50 flex flex-col overflow-hidden text-foreground outline-none"
+    : "fixed right-2 z-50 flex w-[min(760px,calc(100vw-1rem))] flex-col overflow-hidden rounded-xl text-foreground shadow-lg outline-none");
+  const panelStyle = $derived(mobileLayout
+    ? "left: calc(var(--visual-viewport-offset-left) + var(--safe-area-left)); top: calc(var(--visual-viewport-offset-top) + var(--safe-area-top)); width: calc(var(--visual-viewport-width) - var(--safe-area-left) - var(--safe-area-right)); height: calc(var(--visual-viewport-height) - var(--safe-area-top) - var(--safe-area-bottom)); background-color: var(--cal-bg);"
+    : "top: calc(var(--titlebar-h) + 4px); height: min(680px, calc(100dvh - var(--titlebar-h) - 12px)); background-color: var(--cal-bg);");
+  const compactHeaderButton = $derived(mobileLayout
+    ? "flex min-h-12 min-w-12 shrink-0 items-center justify-center rounded-xl text-foreground transition-colors active:bg-accent"
+    : "flex size-7 items-center justify-center rounded-md text-foreground transition-colors hover:bg-accent/60");
 
   async function load(reset = true): Promise<void> {
     const generation = ++loadGeneration;
@@ -200,6 +219,7 @@
   function closeSearch(): void {
     searchOpen = false;
     if (searchText) updateSearch("");
+    void tick().then(() => searchButton?.focus());
   }
 
   function revisionRequest(note: QuickNote): { id: string; expectedRevision: number } {
@@ -388,6 +408,10 @@
       if (targetDialog !== null && targetDialog !== panel) return;
       event.preventDefault();
       event.stopPropagation();
+      if (searchOpen) {
+        closeSearch();
+        return;
+      }
       onclose();
       return;
     }
@@ -414,10 +438,14 @@
     )].filter((element) => element.offsetParent !== null);
     const first = focusable[0];
     const last = focusable.at(-1);
-    if (first && last && event.shiftKey && document.activeElement === first) {
+    const active = document.activeElement;
+    if (first && last && (active === panel || !panel.contains(active))) {
+      event.preventDefault();
+      (event.shiftKey ? last : first).focus();
+    } else if (first && last && event.shiftKey && active === first) {
       event.preventDefault();
       last.focus();
-    } else if (first && last && !event.shiftKey && document.activeElement === last) {
+    } else if (first && last && !event.shiftKey && active === last) {
       event.preventDefault();
       first.focus();
     }
@@ -434,8 +462,14 @@
     return { destroy: () => observer.disconnect() };
   }
 
+  $effect(() => {
+    if (!mobileLayout || !searchOpen) return;
+    return mobileBackStack.activate({ handle: closeSearch });
+  });
+
   onMount(() => {
     const returnFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const fallbackReturnFocus = document.querySelector<HTMLElement>("[data-mobile-quick-notes-trigger]");
     window.addEventListener("keydown", handlePanelKeydown, true);
     if (initialSnapshot === null) {
       void preloadQuickNotesInitialSnapshot().then((snapshot) => {
@@ -449,7 +483,12 @@
         initializing = false;
       });
     }
-    void tick().then(() => panel?.focus());
+    void tick().then(() => {
+      const firstControl = panel?.querySelector<HTMLElement>(
+        "button:not([disabled]), input:not([disabled]), [tabindex]:not([tabindex='-1'])",
+      );
+      (firstControl ?? panel)?.focus();
+    });
     let stopSync: (() => void) | null = null;
     void listenForQuickNotesChanges(() => {
       animateLayout = true;
@@ -461,7 +500,10 @@
       stopSync?.();
       if (searchTimer) clearTimeout(searchTimer);
       if (undoTimer) clearTimeout(undoTimer);
-      queueMicrotask(() => returnFocus?.focus());
+      queueMicrotask(() => {
+        if (returnFocus?.isConnected) returnFocus.focus();
+        else fallbackReturnFocus?.focus();
+      });
     };
   });
 </script>
@@ -471,20 +513,23 @@
 <div class="fixed inset-0 z-40" onclick={(event) => { if (event.target === event.currentTarget) onclose(); }}></div>
 <div
   bind:this={panel}
-  class="fixed right-2 z-50 flex w-[min(760px,calc(100vw-1rem))] flex-col overflow-hidden rounded-xl text-foreground shadow-lg outline-none"
-  style="top: calc(var(--titlebar-h) + 4px); height: min(680px, calc(100dvh - var(--titlebar-h) - 12px)); background-color: var(--cal-bg);"
+  class={panelClass}
+  style={panelStyle}
   role="dialog"
   aria-modal="true"
   aria-label={t("quickNotes.title")}
+  aria-hidden={childOverlayOpen ? "true" : undefined}
+  inert={childOverlayOpen}
   tabindex="-1"
+  data-app-shortcuts="ignore"
 >
-  <header class="shrink-0 px-3 pb-1.5 pt-3 sm:px-4">
-    <div class="flex min-w-0 items-center gap-1">
-      <div class="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto" role="group" aria-label={t("quickNotes.title")}>
+  <header class={mobileLayout ? "shrink-0 px-2 pb-2 pt-2" : "shrink-0 px-3 pb-1.5 pt-3 sm:px-4"}>
+    <div class={mobileLayout ? "flex min-w-0 flex-col gap-1" : "flex min-w-0 items-center gap-1"}>
+      <div class={mobileLayout ? "flex min-h-12 w-full min-w-0 items-center gap-1 overflow-x-auto" : "flex min-w-0 flex-1 items-center gap-1 overflow-x-auto"} role="group" aria-label={t("quickNotes.title")}>
         <button
           type="button"
           aria-pressed={collection === "active" && selectedTagId === null}
-          class={`flex h-7 shrink-0 items-center rounded-md px-2.5 text-xs text-foreground transition-colors ${collection === "active" && selectedTagId === null ? "bg-accent/60" : "hover:bg-accent/60"}`}
+          class={`flex shrink-0 items-center text-foreground transition-colors ${mobileLayout ? "min-h-12 rounded-xl px-4 text-sm active:bg-accent" : "h-7 rounded-md px-2.5 text-xs hover:bg-accent/60"} ${collection === "active" && selectedTagId === null ? "bg-accent/60" : ""}`}
           title={`${t("quickNotes.collection.active")} (${t("calendar.toolbar.shortcutKey", "1")})`}
           onclick={() => selectTag(null)}
         >{t("quickNotes.collection.active")}</button>
@@ -492,97 +537,99 @@
           <button
             type="button"
             aria-pressed={collection === "active" && selectedTagId === tag.id}
-            class={`flex h-7 max-w-32 shrink-0 items-center rounded-md px-2.5 text-xs text-foreground transition-colors ${collection === "active" && selectedTagId === tag.id ? "bg-accent/60" : "hover:bg-accent/60"}`}
+            class={`flex shrink-0 items-center text-foreground transition-colors ${mobileLayout ? "min-h-12 max-w-40 rounded-xl px-4 text-sm active:bg-accent" : "h-7 max-w-32 rounded-md px-2.5 text-xs hover:bg-accent/60"} ${collection === "active" && selectedTagId === tag.id ? "bg-accent/60" : ""}`}
             title={tagTitle(tag, index)}
             onclick={() => selectTag(tag.id)}
           ><span class="truncate">{tag.name}</span></button>
         {/each}
-        <QuickNoteTagManager tagCount={tags.length} oncreate={createTag} />
+        <QuickNoteTagManager tagCount={tags.length} oncreate={createTag} {mobileLayout} />
       </div>
-      <div class="ml-auto flex shrink-0 items-center gap-1" role="group" aria-label={t("quickNotes.title")}>
+      <div class={mobileLayout ? "flex min-h-12 w-full min-w-0 items-center gap-1" : "ml-auto flex shrink-0 items-center gap-1"} role="group" aria-label={t("quickNotes.title")}>
+        {#if mobileLayout && !searchOpen}<h2 class="min-w-0 flex-1 truncate px-2 text-base font-semibold">{t("quickNotes.title")}</h2>{/if}
         {#if searchOpen}
-          <div class="relative w-24 sm:w-48">
-            <Search class="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" strokeWidth={1.5} />
+          <div class={mobileLayout ? "relative min-w-0 flex-1" : "relative w-24 sm:w-48"}>
+            <Search class={mobileLayout ? "pointer-events-none absolute left-3 top-1/2 size-5 -translate-y-1/2 text-muted-foreground" : "pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground"} strokeWidth={1.5} />
             <input
               bind:this={searchInput}
               type="search"
               value={searchText}
-              class="h-7 w-full rounded-md border border-border bg-background/65 pl-8 pr-7 text-xs outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              class={mobileLayout ? "min-h-12 w-full rounded-xl border border-border bg-background/65 pl-10 pr-12 text-base outline-none focus-visible:ring-2 focus-visible:ring-ring" : "h-7 w-full rounded-md border border-border bg-background/65 pl-8 pr-7 text-xs outline-none focus-visible:ring-2 focus-visible:ring-ring"}
               placeholder={t("quickNotes.search")}
               aria-label={t("quickNotes.search")}
               oninput={(event) => updateSearch(event.currentTarget.value)}
             />
-            <button type="button" class="absolute right-1 top-1/2 flex size-5 -translate-y-1/2 items-center justify-center rounded hover:bg-accent" aria-label={t("quickNotes.clearSearch")} onclick={closeSearch}><X class="size-3" strokeWidth={1.5} /></button>
+            <button type="button" class={mobileLayout ? "absolute right-0 top-1/2 flex size-12 -translate-y-1/2 items-center justify-center rounded-xl active:bg-accent" : "absolute right-1 top-1/2 flex size-5 -translate-y-1/2 items-center justify-center rounded hover:bg-accent"} aria-label={t("quickNotes.clearSearch")} onclick={closeSearch}><X class={mobileLayout ? "size-5" : "size-3"} strokeWidth={1.5} /></button>
           </div>
         {:else}
           <button
+            bind:this={searchButton}
             type="button"
             aria-label={t("quickNotes.search")}
             title={t("quickNotes.search")}
-            class="flex size-7 items-center justify-center rounded-md text-foreground transition-colors hover:bg-accent/60"
+            class={compactHeaderButton}
             onclick={() => void openSearch()}
-          ><Search class="size-3.5" strokeWidth={1.5} /></button>
+          ><Search class={mobileLayout ? "size-5" : "size-3.5"} strokeWidth={1.5} /></button>
         {/if}
         <button
           type="button"
           aria-pressed={collection === "archive"}
           aria-label={t("quickNotes.collection.archive")}
           title={t("quickNotes.collection.archive")}
-          class={`flex size-7 items-center justify-center rounded-md text-foreground transition-colors ${collection === "archive" ? "bg-accent" : "hover:bg-accent/60"}`}
+          class={`${compactHeaderButton} ${collection === "archive" ? "bg-accent" : ""}`}
           onclick={() => selectCollection("archive")}
-        ><Archive class="size-3.5" strokeWidth={1.5} /></button>
+        ><Archive class={mobileLayout ? "size-5" : "size-3.5"} strokeWidth={1.5} /></button>
         <button
           type="button"
           aria-pressed={collection === "trash"}
           aria-label={t("quickNotes.collection.trash")}
           title={t("quickNotes.collection.trash")}
-          class={`flex size-7 items-center justify-center rounded-md text-foreground transition-colors ${collection === "trash" ? "bg-accent" : "hover:bg-accent/60"}`}
+          class={`${compactHeaderButton} ${collection === "trash" ? "bg-accent" : ""}`}
           onclick={() => selectCollection("trash")}
-        ><Trash2 class="size-3.5" strokeWidth={1.5} /></button>
+        ><Trash2 class={mobileLayout ? "size-5" : "size-3.5"} strokeWidth={1.5} /></button>
         <button
           type="button"
-          class="flex size-7 items-center justify-center rounded-md text-foreground transition-colors hover:bg-accent/60"
+          class={compactHeaderButton}
           aria-label={t("common.close")}
           title={t("common.close")}
           onclick={onclose}
-        ><X class="size-4" strokeWidth={1.5} /></button>
+        ><X class={mobileLayout ? "size-5" : "size-4"} strokeWidth={1.5} /></button>
       </div>
     </div>
   </header>
 
-  <div data-quick-notes-scroll class="min-h-0 flex-1 overflow-y-auto px-3 pb-3 pt-1.5 sm:px-4" aria-busy={loading}>
+  <div data-quick-notes-scroll class={mobileLayout ? "min-h-0 flex-1 overscroll-contain overflow-y-auto px-3 pb-4 pt-2" : "min-h-0 flex-1 overflow-y-auto px-3 pb-3 pt-1.5 sm:px-4"} aria-busy={loading}>
     {#if renderedCollection === "active"}
       <button
         type="button"
-        class="mx-auto mb-4 flex min-h-12 w-2/3 items-center rounded-xl px-4 text-left text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        class={`mx-auto mb-4 flex min-h-12 items-center rounded-xl px-4 text-left text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${mobileLayout ? "w-full" : "w-2/3"}`}
         style="background-color: {creationColors.bg}; color: {creationColors.text};"
         onclick={() => { editorNote = null; }}
       >{t("quickNotes.takeNote")}</button>
     {:else if renderedCollection === "trash"}
       <div class="mb-3 flex items-center gap-2 rounded-lg bg-muted/45 px-3 py-2">
         <p class="min-w-0 flex-1 text-xs text-muted-foreground">{t("quickNotes.trashRetention")}</p>
-        {#if notes.length > 0}<button type="button" class="shrink-0 rounded-md px-2 py-1 text-xs text-destructive hover:bg-destructive/10" onclick={() => { confirmEmptyTrash = true; }}>{t("quickNotes.action.emptyTrash")}</button>{/if}
+        {#if notes.length > 0}<button type="button" class={mobileLayout ? "min-h-12 shrink-0 rounded-xl px-3 text-xs text-destructive active:bg-destructive/10" : "shrink-0 rounded-md px-2 py-1 text-xs text-destructive hover:bg-destructive/10"} onclick={() => { confirmEmptyTrash = true; }}>{t("quickNotes.action.emptyTrash")}</button>{/if}
       </div>
     {/if}
 
     {#if loadError && notes.length === 0}
       <div class="flex min-h-40 flex-col items-center justify-center gap-3 text-center">
         <p class="text-sm text-muted-foreground">{t("quickNotes.loadFailed")}</p>
-        <button type="button" class="rounded-md border border-border px-3 py-1.5 text-sm hover:bg-accent" onclick={() => void load()}>{t("quickNotes.retry")}</button>
+        <button type="button" class={mobileLayout ? "min-h-12 rounded-xl border border-border px-4 text-sm active:bg-accent" : "rounded-md border border-border px-3 py-1.5 text-sm hover:bg-accent"} onclick={() => void load()}>{t("quickNotes.retry")}</button>
       </div>
     {:else if !initializing && notes.length === 0}
       {#if emptyMessage}<div class="flex min-h-40 items-center justify-center text-center text-sm text-muted-foreground">{emptyMessage}</div>{/if}
     {:else}
       {#if pinnedNotes.length > 0}
         <h3 class="mb-2 px-1 text-[0.7rem] font-semibold uppercase tracking-[0.12em] text-muted-foreground">{t("quickNotes.pinned")}</h3>
-        <QuickNotesMasonry notes={pinnedNotes} collection={renderedCollection} {animateLayout} {reorderable} theme={theme.current} {tags} onopen={(note) => void openNote(note)} onreorder={(ids, id, position) => reorderNoteGroup(ids, id, position, true)} onpin={pinNote} oncolor={colorNote} ontag={tagNote} onarchive={archiveNote} onunarchive={unarchiveNote} ontrash={trashNote} onrestore={restoreNote} ondelete={(note) => { deleteTarget = note; }} />
+        <QuickNotesMasonry notes={pinnedNotes} collection={renderedCollection} {animateLayout} {reorderable} theme={theme.current} {tags} {mobileLayout} onopen={(note) => void openNote(note)} onreorder={(ids, id, position) => reorderNoteGroup(ids, id, position, true)} onpin={pinNote} oncolor={colorNote} ontag={tagNote} onarchive={archiveNote} onunarchive={unarchiveNote} ontrash={trashNote} onrestore={restoreNote} ondelete={(note) => { deleteTarget = note; }} />
       {/if}
       {#if otherNotes.length > 0}
         {#if pinnedNotes.length > 0}<h3 class="mb-2 mt-5 px-1 text-[0.7rem] font-semibold uppercase tracking-[0.12em] text-muted-foreground">{t("quickNotes.others")}</h3>{/if}
-        <QuickNotesMasonry notes={otherNotes} collection={renderedCollection} {animateLayout} {reorderable} theme={theme.current} {tags} onopen={(note) => void openNote(note)} onreorder={(ids, id, position) => reorderNoteGroup(ids, id, position, false)} onpin={pinNote} oncolor={colorNote} ontag={tagNote} onarchive={archiveNote} onunarchive={unarchiveNote} ontrash={trashNote} onrestore={restoreNote} ondelete={(note) => { deleteTarget = note; }} />
+        <QuickNotesMasonry notes={otherNotes} collection={renderedCollection} {animateLayout} {reorderable} theme={theme.current} {tags} {mobileLayout} onopen={(note) => void openNote(note)} onreorder={(ids, id, position) => reorderNoteGroup(ids, id, position, false)} onpin={pinNote} oncolor={colorNote} ontag={tagNote} onarchive={archiveNote} onunarchive={unarchiveNote} ontrash={trashNote} onrestore={restoreNote} ondelete={(note) => { deleteTarget = note; }} />
       {/if}
       {#if nextCursor}
-        <button use:observeMore type="button" class="mt-4 w-full rounded-md py-2 text-xs text-muted-foreground hover:bg-accent" disabled={loadingMore} onclick={() => { animateLayout = true; void load(false); }}>{loadingMore ? t("common.loading") : t("quickNotes.action.loadMore")}</button>
+        <button use:observeMore type="button" class={mobileLayout ? "mt-4 min-h-12 w-full rounded-xl px-3 text-xs text-muted-foreground active:bg-accent" : "mt-4 w-full rounded-md py-2 text-xs text-muted-foreground hover:bg-accent"} disabled={loadingMore} onclick={() => { animateLayout = true; void load(false); }}>{loadingMore ? t("common.loading") : t("quickNotes.action.loadMore")}</button>
       {/if}
     {/if}
     {#if loadError && notes.length > 0}<p class="mt-3 text-center text-xs text-destructive">{loadError}</p>{/if}
@@ -590,9 +637,9 @@
   </div>
 
   {#if undoAction}
-    <div class="absolute bottom-3 left-1/2 z-10 flex -translate-x-1/2 items-center gap-3 rounded-lg bg-foreground px-3 py-2 text-xs text-background shadow-lg">
+    <div class={`absolute bottom-3 left-1/2 z-10 flex -translate-x-1/2 items-center gap-3 rounded-lg bg-foreground px-3 py-2 text-xs text-background shadow-lg ${mobileLayout ? "max-w-[calc(100%-1.5rem)]" : ""}`}>
       <span>{undoMessage}</span>
-      <button type="button" class="font-semibold underline" onclick={() => { const action = undoAction; undoAction = null; undoMessage = ""; if (action) void action(); }}>{t("quickNotes.action.undo")}</button>
+      <button type="button" class={mobileLayout ? "min-h-12 shrink-0 px-2 font-semibold underline" : "font-semibold underline"} onclick={() => { const action = undoAction; undoAction = null; undoMessage = ""; if (action) void action(); }}>{t("quickNotes.action.undo")}</button>
     </div>
   {/if}
 </div>
@@ -603,6 +650,8 @@
     {tags}
     defaultTagId={selectedTagId}
     theme={theme.current}
+    {mobileLayout}
+    obscured={deleteTarget !== null}
     onclose={() => { editorNote = undefined; void load(); }}
     onsaved={noteSaved}
     onarchive={(note) => closeEditorAnd(archiveNote, note)}

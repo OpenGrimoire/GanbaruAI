@@ -6,6 +6,7 @@
     notesPageCoverUrl,
   } from "$lib/notes/page-cover";
   import type { NotesPageCover } from "$lib/notes/types";
+  import { BUILD_PLATFORM_PROFILE, platformHasCapability } from "$lib/platform";
   import ImageIcon from "@lucide/svelte/icons/image";
 
   let {
@@ -22,7 +23,11 @@
   let assetRequestId = 0;
 
   const assetPath = $derived(notesPageCoverAssetPath(cover));
-  const externalUrl = $derived(notesPageCoverUrl(cover));
+  const remoteImageUrlsAvailable = platformHasCapability(
+    BUILD_PLATFORM_PROFILE,
+    "notes.external-image-references",
+  );
+  const externalUrl = $derived(remoteImageUrlsAvailable ? notesPageCoverUrl(cover) : null);
 
   $effect(() => {
     const currentPath = assetPath;

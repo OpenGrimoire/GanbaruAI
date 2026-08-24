@@ -3,7 +3,7 @@
   "productName": "ganbaru-ai",
   "mainBinaryName": "ganbaru-ai",
   "version": "0.1.5",
-  "identifier": "org.opengrimoire.ganbaru-ai",
+  "identifier": "org.opengrimoire.ganbaruai",
   "build": {
     "beforeDevCommand": "pnpm dev",
     "devUrl": "http://localhost:1420/__ganbaru-ai_dev_ready",
@@ -25,6 +25,7 @@
       }
     ],
     "security": {
+      "capabilities": ["desktop"],
       "csp": {
         "default-src": "'self'",
         "script-src": "'self' https://www.youtube.com https://s.ytimg.com",

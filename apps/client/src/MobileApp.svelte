@@ -1,0 +1,467 @@
+<script lang="ts">
+  import { onBackButtonPress } from "@tauri-apps/api/app";
+  import { onMount } from "svelte";
+  import MobileNavigation from "$lib/components/mobile/MobileNavigation.svelte";
+  import MobilePomodoroSheet from "$lib/components/mobile/MobilePomodoroSheet.svelte";
+  import MobileSettings from "$lib/components/mobile/MobileSettings.svelte";
+  import MobileTopBar from "$lib/components/mobile/MobileTopBar.svelte";
+  import ConfirmDialog from "$lib/components/ui/ConfirmDialog.svelte";
+  import { ensureDbUrl } from "$lib/api/db";
+  import { getLocalization } from "$lib/i18n/translator.svelte";
+  import {
+    MobileBackListenerController,
+    resolveMobileBackAction,
+  } from "$lib/mobile-back";
+  import { mobileNavigationPresentation } from "$lib/mobile-layout";
+  import { MobilePersistenceLifecycleController } from "$lib/mobile-persistence-lifecycle";
+  import { activateModalFocus } from "$lib/modal-focus";
+  import type { View } from "$lib/navigation";
+  import { BUILD_PLATFORM_PROFILE, platformHasCapability } from "$lib/platform";
+  import { flushQuickNoteEditors } from "$lib/quick-notes/persistence";
+  import { getCalendar } from "$lib/stores/calendar.svelte";
+  import { getCalendars } from "$lib/stores/calendars.svelte";
+  import { getNavigation } from "$lib/stores/navigation.svelte";
+  import { getPomodoro } from "$lib/stores/pomodoro.svelte";
+  import { getMobileBackStack } from "$lib/stores/mobile-back-stack.svelte";
+  import { getViewport } from "$lib/stores/viewport.svelte";
+  import { flushConfig } from "$lib/vault/config";
+
+  type CalendarComponent = typeof import("$lib/components/calendar/CalendarView.svelte").default;
+  type ProjectsComponent = typeof import("$lib/components/projects/ProjectsView.svelte").default;
+  type ProjectMobileListComponent = typeof import("$lib/components/projects/ProjectMobileListView.svelte").default;
+  type NotesComponent = typeof import("$lib/components/notes/NotesView.svelte").default;
+  type QuickNotesComponent = typeof import("$lib/components/quick-notes/QuickNotesPanel.svelte").default;
+  type NotesStore = ReturnType<typeof import("$lib/stores/notes.svelte").getNotes>;
+
+  const nav = getNavigation();
+  const viewport = getViewport();
+  const calendar = getCalendar();
+  const calendars = getCalendars();
+  const pomodoro = getPomodoro();
+  const mobileBackStack = getMobileBackStack();
+  const { t } = getLocalization();
+  const androidSystemBackAvailable = platformHasCapability(
+    BUILD_PLATFORM_PROFILE,
+    "system.android-back",
+  );
+
+  let showPomodoro = $state(false);
+  let showSettings = $state(false);
+  let showQuickNotes = $state(false);
+  let quickNotesLoading = $state(false);
+  let quickNotesLoadError = $state("");
+  let quickNotesLoadDialog = $state<HTMLDivElement | null>(null);
+  let nestedRouteOpen = $state(false);
+  let loadError = $state<string | null>(null);
+  let backendReady = $state(false);
+  let initializingWorkspace = $state(false);
+  let CalendarSurface = $state<CalendarComponent | null>(null);
+  let ProjectsSurface = $state<ProjectsComponent | null>(null);
+  let ProjectMobileListSurface = $state<ProjectMobileListComponent | null>(null);
+  let NotesSurface = $state<NotesComponent | null>(null);
+  let QuickNotesSurface = $state<QuickNotesComponent | null>(null);
+  let notesStore = $state.raw<NotesStore | null>(null);
+  let notesSurfaceMounted = $state(false);
+  let surfaceLoadGeneration = 0;
+  let quickNotesLoadGeneration = 0;
+  let removePomodoroBackLayer = (): void => undefined;
+  let removeSettingsBackLayer = (): void => undefined;
+  let removeQuickNotesBackLayer = (): void => undefined;
+
+  const navigationPresentation = $derived(
+    mobileNavigationPresentation(viewport.layoutWidth),
+  );
+  const useNavigationRail = $derived(navigationPresentation === "rail");
+  const suspendInfo = $derived(pomodoro.suspendedAway);
+  const suspendDecisionOpen = $derived(suspendInfo !== null);
+  const modalOpen = $derived(
+    showPomodoro || showSettings || showQuickNotes || suspendDecisionOpen,
+  );
+  const currentTitle = $derived(t(`titleBar.tab.${nav.current}`));
+  const shouldInterceptSystemBack = $derived(
+    androidSystemBackAvailable && (nestedRouteOpen
+      || mobileBackStack.hasActiveLayer
+      || nav.current !== "calendar"),
+  );
+
+  const backListenerController = new MobileBackListenerController(
+    (handler) => onBackButtonPress(handler),
+    handleSystemBack,
+    (error) => {
+      console.error("Failed to update Android back handling", error);
+    },
+  );
+  const persistenceLifecycle = new MobilePersistenceLifecycleController({
+    documentTarget: document,
+    windowTarget: window,
+    flushers: {
+      config: flushConfig,
+      notes: flushMountedNotes,
+      quickNotes: flushQuickNoteEditors,
+    },
+    onError: (label, error) => {
+      console.error(`Failed to flush mobile ${label} persistence`, error);
+    },
+  });
+
+  function flushMountedNotes(): Promise<void> {
+    if (!notesSurfaceMounted || !notesStore) return Promise.resolve();
+    return notesStore.flushPendingWrites();
+  }
+
+  async function loadSurface(view: View): Promise<void> {
+    const generation = ++surfaceLoadGeneration;
+    loadError = null;
+    try {
+      if (view === "calendar" && !CalendarSurface) {
+        const module = await import("$lib/components/calendar/CalendarView.svelte");
+        if (generation === surfaceLoadGeneration) CalendarSurface = module.default;
+      } else if (view === "projects" && !ProjectsSurface) {
+        const [storeModule, module, mobileListModule] = await Promise.all([
+          import("$lib/stores/projects.svelte"),
+          import("$lib/components/projects/ProjectsView.svelte"),
+          import("$lib/components/projects/ProjectMobileListView.svelte"),
+        ]);
+        const projects = storeModule.getProjects();
+        projects.activeView = "list";
+        await projects.ensureLoaded();
+        if (generation === surfaceLoadGeneration) {
+          ProjectMobileListSurface = mobileListModule.default;
+          ProjectsSurface = module.default;
+        }
+      } else if (view === "notes" && !NotesSurface) {
+        const [storeModule, module] = await Promise.all([
+          import("$lib/stores/notes.svelte"),
+          import("$lib/components/notes/NotesView.svelte"),
+        ]);
+        const nextNotesStore = storeModule.getNotes();
+        await nextNotesStore.ensureLoaded();
+        if (generation === surfaceLoadGeneration) {
+          notesStore = nextNotesStore;
+          NotesSurface = module.default;
+        }
+      }
+    } catch (error) {
+      if (generation !== surfaceLoadGeneration) return;
+      loadError = error instanceof Error ? error.message : String(error);
+      console.error(`Failed to load mobile ${view} surface`, error);
+    }
+  }
+
+  async function initializeWorkspace(): Promise<void> {
+    if (initializingWorkspace) return;
+    initializingWorkspace = true;
+    loadError = null;
+    try {
+      await ensureDbUrl();
+      await pomodoro.recoverMobileRun();
+      await Promise.all([
+        calendars.load(),
+        calendar.load(),
+      ]);
+      backendReady = true;
+      await loadSurface(nav.current);
+    } catch (error) {
+      loadError = error instanceof Error ? error.message : String(error);
+      console.error("Failed to initialize the mobile workspace", error);
+    } finally {
+      initializingWorkspace = false;
+    }
+  }
+
+  function clearNestedRoute(): void {
+    if (window.location.hash.length === 0) {
+      nestedRouteOpen = false;
+      return;
+    }
+    const previousUrl = window.location.href;
+    const nextUrl = new URL(previousUrl);
+    nextUrl.hash = "";
+    window.history.replaceState(window.history.state, "", nextUrl);
+    nestedRouteOpen = false;
+    window.dispatchEvent(new HashChangeEvent("hashchange", {
+      oldURL: previousUrl,
+      newURL: nextUrl.href,
+    }));
+  }
+
+  function navigate(view: View): void {
+    if (view !== "notes") clearNestedRoute();
+    if (!nav.navigate(view)) return;
+    void loadSurface(view);
+  }
+
+  function formatAwayDuration(totalSeconds: number): string {
+    const hours = Math.floor(totalSeconds / 3600);
+    const minutes = Math.floor((totalSeconds % 3600) / 60);
+    if (hours > 0 && minutes > 0) return t("focusDialog.awayHoursMinutes", hours, minutes);
+    if (hours > 0) return t("focusDialog.awayHours", hours);
+    if (minutes > 0) return t("focusDialog.awayMinutes", minutes);
+    return t("focusDialog.awaySeconds", totalSeconds);
+  }
+
+  function stopSuspendedSession(): void {
+    pomodoro.dismissedBlockId = pomodoro.activeBlockId;
+    void pomodoro.dismissSuspend(false);
+  }
+
+  function closePomodoro(): void {
+    removePomodoroBackLayer();
+    removePomodoroBackLayer = () => undefined;
+    showPomodoro = false;
+  }
+
+  function openPomodoro(): void {
+    closeSettings();
+    closeQuickNotes();
+    showPomodoro = true;
+    removePomodoroBackLayer();
+    removePomodoroBackLayer = mobileBackStack.activate({ handle: closePomodoro });
+  }
+
+  function closeSettings(): void {
+    removeSettingsBackLayer();
+    removeSettingsBackLayer = () => undefined;
+    showSettings = false;
+  }
+
+  function openSettings(): void {
+    closePomodoro();
+    closeQuickNotes();
+    showSettings = true;
+    removeSettingsBackLayer();
+    removeSettingsBackLayer = mobileBackStack.activate({ handle: closeSettings });
+  }
+
+  function closeQuickNotes(): void {
+    quickNotesLoadGeneration += 1;
+    removeQuickNotesBackLayer();
+    removeQuickNotesBackLayer = () => undefined;
+    showQuickNotes = false;
+    quickNotesLoading = false;
+    quickNotesLoadError = "";
+  }
+
+  async function loadQuickNotesSurface(): Promise<void> {
+    if (QuickNotesSurface || quickNotesLoading) return;
+    const generation = ++quickNotesLoadGeneration;
+    quickNotesLoading = true;
+    quickNotesLoadError = "";
+    try {
+      const module = await import("$lib/components/quick-notes/QuickNotesPanel.svelte");
+      if (generation === quickNotesLoadGeneration) QuickNotesSurface = module.default;
+    } catch (error) {
+      if (generation !== quickNotesLoadGeneration) return;
+      quickNotesLoadError = error instanceof Error ? error.message : String(error);
+      console.error("Failed to load the mobile Quick notes surface", error);
+    } finally {
+      if (generation === quickNotesLoadGeneration) quickNotesLoading = false;
+    }
+  }
+
+  function openQuickNotes(): void {
+    if (showQuickNotes || !backendReady) return;
+    closePomodoro();
+    closeSettings();
+    showQuickNotes = true;
+    removeQuickNotesBackLayer();
+    removeQuickNotesBackLayer = mobileBackStack.activate({ handle: closeQuickNotes });
+    void loadQuickNotesSurface();
+  }
+
+  function handleSystemBack(): void {
+    const action = resolveMobileBackAction({
+      featureLayerOpen: mobileBackStack.hasActiveLayer,
+      nestedRouteOpen,
+      currentView: nav.current,
+    });
+    if (action === "consume-feature-layer") {
+      mobileBackStack.consume();
+    } else if (action === "close-nested-route") {
+      clearNestedRoute();
+    } else if (action === "navigate-calendar") {
+      navigate("calendar");
+    } else {
+      void backListenerController.setEnabled(false);
+    }
+  }
+
+  onMount(() => {
+    const detachPersistenceLifecycle = persistenceLifecycle.attach();
+    const syncNestedRoute = (): void => {
+      nestedRouteOpen = window.location.hash.length > 0;
+    };
+    syncNestedRoute();
+    window.addEventListener("hashchange", syncNestedRoute);
+    window.addEventListener("popstate", syncNestedRoute);
+
+    void initializeWorkspace();
+
+    return () => {
+      window.removeEventListener("hashchange", syncNestedRoute);
+      window.removeEventListener("popstate", syncNestedRoute);
+      removePomodoroBackLayer();
+      removeSettingsBackLayer();
+      removeQuickNotesBackLayer();
+      detachPersistenceLifecycle();
+      void persistenceLifecycle.flush();
+      void backListenerController.dispose();
+    };
+  });
+
+  $effect(() => {
+    void backListenerController.setEnabled(shouldInterceptSystemBack);
+  });
+
+  $effect(() => {
+    const view = nav.current;
+    if (!backendReady) return;
+    void loadSurface(view);
+  });
+
+  $effect(() => {
+    if (nav.current !== "notes" || !NotesSurface || !notesStore) return;
+    notesSurfaceMounted = true;
+  });
+
+  $effect(() => {
+    if (!showQuickNotes || QuickNotesSurface || !quickNotesLoadDialog) return;
+    return activateModalFocus(quickNotesLoadDialog);
+  });
+</script>
+
+<div
+  class="mobile-app-shell mobile-viewport-height flex w-screen flex-col overflow-hidden bg-background text-foreground"
+  data-size-class={viewport.sizeClass}
+  style="padding: var(--safe-area-top) var(--safe-area-right) {useNavigationRail ? 'var(--safe-area-bottom)' : '0'} var(--safe-area-left);"
+>
+  <div
+    class="flex min-h-0 flex-1 flex-col"
+    inert={modalOpen}
+    aria-hidden={modalOpen ? "true" : undefined}
+  >
+    <MobileTopBar
+      title={currentTitle}
+      pomodoroTime={pomodoro.formattedTime}
+      pomodoroActive={pomodoro.isActive}
+      quickNotesOpen={showQuickNotes}
+      quickNotesLoading={quickNotesLoading}
+      quickNotesDisabled={!backendReady}
+      onOpenPomodoro={openPomodoro}
+      onOpenQuickNotes={openQuickNotes}
+      onOpenSettings={openSettings}
+    />
+
+    <div class="flex min-h-0 flex-1 overflow-hidden">
+      {#if useNavigationRail}
+        <MobileNavigation current={nav.current} presentation="rail" onNavigate={navigate} />
+      {/if}
+
+      <main class="relative min-h-0 min-w-0 flex-1 overflow-hidden bg-background">
+        {#if loadError}
+          <div class="flex h-full flex-col items-center justify-center gap-3 p-6 text-center" role="alert">
+            <p class="text-sm font-medium">{t("common.viewLoadFailed", currentTitle)}</p>
+            <p class="max-w-md text-xs text-muted-foreground">{loadError}</p>
+            <button
+              type="button"
+              disabled={initializingWorkspace}
+              class="min-h-12 rounded-xl border border-border bg-card px-5 text-sm font-medium active:bg-accent"
+              onclick={() => {
+                if (backendReady) void loadSurface(nav.current);
+                else void initializeWorkspace();
+              }}
+            >
+              {initializingWorkspace ? t("common.loading") : t("common.retry")}
+            </button>
+          </div>
+        {:else if nav.current === "calendar" && CalendarSurface}
+          <CalendarSurface initialViewMode="day" mobileLayout />
+        {:else if nav.current === "projects" && ProjectsSurface && ProjectMobileListSurface}
+          <ProjectsSurface mobileLayout mobileListComponent={ProjectMobileListSurface} />
+        {:else if nav.current === "notes" && NotesSurface}
+          <NotesSurface mobileLayout />
+        {:else}
+          <div class="flex h-full items-center justify-center text-sm text-muted-foreground" aria-busy="true">
+            {t("common.loading")}
+          </div>
+        {/if}
+      </main>
+    </div>
+
+    {#if !useNavigationRail}
+      <div class="shrink-0 bg-sidebar" style="padding-bottom: var(--safe-area-bottom);">
+        <MobileNavigation current={nav.current} presentation="bottom" onNavigate={navigate} />
+      </div>
+    {/if}
+  </div>
+
+  {#if showPomodoro}
+    <div inert={suspendDecisionOpen} aria-hidden={suspendDecisionOpen ? "true" : undefined}>
+      <MobilePomodoroSheet
+        onClose={closePomodoro}
+        onOpenCalendar={() => {
+          closePomodoro();
+          navigate("calendar");
+        }}
+      />
+    </div>
+  {/if}
+
+  {#if showSettings}
+    <div inert={suspendDecisionOpen} aria-hidden={suspendDecisionOpen ? "true" : undefined}>
+      <MobileSettings onClose={closeSettings} />
+    </div>
+  {/if}
+
+  {#if showQuickNotes && QuickNotesSurface}
+    <div inert={suspendDecisionOpen} aria-hidden={suspendDecisionOpen ? "true" : undefined}>
+      <QuickNotesSurface mobileLayout onclose={closeQuickNotes} />
+    </div>
+  {:else if showQuickNotes}
+    <div
+      class="fixed z-50 flex items-center justify-center bg-background/95"
+      inert={suspendDecisionOpen}
+      aria-hidden={suspendDecisionOpen ? "true" : undefined}
+      style="left: var(--visual-viewport-offset-left); top: var(--visual-viewport-offset-top); width: var(--visual-viewport-width); height: var(--visual-viewport-height); padding: calc(var(--safe-area-top) + 1rem) calc(var(--safe-area-right) + 1rem) calc(var(--safe-area-bottom) + 1rem) calc(var(--safe-area-left) + 1rem);"
+    >
+      <div
+        bind:this={quickNotesLoadDialog}
+        class="flex w-full max-w-sm flex-col items-center gap-3 rounded-2xl border border-border bg-card p-5 text-center text-card-foreground outline-none"
+        role="dialog"
+        aria-modal="true"
+        aria-label={t("quickNotes.title")}
+        tabindex="-1"
+      >
+        {#if quickNotesLoadError}
+          <p class="text-sm font-medium" role="alert">{t("quickNotes.loadFailed")}</p>
+          <p class="max-w-full wrap-break-word text-xs text-muted-foreground">{quickNotesLoadError}</p>
+          <button
+            type="button"
+            class="min-h-12 w-full rounded-xl border border-border px-4 text-sm font-medium active:bg-accent"
+            onclick={() => void loadQuickNotesSurface()}
+          >{t("quickNotes.retry")}</button>
+        {:else}
+          <p class="text-sm text-muted-foreground" aria-busy="true">{t("common.loading")}</p>
+        {/if}
+        <button
+          type="button"
+          class="min-h-12 w-full rounded-xl px-4 text-sm font-medium active:bg-accent"
+          onclick={closeQuickNotes}
+        >{t("common.close")}</button>
+      </div>
+    </div>
+  {/if}
+
+  {#if suspendInfo}
+    <ConfirmDialog
+      title={t("focusDialog.resumeTitle")}
+      message={t("focusDialog.awayMessage", formatAwayDuration(suspendInfo.awaySeconds))}
+      confirmLabel={t("focusDialog.resume")}
+      cancelLabel={t("focusDialog.stopSessionCancel")}
+      danger={false}
+      onConfirm={() => { void pomodoro.dismissSuspend(true); }}
+      onCancel={stopSuspendedSession}
+      onDismiss={() => undefined}
+    />
+  {/if}
+</div>

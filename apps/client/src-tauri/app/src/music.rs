@@ -5,20 +5,27 @@ use std::{
     fs,
     path::{Path, PathBuf},
     process::Stdio,
+};
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
+use std::{
     sync::atomic::{AtomicU64, Ordering},
     time::{SystemTime, UNIX_EPOCH},
 };
 use tauri::Manager;
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 use tauri_plugin_dialog::{DialogExt, FilePath};
 
 use crate::db_path::connect_sqlite;
 
 mod artwork;
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 pub(crate) mod host;
 pub(crate) mod library;
 pub(crate) mod root_bindings;
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 mod youtube_host;
 
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 pub(crate) use host::setup_youtube_host;
 
 use artwork::{extract_embedded_artwork, find_track_artwork};
@@ -29,14 +36,18 @@ const VALID_PLAYBACK_STATUSES: &[&str] = &[
 ];
 const MAX_MEDIA_FOLDER_FILES: usize = 5_000;
 const MAX_ARTWORK_BYTES: u64 = 12 * 1024 * 1024;
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 const MAX_INTERCHANGE_BYTES: u64 = 8 * 1024 * 1024;
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 static MEDIA_FOLDER_SCAN_GENERATION: AtomicU64 = AtomicU64::new(0);
 const MEDIA_EXTENSIONS: &[&str] = &[
     "aac", "aif", "aiff", "alac", "ape", "avi", "flac", "flv", "m4a", "m4v", "mkv", "mov", "mp3",
     "mp4", "mpeg", "mpg", "ogg", "ogv", "opus", "wav", "webm", "wma", "wmv",
 ];
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 const SOUNDSCAPE_AUDIO_EXTENSIONS: &[&str] = &["flac", "m4a", "mp3", "mp4", "oga", "ogg", "wav"];
 
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 fn replace_music_export_file(path: &Path, contents: &[u8]) -> Result<(), String> {
     let parent = path
         .parent()
@@ -173,6 +184,7 @@ pub async fn music_save_playback_state(
     Ok(())
 }
 
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 #[tauri::command]
 pub async fn music_pick_media_folder(
     app: tauri::AppHandle,
@@ -249,6 +261,7 @@ fn detect_non_empty_media_folder(folder: &Path) -> Result<Option<MediaFolderSele
     Ok(None)
 }
 
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 #[tauri::command]
 pub async fn music_pick_root_binding_folder(
     app: tauri::AppHandle,
@@ -268,6 +281,7 @@ pub async fn music_pick_root_binding_folder(
     .map_err(|error| format!("music folder mapping picker failed: {error}"))?
 }
 
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 #[tauri::command]
 pub async fn music_pick_media_file(app: tauri::AppHandle) -> Result<Option<String>, String> {
     let selected = tauri::async_runtime::spawn_blocking(move || {
@@ -286,6 +300,7 @@ pub async fn music_pick_media_file(app: tauri::AppHandle) -> Result<Option<Strin
     Ok(selected.map(|path| path.to_string_lossy().into_owned()))
 }
 
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 #[tauri::command]
 pub async fn music_pick_soundscape_file(app: tauri::AppHandle) -> Result<Option<String>, String> {
     let selected = tauri::async_runtime::spawn_blocking(move || {
@@ -304,6 +319,7 @@ pub async fn music_pick_soundscape_file(app: tauri::AppHandle) -> Result<Option<
     Ok(selected.map(|path| path.to_string_lossy().into_owned()))
 }
 
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 #[tauri::command]
 pub async fn music_pick_artwork_file(app: tauri::AppHandle) -> Result<Option<String>, String> {
     let selected = tauri::async_runtime::spawn_blocking(move || {
@@ -323,6 +339,7 @@ pub async fn music_pick_artwork_file(app: tauri::AppHandle) -> Result<Option<Str
     Ok(selected.map(|path| path.to_string_lossy().into_owned()))
 }
 
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 #[tauri::command]
 pub async fn music_pick_and_read_interchange_file(
     app: tauri::AppHandle,
@@ -359,6 +376,7 @@ pub async fn music_pick_and_read_interchange_file(
     .map_err(|error| format!("music import picker failed: {error}"))?
 }
 
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 #[tauri::command]
 pub async fn music_pick_and_write_interchange_file(
     app: tauri::AppHandle,
@@ -558,6 +576,7 @@ fn scan_media_folder_with_cancel(
     })
 }
 
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 fn dialog_path(path: FilePath) -> Result<PathBuf, String> {
     path.into_path()
         .map_err(|e| format!("selected path is not a local folder: {e}"))

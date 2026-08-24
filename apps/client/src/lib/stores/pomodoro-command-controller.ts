@@ -1,7 +1,7 @@
-import { listen } from "@tauri-apps/api/event";
 import type { PomodoroAdaptivePlannedBlockWrite } from "$lib/pomodoro/adaptive/persistence";
 import type { PomodoroRunEventWrite } from "./pomodoro-backend-writes";
 import type { PomodoroConfig } from "./pomodoro-machine";
+import type { PomodoroNativeEventListener } from "./pomodoro-runtime-environment-contract";
 import type { PomodoroRuntime } from "./pomodoro-runtime";
 import type { PomodoroWindowCommand } from "./pomodoro-window-sync";
 
@@ -50,7 +50,7 @@ interface PomodoroCommandContext {
   pausedFocusPulseActive(): boolean;
   suppressPausedFocusNotifications(): void;
   nowIso(): string;
-  listen?: typeof listen;
+  nativeEventListener: PomodoroNativeEventListener | null;
 }
 
 export interface PomodoroCommandController {
@@ -62,7 +62,6 @@ export interface PomodoroCommandController {
 export function createPomodoroCommandController(
   context: PomodoroCommandContext,
 ): PomodoroCommandController {
-  const listenToEvent = context.listen ?? listen;
   let initialized = false;
 
   function handleWindowCommand(command: PomodoroWindowCommand): void {
@@ -131,8 +130,9 @@ export function createPomodoroCommandController(
   }
 
   function initListeners(): void {
-    if (!context.isCoordinator() || initialized) return;
+    if (!context.isCoordinator() || initialized || !context.nativeEventListener) return;
     initialized = true;
+    const listenToEvent = context.nativeEventListener;
 
     listenToEvent("pomodoro-skip-break", () => {
       document.dispatchEvent(new Event("ganbaru-ai-clear-snap"));

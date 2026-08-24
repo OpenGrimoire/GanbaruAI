@@ -12,7 +12,11 @@
   import Search from "@lucide/svelte/icons/search";
   import SquarePen from "@lucide/svelte/icons/square-pen";
   import { getLocalization } from "$lib/i18n/translator.svelte";
-  import { listNotesWorkingMarkdown } from "$lib/api/notes";
+  import {
+    buildWorkingMarkdownTreeItems,
+    listNotesWorkingMarkdown,
+    NotesWorkingMarkdownTree,
+  } from "$lib/components/notes/notes-working-markdown-platform";
   import {
     beginLazyComponentLoad,
     rejectLazyComponentLoad,
@@ -42,11 +46,9 @@
     NotesWorkingMarkdownFileRef,
     NotesWorkingMarkdownTreeRead,
   } from "$lib/notes/types";
-  import { buildWorkingMarkdownTreeItems } from "$lib/notes/working-markdown-tree";
   import { getNotes } from "$lib/stores/notes.svelte";
   import NotesFolderRow from "./NotesFolderRow.svelte";
   import NotesPageRow from "./NotesPageRow.svelte";
-  import NotesWorkingMarkdownTree from "./NotesWorkingMarkdownTree.svelte";
   import {
     loadNotesOptionalComponent,
     retryNotesOptionalComponent,
@@ -54,6 +56,7 @@
   } from "./notes-component-registry";
 
   let {
+    mobileLayout = false,
     projectId = null,
     explorerCollapsed = $bindable(false),
     creationFolderId = null,
@@ -62,6 +65,7 @@
     onSelectWorkingMarkdownFile,
     onBeforeDocumentNavigation,
   }: {
+    mobileLayout?: boolean;
     projectId?: string | null;
     explorerCollapsed?: boolean;
     creationFolderId?: string | null;
@@ -312,7 +316,7 @@
   }
 
   function handleExplorerNavigationPointerDown(event: PointerEvent): void {
-    if (event.button !== 0 || event.pointerType === "touch") return;
+    if (mobileLayout || event.button !== 0 || event.pointerType === "touch") return;
     const target = event.target;
     if (!(target instanceof Element)) return;
     if (target.closest("input, textarea, [contenteditable='true']")) return;
@@ -609,6 +613,13 @@
   }
 
   async function refreshWorkingMarkdown(): Promise<void> {
+    if (mobileLayout) {
+      workingMarkdownGeneration += 1;
+      workingMarkdownTree = { roots: [], unavailableWorkingFolderIds: [] };
+      workingMarkdownLoading = false;
+      workingMarkdownError = null;
+      return;
+    }
     const requestedProjectId = projectId;
     const generation = ++workingMarkdownGeneration;
     if (!requestedProjectId) {
@@ -638,6 +649,7 @@
   });
 
   onMount(() => {
+    if (mobileLayout) return;
     const refreshOnFocus = () => { void refreshWorkingMarkdown(); };
     window.addEventListener("focus", refreshOnFocus);
     return () => {
@@ -657,7 +669,8 @@
   }
 
   function sortOptionClass(order: NotesNavigationSortOrder): string {
-    return `grid min-h-7 w-full grid-cols-[max-content_1rem] items-center gap-2 px-3 text-left hover:bg-accent ${hoveredSortOrder === order ? "bg-accent" : ""}`;
+    const minimumHeightClass = mobileLayout ? "min-h-12" : "min-h-7";
+    return `grid ${minimumHeightClass} w-full grid-cols-[max-content_1rem] items-center gap-2 px-3 text-left hover:bg-accent ${hoveredSortOrder === order ? "bg-accent" : ""}`;
   }
 
   function highlightNearestSortOption(
@@ -872,53 +885,56 @@
 
 <aside
   class="notes-project-explorer relative h-full min-h-0 shrink-0 overflow-hidden"
-  class:notes-project-explorer-collapsed={explorerCollapsed}
+  class:notes-project-explorer-mobile={mobileLayout}
+  class:notes-project-explorer-collapsed={!mobileLayout && explorerCollapsed}
   class:notes-project-explorer-dragging={draggingNavigationItem !== null}
   style="background-color: var(--cal-bg);"
   aria-label={t("notes.explorerLabel")}
   data-notes-explorer
   data-notes-first-use-state
 >
-  <div
-    class="notes-project-explorer-collapsed-rail absolute inset-y-0 left-0 z-10 w-11"
-    aria-hidden={!explorerCollapsed}
-  >
-    <div class="flex h-(--cal-header-row-h) items-center justify-center">
-      <button
-        bind:this={expandExplorerButtonElement}
-        type="button"
-        class="flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
-        aria-label={t("notes.expandExplorerSidebar")}
-        aria-expanded="false"
-        data-app-tooltip={t("notes.expandExplorerSidebar")}
-        onclick={() => {
-          void setExplorerCollapsed(false);
-        }}
-      >
-        <ChevronsRight class="size-4" strokeWidth={explorerIconStrokeWidth} />
-      </button>
+  {#if !mobileLayout}
+    <div
+      class="notes-project-explorer-collapsed-rail absolute inset-y-0 left-0 z-10 w-11"
+      aria-hidden={!explorerCollapsed}
+    >
+      <div class="flex h-(--cal-header-row-h) items-center justify-center">
+        <button
+          bind:this={expandExplorerButtonElement}
+          type="button"
+          class="flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
+          aria-label={t("notes.expandExplorerSidebar")}
+          aria-expanded="false"
+          data-app-tooltip={t("notes.expandExplorerSidebar")}
+          onclick={() => {
+            void setExplorerCollapsed(false);
+          }}
+        >
+          <ChevronsRight class="size-4" strokeWidth={explorerIconStrokeWidth} />
+        </button>
+      </div>
     </div>
-  </div>
+  {/if}
 
   <div
     class="notes-project-explorer-content flex h-full min-h-0 w-64 min-w-64 flex-col"
-    inert={explorerCollapsed}
+    inert={!mobileLayout && explorerCollapsed}
   >
-  <div class="flex h-(--cal-header-row-h) shrink-0 items-center justify-start gap-0.5 px-2">
+    <div class="flex h-(--cal-header-row-h) shrink-0 items-center justify-start gap-0.5 px-2">
+      <button
+        bind:this={collapseExplorerButtonElement}
+        type="button"
+        class="flex {mobileLayout ? 'size-12' : 'size-7'} shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground disabled:pointer-events-none disabled:opacity-45"
+        aria-label={t("notes.newPage")}
+        data-app-tooltip={t("notes.newPage")}
+        disabled={!projectId}
+        onclick={() => createPage()}
+      >
+        <SquarePen class="size-4" strokeWidth={explorerIconStrokeWidth} />
+      </button>
     <button
-      bind:this={collapseExplorerButtonElement}
       type="button"
-      class="flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground disabled:pointer-events-none disabled:opacity-45"
-      aria-label={t("notes.newPage")}
-      data-app-tooltip={t("notes.newPage")}
-      disabled={!projectId}
-      onclick={() => createPage()}
-    >
-      <SquarePen class="size-4" strokeWidth={explorerIconStrokeWidth} />
-    </button>
-    <button
-      type="button"
-      class="flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground disabled:pointer-events-none disabled:opacity-45"
+      class="flex {mobileLayout ? 'size-12' : 'size-7'} shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground disabled:pointer-events-none disabled:opacity-45"
       aria-label={t("notes.newFolder")}
       data-app-tooltip={t("notes.newFolder")}
       disabled={!projectId}
@@ -932,7 +948,7 @@
       <button
         bind:this={sortButtonElement}
         type="button"
-        class={`flex size-7 shrink-0 items-center justify-center rounded-md hover:bg-accent hover:text-foreground ${sortMenuOpen ? "bg-accent text-foreground" : "text-muted-foreground"}`}
+        class={`flex ${mobileLayout ? "size-12" : "size-7"} shrink-0 items-center justify-center rounded-md hover:bg-accent hover:text-foreground ${sortMenuOpen ? "bg-accent text-foreground" : "text-muted-foreground"}`}
         aria-label={t("notes.sortExplorer")}
         aria-expanded={sortMenuOpen}
         aria-haspopup="menu"
@@ -1044,21 +1060,23 @@
         </div>
       {/if}
     </div>
+    {#if !mobileLayout}
+      <button
+        type="button"
+        class="flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground disabled:pointer-events-none disabled:opacity-45"
+        aria-label={t("notes.highlightCurrentFile")}
+        data-app-tooltip={t("notes.highlightCurrentFile")}
+        disabled={!notes.selectedPageId}
+        onclick={() => {
+          void highlightCurrentFile();
+        }}
+      >
+        <FileQuestionMark class="size-4" strokeWidth={explorerIconStrokeWidth} />
+      </button>
+    {/if}
     <button
       type="button"
-      class="flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground disabled:pointer-events-none disabled:opacity-45"
-      aria-label={t("notes.highlightCurrentFile")}
-      data-app-tooltip={t("notes.highlightCurrentFile")}
-      disabled={!notes.selectedPageId}
-      onclick={() => {
-        void highlightCurrentFile();
-      }}
-    >
-      <FileQuestionMark class="size-4" strokeWidth={explorerIconStrokeWidth} />
-    </button>
-    <button
-      type="button"
-      class="flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground disabled:pointer-events-none disabled:opacity-45"
+      class="flex {mobileLayout ? 'size-12' : 'size-7'} shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground disabled:pointer-events-none disabled:opacity-45"
       aria-label={shouldExpandExplorer ? t("notes.expandExplorer") : t("notes.collapseExplorer")}
       data-app-tooltip={shouldExpandExplorer ? t("notes.expandExplorer") : t("notes.collapseExplorer")}
       onclick={toggleExplorerExpansion}
@@ -1071,7 +1089,7 @@
     </button>
     <button
       type="button"
-      class={`flex size-7 shrink-0 items-center justify-center rounded-md hover:bg-accent hover:text-foreground ${searchOpen ? "bg-accent text-foreground" : "text-muted-foreground"}`}
+      class={`flex ${mobileLayout ? "size-12" : "size-7"} shrink-0 items-center justify-center rounded-md hover:bg-accent hover:text-foreground ${searchOpen ? "bg-accent text-foreground" : "text-muted-foreground"}`}
       aria-label={t("notes.searchLabel")}
       aria-pressed={searchOpen}
       data-app-tooltip={t("notes.searchLabel")}
@@ -1079,23 +1097,25 @@
     >
       <Search class="size-4" strokeWidth={explorerIconStrokeWidth} />
     </button>
-    <button
-      type="button"
-      class="flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
-      aria-label={t("notes.collapseExplorerSidebar")}
-      aria-expanded="true"
-      data-app-tooltip={t("notes.collapseExplorerSidebar")}
-      onclick={() => {
-        void setExplorerCollapsed(true);
-      }}
-    >
-      <ChevronsLeft class="size-4" strokeWidth={explorerIconStrokeWidth} />
-    </button>
+    {#if !mobileLayout}
+      <button
+        type="button"
+        class="flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
+        aria-label={t("notes.collapseExplorerSidebar")}
+        aria-expanded="true"
+        data-app-tooltip={t("notes.collapseExplorerSidebar")}
+        onclick={() => {
+          void setExplorerCollapsed(true);
+        }}
+      >
+        <ChevronsLeft class="size-4" strokeWidth={explorerIconStrokeWidth} />
+      </button>
+    {/if}
   </div>
 
   {#if searchOpen}
     <div class="shrink-0 px-2 pb-2">
-      <label class="flex items-center gap-1.5 rounded-md bg-accent/50 px-2 py-1.5">
+      <label class="flex {mobileLayout ? 'min-h-12' : ''} items-center gap-1.5 rounded-md bg-accent/50 px-2 py-1.5">
         <Search class="size-3.5 shrink-0 text-muted-foreground" />
         <input
           class="min-w-0 flex-1 bg-transparent text-[0.8rem] text-foreground outline-none placeholder:text-muted-foreground"
@@ -1133,9 +1153,21 @@
       <div class="px-1 py-2 text-[0.8rem] text-destructive">
         {t("notes.loadFailed", notes.loadError)}
       </div>
-    {:else if treeItems.length === 0 && !workingMarkdownHasMatches && search.trim()}
+    {:else if treeItems.length === 0 && (mobileLayout || !workingMarkdownHasMatches) && search.trim()}
       <div class="px-1 py-2 text-[0.8rem] text-muted-foreground">
         {t("notes.noSearchResults")}
+      </div>
+    {:else if mobileLayout && treeItems.length === 0}
+      <div class="flex min-h-48 flex-col items-center justify-center gap-3 px-4 py-8 text-center">
+        <p class="text-sm text-muted-foreground">{t("notes.noPages")}</p>
+        <button
+          type="button"
+          class="min-h-12 rounded-xl bg-primary px-5 text-sm font-semibold text-primary-foreground active:opacity-85 disabled:opacity-45"
+          disabled={!projectId}
+          onclick={() => createPage()}
+        >
+          {t("notes.newPage")}
+        </button>
       </div>
     {:else}
       {#each explorerItems as item (item.key)}
@@ -1233,15 +1265,17 @@
         </div>
       {/each}
     {/if}
-    <NotesWorkingMarkdownTree
-      tree={workingMarkdownTree}
-      query={search}
-      selectedFile={selectedWorkingMarkdownFile}
-      loading={workingMarkdownLoading}
-      error={workingMarkdownError}
-      onSelect={onSelectWorkingMarkdownFile}
-      onRefresh={() => { void refreshWorkingMarkdown(); }}
-    />
+    {#if !mobileLayout}
+      <NotesWorkingMarkdownTree
+        tree={workingMarkdownTree}
+        query={search}
+        selectedFile={selectedWorkingMarkdownFile}
+        loading={workingMarkdownLoading}
+        error={workingMarkdownError}
+        onSelect={onSelectWorkingMarkdownFile}
+        onRefresh={() => { void refreshWorkingMarkdown(); }}
+      />
+    {/if}
     {#if draggingNavigationItem}
       <div
         class={`sticky bottom-1 z-10 mt-2 flex min-h-9 items-center justify-center gap-1.5 rounded-md border px-2 text-[0.8rem] shadow-sm backdrop-blur-sm ${navigationDropState({ kind: "root" }) === "valid"
@@ -1321,6 +1355,26 @@
   .notes-project-explorer {
     width: 16rem;
     transition: width 180ms cubic-bezier(0.2, 0, 0, 1);
+  }
+
+  .notes-project-explorer-mobile {
+    width: 100%;
+    min-width: 0;
+    flex: 1 1 0%;
+  }
+
+  .notes-project-explorer-mobile .notes-project-explorer-content {
+    width: 100%;
+    min-width: 0;
+  }
+
+  .notes-project-explorer-mobile :global(.notes-page-row-content),
+  .notes-project-explorer-mobile :global(.notes-folder-row-content),
+  .notes-project-explorer-mobile :global(.notes-page-row-content > button),
+  .notes-project-explorer-mobile :global(.notes-folder-row-content > button),
+  .notes-project-explorer-mobile :global(.notes-page-action-menu > button),
+  .notes-project-explorer-mobile :global(.notes-folder-action-menu > button) {
+    min-height: var(--touch-target-min);
   }
 
   .notes-project-explorer-collapsed {

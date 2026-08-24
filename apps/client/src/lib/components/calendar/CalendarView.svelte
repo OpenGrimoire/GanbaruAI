@@ -15,8 +15,10 @@
   import { getTheme } from "$lib/stores/theme.svelte";
   import { getCalendarZoom } from "$lib/stores/calendarZoom.svelte";
   import { getPreferences } from "$lib/stores/preferences.svelte";
+  import { getMobileBackStack } from "$lib/stores/mobile-back-stack.svelte";
   import { getLocalization } from "$lib/i18n/translator.svelte";
   import { onDestroy, onMount, tick } from "svelte";
+  import Plus from "@lucide/svelte/icons/plus";
   import CalendarHeader from "./CalendarHeader.svelte";
   import WeekView from "./WeekView.svelte";
   import DayView from "./DayView.svelte";
@@ -87,6 +89,7 @@
   const calZoom = getCalendarZoom();
   const theme = getTheme();
   const preferences = getPreferences();
+  const mobileBackStack = getMobileBackStack();
   const { t } = getLocalization();
   const toasts = createCalendarViewToastController();
   const confirm = createCalendarViewConfirmationController({
@@ -112,13 +115,15 @@
   let {
     eventFilter,
     createDefaults,
-    initialViewMode = preferences.calendarViewMode,
+    initialViewMode,
     onViewModeChange,
+    mobileLayout = false,
   }: {
     eventFilter?: (event: CalendarEvent) => boolean;
     createDefaults?: (input: CalendarCreateDefaultsInput) => CalendarCreateDefaults;
     initialViewMode?: CalendarViewMode;
     onViewModeChange?: (mode: CalendarViewMode) => void;
+    mobileLayout?: boolean;
   } = $props();
 
   function closeSession() {
@@ -151,7 +156,7 @@
   const initialAnchorDate = new Date();
 
   function getInitialViewMode(): CalendarViewMode {
-    return initialViewMode;
+    return initialViewMode ?? (mobileLayout ? "day" : preferences.calendarViewMode);
   }
 
   let viewMode: CalendarViewMode = $state(getInitialViewMode());
@@ -675,6 +680,13 @@
     mark: perfMark,
   });
 
+  $effect(() => {
+    if (!mobileLayout || session.state.mode === "closed") return;
+    return mobileBackStack.activate({
+      handle: handlePanelClose,
+    });
+  });
+
   onMount(() => {
     const removeNavigationListeners = navigationController.installWindowListeners();
     const inspectMusicAssignment = (event: Event) => {
@@ -801,6 +813,31 @@
     }
 
     await openCreate();
+  }
+
+  function formatMinuteOfDay(minute: number): string {
+    const hour = Math.floor(minute / 60);
+    const minutePart = minute % 60;
+    return `${String(hour).padStart(2, "0")}:${String(minutePart).padStart(2, "0")}`;
+  }
+
+  function openMobileEventCreate(target: HTMLButtonElement): void {
+    const today = new Date();
+    const sameDay = formatDatePart(anchorDate) === formatDatePart(today);
+    const start = new Date(anchorDate);
+    start.setHours(0, 0, 0, 0);
+    const startMinute = sameDay
+      ? Math.ceil((today.getHours() * 60 + today.getMinutes()) / 30) * 30
+      : 9 * 60;
+    start.setMinutes(startMinute);
+    const end = new Date(start.getTime() + 30 * 60 * 1000);
+    const rect = target.getBoundingClientRect();
+    void handleEventCreate(
+      `${formatDatePart(start)} ${formatMinuteOfDay(start.getHours() * 60 + start.getMinutes())}`,
+      `${formatDatePart(end)} ${formatMinuteOfDay(end.getHours() * 60 + end.getMinutes())}`,
+      false,
+      { x: rect.left, y: rect.top, width: rect.width, height: rect.height },
+    );
   }
 
   function panelAnchorFromRenderedEvent(eventId: string): PanelAnchor {
@@ -1035,6 +1072,7 @@
   <CalendarHeader
     {anchorDate}
     {viewMode}
+    {mobileLayout}
     onNavigate={navigate}
     onViewChange={changeView}
     onDaySelect={(date) => {
@@ -1096,6 +1134,7 @@
         onTzAbbrModeChange={(mode) => { viewportController.timezoneAbbreviationMode = mode; }}
         onWheelNavigate={handleWheelNavigate}
         onDayHeaderClick={handleDayHeaderClick}
+        allowPointerEditing={!mobileLayout}
       />
     {:else}
       <MonthView
@@ -1110,6 +1149,17 @@
       />
     {/if}
   </div>
+
+  {#if mobileLayout}
+    <button
+      type="button"
+      aria-label={t("mobile.createEvent")}
+      onclick={(event) => openMobileEventCreate(event.currentTarget)}
+      class="absolute bottom-4 right-4 z-50 flex min-h-14 min-w-14 items-center justify-center rounded-2xl bg-primary text-primary-foreground shadow-lg active:opacity-85"
+    >
+      <Plus size={25} strokeWidth={2} aria-hidden="true" />
+    </button>
+  {/if}
 
   {#if confirm.action}
     <ConfirmDialog
@@ -1134,6 +1184,7 @@
     {@const Panel = panelLifecycle.component}
     {@const render = panelRender}
     <Panel
+      {mobileLayout}
       parked={render.parked}
       mode={render.mode}
       panelSessionKey={render.sessionKey}

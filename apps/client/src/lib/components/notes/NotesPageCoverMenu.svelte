@@ -5,6 +5,16 @@
   } from "$lib/api/notes-page-covers";
   import { getLocalization } from "$lib/i18n/translator.svelte";
   import {
+    inspectManagedImageFile,
+    MANAGED_IMAGE_FILE_ACCEPT,
+    MANAGED_IMAGE_MAX_DIMENSION_PIXELS,
+    MANAGED_IMAGE_MAX_MEGAPIXELS,
+    NOTES_PAGE_COVER_IMAGE_MAX_BYTES,
+    NOTES_PAGE_COVER_IMAGE_MAX_MEGABYTES,
+    normalizeManagedImageDataUrl,
+  } from "$lib/browser-file-policy";
+  import { BUILD_PLATFORM_PROFILE, platformHasCapability } from "$lib/platform";
+  import {
     createNotesExternalPageCover,
     createNotesLocalFilePageCover,
     notesPageCoverPresetBackground,
@@ -13,6 +23,7 @@
     type NotesPageCoverPreset,
   } from "$lib/notes/page-cover";
   import type { NotesPageCover } from "$lib/notes/types";
+  import { getMobileBackStack } from "$lib/stores/mobile-back-stack.svelte";
   import ImageIcon from "@lucide/svelte/icons/image";
   import LinkIcon from "@lucide/svelte/icons/link";
   import Save from "@lucide/svelte/icons/save";
@@ -24,17 +35,34 @@
   let {
     cover,
     onSelect,
+    onClose,
   }: {
     cover: NotesPageCover | null;
     onSelect: (cover: NotesPageCover | null) => void;
+    onClose: () => void;
   } = $props();
 
   const { t } = getLocalization();
+  const mobileBackStack = getMobileBackStack();
+  const nativeFilePickerAvailable = platformHasCapability(
+    BUILD_PLATFORM_PROFILE,
+    "storage.native-file-picker",
+  );
+  const remoteImageUrlsAvailable = platformHasCapability(
+    BUILD_PLATFORM_PROFILE,
+    "notes.external-image-references",
+  );
+  const tabs = $derived.by((): CoverTab[] => remoteImageUrlsAvailable
+    ? ["presets", "upload", "url"]
+    : ["presets", "upload"]);
   let activeTab = $state<CoverTab>("presets");
+  let fileInput = $state<HTMLInputElement>();
   let urlDraft = $state("");
   let error = $state<string | null>(null);
   let uploading = $state(false);
   let lastCoverUrl = "";
+
+  $effect(() => mobileBackStack.activate({ handle: onClose }));
 
   $effect(() => {
     const nextUrl = notesPageCoverUrl(cover) ?? "";
@@ -57,13 +85,50 @@
     return t("notes.pageCoverPresetGreenhouse");
   }
 
-  function fileToDataUrl(file: File): Promise<string> {
+  async function fileToDataUrl(file: File): Promise<string> {
+    const inspection = await inspectManagedImageFile(file, NOTES_PAGE_COVER_IMAGE_MAX_BYTES);
+    if (!inspection.ok) {
+      const { issue } = inspection;
+      if (issue === "unsupported-type") {
+        return Promise.reject(new Error(t("notes.pageCoverUnsupportedType")));
+      }
+      if (issue === "too-large") {
+        return Promise.reject(new Error(t(
+          "notes.pageCoverTooLarge",
+          NOTES_PAGE_COVER_IMAGE_MAX_MEGABYTES,
+        )));
+      }
+      if (issue === "invalid-image") {
+        return Promise.reject(new Error(t("notes.pageCoverInvalidImage")));
+      }
+      if (issue === "dimensions-too-large") {
+        return Promise.reject(new Error(t(
+          "notes.pageCoverDimensionsTooLarge",
+          MANAGED_IMAGE_MAX_DIMENSION_PIXELS,
+        )));
+      }
+      if (issue === "too-many-pixels") {
+        return Promise.reject(new Error(t(
+          "notes.pageCoverPixelCountTooLarge",
+          MANAGED_IMAGE_MAX_MEGAPIXELS,
+        )));
+      }
+      return Promise.reject(new Error(t("notes.pageCoverUploadFailed")));
+    }
     return new Promise((resolve, reject) => {
       const reader = new FileReader();
       reader.onerror = () => reject(new Error(t("notes.pageCoverUploadFailed")));
       reader.onload = () => {
         if (typeof reader.result === "string") {
-          resolve(reader.result);
+          const dataUrl = normalizeManagedImageDataUrl(
+            reader.result,
+            inspection.metadata.mimeType,
+          );
+          if (dataUrl) {
+            resolve(dataUrl);
+            return;
+          }
+          reject(new Error(t("notes.pageCoverUploadFailed")));
         } else {
           reject(new Error(t("notes.pageCoverUploadFailed")));
         }
@@ -133,6 +198,10 @@
   }
 
   async function chooseLocalFile(): Promise<void> {
+    if (!nativeFilePickerAvailable) {
+      fileInput?.click();
+      return;
+    }
     uploading = true;
     error = null;
     try {
@@ -145,10 +214,7 @@
     }
   }
 
-  async function handlePaste(event: ClipboardEvent): Promise<void> {
-    const file = event.clipboardData?.files[0];
-    if (!file) return;
-    event.preventDefault();
+  async function saveLocalFile(file: File): Promise<void> {
     uploading = true;
     error = null;
     try {
@@ -161,6 +227,21 @@
       uploading = false;
     }
   }
+
+  async function handleFileInput(event: Event): Promise<void> {
+    const input = event.currentTarget;
+    if (!(input instanceof HTMLInputElement)) return;
+    const file = input.files?.[0];
+    input.value = "";
+    if (file) await saveLocalFile(file);
+  }
+
+  async function handlePaste(event: ClipboardEvent): Promise<void> {
+    const file = event.clipboardData?.files[0];
+    if (!file) return;
+    event.preventDefault();
+    await saveLocalFile(file);
+  }
 </script>
 
 <div
@@ -169,8 +250,17 @@
   data-app-floating-surface
   onpaste={(event) => { void handlePaste(event); }}
 >
+  <input
+    bind:this={fileInput}
+    class="sr-only"
+    type="file"
+    accept={MANAGED_IMAGE_FILE_ACCEPT}
+    aria-hidden="true"
+    tabindex="-1"
+    onchange={(event) => { void handleFileInput(event); }}
+  />
   <div class="mb-2 grid grid-cols-3 gap-1">
-    {#each (["presets", "upload", "url"] as const) as tab}
+    {#each tabs as tab}
       <button
         type="button"
         class={`rounded px-2 py-1 text-[0.733333rem] ${

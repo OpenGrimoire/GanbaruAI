@@ -2,6 +2,11 @@
   import { importNotesDataSourceCsv } from "$lib/api/notes";
   import { getLocalization } from "$lib/i18n/translator.svelte";
   import {
+    browserFileExceedsLimit,
+    NOTES_DATABASE_CSV_MAX_BYTES,
+    NOTES_DATABASE_CSV_MAX_KIBIBYTES,
+  } from "$lib/browser-file-policy";
+  import {
     roundTripWarningCount,
     toRoundTripDiagnosticItem,
   } from "$lib/notes/round-trip-diagnostics";
@@ -87,10 +92,19 @@
     if (!(input instanceof HTMLInputElement)) return;
     const file = input.files?.[0] ?? null;
     if (!file) return;
+    input.value = "";
     error = null;
     result = null;
-    csvText = await file.text();
-    input.value = "";
+    csvText = "";
+    if (browserFileExceedsLimit(file, NOTES_DATABASE_CSV_MAX_BYTES)) {
+      error = t("notes.databaseCsvImportTooLarge", NOTES_DATABASE_CSV_MAX_KIBIBYTES);
+      return;
+    }
+    try {
+      csvText = await file.text();
+    } catch (caught) {
+      error = caught instanceof Error ? caught.message : String(caught);
+    }
   }
 
   async function runImport(dryRun: boolean): Promise<void> {

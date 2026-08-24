@@ -31,6 +31,7 @@
   import type { Project, ProjectGroup } from "$lib/projects/types";
   import { getNotes } from "$lib/stores/notes.svelte";
   import { getViewport } from "$lib/stores/viewport.svelte";
+  import { getMobileBackStack } from "$lib/stores/mobile-back-stack.svelte";
   import { cn } from "$lib/utils";
   import ProjectIcon from "$lib/components/projects/ProjectIcon.svelte";
   import WorkspaceBreadcrumbTerminalIcon from "$lib/components/WorkspaceBreadcrumbTerminalIcon.svelte";
@@ -41,6 +42,7 @@
   type NotesNavigatorMode = ProjectNavigatorPanelMode | "notes";
 
   let {
+    mobileLayout = false,
     selectedProject,
     selectedGroup,
     selectedProjectId,
@@ -54,6 +56,7 @@
     projectSettingsOpen,
     onToggleProjectSettings,
   }: {
+    mobileLayout?: boolean;
     selectedProject: Project | undefined;
     selectedGroup: ProjectGroup | undefined;
     selectedProjectId: string | null;
@@ -70,6 +73,7 @@
 
   const notes = getNotes();
   const viewport = getViewport();
+  const mobileBackStack = getMobileBackStack();
   const { t } = getLocalization();
   const identityIconSize = COMPACT_IDENTITY_ICON_SIZE;
   const identityIconStrokeWidth = COMPACT_IDENTITY_ICON_STROKE_WIDTH;
@@ -140,7 +144,8 @@
 
   function toolbarIconButtonClass(active = false, open = false, primary = false): string {
     return cn(
-      "flex h-7 w-7 shrink-0 items-center justify-center rounded-md transition-colors",
+      "flex shrink-0 items-center justify-center rounded-md transition-colors",
+      mobileLayout ? "h-12 w-12" : "h-7 w-7",
       primary
         ? "bg-primary text-primary-foreground hover:bg-primary/90"
         : "hover:bg-accent",
@@ -151,7 +156,8 @@
 
   function inlineNewPageButtonClass(): string {
     return cn(
-      "flex h-7 w-5 shrink-0 items-center justify-center rounded-md text-foreground transition-colors",
+      "flex shrink-0 items-center justify-center rounded-md text-foreground transition-colors",
+      mobileLayout ? "h-12 w-12" : "h-7 w-5",
       "hover:bg-accent",
     );
   }
@@ -274,6 +280,15 @@
   }
 
   $effect(() => {
+    if (!mobileLayout || !navigatorOpen) return;
+    return mobileBackStack.activate({
+      handle: () => {
+        navigatorOpen = false;
+      },
+    });
+  });
+
+  $effect(() => {
     if (!navigatorOpen) return;
     const viewportWidth = viewport.width;
     const viewportHeight = viewport.height;
@@ -293,18 +308,24 @@
   data-notes-workspace-header
 >
   <div bind:this={notesIdentityElement} class="relative min-w-36 shrink-0 min-[760px]:max-w-xl">
-    <div class="flex h-7 min-w-0 max-w-full items-center gap-0.5 text-identity font-medium">
+    <div class={cn(
+      "flex min-w-0 max-w-full items-center gap-0.5 text-identity font-medium",
+      mobileLayout ? "h-12" : "h-7",
+    )}>
       {#if selectedProject && selectedGroup}
         <button
           bind:this={groupTriggerElement}
           type="button"
           class={cn(
-            "flex h-7 min-w-0 items-center gap-1.5 rounded-md px-1.5 text-left hover:bg-accent",
+            "flex min-w-0 items-center gap-1.5 rounded-md px-1.5 text-left hover:bg-accent",
+            mobileLayout ? "h-12" : "h-7",
             navigatorOpen && navigatorMode === "groups" && "bg-accent",
           )}
           aria-label={t("projects.navigator.open")}
           aria-expanded={navigatorOpen && navigatorMode === "groups"}
-          onpointerenter={() => openNavigator("groups")}
+          onpointerenter={() => {
+            if (!mobileLayout) openNavigator("groups");
+          }}
           onclick={() => toggleNavigator("groups")}
         >
           <ProjectIcon
@@ -321,13 +342,16 @@
           bind:this={projectTriggerElement}
           type="button"
           class={cn(
-            "flex h-7 min-w-0 items-center gap-1.5 rounded-md pl-1.5 text-left hover:bg-accent",
+            "flex min-w-0 items-center gap-1.5 rounded-md pl-1.5 text-left hover:bg-accent",
+            mobileLayout ? "h-12" : "h-7",
             selectedPageTitle ? "pr-1.5" : "pr-0.5",
             navigatorOpen && navigatorMode === "projects" && "bg-accent",
           )}
           aria-label={selectedPageTitle ? t("notes.showProjectHome") : t("projects.navigator.open")}
           aria-expanded={navigatorOpen && navigatorMode === "projects"}
-          onpointerenter={() => openNavigator("projects")}
+          onpointerenter={() => {
+            if (!mobileLayout) openNavigator("projects");
+          }}
           onclick={handleProjectTriggerClick}
         >
           <ProjectIcon
@@ -370,7 +394,8 @@
             <button
               type="button"
               class={cn(
-                "flex h-7 min-w-0 items-center gap-1.5 rounded-md px-1.5 text-left hover:bg-accent",
+                "flex min-w-0 items-center gap-1.5 rounded-md px-1.5 text-left hover:bg-accent",
+                mobileLayout ? "h-12" : "h-7",
                 navigatorOpen
                   && navigatorMode === "notes"
                   && notesNavigatorSourceKey === node.key
@@ -378,7 +403,9 @@
               )}
               aria-label={pathTitle}
               aria-expanded={navigatorOpen && navigatorMode === "notes" && notesNavigatorSourceKey === node.key}
-              onpointerenter={(event) => openHierarchyNavigator(node, event.currentTarget)}
+              onpointerenter={(event) => {
+                if (!mobileLayout) openHierarchyNavigator(node, event.currentTarget);
+              }}
               onclick={(event) => toggleHierarchyNavigator(node, event.currentTarget)}
             >
               {#if node.kind === "folder"}
@@ -418,7 +445,8 @@
           bind:this={noteTriggerElement}
           type="button"
           class={cn(
-            "flex h-7 min-w-0 items-center gap-1.5 rounded-md pl-1.5 pr-0.5 text-left hover:bg-accent",
+            "flex min-w-0 items-center gap-1.5 rounded-md pl-1.5 pr-0.5 text-left hover:bg-accent",
+            mobileLayout ? "h-12" : "h-7",
             navigatorOpen && navigatorMode === "notes" && "bg-accent",
           )}
           aria-label={t("notes.openNoteNavigator")}
@@ -489,7 +517,7 @@
   </div>
   <div class="flex-1"></div>
   <div class="flex shrink-0 items-center gap-1">
-    {#if selectedProject}
+    {#if selectedProject && !mobileLayout}
       <button
         type="button"
         data-notes-toolbar-trigger="settings"

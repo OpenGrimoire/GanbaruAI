@@ -5,12 +5,21 @@ pub(in crate::pomodoro) async fn normalized_close_run_ended_at(
     closure: &PomodoroRunClosure,
 ) -> Result<String, String> {
     let active_start = sqlx::query_scalar::<_, String>(
-        "SELECT actual_start
-         FROM pomodoro_segments
-         WHERE run_id = ? AND status = 'active'
-         ORDER BY actual_start DESC
+        "SELECT boundary_at
+         FROM (
+             SELECT actual_start AS boundary_at
+             FROM pomodoro_segments
+             WHERE run_id = ? AND status = 'active'
+             UNION ALL
+             SELECT p.started_at AS boundary_at
+             FROM pomodoro_pauses p
+             JOIN pomodoro_segments s ON s.id = p.segment_id
+             WHERE s.run_id = ? AND p.ended_at IS NULL
+         )
+         ORDER BY julianday(boundary_at) DESC
          LIMIT 1",
     )
+    .bind(&closure.run_id)
     .bind(&closure.run_id)
     .fetch_optional(&mut **tx)
     .await

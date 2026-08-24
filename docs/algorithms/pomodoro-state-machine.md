@@ -102,7 +102,7 @@ The opposite design (decisions interleaved with writes) would make all of the ab
 
 ## Heartbeat
 
-`pomodoro_runs.last_heartbeat` is updated approximately every 30 seconds while the session is active. The heartbeat is the basis for crash recovery: if the app stops without setting `ended_at`, recovery uses `last_heartbeat` as the run's true end time.
+`pomodoro_runs.last_heartbeat` is updated approximately every 30 seconds while the session is active. Desktop crash recovery uses it as the last confirmed live instant when an unexpected exit leaves a run open. Android also validates the heartbeat, but routine operating-system process eviction is not treated as proof that the user stopped the timer. Mobile cold recovery reconstructs current phase progress from persisted segment and pause timestamps when the state is still safe to resume.
 
 The one-second display scheduler is intentionally separate from persistence and native side effects. Segment rows and plans change only at phase transitions, pause or resume actions, reconfiguration, extensions, and session closure. The heartbeat is the only bounded write during an uninterrupted segment. Tray updates are coalesced by structural state and rendered percentage, while break overlays receive an absolute end timestamp and do not require per-second IPC.
 
@@ -112,7 +112,7 @@ Heartbeat properties:
 - **Atomic single-row update.** Each heartbeat is one `UPDATE pomodoro_runs SET last_heartbeat = ? WHERE id = ? AND ended_at IS NULL`. SQLite handles this in a microsecond or two, no contention.
 - **Independent of segment writes.** Heartbeats fire on their own schedule, not tied to phase boundaries. This way a crash mid-segment still has a recent heartbeat.
 
-Without the heartbeat, recovery would have to use the active segment's planned end (overestimating focus time on crash mid-phase) or now (catastrophic if the app crashed and reopened hours later). The heartbeat gives a tight bound regardless of when recovery runs.
+Without the heartbeat, desktop recovery would have to use the active segment's planned end (overestimating focus time on a crash mid-phase) or now (catastrophic if the app crashed and reopened hours later). The heartbeat gives desktop closure and invalid mobile-state fallback a tight, persisted bound. A valid Android recovery instead uses the current time only after proving that the event window and active phase have not expired.
 
 ## Constants
 
@@ -178,35 +178,41 @@ In ASCII this is approximate. The states are:
 
 A session can move from ACTIVE to PAUSED and back many times within a single segment. A session moves from ACTIVE to a new ACTIVE' (closing the old run) only on transition, reconfiguration, or end-and-restart.
 
-## Recovery procedure
+## Recovery procedures
 
-On app startup, the system scans for runs with `ended_at = NULL`. For each:
+Recovery runs before calendar-driven session work can observe persisted Pomodoro state. Desktop and mobile deliberately apply different policies because an Android process can be removed while the user reasonably expects a deadline-driven timer to continue.
 
-1. **Determine the true end time.** Use `last_heartbeat`. This is the most recent moment the system was confirmed alive. If `last_heartbeat` is older than 60 seconds, the run is treated as crashed.
-2. **Close the run.** Set `ended_at = last_heartbeat`, `end_reason = interrupted`.
-3. **Close the active segment.** Find any segment on this run with `status = active`. Set `status = interrupted`, `actual_end = run.last_heartbeat`.
-4. **Close any open pauses.** Find any pause on the active segment (or any segment on this run, defensively) with `ended_at = NULL`. Set `ended_at = run.last_heartbeat`.
-5. **Record recovery.** Insert a `pomodoro_run_events` row with `event_type = crash_recovery`.
+### Desktop orphan cleanup
 
-Each step is an independent SQL UPDATE. Each is atomic. The full recovery sweep is idempotent: running it twice produces the same result as running it once, because step 1 only acts on rows that still match the criteria.
+Desktop startup closes every run left with `ended_at = NULL`:
 
-This is safe because:
+1. Use `last_heartbeat` as the last confirmed live instant.
+2. Set the run to `end_reason = interrupted` at that instant.
+3. Interrupt its active segment and close any open pauses at the same normalized instant.
+4. Record `crash_recovery` in `pomodoro_run_events`.
 
-- Pauses are individual rows, not JSON blobs. Closing them needs only `UPDATE WHERE ended_at IS NULL`. No string surgery is needed.
-- Each field update is its own SQL statement; partial recovery (a crash during recovery) leaves a recoverable state for the next attempt.
-- The worst-case data loss is one heartbeat interval (~30 seconds).
+After cleanup, `decideStartFromBlock` can create a fresh run for a current calendar event. Desktop never reopens a row it already closed. An unexpected desktop exit is treated as a broken concentration boundary, and the heartbeat bounds lost work to approximately 30 seconds.
 
-After recovery, the system runs `decideStartFromBlock` for the current calendar context. If a pomodoro event is currently in window, a fresh session starts (as a new run, not resuming the recovered one).
+### Android cold recovery
 
-### Why not resume the recovered run
+Android cold startup performs one typed reconciliation transaction before Calendar loads:
 
-Resuming would mean reopening a run that was closed during recovery, undoing some of the closure. This is awkward (segments and pauses are already closed) and runs counter to the user's likely expectation: after a crash, concentration is broken. A fresh session at the user's first interaction makes the boundary clear.
+1. No open run returns `none` without changing history.
+2. Multiple open runs violate the single-open-run invariant. Recovery closes all of them as interrupted with reason `multiple_open_runs`.
+3. One open run is resumable only when its run window, live event reference, rhythm snapshot, settings, timestamps, single active segment, and pause chronology are all valid. Invalid state closes as interrupted with reason `invalid_state`.
+4. If the calendar event window has expired, recovery closes the run at its persisted event deadline as completed with reason `run_window_expired`.
+5. If a valid active phase still has work and event time remaining, recovery returns `resumed`. Running elapsed time is derived from the active segment's actual start minus closed pauses. An open pause remains paused and time away does not count. Visible remaining time is capped by both the phase and event deadlines.
+6. If the active phase expired while no native boundary adapter was available, recovery closes the run as interrupted at the proven phase deadline with reason `phase_expired`. It does not invent unobserved phase transitions. Once native notification or alarm boundaries are implemented, reconciliation may deterministically apply recorded boundary deliveries and advance the plan.
+
+The transaction either returns a validated in-memory snapshot or closes unsafe persisted state. Closure updates the run, active segment, pauses, and audit event together. Repeating recovery sees no open rows after a closure, while a resumed row remains open and can be reconstructed again after another process eviction.
+
+This policy resumes an existing open row in place. It never closes and then reopens history. It preserves a still-valid Android timer without claiming that focus continued across an expired phase or malformed state.
 
 ### External tools and recovery
 
-External tools (CLI exports, analytics scripts, backup utilities) might read the database while the app is not running, including immediately after a crash before the user has reopened the app. To produce correct data, external readers should treat any run where `ended_at IS NULL` and `last_heartbeat` is older than 60 seconds as a crashed session, applying the same logic (use `last_heartbeat` as the true end time) before computing analytics.
+External tools (CLI exports, analytics scripts, and backup utilities) might read the database while the app is not running, including before platform startup recovery has run. An open row is pending runtime reconciliation, not proof of either completed work or a crash. Read-only tools should exclude it from finalized analytics or label it as open. They must not silently apply desktop heartbeat closure to a mobile vault because that would destroy a resumable phase.
 
-The `ganbaru-ai` CLI is expected to handle this automatically. Third-party scripts that read the database directly are responsible for their own recovery handling. The schema documentation calls this out so authors of such scripts know what to do.
+The future `ganbaru-ai` CLI should expose this state explicitly. A separately authorized repair command may invoke the platform-neutral validation and closure path, but ordinary exports and third-party readers must not mutate the database as a side effect of reading it.
 
 ## Why the state machine is the source of truth
 

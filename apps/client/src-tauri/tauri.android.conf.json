@@ -1,0 +1,36 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Ganbaru AI",
+  "app": {
+    "windows": [
+      {
+        "label": "main",
+        "title": "Ganbaru AI",
+        "visible": true
+      }
+    ],
+    "security": {
+      "capabilities": ["android"],
+      "csp": {
+        "script-src": "'self'",
+        "frame-src": "'none'"
+      },
+      "devCsp": {
+        "default-src": "'self' http://*:*",
+        "script-src": "'self' 'unsafe-eval' http://*:*",
+        "style-src": "'self' 'unsafe-inline' http://*:*",
+        "img-src": "'self' data: asset: http://asset.localhost http://127.0.0.1:* http://localhost:* http://*:*",
+        "media-src": "'self' http://127.0.0.1:* http://localhost:* http://*:*",
+        "font-src": "'self' http://*:*",
+        "connect-src": "ipc: http://ipc.localhost http://*:* ws://*:*",
+        "frame-src": "'none'"
+      }
+    }
+  },
+  "bundle": {
+    "android": {
+      "debugApplicationIdSuffix": ".dev",
+      "minSdkVersion": 29
+    }
+  }
+}

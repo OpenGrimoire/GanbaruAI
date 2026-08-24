@@ -7,15 +7,18 @@
   import { portal } from "$lib/utils/portal";
   import ProjectIcon from "./ProjectIcon.svelte";
   import ProjectPickerPanels from "./ProjectPickerPanels.svelte";
+  import ProjectPickerMobileDialog from "./ProjectPickerMobileDialog.svelte";
   import type { Project } from "$lib/projects/types";
 
   let {
     selectedProjectId = undefined,
     disabled = false,
+    mobileLayout = false,
     onSelect,
   }: {
     selectedProjectId?: string;
     disabled?: boolean;
+    mobileLayout?: boolean;
     onSelect: (projectId: string | undefined) => void;
   } = $props();
 
@@ -94,6 +97,11 @@
   }
 
   function updateDropdownGeometry(): void {
+    if (mobileLayout) {
+      dropdownStyle = "";
+      pickerMaxHeight = 0;
+      return;
+    }
     if (!triggerEl) return;
     const anchorRect = dropdownAnchorRect();
     const bounds = dropdownBounds();
@@ -166,6 +174,7 @@
     void height;
     requestAnimationFrame(updateDropdownGeometry);
   });
+
 </script>
 
 <div bind:this={rootEl} class="relative flex items-center" data-app-shortcuts="ignore">
@@ -174,11 +183,14 @@
     type="button"
     disabled={disabled}
     class={cn(
-      "flex size-4.5 shrink-0 items-center justify-center rounded-sm text-event-panel-muted-text transition-colors hover:text-event-panel-input-text",
+      "flex shrink-0 items-center justify-center text-event-panel-muted-text transition-colors hover:text-event-panel-input-text",
+      mobileLayout ? "min-h-12 min-w-12 rounded-xl active:bg-accent" : "size-4.5 rounded-sm",
       disabled && "cursor-not-allowed opacity-60",
     )}
     title={pickerTitle}
     aria-label={pickerTitle}
+    aria-haspopup="dialog"
+    aria-expanded={open}
     data-app-tooltip-focus-disabled="true"
     onclick={() => {
       if (!disabled) toggleDropdown();
@@ -197,28 +209,48 @@
   </button>
 
   {#if open}
-    <!-- svelte-ignore a11y_click_events_have_key_events -->
-    <!-- svelte-ignore a11y_no_static_element_interactions -->
-    <div use:portal class="fixed inset-0 z-60" onclick={closeDropdown}></div>
-    <div
-      use:portal
-      class="fixed z-61"
-      style={dropdownStyle}
-      role="dialog"
-      tabindex="-1"
-      aria-label={t("projects.navigator.pickerLabel")}
-    >
-      <ProjectPickerPanels
-        selectedProjectId={selectedProjectId ?? null}
-        bind:projectSearch={search}
-        bind:panelHeight={pickerHeight}
-        panelMaxHeight={pickerMaxHeight}
-        showClearProject
-        closeOnProjectCreate
-        onProjectSelected={selectProject}
-        onProjectCreated={handleProjectCreated}
-        onClearProject={clearSelection}
-      />
-    </div>
+    {#if mobileLayout}
+      <ProjectPickerMobileDialog
+        label={t("projects.navigator.pickerLabel")}
+        closeLabel={t("projects.navigator.closePicker")}
+        onClose={closeDropdown}
+      >
+        <ProjectPickerPanels
+          selectedProjectId={selectedProjectId ?? null}
+          bind:projectSearch={search}
+          showClearProject
+          closeOnProjectCreate
+          onProjectSelected={selectProject}
+          onProjectCreated={handleProjectCreated}
+          onClearProject={clearSelection}
+          mobileLayout
+          onClose={closeDropdown}
+        />
+      </ProjectPickerMobileDialog>
+    {:else}
+      <!-- svelte-ignore a11y_click_events_have_key_events -->
+      <!-- svelte-ignore a11y_no_static_element_interactions -->
+      <div use:portal class="fixed inset-0 z-60" onclick={closeDropdown}></div>
+      <div
+        use:portal
+        class="fixed z-61"
+        style={dropdownStyle}
+        role="dialog"
+        tabindex="-1"
+        aria-label={t("projects.navigator.pickerLabel")}
+      >
+        <ProjectPickerPanels
+          selectedProjectId={selectedProjectId ?? null}
+          bind:projectSearch={search}
+          bind:panelHeight={pickerHeight}
+          panelMaxHeight={pickerMaxHeight}
+          showClearProject
+          closeOnProjectCreate
+          onProjectSelected={selectProject}
+          onProjectCreated={handleProjectCreated}
+          onClearProject={clearSelection}
+        />
+      </div>
+    {/if}
   {/if}
 </div>

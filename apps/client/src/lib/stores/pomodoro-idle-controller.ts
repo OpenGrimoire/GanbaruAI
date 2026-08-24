@@ -21,6 +21,7 @@ interface IdleStatus {
 }
 
 interface PomodoroIdleContext {
+  nativeIdleDetectionAvailable: boolean;
   phase: PomodoroPhase;
   isRunning: boolean;
   suspendedAway: { awaySeconds: number } | null;
@@ -91,20 +92,23 @@ export function createPomodoroIdleController(
 
   function startChecking(): void {
     stopChecking();
+    if (!context.nativeIdleDetectionAvailable) return;
     if (!shouldRunChecks()) return;
     scheduleCheck(0, idleCheckGeneration);
   }
 
   function setActiveThresholdMinutes(minutes: number): void {
+    if (!context.nativeIdleDetectionAvailable) return;
     if (!Number.isFinite(minutes) || minutes <= 0 || context.idleTimeoutMs === null) return;
     const nextIdleMs = Math.round(minutes) * 60_000;
     setActiveTimeoutMs(nextIdleMs);
   }
 
   function setActiveTimeoutMs(nextIdleMs: number | null): void {
-    if (context.idleTimeoutMs === nextIdleMs) return;
-    context.idleTimeoutMs = nextIdleMs;
-    if (nextIdleMs === null) {
+    const supportedTimeoutMs = context.nativeIdleDetectionAvailable ? nextIdleMs : null;
+    if (context.idleTimeoutMs === supportedTimeoutMs) return;
+    context.idleTimeoutMs = supportedTimeoutMs;
+    if (supportedTimeoutMs === null) {
       stopChecking();
     } else {
       startChecking();

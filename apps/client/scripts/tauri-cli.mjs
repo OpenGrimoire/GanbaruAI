@@ -61,6 +61,17 @@ function withDevConfig(args) {
 }
 
 /**
+ * Checks whether the CLI invocation starts a desktop or mobile development run.
+ *
+ * @param {string[]} args CLI arguments.
+ * @returns {boolean} Whether the command compiles a development application.
+ */
+function isDevelopmentCommand(args) {
+  return args[0] === "dev" ||
+    ((args[0] === "android" || args[0] === "ios") && args[1] === "dev");
+}
+
+/**
  * Builds the environment for the Tauri child process.
  *
  * Development terminals can inherit an X11 override while the desktop session
@@ -72,7 +83,7 @@ function withDevConfig(args) {
  * @returns {NodeJS.ProcessEnv} Environment to pass to the Tauri CLI.
  */
 function tauriChildEnvironment(args, environment) {
-  if (args[0] !== "dev") {
+  if (!isDevelopmentCommand(args)) {
     return environment;
   }
 

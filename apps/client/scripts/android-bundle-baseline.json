@@ -1,0 +1,142 @@
+{
+  "schemaVersion": 2,
+  "destinations": [
+    {
+      "name": "shell",
+      "roots": [
+        "src/main.ts",
+        "src/main-mobile.ts",
+        "src/MobileApp.svelte"
+      ],
+      "maxSourceModules": 158
+    },
+    {
+      "name": "calendar",
+      "roots": [
+        "src/lib/components/calendar/CalendarView.svelte"
+      ],
+      "maxSourceModules": 217
+    },
+    {
+      "name": "projects",
+      "roots": [
+        "src/lib/components/projects/ProjectsView.svelte",
+        "src/lib/components/projects/ProjectMobileListView.svelte"
+      ],
+      "maxSourceModules": 150
+    },
+    {
+      "name": "notes",
+      "roots": [
+        "src/lib/components/notes/NotesView.svelte"
+      ],
+      "maxSourceModules": 366
+    },
+    {
+      "name": "quick-notes",
+      "roots": [
+        "src/lib/components/quick-notes/QuickNotesPanel.svelte"
+      ],
+      "maxSourceModules": 87
+    }
+  ],
+  "maxTotalSourceModules": 609,
+  "requiredMobileModules": [
+    "src/main.ts",
+    "src/main-mobile.ts",
+    "src/MobileApp.svelte",
+    "src/lib/api/db.mobile.ts",
+    "src/lib/mobile-back.ts",
+    "src/lib/mobile-persistence-lifecycle.ts",
+    "src/lib/viewport.ts",
+    "src/lib/window-sync-transport.mobile.ts",
+    "src/lib/stores/mobile-back-stack.svelte.ts",
+    "src/lib/stores/pomodoro-doomscrolling-controller.mobile.ts",
+    "src/lib/stores/pomodoro-effects.mobile.svelte.ts",
+    "src/lib/stores/pomodoro-mobile-recovery.ts",
+    "src/lib/stores/pomodoro-runtime-environment.mobile.ts",
+    "src/lib/stores/pomodoro-window-coordinator.mobile.ts",
+    "src/lib/stores/viewport.svelte.ts",
+    "src/lib/components/mobile/MobileNavigation.svelte",
+    "src/lib/components/mobile/MobileTopBar.svelte",
+    "src/lib/components/mobile/MobilePomodoroSheet.svelte",
+    "src/lib/components/mobile/MobileSettings.svelte",
+    "src/lib/components/projects/project-component-registry.mobile.ts",
+    "src/lib/components/projects/ProjectMobileListView.svelte",
+    "src/lib/components/notes/notes-working-markdown-platform.mobile.ts",
+    "src/lib/components/notes/notes-editor-platform-importers.mobile.ts",
+    "src/lib/components/notes/notes-project-platform-importers.mobile.ts",
+    "src/lib/components/mobile/MobileNoopNotesWorkingMarkdownEditor.svelte",
+    "src/lib/components/mobile/MobileNoopNotesProjectSettingsPanel.svelte",
+    "src/lib/components/mobile/MobileNoopNotesWorkingMarkdownTree.svelte",
+    "src/lib/components/mobile/MobileNoopMusicAssignmentEditor.svelte",
+    "src/lib/components/quick-notes/QuickNotesPanel.svelte"
+  ],
+  "forbiddenModules": [
+    "src/App.svelte",
+    "src/main-desktop.ts",
+    "src/lib/api/db.ts",
+    "src/lib/music/platform-library.ts",
+    "src/lib/window-sync-transport.ts",
+    "src/lib/stores/pomodoro-effects.svelte.ts",
+    "src/lib/stores/pomodoro-doomscrolling-controller.ts",
+    "src/lib/stores/pomodoro-runtime-environment.ts",
+    "src/lib/stores/pomodoro-window-coordinator.ts",
+    "src/lib/stores/mobile-back-stack.desktop.ts",
+    "src/lib/components/projects/project-component-registry.ts",
+    "src/lib/components/projects/project-desktop-view-components.ts",
+    "src/lib/components/projects/ProjectListView.svelte",
+    "src/lib/components/projects/ProjectKanbanView.svelte",
+    "src/lib/components/projects/ProjectGanttView.svelte",
+    "src/lib/components/projects/ProjectDashboardView.svelte",
+    "src/lib/components/projects/ProjectToolbarPanels.svelte",
+    "src/lib/components/projects/ProjectTaskFinder.svelte",
+    "src/lib/components/notes/notes-working-markdown-platform.ts",
+    "src/lib/components/notes/notes-editor-platform-importers.ts",
+    "src/lib/components/notes/notes-project-platform-importers.ts",
+    "src/lib/components/notes/NotesWorkingMarkdownEditor.svelte",
+    "src/lib/components/notes/NotesWorkingMarkdownTree.svelte",
+    "src/lib/components/notes/NotesProjectSettingsPanel.svelte",
+    "src/lib/components/notes/NotesHtmlExportDialog.svelte",
+    "src/lib/components/notes/NotesAgentBridgeExportDialog.svelte",
+    "src/lib/components/notes/NotesDatabaseCsvExportPanel.svelte",
+    "src/lib/components/notes/NotesJsonGraphExportDialog.svelte",
+    "src/lib/components/notes/NotesNotionExportImportDialog.svelte",
+    "src/lib/components/notes/NotesProjectVersionHistoryModal.svelte"
+  ],
+  "forbiddenModuleSubstrings": [
+    "src/lib/components/projects/ProjectSettings",
+    "src/lib/components/projects/ProjectBulkAction",
+    "src/lib/components/benchmark/",
+    "src/lib/benchmark/",
+    "src/lib/stores/benchmark",
+    "src/lib/components/chat/",
+    "src/lib/components/settings/chat/",
+    "src/lib/components/settings/ChatSection.svelte",
+    "src/lib/chat/",
+    "src/lib/api/chat",
+    "src/lib/stores/chat",
+    "src/lib/components/music/",
+    "src/lib/components/settings/MusicSection.svelte",
+    "src/lib/api/music",
+    "src/lib/api/soundscape",
+    "src/lib/stores/music",
+    "src/lib/components/title-bar/",
+    "src/lib/components/TitleBar.svelte",
+    "src/lib/components/titlebar-",
+    "src/lib/doomscrolling/",
+    "src/lib/api/doomscrolling",
+    "src/lib/stores/doomscrolling",
+    "src/lib/components/settings/Doomscrolling",
+    "/node_modules/@tauri-apps/api/event.js",
+    "/node_modules/codemirror/",
+    "/node_modules/@codemirror/",
+    "/node_modules/@lezer/",
+    "/node_modules/@replit/codemirror-lang-svelte/",
+    "/node_modules/@pierre/",
+    "/node_modules/@shikijs/",
+    "/node_modules/shiki/",
+    "/node_modules/react/",
+    "/node_modules/react-dom/"
+  ]
+}

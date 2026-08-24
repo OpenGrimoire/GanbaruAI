@@ -1,5 +1,7 @@
 mod commands;
 mod reads;
+#[cfg(any(test, target_os = "android", target_os = "ios"))]
+mod recovery;
 #[cfg(test)]
 mod tests;
 mod time;
@@ -15,7 +17,7 @@ use reads::{load_adaptive_history_from_pool, load_adaptive_replay_dataset_from_p
 use validation::{
     canonical_event_id, normalize_segment_update, validate_adaptive_decision_envelope_for_segment,
     validate_event_type, validate_pause_reason, validate_phase, validate_run_end_reason,
-    validate_run_window_update, validate_segment_end_reason, validate_status,
+    validate_run_rhythm, validate_run_window_update, validate_segment_end_reason, validate_status,
 };
 #[cfg(test)]
 use writes::{
@@ -324,6 +326,66 @@ pub struct PomodoroSegmentRead {
 }
 
 #[derive(Serialize)]
+#[serde(
+    tag = "kind",
+    rename_all = "snake_case",
+    rename_all_fields = "camelCase"
+)]
+#[cfg(any(test, target_os = "android", target_os = "ios"))]
+pub enum PomodoroMobileRecoveryRead {
+    None,
+    Closed {
+        reason: String,
+        closed_run_ids: Vec<String>,
+    },
+    Resumed {
+        run: Box<PomodoroRecoveredRunRead>,
+    },
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+#[cfg(any(test, target_os = "android", target_os = "ios"))]
+pub struct PomodoroRecoveredRunRead {
+    run_id: String,
+    block_id: String,
+    event_date: String,
+    planned_end: String,
+    started_at: String,
+    recovered_at: String,
+    rhythm: PomodoroRunRhythm,
+    rhythm_source: String,
+    preset_key: Option<String>,
+    idle_timeout_minutes: Option<i64>,
+    segment: PomodoroRecoveredSegmentRead,
+    completed_focus_count: i64,
+    phase_elapsed_seconds: i64,
+    phase_work_duration_seconds: i64,
+    remaining_seconds: i64,
+    is_running: bool,
+    focus_extension_used: bool,
+    open_pause_reason: Option<String>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+#[cfg(any(test, target_os = "android", target_os = "ios"))]
+pub struct PomodoroRecoveredSegmentRead {
+    id: String,
+    event_id: String,
+    event_date: String,
+    run_id: String,
+    rhythm_position: i64,
+    phase: String,
+    planned_start: String,
+    planned_end: String,
+    actual_start: String,
+    actual_end: Option<String>,
+    status: String,
+    pause_log: Vec<PomodoroPauseWrite>,
+}
+
+#[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PomodoroAdaptiveHistoryRead {
     segments: Vec<PomodoroAdaptiveHistorySegmentRead>,
@@ -611,10 +673,22 @@ pub async fn pomodoro_record_run_event<R: Runtime>(
     commands::pomodoro_record_run_event(app, db_url, event).await
 }
 
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 #[tauri::command]
 pub async fn pomodoro_recover_open_runs<R: Runtime>(
     app: AppHandle<R>,
     db_url: String,
 ) -> Result<(), String> {
     commands::pomodoro_recover_open_runs(app, db_url).await
+}
+
+#[tauri::command]
+#[cfg(any(test, target_os = "android", target_os = "ios"))]
+pub async fn pomodoro_recover_mobile_run<R: Runtime>(
+    app: AppHandle<R>,
+    db_url: String,
+) -> Result<PomodoroMobileRecoveryRead, String> {
+    let now: chrono::DateTime<chrono::Utc> = std::time::SystemTime::now().into();
+    let now_at = now.to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
+    commands::pomodoro_recover_mobile_run(app, db_url, now_at).await
 }

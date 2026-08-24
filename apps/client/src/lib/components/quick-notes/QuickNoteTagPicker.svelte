@@ -3,7 +3,9 @@
   import Check from "@lucide/svelte/icons/check";
   import Tag from "@lucide/svelte/icons/tag";
   import { getLocalization } from "$lib/i18n/translator.svelte";
+  import { activateModalFocus } from "$lib/modal-focus";
   import type { QuickNoteTag } from "$lib/quick-notes/types";
+  import { getMobileBackStack } from "$lib/stores/mobile-back-stack.svelte";
   import { portal } from "$lib/utils/portal";
 
   let {
@@ -11,17 +13,21 @@
     tags,
     onselect,
     buttonClass = "",
+    mobileLayout = false,
   }: {
     tagId: string | null;
     tags: readonly QuickNoteTag[];
     onselect: (tagId: string | null) => void;
     buttonClass?: string;
+    mobileLayout?: boolean;
   } = $props();
 
   const { t } = getLocalization();
+  const mobileBackStack = getMobileBackStack();
   let open = $state(false);
   let button = $state<HTMLButtonElement | null>(null);
   let firstOption = $state<HTMLButtonElement | null>(null);
+  let picker = $state<HTMLDivElement | null>(null);
   let left = $state(8);
   let top = $state(8);
 
@@ -41,9 +47,40 @@
 
   function choose(next: string | null): void {
     onselect(next);
+    closePicker();
+  }
+
+  function closePicker(): void {
     open = false;
     void tick().then(() => button?.focus());
   }
+
+  function handlePickerKeydown(event: KeyboardEvent): void {
+    if (event.key !== "Escape") return;
+    event.preventDefault();
+    event.stopPropagation();
+    closePicker();
+  }
+
+  const pickerStyle = $derived(mobileLayout
+    ? "left: calc(var(--visual-viewport-offset-left) + var(--safe-area-left) + 0.5rem); right: calc(var(--safe-area-right) + 0.5rem); bottom: calc(var(--keyboard-inset) + var(--safe-area-bottom) + 0.5rem); max-width: 32rem; max-height: min(60vh, 24rem, calc(var(--visual-viewport-height) - var(--safe-area-top) - var(--safe-area-bottom) - 1rem)); margin-inline: auto;"
+    : `left: ${left}px; top: ${top}px;`);
+
+  $effect(() => {
+    if (!open) return;
+    const deactivateBack = mobileLayout
+      ? mobileBackStack.activate({ handle: closePicker })
+      : () => undefined;
+    const deactivateFocus = picker
+      ? activateModalFocus(picker, firstOption)
+      : () => undefined;
+    window.addEventListener("keydown", handlePickerKeydown, true);
+    return () => {
+      deactivateBack();
+      deactivateFocus();
+      window.removeEventListener("keydown", handlePickerKeydown, true);
+    };
+  });
 </script>
 
 <button
@@ -54,7 +91,7 @@
   title={t("quickNotes.tag.assign")}
   aria-haspopup="dialog"
   aria-expanded={open}
-  onclick={() => { if (open) open = false; else void openPicker(); }}
+  onclick={() => { if (open) closePicker(); else void openPicker(); }}
 >
   <Tag class="size-4" strokeWidth={1.5} aria-hidden="true" />
 </button>
@@ -65,27 +102,22 @@
     type="button"
     class="fixed inset-0 z-90 cursor-default"
     aria-label={t("common.close")}
-    onclick={() => { open = false; }}
+    onclick={closePicker}
   ></button>
   <div
+    bind:this={picker}
     use:portal
-    class="fixed z-100 max-h-75 w-55 overflow-y-auto rounded-lg border border-border bg-popover p-1.5 text-popover-foreground shadow-xl"
-    style="left: {left}px; top: {top}px;"
+    class={mobileLayout ? "fixed z-100 overflow-y-auto overscroll-contain rounded-2xl border border-border bg-popover p-2 text-popover-foreground shadow-xl" : "fixed z-100 max-h-75 w-55 overflow-y-auto rounded-lg border border-border bg-popover p-1.5 text-popover-foreground shadow-xl"}
+    style={pickerStyle}
     role="dialog"
+    aria-modal="true"
     tabindex="-1"
     aria-label={t("quickNotes.tag.assign")}
-    onkeydown={(event) => {
-      if (event.key !== "Escape") return;
-      event.preventDefault();
-      event.stopPropagation();
-      open = false;
-      void tick().then(() => button?.focus());
-    }}
   >
     <button
       bind:this={firstOption}
       type="button"
-      class="flex h-8 w-full items-center gap-2 rounded-md px-2 text-left text-xs hover:bg-accent"
+      class={mobileLayout ? "flex min-h-12 w-full items-center gap-3 rounded-xl px-3 text-left text-sm active:bg-accent" : "flex h-8 w-full items-center gap-2 rounded-md px-2 text-left text-xs hover:bg-accent"}
       onclick={() => choose(null)}
     >
       <span class="flex size-4 items-center justify-center">{#if tagId === null}<Check class="size-3.5" strokeWidth={1.5} />{/if}</span>
@@ -94,7 +126,7 @@
     {#each tags as tag}
       <button
         type="button"
-        class="flex h-8 w-full items-center gap-2 rounded-md px-2 text-left text-xs hover:bg-accent"
+        class={mobileLayout ? "flex min-h-12 w-full items-center gap-3 rounded-xl px-3 text-left text-sm active:bg-accent" : "flex h-8 w-full items-center gap-2 rounded-md px-2 text-left text-xs hover:bg-accent"}
         onclick={() => choose(tag.id)}
       >
         <span class="flex size-4 items-center justify-center">{#if tagId === tag.id}<Check class="size-3.5" strokeWidth={1.5} />{/if}</span>

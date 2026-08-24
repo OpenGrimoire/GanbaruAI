@@ -10,7 +10,7 @@ import {
   retryProjectOptionalComponent,
   type LoadedProjectOptionalComponent,
   type ProjectOptionalComponentKind,
-} from "./project-component-registry";
+} from "$lib/components/projects/project-component-registry";
 
 type ProjectsStore = ReturnType<typeof getProjects>;
 type OptionalLoadState = LazyComponentLoadState<

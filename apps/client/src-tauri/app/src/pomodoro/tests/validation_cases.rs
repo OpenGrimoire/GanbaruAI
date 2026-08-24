@@ -56,6 +56,32 @@ fn validates_run_and_segment_end_reasons() {
 }
 
 #[test]
+fn validates_runtime_rhythm_limits() {
+    assert!(validate_run_rhythm(&PomodoroRunRhythm::Count {
+        focus_duration_minutes: 120,
+        short_break_minutes: 30,
+        long_break_minutes: 60,
+        long_break_after_focus_count: 12,
+    })
+    .is_ok());
+    assert!(validate_run_rhythm(&PomodoroRunRhythm::Count {
+        focus_duration_minutes: 121,
+        short_break_minutes: 5,
+        long_break_minutes: 10,
+        long_break_after_focus_count: 4,
+    })
+    .is_err());
+    assert!(validate_run_rhythm(&PomodoroRunRhythm::Sequence {
+        steps: vec![PomodoroRunSequenceStep {
+            focus_duration_minutes: 25,
+            break_phase: "short_break".to_string(),
+            break_duration_minutes: 31,
+        }],
+    })
+    .is_err());
+}
+
+#[test]
 fn validates_run_window_update() {
     assert!(validate_run_window_update(&PomodoroRunWindowUpdate {
         run_id: "run-1".to_string(),

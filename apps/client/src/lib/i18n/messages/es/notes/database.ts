@@ -109,6 +109,7 @@ export const database = {
   databaseCsvImportImport: "Importar filas válidas",
   databaseCsvImportImporting: "Importando",
   databaseCsvImportFailed: (message: string) => `No se pudo importar el CSV: ${message}`,
+  databaseCsvImportTooLarge: (kilobytes: number) => `La importación CSV está limitada a ${kilobytes} KB.`,
   databaseCsvImportNoCsv: "Elige un archivo CSV o pega texto CSV.",
   databaseCsvImportSummary: (valid: number, total: number, skipped: number) =>
     `${valid} de ${total} ${total === 1 ? "fila" : "filas"} listas, ${skipped} omitidas`,

@@ -3,6 +3,10 @@ use std::collections::HashSet;
 use super::time::{iso_is_before, iso_seconds_between};
 use super::*;
 
+const MAX_FOCUS_DURATION_MINUTES: i64 = 120;
+const MAX_SHORT_BREAK_DURATION_MINUTES: i64 = 30;
+const MAX_LONG_BREAK_DURATION_MINUTES: i64 = 60;
+
 pub(super) fn validate_run_write(run: &PomodoroRunWrite) -> Result<(), String> {
     require_non_empty(&run.id, "run.id")?;
     canonical_event_id(&run.event_id)?;
@@ -471,7 +475,7 @@ fn validate_start_trigger(trigger: &str) -> Result<(), String> {
     }
 }
 
-fn validate_run_rhythm(rhythm: &PomodoroRunRhythm) -> Result<(), String> {
+pub(super) fn validate_run_rhythm(rhythm: &PomodoroRunRhythm) -> Result<(), String> {
     match rhythm {
         PomodoroRunRhythm::Count {
             focus_duration_minutes,
@@ -479,9 +483,21 @@ fn validate_run_rhythm(rhythm: &PomodoroRunRhythm) -> Result<(), String> {
             long_break_minutes,
             long_break_after_focus_count,
         } => {
-            validate_config_minutes(*focus_duration_minutes, "focus_duration_minutes")?;
-            validate_config_minutes(*short_break_minutes, "short_break_minutes")?;
-            validate_config_minutes(*long_break_minutes, "long_break_minutes")?;
+            validate_config_minutes(
+                *focus_duration_minutes,
+                MAX_FOCUS_DURATION_MINUTES,
+                "focus_duration_minutes",
+            )?;
+            validate_config_minutes(
+                *short_break_minutes,
+                MAX_SHORT_BREAK_DURATION_MINUTES,
+                "short_break_minutes",
+            )?;
+            validate_config_minutes(
+                *long_break_minutes,
+                MAX_LONG_BREAK_DURATION_MINUTES,
+                "long_break_minutes",
+            )?;
             validate_rhythm_position_count(
                 *long_break_after_focus_count,
                 "long_break_after_focus_count",
@@ -495,11 +511,17 @@ fn validate_run_rhythm(rhythm: &PomodoroRunRhythm) -> Result<(), String> {
             for (index, step) in steps.iter().enumerate() {
                 validate_config_minutes(
                     step.focus_duration_minutes,
+                    MAX_FOCUS_DURATION_MINUTES,
                     &format!("sequence step {index} focus_duration_minutes"),
                 )?;
                 validate_phase(&step.break_phase)?;
                 validate_config_minutes(
                     step.break_duration_minutes,
+                    if step.break_phase == "long_break" {
+                        MAX_LONG_BREAK_DURATION_MINUTES
+                    } else {
+                        MAX_SHORT_BREAK_DURATION_MINUTES
+                    },
                     &format!("sequence step {index} break_duration_minutes"),
                 )?;
             }
@@ -888,9 +910,9 @@ pub(super) fn validate_pause_reason(reason: &str) -> Result<(), String> {
     }
 }
 
-fn validate_config_minutes(value: i64, field: &str) -> Result<(), String> {
-    if value <= 0 {
-        Err(format!("{field} must be positive"))
+fn validate_config_minutes(value: i64, maximum: i64, field: &str) -> Result<(), String> {
+    if !(1..=maximum).contains(&value) {
+        Err(format!("{field} must be between 1 and {maximum}"))
     } else {
         Ok(())
     }

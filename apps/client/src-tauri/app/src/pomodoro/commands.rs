@@ -1,3 +1,4 @@
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 use sqlx::Row;
 use tauri::{AppHandle, Runtime};
 
@@ -320,6 +321,7 @@ pub(super) async fn pomodoro_record_run_event<R: Runtime>(
     Ok(())
 }
 
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 pub(super) async fn pomodoro_recover_open_runs<R: Runtime>(
     app: AppHandle<R>,
     db_url: String,
@@ -357,4 +359,14 @@ pub(super) async fn pomodoro_recover_open_runs<R: Runtime>(
 
     tx.commit().await.map_err(|e| format!("commit: {e}"))?;
     Ok(())
+}
+
+#[cfg(any(test, target_os = "android", target_os = "ios"))]
+pub(super) async fn pomodoro_recover_mobile_run<R: Runtime>(
+    app: AppHandle<R>,
+    db_url: String,
+    now_at: String,
+) -> Result<PomodoroMobileRecoveryRead, String> {
+    let pool = connect_sqlite(app, db_url).await?;
+    super::recovery::recover_mobile_run_from_pool(&pool, &now_at).await
 }

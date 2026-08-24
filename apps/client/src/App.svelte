@@ -62,6 +62,11 @@
   import MusicSoundscapeCoordinator from "$lib/components/music/MusicSoundscapeCoordinator.svelte";
   import NotesView from "$lib/components/notes/NotesView.svelte";
   import ProjectsView from "$lib/components/projects/ProjectsView.svelte";
+  import ProjectDashboardView from "$lib/components/projects/ProjectDashboardView.svelte";
+  import ProjectGanttView from "$lib/components/projects/ProjectGanttView.svelte";
+  import ProjectKanbanView from "$lib/components/projects/ProjectKanbanView.svelte";
+  import ProjectListView from "$lib/components/projects/ProjectListView.svelte";
+  import type { ProjectDesktopViewComponents } from "$lib/components/projects/project-desktop-view-components";
   import ChatWorkspace from "$lib/components/chat/ChatWorkspace.svelte";
   import ConfirmDialog from "$lib/components/ui/ConfirmDialog.svelte";
   import TooltipHost from "$lib/components/ui/TooltipHost.svelte";
@@ -87,6 +92,7 @@
   import { getNotesProjectHistoryScheduler } from "$lib/notes/project-history-scheduler";
   import { onActiveVaultIdentityChange } from "$lib/vault/active-vault";
   import { doomscrollingObservationPlan } from "$lib/stores/doomscrolling-observation-policy";
+  import type { ProjectChatIntegration } from "$lib/projects/types";
 
   perfMark("boot.script-start");
 
@@ -117,6 +123,35 @@
   const detachedWindows = getDetachedWindows();
   const notesNotificationSchedule = getNotesNotificationSchedule();
   const notesProjectHistoryScheduler = getNotesProjectHistoryScheduler();
+  const projectDesktopViewComponents = {
+    list: ProjectListView,
+    kanban: ProjectKanbanView,
+    calendar: CalendarView,
+    gantt: ProjectGanttView,
+    dashboard: ProjectDashboardView,
+  } satisfies ProjectDesktopViewComponents;
+  const projectChatIntegration: ProjectChatIntegration = {
+    listWorkingFolders: (projectId) => chat.workingFolders
+      .filter((entry) => (
+        entry.workingFolder.projectId === projectId
+        && entry.workingFolder.archivedAt === null
+      ))
+      .map((entry) => ({
+        id: entry.workingFolder.id,
+        displayName: entry.workingFolder.displayName,
+      })),
+    ensureLoaded: () => chat.ensureLoaded(),
+    openProject: async (projectId, workingFolderId) => {
+      await chat.ensureLoaded();
+      if (workingFolderId) chat.selectWorkingFolder(workingFolderId);
+      else await chat.syncProjectSelection(projectId);
+      nav.navigate("chat");
+    },
+  };
+  const notesMusicMentionContext = $derived({
+    currentMusicSource: music.currentSource,
+    musicQueue: music.queue,
+  });
   let unlistenCalendarNotificationOpen: UnlistenFn | null = null;
   let unlistenNotesNotificationOpen: UnlistenFn | null = null;
   let unlistenDoomscrollingDesktopSettingsOpen: UnlistenFn | null = null;
@@ -1091,9 +1126,12 @@
       {#if nav.current === "calendar"}
         <CalendarView />
       {:else if nav.current === "projects"}
-        <ProjectsView />
+        <ProjectsView
+          desktopViewComponents={projectDesktopViewComponents}
+          projectChat={projectChatIntegration}
+        />
       {:else if nav.current === "notes"}
-        <NotesView />
+        <NotesView musicMentionContext={notesMusicMentionContext} />
       {:else}
         <ChatWorkspace />
       {/if}

@@ -106,6 +106,7 @@ export const database = {
   databaseCsvImportImport: "Import valid rows",
   databaseCsvImportImporting: "Importing",
   databaseCsvImportFailed: (message: string) => `Could not import CSV: ${message}`,
+  databaseCsvImportTooLarge: (kilobytes: number) => `CSV import is limited to ${kilobytes} KB.`,
   databaseCsvImportNoCsv: "Choose a CSV file or paste CSV text.",
   databaseCsvImportSummary: (valid: number, total: number, skipped: number) =>
     `${valid} of ${total} ${total === 1 ? "row" : "rows"} ready, ${skipped} skipped`,

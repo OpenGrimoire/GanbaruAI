@@ -4,6 +4,10 @@ import { dbUrl } from "$lib/api/db";
 import type { PersistedSegment } from "$lib/components/calendar/types";
 import type { PomodoroAdaptiveDecisionEnvelopeWrite } from "$lib/pomodoro/adaptive/persistence";
 import {
+  parsePomodoroMobileRecoveryResult,
+  type PomodoroMobileRecoveryResult,
+} from "./pomodoro-mobile-recovery";
+import {
   buildPomodoroSegmentUpdate,
   buildPomodoroSegmentWrite,
   type PomodoroActiveEventReferenceTransfer,
@@ -65,6 +69,7 @@ export interface PomodoroRunRepository {
   ): void;
   sendHeartbeat(runId: string, heartbeatAt: string): void;
   cleanupOrphans(): Promise<void>;
+  recoverMobileRun(): Promise<PomodoroMobileRecoveryResult>;
 }
 
 export function createPomodoroRunRepository(
@@ -232,6 +237,15 @@ export function createPomodoroRunRepository(
         dbUrl: dbUrl(),
       });
       dependencies.completeWrite();
+    },
+
+    async recoverMobileRun() {
+      const response: unknown = await invoke("pomodoro_recover_mobile_run", {
+        dbUrl: dbUrl(),
+      });
+      const result = parsePomodoroMobileRecoveryResult(response);
+      if (result.kind === "closed") dependencies.completeWrite();
+      return result;
     },
   };
 }

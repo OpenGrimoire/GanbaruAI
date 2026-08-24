@@ -1,8 +1,9 @@
 <script lang="ts">
   import { onDestroy, tick } from "svelte";
-  import { getMusicContextAssignments, getMusicPlaylistSummaries } from "$lib/api/music-library";
+  import { getMusicContextAssignments, getMusicPlaylistSummaries } from "$lib/music/platform-library";
   import { FALLBACK_COLOR_INDEX, type EventColor } from "$lib/components/calendar/types";
   import { getLocalization } from "$lib/i18n/translator.svelte";
+  import { BUILD_PLATFORM_PROFILE, platformHasCapability } from "$lib/platform";
   import type { PomodoroPresetKey } from "$lib/pomodoro/rhythm";
   import {
     PROJECT_POMODORO_PRESET_ORDER,
@@ -61,7 +62,7 @@
   import ProjectSettingsDefaultsSection from "./ProjectSettingsDefaultsSection.svelte";
   import ProjectSettingsDeleteDialogs from "./ProjectSettingsDeleteDialogs.svelte";
   import ProjectSettingsIdentitySection from "./ProjectSettingsIdentitySection.svelte";
-  import ProjectSettingsWorkingFoldersSection from "./ProjectSettingsWorkingFoldersSection.svelte";
+  import ProjectSettingsWorkingFoldersSection from "$lib/components/projects/ProjectSettingsWorkingFoldersSection.svelte";
   import { projectHasLockedSystemIdentity } from "$lib/projects/project-system-defaults";
   import ProjectSettingsPanelShell from "./ProjectSettingsPanelShell.svelte";
   import ProjectSettingsPrioritiesSection from "./ProjectSettingsPrioritiesSection.svelte";
@@ -85,6 +86,18 @@
   const projects = getProjects();
   const theme = getTheme();
   const { t } = getLocalization();
+  const musicAssignmentsAvailable = platformHasCapability(
+    BUILD_PLATFORM_PROFILE,
+    "music.context-assignments",
+  );
+  const workingFoldersAvailable = platformHasCapability(
+    BUILD_PLATFORM_PROFILE,
+    "projects.working-folders",
+  );
+  const idleDetectionAvailable = platformHasCapability(
+    BUILD_PLATFORM_PROFILE,
+    "pomodoro.native-idle-detection",
+  );
 
   const PROJECT_STATUS_CATEGORIES: ProjectStatusCategory[] = ["not_started", "active", "blocked", "done"];
   const NEW_STATUS_FIRST_COLOR: EventColor = 8;
@@ -247,7 +260,16 @@
     customFields.resetTransientState();
     clearCustomFieldDrag();
     clearCustomFieldOptionDrag();
-    void loadMusicAssignments(project.id);
+    if (musicAssignmentsAvailable) {
+      void loadMusicAssignments(project.id);
+    } else {
+      musicAssignments = completeMusicAssignmentDrafts([]);
+      savedMusicAssignments = completeMusicAssignmentDrafts([]);
+      musicPlaylists = [];
+      musicAssignmentsProjectId = null;
+      musicAssignmentsLoading = false;
+      musicAssignmentsError = null;
+    }
   }
 
   async function loadMusicAssignments(projectId: string): Promise<void> {
@@ -823,9 +845,11 @@
 
           <div class="h-px bg-border/70" aria-hidden="true"></div>
 
-          <ProjectSettingsWorkingFoldersSection projectId={selectedProject.id} />
+          {#if workingFoldersAvailable}
+            <ProjectSettingsWorkingFoldersSection projectId={selectedProject.id} />
 
-          <div class="h-px bg-border/70" aria-hidden="true"></div>
+            <div class="h-px bg-border/70" aria-hidden="true"></div>
+          {/if}
 
           <ProjectSettingsDefaultsSection
             theme={theme.current}
@@ -851,6 +875,8 @@
             loadingMusicPlaylists={musicAssignmentsLoading}
             {musicAssignmentsError}
             musicAssignmentsDisabled={musicAssignmentsProjectId !== selectedProject.id}
+            {musicAssignmentsAvailable}
+            {idleDetectionAvailable}
             onRetryMusicAssignments={() => {
               if (selectedProject) void loadMusicAssignments(selectedProject.id);
             }}

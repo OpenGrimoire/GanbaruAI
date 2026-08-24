@@ -56,6 +56,7 @@
     type QuickNoteTextRun,
   } from "$lib/quick-notes/types";
   import { publishQuickNotesChanged } from "$lib/quick-notes/window-sync";
+  import { getMobileBackStack } from "$lib/stores/mobile-back-stack.svelte";
   import type { Theme } from "$lib/stores/themes";
   import QuickNoteColorPicker from "./QuickNoteColorPicker.svelte";
   import QuickNoteRichText from "./QuickNoteRichText.svelte";
@@ -73,6 +74,8 @@
     ontrash,
     onrestore,
     ondelete,
+    mobileLayout = false,
+    obscured = false,
   }: {
     note: QuickNote | null;
     tags: readonly QuickNoteTag[];
@@ -85,9 +88,12 @@
     ontrash: (note: QuickNote) => void;
     onrestore: (note: QuickNote) => void;
     ondelete: (note: QuickNote) => void;
+    mobileLayout?: boolean;
+    obscured?: boolean;
   } = $props();
 
   const { t } = getLocalization();
+  const mobileBackStack = getMobileBackStack();
   const initialNote = untrack(() => note);
   const initialTagId = untrack(() => defaultTagId);
   const initialId = initialNote?.id ?? crypto.randomUUID();
@@ -108,6 +114,7 @@
   let savedVersion = 0;
   let saveTimer: ReturnType<typeof setTimeout> | null = null;
   let saveChain: Promise<void> = Promise.resolve();
+  let transitionPending = $state(false);
   let dialog = $state<HTMLDivElement | null>(null);
   let editor = $state<HTMLDivElement | null>(null);
   let titleInput = $state<HTMLInputElement | null>(null);
@@ -121,7 +128,15 @@
   const selectedFormatting = $derived(selection.start === selection.end
     ? typingFormatting
     : quickNoteFormattingForSelection(runs, selection));
-  const toolbarButton = "flex size-8 items-center justify-center rounded-md transition-colors hover:bg-black/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-current disabled:opacity-35 dark:hover:bg-white/10";
+  const toolbarButton = $derived(mobileLayout
+    ? "flex size-12 shrink-0 items-center justify-center rounded-xl transition-colors active:bg-black/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-current disabled:opacity-35 dark:active:bg-white/10"
+    : "flex size-8 items-center justify-center rounded-md transition-colors hover:bg-black/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-current disabled:opacity-35 dark:hover:bg-white/10");
+  const overlayStyle = $derived(mobileLayout
+    ? "left: var(--visual-viewport-offset-left); top: var(--visual-viewport-offset-top); width: var(--visual-viewport-width); height: var(--visual-viewport-height); padding: var(--safe-area-top) var(--safe-area-right) var(--safe-area-bottom) var(--safe-area-left);"
+    : "");
+  const dialogStyle = $derived(mobileLayout
+    ? `${modalStyle} width: 100%; height: 100%; max-width: 48rem;`
+    : `${modalStyle} height: min(560px, calc(100dvh - 1rem));`);
 
   function meaningful(): boolean {
     return title.trim().length > 0 || quickNotePlainText(runs).trim().length > 0;
@@ -446,21 +461,29 @@
   }
 
   async function requestClose(): Promise<void> {
+    if (transitionPending) return;
+    transitionPending = true;
     try {
       await flush();
       onclose();
     } catch {
       // The visible save error keeps the editor open.
+    } finally {
+      transitionPending = false;
     }
   }
 
   async function requestLifecycle(action: (saved: QuickNote) => void): Promise<void> {
+    if (transitionPending) return;
+    transitionPending = true;
     try {
       await flush();
       if (persisted) action(persisted);
       else onclose();
     } catch {
       // The visible save error keeps the editor open.
+    } finally {
+      transitionPending = false;
     }
   }
 
@@ -491,16 +514,24 @@
   }
 
   function handleDialogKeydown(event: KeyboardEvent): void {
+    if (obscured) return;
+    const target = event.target instanceof Element ? event.target : null;
+    const targetDialog = target?.closest("[role='dialog']") ?? null;
+    if (targetDialog !== null && targetDialog !== dialog) return;
     if (event.key === "Tab" && dialog) {
       const focusable = [...dialog.querySelectorAll<HTMLElement>(
         "button:not([disabled]), input:not([disabled]), [contenteditable='true'], [tabindex]:not([tabindex='-1'])",
       )].filter((element) => element.offsetParent !== null);
       const first = focusable[0];
       const last = focusable.at(-1);
-      if (first && last && event.shiftKey && document.activeElement === first) {
+      const active = document.activeElement;
+      if (first && last && (active === dialog || !dialog.contains(active))) {
+        event.preventDefault();
+        (event.shiftKey ? last : first).focus();
+      } else if (first && last && event.shiftKey && active === first) {
         event.preventDefault();
         last.focus();
-      } else if (first && last && !event.shiftKey && document.activeElement === last) {
+      } else if (first && last && !event.shiftKey && active === last) {
         event.preventDefault();
         first.focus();
       }
@@ -517,10 +548,14 @@
     const restoreTriggerFocus = returnFocus?.matches(":focus-visible") ?? false;
     const returnContainer = returnFocus?.closest<HTMLElement>("[role='dialog']") ?? null;
     const unregister = registerQuickNotesFlusher(flush);
+    const deactivateMobileBack = mobileLayout
+      ? mobileBackStack.activate({ handle: () => { void requestClose(); } })
+      : () => undefined;
     window.addEventListener("keydown", handleDialogKeydown, true);
     void tick().then(() => (titleInput ?? editor ?? dialog)?.focus());
     return () => {
       unregister();
+      deactivateMobileBack();
       if (saveTimer) clearTimeout(saveTimer);
       window.removeEventListener("keydown", handleDialogKeydown, true);
       queueMicrotask(() => {
@@ -534,20 +569,23 @@
 <!-- svelte-ignore a11y_no_static_element_interactions -->
 <!-- svelte-ignore a11y_click_events_have_key_events -->
 <div
-  class="fixed inset-0 z-80 flex items-center justify-center bg-black/50 p-2 sm:p-4"
+  class={mobileLayout ? "fixed z-80 flex items-center justify-center bg-black/50" : "fixed inset-0 z-80 flex items-center justify-center bg-black/50 p-2 sm:p-4"}
+  style={overlayStyle}
   onclick={(event) => { if (event.target === event.currentTarget) void requestClose(); }}
 >
   <div
     bind:this={dialog}
-    class="quick-note-editor flex min-h-0 w-[min(720px,calc(100vw-1rem))] flex-col overflow-hidden rounded-xl border border-black/15 shadow-2xl outline-none dark:border-white/10"
-    style={`${modalStyle} height: min(560px, calc(100dvh - 1rem));`}
+    class={mobileLayout ? "quick-note-editor flex min-h-0 flex-col overflow-hidden outline-none" : "quick-note-editor flex min-h-0 w-[min(720px,calc(100vw-1rem))] flex-col overflow-hidden rounded-xl border border-black/15 shadow-2xl outline-none dark:border-white/10"}
+    style={dialogStyle}
     role="dialog"
     aria-modal="true"
     aria-label={note ? t("quickNotes.editor.editTitle") : t("quickNotes.editor.newTitle")}
+    aria-hidden={obscured ? "true" : undefined}
+    inert={obscured}
     tabindex="-1"
     data-app-shortcuts="ignore"
   >
-    <div class="flex min-h-0 flex-1 flex-col overflow-hidden px-4 pt-4 sm:px-5 sm:pt-5">
+    <div class={mobileLayout ? "flex min-h-0 flex-1 flex-col overflow-hidden px-4 pt-3" : "flex min-h-0 flex-1 flex-col overflow-hidden px-4 pt-4 sm:px-5 sm:pt-5"}>
       <div class="flex items-start gap-2">
         <input
           bind:this={titleInput}
@@ -555,7 +593,7 @@
           value={title}
           maxlength={QUICK_NOTE_TITLE_MAX_CHARS}
           readonly={readOnly}
-          class="min-w-0 flex-1 bg-transparent text-[1.05rem] font-semibold outline-none placeholder:opacity-55"
+          class={`min-w-0 flex-1 bg-transparent text-[1.05rem] font-semibold outline-none placeholder:opacity-55 ${mobileLayout ? "min-h-12" : ""}`}
           placeholder={t("quickNotes.editor.titlePlaceholder")}
           aria-label={t("quickNotes.editor.titlePlaceholder")}
           oninput={(event) => updateTitle(event.currentTarget.value)}
@@ -599,41 +637,45 @@
       {#if status === "conflict"}
         <div class="mb-2 flex flex-wrap items-center gap-2 rounded-md bg-warning/15 px-2.5 py-2 text-xs">
           <span>{t("quickNotes.editor.conflict")}</span>
-          <button class="font-medium underline" type="button" onclick={() => void reloadConflict()}>{t("quickNotes.editor.reload")}</button>
-          <button class="font-medium underline" type="button" onclick={() => void saveAsCopy()}>{t("quickNotes.editor.saveCopy")}</button>
+          <button class={mobileLayout ? "min-h-12 px-2 font-medium underline" : "font-medium underline"} type="button" onclick={() => void reloadConflict()}>{t("quickNotes.editor.reload")}</button>
+          <button class={mobileLayout ? "min-h-12 px-2 font-medium underline" : "font-medium underline"} type="button" onclick={() => void saveAsCopy()}>{t("quickNotes.editor.saveCopy")}</button>
         </div>
       {:else if status === "failed"}
         <div class="mb-2 flex items-center gap-2 rounded-md bg-destructive/10 px-2.5 py-2 text-xs text-destructive">
           <span>{t("quickNotes.editor.failed")}</span>
-          <button class="font-medium underline" type="button" onclick={() => void flush()}>{t("quickNotes.editor.retry")}</button>
+          <button class={mobileLayout ? "min-h-12 px-2 font-medium underline" : "font-medium underline"} type="button" onclick={() => void flush()}>{t("quickNotes.editor.retry")}</button>
         </div>
       {/if}
     </div>
 
-    <footer class="flex min-h-12 shrink-0 flex-wrap items-center gap-0.5 border-t border-current/10 px-2.5 py-2 sm:px-4">
+    <footer class={mobileLayout ? "flex shrink-0 flex-col border-t border-current/10 px-2 pb-2" : "flex min-h-12 shrink-0 flex-wrap items-center gap-0.5 border-t border-current/10 px-2.5 py-2 sm:px-4"}>
+      <div class={mobileLayout ? "flex min-h-12 w-full min-w-0 items-center gap-0.5 overflow-x-auto" : "contents"}>
       {#if !readOnly}
         <button class={`${toolbarButton} ${selectedFormatting.bold ? "bg-black/10 dark:bg-white/10" : ""}`} type="button" aria-label={t("quickNotes.formatting.bold")} title={t("quickNotes.formatting.bold")} aria-pressed={selectedFormatting.bold} onpointerdown={(event) => event.preventDefault()} onclick={() => toggleFormatting("bold")}><Bold class="size-4" strokeWidth={1.5} /></button>
         <button class={`${toolbarButton} ${selectedFormatting.italic ? "bg-black/10 dark:bg-white/10" : ""}`} type="button" aria-label={t("quickNotes.formatting.italic")} title={t("quickNotes.formatting.italic")} aria-pressed={selectedFormatting.italic} onpointerdown={(event) => event.preventDefault()} onclick={() => toggleFormatting("italic")}><Italic class="size-4" strokeWidth={1.5} /></button>
         <button class={`${toolbarButton} ${selectedFormatting.underline ? "bg-black/10 dark:bg-white/10" : ""}`} type="button" aria-label={t("quickNotes.formatting.underline")} title={t("quickNotes.formatting.underline")} aria-pressed={selectedFormatting.underline} onpointerdown={(event) => event.preventDefault()} onclick={() => toggleFormatting("underline")}><Underline class="size-4" strokeWidth={1.5} /></button>
-        <QuickNoteColorPicker {color} {theme} onselect={updateColor} buttonClass={toolbarButton} />
-        <QuickNoteTagPicker {tagId} {tags} onselect={updateTag} buttonClass={toolbarButton} />
+        <QuickNoteColorPicker {color} {theme} onselect={updateColor} buttonClass={toolbarButton} {mobileLayout} />
+        <QuickNoteTagPicker {tagId} {tags} onselect={updateTag} buttonClass={toolbarButton} {mobileLayout} />
         <button class={toolbarButton} type="button" disabled={history.undo.length === 0} aria-label={t("quickNotes.formatting.undo")} title={t("quickNotes.formatting.undo")} onclick={undo}><Undo2 class="size-4" strokeWidth={1.5} /></button>
         <button class={toolbarButton} type="button" disabled={history.redo.length === 0} aria-label={t("quickNotes.formatting.redo")} title={t("quickNotes.formatting.redo")} onclick={redo}><Redo2 class="size-4" strokeWidth={1.5} /></button>
         <span class="mx-1 h-5 w-px bg-current/15"></span>
         {#if persisted?.archived}
-          <button class={toolbarButton} type="button" aria-label={t("quickNotes.action.unarchive")} title={t("quickNotes.action.unarchive")} onclick={() => void requestLifecycle(onunarchive)}><ArchiveRestore class="size-4" strokeWidth={1.5} /></button>
+          <button class={toolbarButton} type="button" disabled={transitionPending} aria-label={t("quickNotes.action.unarchive")} title={t("quickNotes.action.unarchive")} onclick={() => void requestLifecycle(onunarchive)}><ArchiveRestore class="size-4" strokeWidth={1.5} /></button>
         {:else}
-          <button class={toolbarButton} type="button" aria-label={t("quickNotes.action.archive")} title={t("quickNotes.action.archive")} onclick={() => void requestLifecycle(onarchive)}><Archive class="size-4" strokeWidth={1.5} /></button>
+          <button class={toolbarButton} type="button" disabled={transitionPending} aria-label={t("quickNotes.action.archive")} title={t("quickNotes.action.archive")} onclick={() => void requestLifecycle(onarchive)}><Archive class="size-4" strokeWidth={1.5} /></button>
         {/if}
-        <button class={toolbarButton} type="button" aria-label={t("quickNotes.action.trash")} title={t("quickNotes.action.trash")} onclick={() => void requestLifecycle(ontrash)}><Trash2 class="size-4" strokeWidth={1.5} /></button>
+        <button class={toolbarButton} type="button" disabled={transitionPending} aria-label={t("quickNotes.action.trash")} title={t("quickNotes.action.trash")} onclick={() => void requestLifecycle(ontrash)}><Trash2 class="size-4" strokeWidth={1.5} /></button>
       {:else if persisted}
         <button class={toolbarButton} type="button" aria-label={t("quickNotes.action.restore")} title={t("quickNotes.action.restore")} onclick={() => onrestore(persisted!)}><RotateCcw class="size-4" strokeWidth={1.5} /></button>
         <button class={toolbarButton} type="button" aria-label={t("quickNotes.action.deletePermanently")} title={t("quickNotes.action.deletePermanently")} onclick={() => ondelete(persisted!)}><Trash2 class="size-4" strokeWidth={1.5} /></button>
       {/if}
+      </div>
+      <div class={mobileLayout ? "flex min-h-12 w-full items-center" : "contents"}>
       <span class="ml-auto px-2 text-[0.72rem] opacity-65" aria-live="polite">
         {status === "saving" ? t("quickNotes.editor.saving") : status === "saved" ? t("quickNotes.editor.saved") : ""}
       </span>
-      <button class="rounded-md px-3 py-1.5 text-sm font-medium hover:bg-black/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-current dark:hover:bg-white/10" type="button" onclick={() => void requestClose()}>{t("quickNotes.editor.close")}</button>
+      <button class={mobileLayout ? "min-h-12 rounded-xl px-4 text-sm font-medium active:bg-black/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-current disabled:opacity-40 dark:active:bg-white/10" : "rounded-md px-3 py-1.5 text-sm font-medium hover:bg-black/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-current disabled:opacity-40 dark:hover:bg-white/10"} type="button" disabled={transitionPending} onclick={() => void requestClose()}>{t("quickNotes.editor.close")}</button>
+      </div>
     </footer>
   </div>
 </div>

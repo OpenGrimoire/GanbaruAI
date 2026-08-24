@@ -7,6 +7,7 @@
     type LazyComponentLoadState,
   } from "$lib/lazy-component-loader";
   import Archive from "@lucide/svelte/icons/archive";
+  import ChevronLeft from "@lucide/svelte/icons/chevron-left";
   import Copy from "@lucide/svelte/icons/copy";
   import Download from "@lucide/svelte/icons/download";
   import FolderInput from "@lucide/svelte/icons/folder-input";
@@ -33,6 +34,7 @@
     IconPickerUploadAdapter,
   } from "$lib/components/icon-picker/types";
   import { getLocalization } from "$lib/i18n/translator.svelte";
+  import { BUILD_PLATFORM_PROFILE, platformHasCapability } from "$lib/platform";
   import { blockPlainText, isTextEditableBlock } from "$lib/notes/block-factory";
   import { notesBlockAnchorId } from "$lib/notes/block-link";
   import { notesEditorScrollTopForTarget } from "$lib/notes/editor-scroll";
@@ -84,6 +86,7 @@
     NotesParent,
   } from "$lib/notes/types";
   import { getNotes } from "$lib/stores/notes.svelte";
+  import { getMobileBackStack } from "$lib/stores/mobile-back-stack.svelte";
   import { cn } from "$lib/utils";
   import { dismissOnOutside } from "$lib/utils/dismiss-on-outside";
   import NotesBlockList from "./NotesBlockList.svelte";
@@ -95,6 +98,10 @@
     type LoadedNotesEditorPanel,
     type NotesEditorPanelKind,
   } from "./notes-editor-component-registry";
+  import {
+    EMPTY_NOTES_MUSIC_MENTION_CONTEXT,
+    type NotesMusicMentionContext,
+  } from "./notes-block-mention-targets";
 
   type NotesEditorPanel = "links" | "comments" | "suggestions";
 
@@ -105,16 +112,24 @@
     openMode = "full",
     onClose,
     onOpenModeChange,
+    musicMentionContext = EMPTY_NOTES_MUSIC_MENTION_CONTEXT,
   }: {
     projectId?: string | null;
     openMode?: NotesPageOpenMode;
     onClose?: () => void;
     onOpenModeChange?: (mode: NotesPageOpenMode) => void;
+    musicMentionContext?: NotesMusicMentionContext;
   } = $props();
 
   const notes = getNotes();
+  const mobileBackStack = getMobileBackStack();
+  const mobileLayout = BUILD_PLATFORM_PROFILE.shell === "mobile";
   const preferences = getPreferences();
   const projects = getProjects();
+  const fileExportAvailable = platformHasCapability(
+    BUILD_PLATFORM_PROFILE,
+    "notes.file-export",
+  );
   const localization = getLocalization();
   const { t } = localization;
   const noteActionIconStrokeWidth = 1.5;
@@ -441,17 +456,56 @@
 
   function actionButtonClass(active = false): string {
     return cn(
-      "relative flex h-7 min-w-7 shrink-0 items-center justify-center rounded-md px-1.5 text-foreground transition-colors hover:bg-accent",
+      "relative flex shrink-0 items-center justify-center rounded-md px-1.5 text-foreground transition-colors hover:bg-accent",
+      mobileLayout ? "h-12 min-w-12" : "h-7 min-w-7",
       active && "bg-accent",
     );
   }
 
   function menuItemClass(destructive = false): string {
     return cn(
-      "flex w-full items-center gap-2 rounded px-2.5 py-1.5 text-left text-[0.8rem] hover:bg-accent",
+      "flex w-full items-center gap-2 rounded px-2.5 text-left text-[0.8rem] hover:bg-accent",
+      mobileLayout ? "min-h-12 py-2" : "py-1.5",
       destructive ? "text-destructive" : "text-popover-foreground",
     );
   }
+
+  $effect(() => {
+    if (!mobileLayout || !pageMenuOpen) return;
+    return mobileBackStack.activate({ handle: closePageMenu });
+  });
+
+  $effect(() => {
+    if (!mobileLayout || !moveMenuOpen) return;
+    return mobileBackStack.activate({
+      handle: () => {
+        moveMenuOpen = false;
+      },
+    });
+  });
+
+  $effect(() => {
+    if (!mobileLayout || !folderMoveMenuOpen) return;
+    return mobileBackStack.activate({
+      handle: () => {
+        folderMoveMenuOpen = false;
+      },
+    });
+  });
+
+  $effect(() => {
+    if (!mobileLayout || !activePanel) return;
+    return mobileBackStack.activate({ handle: closeActionPanel });
+  });
+
+  $effect(() => {
+    if (!mobileLayout || !activityPanelOpen) return;
+    return mobileBackStack.activate({
+      handle: () => {
+        activityPanelOpen = false;
+      },
+    });
+  });
 
   function togglePanel(panel: NotesEditorPanel): void {
     if (activePanel) notes.setPagePanelSubsystemOpen(activePanel, false);
@@ -713,7 +767,10 @@
 </script>
 
 {#if page}
-  <section class="flex h-full w-full min-w-0 flex-1 flex-col overflow-hidden">
+  <section
+    class="notes-editor-root flex h-full w-full min-w-0 flex-1 flex-col overflow-hidden"
+    data-mobile={mobileLayout || undefined}
+  >
     <div
       class="relative z-40 shrink-0"
       style="background-color: var(--cal-bg);"
@@ -721,6 +778,16 @@
     >
       <div class="flex items-center gap-1 px-3" style="height: var(--cal-header-row-h);">
         <div class="group/open-mode flex shrink-0 items-center gap-0.5">
+          {#if mobileLayout && openMode === "full"}
+            <button
+              type="button"
+              class={actionButtonClass()}
+              aria-label={t("notes.showProjectHome")}
+              onclick={() => onClose?.()}
+            >
+              <ChevronLeft class="size-5" strokeWidth={noteActionIconStrokeWidth} />
+            </button>
+          {/if}
           {#if openMode === "side"}
             <button
               type="button"
@@ -835,7 +902,7 @@
           </button>
           {#if pageMenuOpen}
             <div
-              class="absolute right-0 top-8 z-50 w-60 rounded-md border border-border bg-popover p-1 text-popover-foreground shadow-lg"
+              class="absolute right-0 z-50 w-60 rounded-md border border-border bg-popover p-1 text-popover-foreground shadow-lg {mobileLayout ? 'top-12' : 'top-8'}"
               role="menu"
               data-app-floating-surface
             >
@@ -959,30 +1026,32 @@
                   </div>
                 {/if}
               {/if}
-              <button
-                class={menuItemClass()}
-                type="button"
-                role="menuitem"
-                onclick={() => {
-                  htmlExportOpen = true;
-                  closePageMenu();
-                }}
-              >
-                <Download class="size-4" />
-                <span>{t("notes.htmlExportOpen")}</span>
-              </button>
-              <button
-                class={menuItemClass()}
-                type="button"
-                role="menuitem"
-                onclick={() => {
-                  agentBridgeExportOpen = true;
-                  closePageMenu();
-                }}
-              >
-                <GitBranch class="size-4" />
-                <span>{t("notes.agentBridgeExportOpen")}</span>
-              </button>
+              {#if fileExportAvailable}
+                <button
+                  class={menuItemClass()}
+                  type="button"
+                  role="menuitem"
+                  onclick={() => {
+                    htmlExportOpen = true;
+                    closePageMenu();
+                  }}
+                >
+                  <Download class="size-4" />
+                  <span>{t("notes.htmlExportOpen")}</span>
+                </button>
+                <button
+                  class={menuItemClass()}
+                  type="button"
+                  role="menuitem"
+                  onclick={() => {
+                    agentBridgeExportOpen = true;
+                    closePageMenu();
+                  }}
+                >
+                  <GitBranch class="size-4" />
+                  <span>{t("notes.agentBridgeExportOpen")}</span>
+                </button>
+              {/if}
               <button class={menuItemClass()} type="button" role="menuitem" onclick={openPageHistory}>
                 <History class="size-4" />
                 <span>{t("notes.pageHistory")}</span>
@@ -1124,6 +1193,7 @@
                   {@const NotesPageCoverMenu = panelLoadStates["cover-menu"].component.component}
                   <NotesPageCoverMenu
                   cover={page.cover}
+                  onClose={closeCoverMenu}
                   onSelect={(cover) => {
                     coverMenuOpen = false;
                     void notes.updatePageCover(page.id, cover);
@@ -1210,6 +1280,7 @@
             notes.focusBlock(blockId);
           }}
           scrollViewport={blockScrollViewport}
+          {musicMentionContext}
         />
       </div>
     </div>
@@ -1304,5 +1375,13 @@
 <style>
   .notes-page-title-actions:has([data-notes-icon-picker-open="true"]) {
     opacity: 1;
+  }
+
+  .notes-editor-root[data-mobile="true"] .notes-page-title-actions {
+    opacity: 1;
+  }
+
+  .notes-editor-root[data-mobile="true"] .notes-page-title-actions :global(button) {
+    min-height: 3rem;
   }
 </style>

@@ -97,13 +97,13 @@ fn valid_project_update() -> ProjectUpdate {
         break_playlist_id: None,
         work_environment_id: None,
         blocker_ruleset_id: None,
-        music_assignments: Some(vec![crate::music::library::MusicContextAssignmentDraft {
-            phase: crate::music::library::MusicActivityPhase::Focus,
-            behavior: crate::music::library::MusicAssignmentBehavior::PlayAutomatically,
+        music_assignments: Some(vec![crate::music_context::MusicContextAssignmentDraft {
+            phase: crate::music_context::MusicActivityPhase::Focus,
+            behavior: crate::music_context::MusicAssignmentBehavior::PlayAutomatically,
             playlist_id: Some("playlist-a".to_string()),
             soundscape_id: None,
-            soundscape_behavior: crate::music::library::MusicSoundscapeBehavior::Inherit,
-            provenance_kind: crate::music::library::MusicAssignmentProvenanceKind::Explicit,
+            soundscape_behavior: crate::music_context::MusicSoundscapeBehavior::Inherit,
+            provenance_kind: crate::music_context::MusicAssignmentProvenanceKind::Explicit,
             provenance_id: None,
         }]),
         music_assignments_updated_at: Some(1_700_000_000_000),

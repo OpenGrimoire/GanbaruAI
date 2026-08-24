@@ -1046,6 +1046,13 @@ async function openNotesLink(target: NotesPageLinkTarget): Promise<boolean> {
   return true;
 }
 
+async function flushPendingWrites(): Promise<void> {
+  await Promise.all([
+    flushPendingBlockSaves(),
+    blockActions.flushOptimisticBlockWrites(),
+  ]);
+}
+
 export function getNotes() {
   return {
     get pages(): NotesPage[] {
@@ -1428,6 +1435,7 @@ export function getNotes() {
     updateBlockTextLink,
     updateBlockTextAnnotations,
     flushBlockSave,
+    flushPendingWrites,
     convertBlock,
     toggleTodo,
     updateCodeLanguage,
