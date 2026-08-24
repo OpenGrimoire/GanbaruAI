@@ -1350,6 +1350,7 @@ pub fn run(context: tauri::Context<tauri::Wry>) {
             quick_notes::quick_note_tags_create,
             quick_notes::quick_note_tags_delete,
             profile_images::profile_image_pick_file,
+            profile_images::profile_image_save_data_url,
             profile_images::profile_image_asset_data_url,
             profile_images::profile_image_delete_file,
             project_icons::project_icon_pick_image_file,

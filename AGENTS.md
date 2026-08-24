@@ -56,14 +56,14 @@ apps/
           chat/: local coding-agent shell, timeline, composer, interactive requests, inspector, file browser, terminal, navigation, and archive
           icon-picker/: shared icon, emoji, custom emoji, and image picker
           music/: player controls, source parsing, playlist management surfaces
-          mobile/: adaptive phone and tablet shell, navigation, settings, and overlays
+          mobile/: adaptive phone and tablet shell, navigation, status, and overlays
           notes/: Notes navigation, editor, databases, history, transfer, and project surfaces
           perf/: memory and performance diagnostics surfaces
           pomodoro/: timer display, controls, break screen, and idle overlay
           profile/: shared local profile avatar surfaces
           projects/: project navigation, planning views, task details, and settings
           quick-notes/: Quick notes panel, masonry cards, editor, and color controls
-          settings/: resident settings surfaces, theme editor, preferences, and optional tools
+          settings/: shared desktop and mobile settings controller, platform renderers, theme editor, preferences, and optional tools
           title-bar/: application title bar and window controls
           ui/: shared generated shadcn-svelte primitives
           updates/: app update UI

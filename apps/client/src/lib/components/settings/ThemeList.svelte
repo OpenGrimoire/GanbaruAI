@@ -14,10 +14,12 @@
   import CustomSelect from "./CustomSelect.svelte";
   import ShortcutDescription from "./ShortcutDescription.svelte";
   import ConfirmDialog from "$lib/components/ui/ConfirmDialog.svelte";
+  import { BUILD_PLATFORM_PROFILE } from "$lib/platform";
 
   const themeStore = getTheme();
   const themeEditor = getThemeEditor();
   const { t } = getLocalization();
+  const desktopShell = BUILD_PLATFORM_PROFILE.shell === "desktop";
 
   let pendingDelete = $state<ThemeId | undefined>(undefined);
   let importOpen = $state(false);
@@ -177,53 +179,57 @@
     </div>
   </header>
 
-  <section
-    class="flex items-center justify-between gap-4 px-1 py-1 max-[640px]:flex-col max-[640px]:items-stretch max-[640px]:gap-2"
-  >
-    <div class="min-w-0 flex-1">
-      <h3 class="text-[0.866667rem] font-normal text-foreground">{t("settings.theme.quickToggle")}</h3>
-      <ShortcutDescription shortcuts={quickToggleShortcuts} />
-    </div>
-    <div
-      class="flex flex-wrap items-center justify-end gap-x-3 gap-y-2 max-[640px]:justify-start"
+  {#if desktopShell}
+    <section
+      class="flex items-center justify-between gap-4 px-1 py-1 max-[640px]:flex-col max-[640px]:items-stretch max-[640px]:gap-2"
     >
-      <div class="flex items-center gap-1.5">
-        <Sun
-          size={13}
-          strokeWidth={1.75}
-          class="shrink-0 text-muted-foreground"
-          aria-hidden="true"
-        />
-        <CustomSelect
-          ariaLabel={t("settings.theme.lightQuickToggle")}
-          value={themeStore.quickToggleLightId}
-          options={themeOptions}
-          onChange={handleQuickToggleLight}
-          class="w-36"
-        />
+      <div class="min-w-0 flex-1">
+        <h3 class="text-[0.866667rem] font-normal text-foreground">{t("settings.theme.quickToggle")}</h3>
+        <ShortcutDescription shortcuts={quickToggleShortcuts} />
       </div>
-      <div class="flex items-center gap-1.5">
-        <Moon
-          size={13}
-          strokeWidth={1.75}
-          class="shrink-0 text-muted-foreground"
-          aria-hidden="true"
-        />
-        <CustomSelect
-          ariaLabel={t("settings.theme.darkQuickToggle")}
-          value={themeStore.quickToggleDarkId}
-          options={themeOptions}
-          onChange={handleQuickToggleDark}
-          class="w-36"
-        />
+      <div
+        class="flex flex-wrap items-center justify-end gap-x-3 gap-y-2 max-[640px]:justify-start"
+      >
+        <div class="flex items-center gap-1.5">
+          <Sun
+            size={13}
+            strokeWidth={1.75}
+            class="shrink-0 text-muted-foreground"
+            aria-hidden="true"
+          />
+          <CustomSelect
+            ariaLabel={t("settings.theme.lightQuickToggle")}
+            value={themeStore.quickToggleLightId}
+            options={themeOptions}
+            onChange={handleQuickToggleLight}
+            class="w-36"
+          />
+        </div>
+        <div class="flex items-center gap-1.5">
+          <Moon
+            size={13}
+            strokeWidth={1.75}
+            class="shrink-0 text-muted-foreground"
+            aria-hidden="true"
+          />
+          <CustomSelect
+            ariaLabel={t("settings.theme.darkQuickToggle")}
+            value={themeStore.quickToggleDarkId}
+            options={themeOptions}
+            onChange={handleQuickToggleDark}
+            class="w-36"
+          />
+        </div>
       </div>
-    </div>
-  </section>
+    </section>
+  {/if}
 
   <section class="flex flex-col gap-3">
     <div class="px-1">
       <h3 class="text-[0.866667rem] font-normal text-foreground">{t("settings.theme.allThemes")}</h3>
-      <ShortcutDescription shortcuts={themePickerShortcuts} />
+      {#if desktopShell}
+        <ShortcutDescription shortcuts={themePickerShortcuts} />
+      {/if}
     </div>
 
     <div class="flex flex-col">
@@ -237,6 +243,8 @@
           onDuplicate={() => handleDuplicate(theme.id)}
           onExport={() => handleExport(theme.id)}
           onDelete={() => handleDelete(theme.id)}
+          showEditorActions={desktopShell}
+          showFileActions={desktopShell}
         />
       {/each}
       {#if importOpen}
@@ -281,14 +289,16 @@
                 >
                   {t("settings.theme.pasteClipboard")}
                 </button>
-                <button
-                  type="button"
-                  onclick={handleImportFromFile}
-                  class="flex items-center gap-1.5 rounded-md border border-border bg-card px-2.5 py-1 text-[0.733333rem] text-foreground transition-colors hover:bg-accent dark:bg-transparent"
-                >
-                  <FolderOpen size={11} strokeWidth={2.25} />
-                  <span>{t("settings.theme.openFile")}</span>
-                </button>
+                {#if desktopShell}
+                  <button
+                    type="button"
+                    onclick={handleImportFromFile}
+                    class="flex items-center gap-1.5 rounded-md border border-border bg-card px-2.5 py-1 text-[0.733333rem] text-foreground transition-colors hover:bg-accent dark:bg-transparent"
+                  >
+                    <FolderOpen size={11} strokeWidth={2.25} />
+                    <span>{t("settings.theme.openFile")}</span>
+                  </button>
+                {/if}
               </div>
               <button
                 type="button"

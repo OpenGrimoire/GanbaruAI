@@ -1,6 +1,8 @@
 <script lang="ts">
-  import { onMount, untrack, type Component } from "svelte";
+  import { onMount, untrack } from "svelte";
   import { cn } from "$lib/utils";
+  import ArrowLeft from "@lucide/svelte/icons/arrow-left";
+  import ChevronRight from "@lucide/svelte/icons/chevron-right";
   import SettingsIcon from "@lucide/svelte/icons/settings";
   import X from "@lucide/svelte/icons/x";
   import CalendarScrollbar from "../calendar/CalendarScrollbar.svelte";
@@ -8,6 +10,8 @@
   import { getViewport } from "$lib/stores/viewport.svelte";
   import { hasOnlyShortcutModifier } from "$lib/keyboard-shortcuts";
   import { getLocalization } from "$lib/i18n/translator.svelte";
+  import { BUILD_PLATFORM_PROFILE } from "$lib/platform";
+  import { getMobileBackStack } from "$lib/stores/mobile-back-stack.svelte";
   import {
     beginLazyComponentLoad,
     rejectLazyComponentLoad,
@@ -18,7 +22,7 @@
     loadSettingsDetail,
     retrySettingsDetail,
     type LoadedSettingsDetail,
-  } from "./settings-detail-registry";
+  } from "$lib/components/settings/settings-detail-registry";
   import type {
     DoomscrollingLimitEditorTarget,
     DoomscrollingSettingsTab,
@@ -28,37 +32,9 @@
     SectionId,
     SettingsDetailKind,
   } from "./types";
-  import { SETTINGS_SECTIONS } from "./settings-sections";
-  import AppearanceSection from "./AppearanceSection.svelte";
-  import ProfileSection from "./ProfileSection.svelte";
-  import CalendarsSection from "./CalendarsSection.svelte";
-  import ProjectsSection from "./ProjectsSection.svelte";
-  import NotesSection from "./NotesSection.svelte";
-  import ChatSection from "./ChatSection.svelte";
-  import FocusSection from "./FocusSection.svelte";
-  import MusicSection from "./MusicSection.svelte";
-  import DoomscrollingSection from "./DoomscrollingSection.svelte";
-  import DataSection from "./DataSection.svelte";
-  import UpdatesSection from "./UpdatesSection.svelte";
-  import ShortcutsSection from "./ShortcutsSection.svelte";
-  import AboutSection from "./AboutSection.svelte";
+  import { settingsSectionsForShell } from "./settings-sections";
+  import SettingsSectionRenderer from "$lib/components/settings/SettingsSectionRenderer.svelte";
   import ConfirmDialog from "$lib/components/ui/ConfirmDialog.svelte";
-
-  const SECTION_COMPONENTS = {
-    appearance: AppearanceSection,
-    profile: ProfileSection,
-    calendars: CalendarsSection,
-    projects: ProjectsSection,
-    notes: NotesSection,
-    chat: ChatSection,
-    focus: FocusSection,
-    music: MusicSection,
-    doomscrolling: DoomscrollingSection,
-    data: DataSection,
-    updates: UpdatesSection,
-    shortcuts: ShortcutsSection,
-    about: AboutSection,
-  } satisfies Readonly<Record<SectionId, Component>>;
 
   type SettingsDetailView =
     | { kind: "doomscrolling-limit"; target: DoomscrollingLimitEditorTarget }
@@ -73,6 +49,7 @@
     initialChatTeammateId,
     initialChatChannelId,
     initialChatCreateTeammate,
+    presentation,
   }: {
     onClose: () => void;
     initialSection?: SectionId;
@@ -81,23 +58,31 @@
     initialChatTeammateId?: string;
     initialChatChannelId?: string;
     initialChatCreateTeammate?: boolean;
+    presentation?: "dialog" | "mobile";
   } = $props();
 
   const themeEditor = getThemeEditor();
   const viewport = getViewport();
+  const mobileBackStack = getMobileBackStack();
   const { t } = getLocalization();
+  const mobilePresentation = $derived(
+    (presentation ?? (BUILD_PLATFORM_PROFILE.shell === "mobile" ? "mobile" : "dialog"))
+      === "mobile",
+  );
 
   // When the user opens a theme in the floating editor, step out of the way
   // so the modal backdrop does not block clicking through to the app.
   $effect(() => {
-    if (themeEditor.editingId) requestSettingsClose();
+    if (!mobilePresentation && themeEditor.editingId) requestSettingsClose();
   });
 
-  const SECTIONS = SETTINGS_SECTIONS;
+  const SECTIONS = $derived(settingsSectionsForShell(mobilePresentation ? "mobile" : "desktop"));
 
   const initialActiveSection = untrack(() => initialSection ?? "appearance");
   const initialActiveChatSubsection = untrack(() => initialChatSubsection ?? "teammates");
+  const initialMobileSectionOpen = untrack(() => initialSection !== undefined);
   let activeSection = $state<SectionId>(initialActiveSection);
+  let mobileSectionOpen = $state(initialMobileSectionOpen);
   let activeChatSubsection = $state<ChatSettingsSubsection>(initialActiveChatSubsection);
   let teammateDraftOpen = $state(false);
   let pendingDraftNavigation = $state<(() => void) | null>(null);
@@ -106,7 +91,6 @@
     SettingsDetailKind,
     LoadedSettingsDetail
   > | null>(null);
-  const activeSectionComponent = $derived(SECTION_COMPONENTS[activeSection]);
   const activeDetailLoadState = $derived(
     detailView && detailLoadState?.key === detailView.kind ? detailLoadState : null,
   );
@@ -115,13 +99,18 @@
   let detailScrollbarInsetTop = $state(0);
   let detailScrollbarInsetBottom = $state(0);
   let settingsScrollEl: HTMLElement | undefined = $state();
-  const useTopNav = $derived(viewport.below("compact"));
+  const useTopNav = $derived(!mobilePresentation && viewport.below("compact"));
   const useIconRail = $derived(!useTopNav && viewport.below("regular"));
   const settingsScrollbarInset = $derived(useTopNav ? 12 : useIconRail ? 16 : 24);
   const settingsContentPaddingClass = $derived(useTopNav ? "px-3 py-4" : useIconRail ? "px-5 py-5" : "p-8");
   const chatTeammatesUsesInternalScroll = $derived(
-    activeSection === "chat" && activeChatSubsection === "teammates",
+    !mobilePresentation && activeSection === "chat" && activeChatSubsection === "teammates",
   );
+
+  $effect(() => {
+    if (!mobilePresentation || !mobileSectionOpen) return;
+    return mobileBackStack.activate({ handle: closeMobileSection });
+  });
 
   function requestSettingsNavigation(navigate: () => void): void {
     if (!teammateDraftOpen) {
@@ -226,6 +215,12 @@
   }
 
   function selectSection(section: SectionId): void {
+    if (mobilePresentation && !mobileSectionOpen) {
+      activeSection = section;
+      mobileSectionOpen = true;
+      scrollSettingsToTop();
+      return;
+    }
     if (section === activeSection && !detailView) return;
     requestSettingsNavigation(() => {
       activeSection = section;
@@ -236,6 +231,13 @@
       detailScrollbarInsetBottom = 0;
       scrollSettingsToTop();
     });
+  }
+
+  function closeMobileSection(): void {
+    detailView = null;
+    detailLoadState = null;
+    mobileSectionOpen = false;
+    scrollSettingsToTop();
   }
 
   function openDoomscrollingLimitEditor(target: DoomscrollingLimitEditorTarget): void {
@@ -289,19 +291,19 @@
     function handleKeydown(e: KeyboardEvent) {
       if (pendingDraftNavigation) return;
       trapModalFocus(e);
-      if (hasOnlyShortcutModifier(e) && e.key === ",") {
+      if (!mobilePresentation && hasOnlyShortcutModifier(e) && e.key === ",") {
         e.preventDefault();
         e.stopPropagation();
         requestSettingsClose();
         return;
       }
-      if (activeSection === "shortcuts" && hasOnlyShortcutModifier(e) && e.key.toLowerCase() === "f") {
+      if (!mobilePresentation && activeSection === "shortcuts" && hasOnlyShortcutModifier(e) && e.key.toLowerCase() === "f") {
         e.preventDefault();
         e.stopPropagation();
         focusShortcutsSearch();
         return;
       }
-      if (e.key === "F1") {
+      if (!mobilePresentation && e.key === "F1") {
         e.preventDefault();
         e.stopPropagation();
         selectSection("shortcuts");
@@ -312,6 +314,10 @@
         e.stopPropagation();
         if (detailView) {
           closeDetailView();
+          return;
+        }
+        if (mobilePresentation && mobileSectionOpen) {
+          closeMobileSection();
           return;
         }
         requestSettingsClose();
@@ -330,6 +336,105 @@
   });
 </script>
 
+{#if mobilePresentation}
+  <div
+    bind:this={modalPanel}
+    data-settings-modal-panel
+    data-settings-section={activeSection}
+    role="dialog"
+    aria-modal="true"
+    aria-label={t("settings.title")}
+    tabindex="-1"
+    class="fixed inset-0 z-80 flex flex-col bg-background text-foreground outline-none"
+    style="padding: var(--safe-area-top) var(--safe-area-right) var(--safe-area-bottom) var(--safe-area-left);"
+  >
+    {#if mobileSectionOpen}
+      <header class="flex min-h-14 shrink-0 items-center gap-1 border-b border-border px-1">
+        <button
+          type="button"
+          onclick={closeMobileSection}
+          aria-label={t("mobile.settings.backToCategories")}
+          class="flex min-h-12 min-w-12 items-center justify-center rounded-xl active:bg-accent"
+        >
+          <ArrowLeft size={22} aria-hidden="true" />
+        </button>
+        <h2 class="min-w-0 flex-1 truncate px-2 text-base font-semibold">
+          {activeSectionLabel()}
+        </h2>
+        <button
+          type="button"
+          onclick={requestSettingsClose}
+          aria-label={t("settings.close")}
+          class="flex min-h-12 min-w-12 items-center justify-center rounded-xl active:bg-accent"
+        >
+          <X size={21} aria-hidden="true" />
+        </button>
+      </header>
+
+      <section
+        bind:this={settingsScrollEl}
+        data-settings-content
+        class="mobile-settings-content min-h-0 flex-1 overflow-y-auto px-4 py-5"
+      >
+        <div class="mx-auto w-full max-w-xl">
+          <SettingsSectionRenderer
+            {activeSection}
+            {initialDoomscrollingTab}
+            {activeChatSubsection}
+            {initialChatTeammateId}
+            {initialChatChannelId}
+            {initialChatCreateTeammate}
+            onOpenDoomscrollingLimitEditor={openDoomscrollingLimitEditor}
+            onOpenNotesTransferPanel={openNotesTransferPanel}
+            onOpenChatProviderSetup={openChatProviderSetup}
+            onChatSubsectionChange={(subsection: ChatSettingsSubsection) => {
+              activeChatSubsection = subsection;
+              scrollSettingsToTop();
+            }}
+            onRequestNavigation={requestSettingsNavigation}
+            onTeammateDraftStateChange={updateTeammateDraftState}
+          />
+        </div>
+      </section>
+    {:else}
+      <header class="flex min-h-14 shrink-0 items-center gap-2 border-b border-border px-2">
+        <h2 class="min-w-0 flex-1 truncate px-2 text-lg font-semibold">
+          {t("settings.title")}
+        </h2>
+        <button
+          type="button"
+          onclick={requestSettingsClose}
+          aria-label={t("settings.close")}
+          class="flex min-h-12 min-w-12 items-center justify-center rounded-xl active:bg-accent"
+        >
+          <X size={22} aria-hidden="true" />
+        </button>
+      </header>
+
+      <nav
+        aria-label={t("mobile.settings.categoriesLabel")}
+        class="min-h-0 flex-1 overflow-y-auto px-3 py-3"
+      >
+        <div class="mx-auto flex w-full max-w-xl flex-col gap-1">
+          {#each SECTIONS as section}
+            {@const Icon = section.icon}
+            <button
+              type="button"
+              onclick={() => selectSection(section.id)}
+              class="flex min-h-14 w-full items-center gap-3 rounded-xl px-3 text-left text-[0.95rem] font-medium active:bg-accent"
+            >
+              <span class="flex size-9 shrink-0 items-center justify-center rounded-lg bg-accent/70 text-accent-foreground">
+                <Icon size={19} strokeWidth={1.75} aria-hidden="true" />
+              </span>
+              <span class="min-w-0 flex-1">{t(section.labelKey)}</span>
+              <ChevronRight size={19} class="shrink-0 text-muted-foreground" aria-hidden="true" />
+            </button>
+          {/each}
+        </div>
+      </nav>
+    {/if}
+  </div>
+{:else}
 <!-- svelte-ignore a11y_click_events_have_key_events -->
 <!-- svelte-ignore a11y_no_static_element_interactions -->
 <div
@@ -530,30 +635,24 @@
               {t("common.loading")}
             </div>
           {/if}
-        {:else if activeSection === "notes"}
-            <NotesSection onOpenTransferPanel={openNotesTransferPanel} />
-        {:else if activeSection === "doomscrolling"}
-            <DoomscrollingSection
-              initialTab={initialDoomscrollingTab}
-              onOpenLimitEditor={openDoomscrollingLimitEditor}
-            />
-        {:else if activeSection === "chat"}
-            <ChatSection
-              initialSubsection={activeChatSubsection}
-              {initialChatTeammateId}
-              {initialChatChannelId}
-              {initialChatCreateTeammate}
-              onOpenProviderSetup={openChatProviderSetup}
-              onSubsectionChange={(subsection) => {
-                activeChatSubsection = subsection;
-                scrollSettingsToTop();
-              }}
-              onRequestNavigation={requestSettingsNavigation}
-              onTeammateDraftStateChange={updateTeammateDraftState}
-            />
         {:else}
-          {@const SectionComponent = activeSectionComponent}
-          <SectionComponent />
+          <SettingsSectionRenderer
+            {activeSection}
+            {initialDoomscrollingTab}
+            {activeChatSubsection}
+            {initialChatTeammateId}
+            {initialChatChannelId}
+            {initialChatCreateTeammate}
+            onOpenDoomscrollingLimitEditor={openDoomscrollingLimitEditor}
+            onOpenNotesTransferPanel={openNotesTransferPanel}
+            onOpenChatProviderSetup={openChatProviderSetup}
+            onChatSubsectionChange={(subsection: ChatSettingsSubsection) => {
+              activeChatSubsection = subsection;
+              scrollSettingsToTop();
+            }}
+            onRequestNavigation={requestSettingsNavigation}
+            onTeammateDraftStateChange={updateTeammateDraftState}
+          />
         {/if}
       </section>
       {#if detailView}
@@ -584,4 +683,5 @@
     onConfirm={discardDraftAndContinue}
     onCancel={cancelDraftNavigation}
   />
+{/if}
 {/if}

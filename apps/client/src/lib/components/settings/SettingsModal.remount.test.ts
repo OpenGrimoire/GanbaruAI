@@ -42,12 +42,19 @@ class ResizeObserverStub {
 describe("SettingsModal remount state", () => {
   let target: HTMLDivElement | undefined;
   let component: ReturnType<typeof mount> | undefined;
+  let originalScrollTo: typeof HTMLElement.prototype.scrollTo | undefined;
 
   afterEach(async () => {
     if (component) await unmount(component);
     target?.remove();
     component = undefined;
     target = undefined;
+    if (originalScrollTo) {
+      HTMLElement.prototype.scrollTo = originalScrollTo;
+    } else {
+      Reflect.deleteProperty(HTMLElement.prototype, "scrollTo");
+    }
+    originalScrollTo = undefined;
     vi.unstubAllGlobals();
   });
 
@@ -73,5 +80,39 @@ describe("SettingsModal remount state", () => {
     expect(target.querySelector("[data-settings-modal-panel]")?.getAttribute("data-settings-section"))
       .toBe("appearance");
     expect(target.textContent).not.toContain("Loading");
+  });
+
+  it("uses categories before details and omits shortcuts in the mobile presentation", async () => {
+    vi.stubGlobal("ResizeObserver", ResizeObserverStub);
+    originalScrollTo = HTMLElement.prototype.scrollTo;
+    Object.defineProperty(HTMLElement.prototype, "scrollTo", {
+      configurable: true,
+      value: vi.fn(),
+    });
+    target = document.createElement("div");
+    document.body.append(target);
+
+    component = mount(SettingsModal, {
+      target,
+      props: { presentation: "mobile", onClose: () => undefined },
+    });
+    await tick();
+
+    expect(target.textContent).not.toContain("Shortcuts");
+    const aboutButton = [...target.querySelectorAll("button")]
+      .find((button) => button.textContent?.trim() === "About");
+    expect(aboutButton).toBeDefined();
+    aboutButton?.click();
+    await tick();
+
+    expect(target.querySelector("[data-settings-modal-panel]")?.getAttribute("data-settings-section"))
+      .toBe("about");
+    const backButton = target.querySelector<HTMLButtonElement>(
+      '[aria-label="Back to settings categories"]',
+    );
+    expect(backButton).not.toBeNull();
+    backButton?.click();
+    await tick();
+    expect(target.querySelector('[aria-label="Back to settings categories"]')).toBeNull();
   });
 });

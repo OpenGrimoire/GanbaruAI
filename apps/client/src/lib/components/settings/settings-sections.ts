@@ -13,6 +13,7 @@ import Timer from "@lucide/svelte/icons/timer";
 import DownloadCloud from "@lucide/svelte/icons/download-cloud";
 import HardDrive from "@lucide/svelte/icons/hard-drive";
 import type { SectionId } from "./types";
+import type { PlatformShell } from "$lib/platform";
 
 export interface SettingsSectionMeta {
   id: SectionId;
@@ -35,3 +36,9 @@ export const SETTINGS_SECTIONS: SettingsSectionMeta[] = [
   { id: "shortcuts", labelKey: "settings.section.shortcuts", icon: Keyboard },
   { id: "about", labelKey: "settings.section.about", icon: Info },
 ];
+
+/** Return the settings categories that have meaning in the selected shell. */
+export function settingsSectionsForShell(shell: PlatformShell): readonly SettingsSectionMeta[] {
+  if (shell === "desktop") return SETTINGS_SECTIONS;
+  return SETTINGS_SECTIONS.filter((section) => section.id !== "shortcuts");
+}

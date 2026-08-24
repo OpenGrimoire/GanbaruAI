@@ -22,6 +22,8 @@
     onDuplicate,
     onExport,
     onDelete,
+    showEditorActions = true,
+    showFileActions = true,
   }: {
     theme: Theme;
     isActive: boolean;
@@ -31,6 +33,8 @@
     onDuplicate: () => void;
     onExport: () => void;
     onDelete: () => void;
+    showEditorActions?: boolean;
+    showFileActions?: boolean;
   } = $props();
 
   const { t } = getLocalization();
@@ -95,38 +99,42 @@
   </div>
 
   <div class="relative z-20 flex shrink-0 items-center justify-end gap-1">
-    <button
-      type="button"
-      onclick={onDuplicate}
-      aria-label={t("settings.theme.duplicateAndEditTheme")}
-      data-app-tooltip-disabled="true"
-      class="flex h-7 items-center gap-1.5 rounded-md border border-border bg-card px-2.5 text-[0.8rem] text-foreground transition-colors hover:bg-accent dark:bg-transparent"
-    >
-      <Copy size={13} strokeWidth={2} />
-      <span class="max-[380px]:hidden">{t("settings.theme.duplicateAndEdit")}</span>
-    </button>
-    <button
-      type="button"
-      onclick={onOpen}
-      aria-label={isBuiltin ? t("settings.theme.viewTheme") : t("settings.theme.editTheme")}
-      data-app-tooltip-disabled="true"
-      class="flex h-7 w-7 items-center justify-center rounded-md border border-border bg-card text-foreground transition-colors hover:bg-accent dark:bg-transparent"
-    >
-      {#if isBuiltin}
-        <Eye size={13} strokeWidth={2} />
-      {:else}
-        <Pencil size={13} strokeWidth={2} />
-      {/if}
-    </button>
-    <button
-      type="button"
-      onclick={onExport}
-      aria-label={t("settings.theme.exportJson")}
-      data-app-tooltip-disabled="true"
-      class="flex h-7 w-7 items-center justify-center rounded-md border border-border bg-card text-foreground transition-colors hover:bg-accent dark:bg-transparent"
-    >
-      <Download size={13} strokeWidth={2} />
-    </button>
+    {#if showEditorActions}
+      <button
+        type="button"
+        onclick={onDuplicate}
+        aria-label={t("settings.theme.duplicateAndEditTheme")}
+        data-app-tooltip-disabled="true"
+        class="flex h-7 items-center gap-1.5 rounded-md border border-border bg-card px-2.5 text-[0.8rem] text-foreground transition-colors hover:bg-accent dark:bg-transparent"
+      >
+        <Copy size={13} strokeWidth={2} />
+        <span class="max-[380px]:hidden">{t("settings.theme.duplicateAndEdit")}</span>
+      </button>
+      <button
+        type="button"
+        onclick={onOpen}
+        aria-label={isBuiltin ? t("settings.theme.viewTheme") : t("settings.theme.editTheme")}
+        data-app-tooltip-disabled="true"
+        class="flex h-7 w-7 items-center justify-center rounded-md border border-border bg-card text-foreground transition-colors hover:bg-accent dark:bg-transparent"
+      >
+        {#if isBuiltin}
+          <Eye size={13} strokeWidth={2} />
+        {:else}
+          <Pencil size={13} strokeWidth={2} />
+        {/if}
+      </button>
+    {/if}
+    {#if showFileActions}
+      <button
+        type="button"
+        onclick={onExport}
+        aria-label={t("settings.theme.exportJson")}
+        data-app-tooltip-disabled="true"
+        class="flex h-7 w-7 items-center justify-center rounded-md border border-border bg-card text-foreground transition-colors hover:bg-accent dark:bg-transparent"
+      >
+        <Download size={13} strokeWidth={2} />
+      </button>
+    {/if}
     <button
       type="button"
       onclick={onDelete}

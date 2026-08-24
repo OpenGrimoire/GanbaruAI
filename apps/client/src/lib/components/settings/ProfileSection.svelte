@@ -2,7 +2,8 @@
   import Save from "@lucide/svelte/icons/save";
   import ImagePlus from "@lucide/svelte/icons/image-plus";
   import Trash2 from "@lucide/svelte/icons/trash-2";
-  import { deleteProfileImageFile, pickProfileImageFile } from "$lib/api/profile-image";
+  import { deleteProfileImageFile } from "$lib/api/profile-image";
+  import { pickProfileImageFile } from "$lib/api/profile-image-picker";
   import ProfileAvatar from "$lib/components/profile/ProfileAvatar.svelte";
   import { getLocalization } from "$lib/i18n/translator.svelte";
   import type { NotesLocalUser } from "$lib/notes/types";

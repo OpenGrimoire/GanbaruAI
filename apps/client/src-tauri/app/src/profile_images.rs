@@ -3,11 +3,8 @@ use ganbaru_notes::image_metadata::{
     parse_managed_image_metadata, validate_managed_image_dimensions, ManagedImageDimensionError,
     ManagedImageMetadata, ManagedImageMetadataError,
 };
-#[cfg(not(any(target_os = "android", target_os = "ios")))]
 use serde::Serialize;
-#[cfg(not(any(target_os = "android", target_os = "ios")))]
 use sha2::{Digest, Sha256};
-#[cfg(not(any(target_os = "android", target_os = "ios")))]
 use std::io::Write;
 use std::{
     fs,
@@ -28,7 +25,6 @@ const PROFILE_IMAGE_ALLOWED_EXTENSIONS: &[&str] = &["png", "jpg", "jpeg", "webp"
 
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
-#[cfg(not(any(target_os = "android", target_os = "ios")))]
 pub struct ProfileImageAsset {
     pub relative_path: String,
 }
@@ -132,7 +128,6 @@ fn read_file_capped(path: &Path) -> Result<Vec<u8>, String> {
     Ok(bytes)
 }
 
-#[cfg(not(any(target_os = "android", target_os = "ios")))]
 fn content_hash(bytes: &[u8]) -> String {
     let digest = Sha256::digest(bytes);
     let mut output = String::with_capacity(digest.len() * 2);
@@ -142,7 +137,6 @@ fn content_hash(bytes: &[u8]) -> String {
     output
 }
 
-#[cfg(not(any(target_os = "android", target_os = "ios")))]
 fn write_binary_file_atomically(path: &Path, bytes: &[u8]) -> Result<(), String> {
     let parent = path
         .parent()
@@ -166,7 +160,6 @@ fn write_binary_file_atomically(path: &Path, bytes: &[u8]) -> Result<(), String>
     fs::rename(&temporary_path, path).map_err(|error| format!("save profile image: {error}"))
 }
 
-#[cfg(not(any(target_os = "android", target_os = "ios")))]
 fn save_profile_image_bytes<R: Runtime>(
     app: &AppHandle<R>,
     bytes: Vec<u8>,
@@ -180,6 +173,34 @@ fn save_profile_image_bytes<R: Runtime>(
         write_binary_file_atomically(&path, &bytes)?;
     }
     Ok(ProfileImageAsset { relative_path })
+}
+
+fn decode_profile_image_data_url(data_url: &str) -> Result<Vec<u8>, String> {
+    let encoded_max_bytes = PROFILE_IMAGE_MAX_BYTES.div_ceil(3) * 4;
+    let (metadata, encoded) = data_url
+        .split_once(',')
+        .ok_or_else(|| "profile image must be a base64 data URL".to_string())?;
+    let mime_type = metadata
+        .strip_prefix("data:")
+        .and_then(|value| value.strip_suffix(";base64"))
+        .ok_or_else(|| "profile image must be a base64 data URL".to_string())?;
+    if !matches!(mime_type, "image/png" | "image/jpeg" | "image/webp") {
+        return Err(profile_image_unsupported_type_error());
+    }
+    if encoded.len() > encoded_max_bytes {
+        return Err(format!(
+            "profile image exceeds the {PROFILE_IMAGE_MAX_DISPLAY_MEGABYTES} MB limit"
+        ));
+    }
+    let bytes = general_purpose::STANDARD
+        .decode(encoded)
+        .map_err(|error| format!("decode profile image: {error}"))?;
+    ensure_profile_image_size(&bytes)?;
+    let kind = validate_profile_image(&bytes)?.kind;
+    if kind.mime_type() != mime_type {
+        return Err("profile image MIME type does not match its content".to_string());
+    }
+    Ok(bytes)
 }
 
 fn profile_image_asset_path<R: Runtime>(
@@ -209,6 +230,14 @@ pub async fn profile_image_pick_file<R: Runtime>(
     };
     let bytes = read_file_capped(&path)?;
     save_profile_image_bytes(&app, bytes).map(Some)
+}
+
+#[tauri::command]
+pub fn profile_image_save_data_url<R: Runtime>(
+    app: AppHandle<R>,
+    data_url: String,
+) -> Result<ProfileImageAsset, String> {
+    save_profile_image_bytes(&app, decode_profile_image_data_url(&data_url)?)
 }
 
 #[tauri::command]
@@ -284,5 +313,30 @@ mod tests {
         assert!(validate_profile_image_relative_path("profile/../outside.png").is_err());
         assert!(validate_profile_image_relative_path("profile/nested/image.png").is_err());
         assert!(validate_profile_image_relative_path("profile/image.svg").is_err());
+    }
+
+    #[test]
+    fn profile_image_data_url_accepts_validated_content() {
+        let bytes = png(64, 64);
+        let data_url = format!(
+            "data:image/png;base64,{}",
+            general_purpose::STANDARD.encode(&bytes)
+        );
+        assert_eq!(decode_profile_image_data_url(&data_url).unwrap(), bytes);
+    }
+
+    #[test]
+    fn profile_image_data_url_rejects_mismatched_or_unbounded_content() {
+        let jpeg_labeled_png = format!(
+            "data:image/jpeg;base64,{}",
+            general_purpose::STANDARD.encode(png(64, 64))
+        );
+        assert!(decode_profile_image_data_url(&jpeg_labeled_png).is_err());
+
+        let oversized = format!(
+            "data:image/png;base64,{}",
+            "A".repeat(PROFILE_IMAGE_MAX_BYTES.div_ceil(3) * 4 + 1)
+        );
+        assert!(decode_profile_image_data_url(&oversized).is_err());
     }
 }

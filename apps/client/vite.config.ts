@@ -283,6 +283,24 @@ export default defineConfig({
   },
   resolve: {
     alias: {
+      "$lib/api/profile-image-picker": path.resolve(
+        configDir,
+        mobileBuild
+          ? "src/lib/api/profile-image-picker.mobile.ts"
+          : "src/lib/api/profile-image-picker.ts",
+      ),
+      "$lib/components/settings/SettingsSectionRenderer.svelte": path.resolve(
+        configDir,
+        mobileBuild
+          ? "src/lib/components/settings/SettingsSectionRenderer.mobile.svelte"
+          : "src/lib/components/settings/SettingsSectionRenderer.svelte",
+      ),
+      "$lib/components/settings/settings-detail-registry": path.resolve(
+        configDir,
+        mobileBuild
+          ? "src/lib/components/settings/settings-detail-registry.mobile.ts"
+          : "src/lib/components/settings/settings-detail-registry.ts",
+      ),
       "$lib/api/db": path.resolve(
         configDir,
         mobileBuild
@@ -306,6 +324,12 @@ export default defineConfig({
         mobileBuild
           ? "src/lib/stores/pomodoro-effects.mobile.svelte.ts"
           : "src/lib/stores/pomodoro-effects.svelte.ts",
+      ),
+      "$lib/stores/zoom.svelte": path.resolve(
+        configDir,
+        mobileBuild
+          ? "src/lib/stores/zoom.mobile.svelte.ts"
+          : "src/lib/stores/zoom.svelte.ts",
       ),
       "$lib/stores/pomodoro-doomscrolling-controller": path.resolve(
         configDir,

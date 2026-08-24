@@ -3,7 +3,6 @@
   import { onMount } from "svelte";
   import MobileNavigation from "$lib/components/mobile/MobileNavigation.svelte";
   import MobilePomodoroSheet from "$lib/components/mobile/MobilePomodoroSheet.svelte";
-  import MobileSettings from "$lib/components/mobile/MobileSettings.svelte";
   import MobileTopBar from "$lib/components/mobile/MobileTopBar.svelte";
   import ConfirmDialog from "$lib/components/ui/ConfirmDialog.svelte";
   import { ensureDbUrl } from "$lib/api/db";
@@ -31,6 +30,7 @@
   type ProjectMobileListComponent = typeof import("$lib/components/projects/ProjectMobileListView.svelte").default;
   type NotesComponent = typeof import("$lib/components/notes/NotesView.svelte").default;
   type QuickNotesComponent = typeof import("$lib/components/quick-notes/QuickNotesPanel.svelte").default;
+  type SettingsComponent = typeof import("$lib/components/settings/SettingsModal.svelte").default;
   type NotesStore = ReturnType<typeof import("$lib/stores/notes.svelte").getNotes>;
 
   const nav = getNavigation();
@@ -51,6 +51,7 @@
   let quickNotesLoading = $state(false);
   let quickNotesLoadError = $state("");
   let quickNotesLoadDialog = $state<HTMLDivElement | null>(null);
+  let settingsLoadDialog = $state<HTMLDivElement | null>(null);
   let nestedRouteOpen = $state(false);
   let loadError = $state<string | null>(null);
   let backendReady = $state(false);
@@ -60,10 +61,14 @@
   let ProjectMobileListSurface = $state<ProjectMobileListComponent | null>(null);
   let NotesSurface = $state<NotesComponent | null>(null);
   let QuickNotesSurface = $state<QuickNotesComponent | null>(null);
+  let SettingsSurface = $state<SettingsComponent | null>(null);
   let notesStore = $state.raw<NotesStore | null>(null);
   let notesSurfaceMounted = $state(false);
   let surfaceLoadGeneration = 0;
   let quickNotesLoadGeneration = 0;
+  let settingsLoadGeneration = 0;
+  let settingsLoading = $state(false);
+  let settingsLoadError = $state("");
   let removePomodoroBackLayer = (): void => undefined;
   let removeSettingsBackLayer = (): void => undefined;
   let removeQuickNotesBackLayer = (): void => undefined;
@@ -220,9 +225,29 @@
   }
 
   function closeSettings(): void {
+    settingsLoadGeneration += 1;
     removeSettingsBackLayer();
     removeSettingsBackLayer = () => undefined;
     showSettings = false;
+    settingsLoading = false;
+    settingsLoadError = "";
+  }
+
+  async function loadSettingsSurface(): Promise<void> {
+    if (SettingsSurface || settingsLoading) return;
+    const generation = ++settingsLoadGeneration;
+    settingsLoading = true;
+    settingsLoadError = "";
+    try {
+      const module = await import("$lib/components/settings/SettingsModal.svelte");
+      if (generation === settingsLoadGeneration) SettingsSurface = module.default;
+    } catch (error) {
+      if (generation !== settingsLoadGeneration) return;
+      settingsLoadError = error instanceof Error ? error.message : String(error);
+      console.error("Failed to load the mobile settings surface", error);
+    } finally {
+      if (generation === settingsLoadGeneration) settingsLoading = false;
+    }
   }
 
   function openSettings(): void {
@@ -231,6 +256,7 @@
     showSettings = true;
     removeSettingsBackLayer();
     removeSettingsBackLayer = mobileBackStack.activate({ handle: closeSettings });
+    void loadSettingsSurface();
   }
 
   function closeQuickNotes(): void {
@@ -328,6 +354,11 @@
     if (!showQuickNotes || QuickNotesSurface || !quickNotesLoadDialog) return;
     return activateModalFocus(quickNotesLoadDialog);
   });
+
+  $effect(() => {
+    if (!showSettings || SettingsSurface || !settingsLoadDialog) return;
+    return activateModalFocus(settingsLoadDialog);
+  });
 </script>
 
 <div
@@ -407,9 +438,42 @@
     </div>
   {/if}
 
-  {#if showSettings}
+  {#if showSettings && SettingsSurface}
     <div inert={suspendDecisionOpen} aria-hidden={suspendDecisionOpen ? "true" : undefined}>
-      <MobileSettings onClose={closeSettings} />
+      <SettingsSurface presentation="mobile" onClose={closeSettings} />
+    </div>
+  {:else if showSettings}
+    <div
+      class="fixed z-50 flex items-center justify-center bg-background/95"
+      inert={suspendDecisionOpen}
+      aria-hidden={suspendDecisionOpen ? "true" : undefined}
+      style="left: var(--visual-viewport-offset-left); top: var(--visual-viewport-offset-top); width: var(--visual-viewport-width); height: var(--visual-viewport-height); padding: calc(var(--safe-area-top) + 1rem) calc(var(--safe-area-right) + 1rem) calc(var(--safe-area-bottom) + 1rem) calc(var(--safe-area-left) + 1rem);"
+    >
+      <div
+        bind:this={settingsLoadDialog}
+        class="flex w-full max-w-sm flex-col items-center gap-3 rounded-2xl border border-border bg-card p-5 text-center text-card-foreground outline-none"
+        role="dialog"
+        aria-modal="true"
+        aria-label={t("settings.title")}
+        tabindex="-1"
+      >
+        {#if settingsLoadError}
+          <p class="text-sm font-medium" role="alert">{t("common.viewLoadFailed", t("settings.title"))}</p>
+          <p class="max-w-full wrap-break-word text-xs text-muted-foreground">{settingsLoadError}</p>
+          <button
+            type="button"
+            class="min-h-12 w-full rounded-xl border border-border px-4 text-sm font-medium active:bg-accent"
+            onclick={() => void loadSettingsSurface()}
+          >{t("common.retry")}</button>
+        {:else}
+          <p class="text-sm text-muted-foreground" aria-busy="true">{t("common.loading")}</p>
+        {/if}
+        <button
+          type="button"
+          class="min-h-12 w-full rounded-xl px-4 text-sm font-medium active:bg-accent"
+          onclick={closeSettings}
+        >{t("common.close")}</button>
+      </div>
     </div>
   {/if}
 

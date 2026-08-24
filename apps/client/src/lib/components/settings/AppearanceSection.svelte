@@ -17,11 +17,13 @@
   import CustomSelect from "./CustomSelect.svelte";
   import ToggleSetting from "./ToggleSetting.svelte";
   import ThemeList from "./ThemeList.svelte";
+  import { BUILD_PLATFORM_PROFILE } from "$lib/platform";
 
   const preferences = getPreferences();
   const zoom = getZoom();
   const calZoom = getCalendarZoom();
   const { t } = getLocalization();
+  const mobileShell = BUILD_PLATFORM_PROFILE.shell === "mobile";
 
   type SelectOption = { value: string; label: string; style?: string };
 
@@ -113,22 +115,24 @@
 
   <div class="h-px shrink-0 scale-y-50 bg-border" aria-hidden="true"></div>
 
-  <section class="flex flex-col gap-4">
-    <h2 class="px-1 text-[0.866667rem] font-semibold text-foreground">{t("settings.appearance.zoomHeading")}</h2>
-    <div class="flex flex-col gap-3">
-      <CustomSelect
-        label={t("settings.appearance.appZoom")}
-        descriptionShortcuts={["Mod + +", "Mod + -", "Mod + 0"]}
-        value={percentString(zoom.percent)}
-        options={appZoomOptions}
-        onChange={handleAppZoomChange}
-        canReset={!zoom.isDefault}
-        onReset={() => zoom.reset()}
-      />
-    </div>
-  </section>
+  {#if !mobileShell}
+    <section class="flex flex-col gap-4">
+      <h2 class="px-1 text-[0.866667rem] font-semibold text-foreground">{t("settings.appearance.zoomHeading")}</h2>
+      <div class="flex flex-col gap-3">
+        <CustomSelect
+          label={t("settings.appearance.appZoom")}
+          descriptionShortcuts={["Mod + +", "Mod + -", "Mod + 0"]}
+          value={percentString(zoom.percent)}
+          options={appZoomOptions}
+          onChange={handleAppZoomChange}
+          canReset={!zoom.isDefault}
+          onReset={() => zoom.reset()}
+        />
+      </div>
+    </section>
 
-  <div class="h-px shrink-0 scale-y-50 bg-border" aria-hidden="true"></div>
+    <div class="h-px shrink-0 scale-y-50 bg-border" aria-hidden="true"></div>
+  {/if}
 
   <section class="flex flex-col gap-4">
     <h2 class="px-1 text-[0.866667rem] font-semibold text-foreground">{t("settings.appearance.textHeading")}</h2>
@@ -180,7 +184,7 @@
     <div class="flex flex-col gap-3">
       <CustomSelect
         label={t("settings.appearance.calendarZoom")}
-        descriptionShortcuts={["Shift + +", "Shift + -", "Shift + 0"]}
+        descriptionShortcuts={mobileShell ? [] : ["Shift + +", "Shift + -", "Shift + 0"]}
         value={percentString(calZoom.zoomPercent)}
         options={calendarZoomOptions}
         onChange={handleCalendarZoomChange}

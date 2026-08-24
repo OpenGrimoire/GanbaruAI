@@ -79,6 +79,7 @@ mod composition_tests {
             "quick_notes::quick_notes_list",
             "themes::theme_load_all",
             "profile_images::profile_image_asset_data_url",
+            "profile_images::profile_image_save_data_url",
             "project_icons::project_icon_asset_data_url",
         ] {
             assert!(
