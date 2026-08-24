@@ -23,6 +23,11 @@
     retrySettingsDetail,
     type LoadedSettingsDetail,
   } from "$lib/components/settings/settings-detail-registry";
+  import {
+    loadMobileThemeEditor,
+    retryMobileThemeEditor,
+  } from "$lib/components/settings/mobile-theme-editor-loader";
+  import type { MobileThemeEditorComponent } from "$lib/components/settings/mobile-theme-editor-loader-contract";
   import type {
     DoomscrollingLimitEditorTarget,
     DoomscrollingSettingsTab,
@@ -99,6 +104,10 @@
   let detailScrollbarInsetTop = $state(0);
   let detailScrollbarInsetBottom = $state(0);
   let settingsScrollEl: HTMLElement | undefined = $state();
+  let MobileThemeEditor = $state<MobileThemeEditorComponent | null>(null);
+  let mobileThemeEditorLoading = $state(false);
+  let mobileThemeEditorLoadError = $state("");
+  let mobileThemeEditorLoadGeneration = 0;
   const useTopNav = $derived(!mobilePresentation && viewport.below("compact"));
   const useIconRail = $derived(!useTopNav && viewport.below("regular"));
   const settingsScrollbarInset = $derived(useTopNav ? 12 : useIconRail ? 16 : 24);
@@ -111,6 +120,41 @@
     if (!mobilePresentation || !mobileSectionOpen) return;
     return mobileBackStack.activate({ handle: closeMobileSection });
   });
+
+  $effect(() => {
+    const shouldPrepare = mobilePresentation
+      && ((mobileSectionOpen && activeSection === "appearance") || themeEditor.editingId);
+    if (!shouldPrepare || MobileThemeEditor || mobileThemeEditorLoading) return;
+    void prepareMobileThemeEditor();
+  });
+
+  async function prepareMobileThemeEditor(retry = false): Promise<void> {
+    if (MobileThemeEditor || mobileThemeEditorLoading) return;
+    const generation = ++mobileThemeEditorLoadGeneration;
+    mobileThemeEditorLoading = true;
+    mobileThemeEditorLoadError = "";
+    try {
+      const component = await (retry
+        ? retryMobileThemeEditor()
+        : loadMobileThemeEditor());
+      if (generation === mobileThemeEditorLoadGeneration) {
+        MobileThemeEditor = component;
+      }
+    } catch (error) {
+      if (generation !== mobileThemeEditorLoadGeneration) return;
+      mobileThemeEditorLoadError = error instanceof Error ? error.message : String(error);
+      console.error("Failed to load the mobile theme editor", error);
+    } finally {
+      if (generation === mobileThemeEditorLoadGeneration) {
+        mobileThemeEditorLoading = false;
+      }
+    }
+  }
+
+  async function cancelUnloadedThemeEditor(): Promise<void> {
+    mobileThemeEditorLoadError = "";
+    await themeEditor.cancel();
+  }
 
   function requestSettingsNavigation(navigate: () => void): void {
     if (!teammateDraftOpen) {
@@ -684,4 +728,47 @@
     onCancel={cancelDraftNavigation}
   />
 {/if}
+
+{/if}
+
+{#if mobilePresentation && themeEditor.editingId}
+  {#if MobileThemeEditor}
+    {@const Editor = MobileThemeEditor}
+    <Editor />
+  {:else}
+    <div
+      class="fixed z-85 flex items-center justify-center bg-background text-foreground"
+      style="left: var(--visual-viewport-offset-left); top: var(--visual-viewport-offset-top); width: var(--visual-viewport-width); height: var(--visual-viewport-height); padding: calc(var(--safe-area-top) + 1rem) calc(var(--safe-area-right) + 1rem) calc(var(--safe-area-bottom) + 1rem) calc(var(--safe-area-left) + 1rem);"
+      role="dialog"
+      aria-modal="true"
+      aria-label={t("settings.theme.editor.dialogLabel")}
+    >
+      <div class="flex w-full max-w-sm flex-col items-center gap-3 text-center">
+        {#if mobileThemeEditorLoadError}
+          <p class="text-sm font-medium" role="alert">
+            {t("common.viewLoadFailed", t("settings.theme.editor.dialogLabel"))}
+          </p>
+          <p class="max-w-full wrap-break-word text-xs text-muted-foreground">
+            {mobileThemeEditorLoadError}
+          </p>
+          <button
+            type="button"
+            class="min-h-12 w-full rounded-xl border border-border px-4 text-sm font-medium active:bg-accent"
+            onclick={() => void prepareMobileThemeEditor(true)}
+          >
+            {t("common.retry")}
+          </button>
+        {:else}
+          <p class="text-sm text-muted-foreground" aria-busy="true">{t("common.loading")}</p>
+        {/if}
+        <button
+          type="button"
+          class="min-h-12 w-full rounded-xl px-4 text-sm font-medium active:bg-accent"
+          onclick={() => void cancelUnloadedThemeEditor()}
+        >
+          {t("common.cancel")}
+        </button>
+      </div>
+    </div>
+  {/if}
 {/if}

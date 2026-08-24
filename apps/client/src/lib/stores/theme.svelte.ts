@@ -1152,19 +1152,19 @@ function exportTheme(id: ThemeId): string | undefined {
   return serializeTheme(toUserThemeSnapshot(theme));
 }
 
-export type ReplaceThemeResult =
+export type ReplaceThemeDraftResult =
   | { ok: true }
   | { ok: false; errors: string[] };
 
 /**
- * Replace a user theme in place from raw JSON. The id is locked to the
- * existing slot so the editor's "Apply changes" path cannot accidentally
- * fork into a new theme. Built-in ids and unknown ids are rejected.
+ * Replace an in-memory user-theme draft from raw JSON. The id is locked to
+ * the existing slot so direct JSON editing cannot accidentally fork a theme.
+ * Persistence remains owned by the editor session's final Save action.
  */
-async function replaceTheme(
+function replaceThemeDraft(
   id: ThemeId,
   json: string,
-): Promise<ReplaceThemeResult> {
+): ReplaceThemeDraftResult {
   if (isBuiltinThemeId(id)) {
     return { ok: false, errors: ["built-in themes cannot be edited"] };
   }
@@ -1192,7 +1192,6 @@ async function replaceTheme(
   const next: UserTheme = { ...result.theme, id };
   customThemes[id] = next;
   if (id === activeId) applyThemeToDom();
-  await persistThemeToDb(id);
   return { ok: true };
 }
 
@@ -1247,7 +1246,7 @@ export function getTheme() {
     deleteTheme,
     importTheme,
     exportTheme,
-    replaceTheme,
+    replaceThemeDraft,
     updateSourceValue,
     isolateToken,
     relinkToken,

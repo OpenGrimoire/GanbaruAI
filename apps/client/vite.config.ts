@@ -301,6 +301,18 @@ export default defineConfig({
           ? "src/lib/components/settings/settings-detail-registry.mobile.ts"
           : "src/lib/components/settings/settings-detail-registry.ts",
       ),
+      "$lib/components/settings/theme-json-file": path.resolve(
+        configDir,
+        mobileBuild
+          ? "src/lib/components/settings/theme-json-file.mobile.ts"
+          : "src/lib/components/settings/theme-json-file.ts",
+      ),
+      "$lib/components/settings/mobile-theme-editor-loader": path.resolve(
+        configDir,
+        mobileBuild
+          ? "src/lib/components/settings/mobile-theme-editor-loader.mobile.ts"
+          : "src/lib/components/settings/mobile-theme-editor-loader.ts",
+      ),
       "$lib/api/db": path.resolve(
         configDir,
         mobileBuild

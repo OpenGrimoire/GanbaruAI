@@ -1,5 +1,9 @@
 import type { ThemeId } from "./themes";
 import { getTheme } from "./theme.svelte";
+import {
+  themeEditorSessionHasChanges,
+  type ThemeEditorSessionState,
+} from "./theme-editor-session";
 
 // One active editor session at a time. Edits during the session live in
 // the theme store's in-memory `$state` only; SQLite is not touched until
@@ -8,12 +12,7 @@ import { getTheme } from "./theme.svelte";
 // in-memory edits without ever writing to disk. For themes minted for
 // this session (`createdFresh` = true), cancel discards the in-memory
 // row entirely so backing out leaves no orphan behind.
-interface EditorSession {
-  editingId: ThemeId;
-  snapshot: string | undefined;
-  createdFresh: boolean;
-  previousActiveId: ThemeId;
-}
+type EditorSession = ThemeEditorSessionState;
 
 let session = $state<EditorSession | undefined>(undefined);
 
@@ -31,6 +30,12 @@ export function getThemeEditor() {
     get isActive(): boolean {
       return session !== undefined;
     },
+    get hasUnsavedChanges(): boolean {
+      return themeEditorSessionHasChanges(
+        session,
+        session ? getTheme().exportTheme(session.editingId) : undefined,
+      );
+    },
     open(id: ThemeId, opts: OpenEditorOptions): void {
       session = {
         editingId: id,
@@ -43,9 +48,10 @@ export function getThemeEditor() {
     // state. The edited theme stays active.
     async commit(): Promise<void> {
       if (!session) return;
-      const { editingId } = session;
-      session = undefined;
+      const committingSession = session;
+      const { editingId } = committingSession;
       await getTheme().persistThemeToDb(editingId);
+      if (session === committingSession) session = undefined;
     },
     // Roll the session back. Built-in previews pass no snapshot so there
     // is nothing to restore. Fresh themes are dropped from memory and the

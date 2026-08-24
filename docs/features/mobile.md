@@ -58,7 +58,7 @@ Settings use one shared category registry, one controller, and shared section co
 
 | Section | Android behavior |
 | --- | --- |
-| Appearance | Shared themes, font, text scale, language, time format, calendar zoom, and dimming controls. WebView zoom, keyboard hints, desktop quick-theme shortcuts, native theme file actions, and the floating desktop theme editor are omitted. Bounded manual theme JSON import remains available. |
+| Appearance | Shared themes, font, text scale, language, time format, calendar zoom, and dimming controls. Theme duplicate, built-in inspection, custom editing, live preview, reset, Save, Cancel, and dirty-Back confirmation use a lazy full-screen mobile host over the shared editor model. Color picking also becomes a Back-aware full-screen touch surface. WebView zoom, keyboard hints, desktop quick-theme shortcuts, and native path-based theme file actions are omitted. Manual theme JSON import and editor JSON copy remain available. |
 | Profile | Shared display and full names. Profile image selection uses the bounded document-input and managed-asset boundary, with browser preflight and Rust revalidation before an atomic write. |
 | Calendars | Shared calendar records, event counts, and deletion. ICS import and export present an Android document-picker status until the streaming content-URI adapter exists. |
 | Projects | The global category directs users to the project-local settings panel, where project workflow and field configuration belong on both platforms. |
@@ -73,6 +73,8 @@ Settings use one shared category registry, one controller, and shared section co
 | Shortcuts | Omitted because hardware keyboard shortcuts are not part of the mobile product contract. |
 
 This matrix is a capability decision, not a second settings product. New portable settings should normally enter the shared section. A platform-specific adapter belongs behind a typed build-time boundary. A control must not be shown merely because its preference can be persisted if the platform cannot apply the behavior.
+
+The mobile theme editor is excluded from the initial shell closure and loads when Appearance is opened. It reuses the shared theme editor, validation, contrast tooling, and in-memory session model but owns mobile presentation, safe-area padding, 44 dp minimum editor targets, full-screen color selection, and Android Back ordering. A dirty Back action asks before rolling the session back. A failed SQLite Save leaves the session open for retry. Theme JSON Apply changes only the in-memory draft, so the outer Cancel still restores the complete opening snapshot. Android file export remains absent until the content-URI document adapter exists; it must not call the desktop path command.
 
 ## Platform and configuration baseline
 

@@ -243,8 +243,8 @@
           onDuplicate={() => handleDuplicate(theme.id)}
           onExport={() => handleExport(theme.id)}
           onDelete={() => handleDelete(theme.id)}
-          showEditorActions={desktopShell}
           showFileActions={desktopShell}
+          mobileLayout={!desktopShell}
         />
       {/each}
       {#if importOpen}
@@ -259,7 +259,9 @@
                 onclick={handleImportToggle}
                 aria-label={t("settings.theme.closeImport")}
                 data-app-tooltip-disabled="true"
-                class="flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
+                class={desktopShell
+                  ? "flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
+                  : "flex size-12 items-center justify-center rounded-xl text-muted-foreground active:bg-accent active:text-foreground"}
               >
                 <X size={13} strokeWidth={2} />
               </button>
@@ -285,7 +287,9 @@
                 <button
                   type="button"
                   onclick={handlePasteFromClipboard}
-                  class="rounded-md border border-border bg-card px-2.5 py-1 text-[0.733333rem] text-foreground transition-colors hover:bg-accent dark:bg-transparent"
+                  class={desktopShell
+                    ? "rounded-md border border-border bg-card px-2.5 py-1 text-[0.733333rem] text-foreground transition-colors hover:bg-accent dark:bg-transparent"
+                    : "min-h-12 rounded-xl border border-border bg-card px-3 text-sm text-foreground active:bg-accent dark:bg-transparent"}
                 >
                   {t("settings.theme.pasteClipboard")}
                 </button>
@@ -303,7 +307,9 @@
               <button
                 type="button"
                 onclick={handleImport}
-                class="rounded-md border border-border bg-primary px-3 py-1 text-[0.8rem] font-medium text-primary-foreground transition-colors hover:bg-primary/90 max-[520px]:self-end"
+                class={desktopShell
+                  ? "rounded-md border border-border bg-primary px-3 py-1 text-[0.8rem] font-medium text-primary-foreground transition-colors hover:bg-primary/90 max-[520px]:self-end"
+                  : "min-h-12 rounded-xl border border-primary bg-primary px-4 text-sm font-medium text-primary-foreground active:bg-primary/90 max-[520px]:self-end"}
               >
                 {t("settings.theme.import")}
               </button>
@@ -314,7 +320,9 @@
         <button
           type="button"
           onclick={handleImportToggle}
-          class="flex w-full min-w-0 items-center gap-2 rounded-md px-1 py-1 text-[0.866667rem] text-foreground transition-colors hover:bg-accent/25 focus:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+          class={desktopShell
+            ? "flex w-full min-w-0 items-center gap-2 rounded-md px-1 py-1 text-[0.866667rem] text-foreground transition-colors hover:bg-accent/25 focus:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+            : "flex min-h-12 w-full min-w-0 items-center gap-2 rounded-xl px-3 text-sm text-foreground active:bg-accent/40 focus:outline-none focus-visible:ring-1 focus-visible:ring-ring"}
         >
           <Upload
             size={13}

@@ -40,7 +40,7 @@
       "maxSourceModules": 87
     }
   ],
-  "maxTotalSourceModules": 640,
+  "maxTotalSourceModules": 660,
   "requiredMobileModules": [
     "src/main.ts",
     "src/main-mobile.ts",
@@ -64,6 +64,9 @@
     "src/lib/components/settings/SettingsModal.svelte",
     "src/lib/components/settings/SettingsSectionRenderer.mobile.svelte",
     "src/lib/components/settings/mobile/MobileSettingsStatus.svelte",
+    "src/lib/components/settings/mobile/MobileThemeEditor.svelte",
+    "src/lib/components/settings/mobile-theme-editor-loader.mobile.ts",
+    "src/lib/components/settings/theme-json-file.mobile.ts",
     "src/lib/api/profile-image-picker.mobile.ts",
     "src/lib/components/projects/project-component-registry.mobile.ts",
     "src/lib/components/projects/ProjectMobileListView.svelte",
@@ -91,6 +94,9 @@
     "src/lib/api/profile-image-picker.ts",
     "src/lib/components/settings/SettingsSectionRenderer.svelte",
     "src/lib/components/settings/settings-detail-registry.ts",
+    "src/lib/components/settings/mobile-theme-editor-loader.ts",
+    "src/lib/components/settings/theme-json-file.ts",
+    "src/lib/components/settings/FloatingThemeEditor.svelte",
     "src/lib/components/projects/project-component-registry.ts",
     "src/lib/components/projects/project-desktop-view-components.ts",
     "src/lib/components/projects/ProjectListView.svelte",

@@ -24,6 +24,7 @@
     onDelete,
     showEditorActions = true,
     showFileActions = true,
+    mobileLayout = false,
   }: {
     theme: Theme;
     isActive: boolean;
@@ -35,6 +36,7 @@
     onDelete: () => void;
     showEditorActions?: boolean;
     showFileActions?: boolean;
+    mobileLayout?: boolean;
   } = $props();
 
   const { t } = getLocalization();
@@ -66,6 +68,7 @@
   onpointerdown={handlePointerDown}
   class={cn(
     "relative flex items-center justify-between gap-1 rounded-md px-1 py-1 transition-colors max-[520px]:flex-col max-[520px]:items-stretch",
+    mobileLayout && "min-h-14 gap-2 rounded-xl py-2",
     !isActive && "hover:text-foreground",
     hovering && !suppressHover && "bg-accent/25",
   )}
@@ -105,7 +108,10 @@
         onclick={onDuplicate}
         aria-label={t("settings.theme.duplicateAndEditTheme")}
         data-app-tooltip-disabled="true"
-        class="flex h-7 items-center gap-1.5 rounded-md border border-border bg-card px-2.5 text-[0.8rem] text-foreground transition-colors hover:bg-accent dark:bg-transparent"
+        class={cn(
+          "flex items-center gap-1.5 rounded-md border border-border bg-card px-2.5 text-[0.8rem] text-foreground transition-colors hover:bg-accent dark:bg-transparent",
+          mobileLayout ? "min-h-12 rounded-xl" : "h-7",
+        )}
       >
         <Copy size={13} strokeWidth={2} />
         <span class="max-[380px]:hidden">{t("settings.theme.duplicateAndEdit")}</span>
@@ -115,7 +121,10 @@
         onclick={onOpen}
         aria-label={isBuiltin ? t("settings.theme.viewTheme") : t("settings.theme.editTheme")}
         data-app-tooltip-disabled="true"
-        class="flex h-7 w-7 items-center justify-center rounded-md border border-border bg-card text-foreground transition-colors hover:bg-accent dark:bg-transparent"
+        class={cn(
+          "flex items-center justify-center border border-border bg-card text-foreground transition-colors hover:bg-accent dark:bg-transparent",
+          mobileLayout ? "size-12 rounded-xl" : "h-7 w-7 rounded-md",
+        )}
       >
         {#if isBuiltin}
           <Eye size={13} strokeWidth={2} />
@@ -130,7 +139,10 @@
         onclick={onExport}
         aria-label={t("settings.theme.exportJson")}
         data-app-tooltip-disabled="true"
-        class="flex h-7 w-7 items-center justify-center rounded-md border border-border bg-card text-foreground transition-colors hover:bg-accent dark:bg-transparent"
+        class={cn(
+          "flex items-center justify-center border border-border bg-card text-foreground transition-colors hover:bg-accent dark:bg-transparent",
+          mobileLayout ? "size-12 rounded-xl" : "h-7 w-7 rounded-md",
+        )}
       >
         <Download size={13} strokeWidth={2} />
       </button>
@@ -141,7 +153,10 @@
       aria-label={t("settings.theme.deleteTheme")}
       data-app-tooltip-disabled="true"
       disabled={isBuiltin}
-      class="flex h-7 w-7 items-center justify-center rounded-md border border-border bg-card text-foreground transition-colors hover:bg-accent disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-card dark:bg-transparent dark:disabled:hover:bg-transparent"
+      class={cn(
+        "flex items-center justify-center border border-border bg-card text-foreground transition-colors hover:bg-accent disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-card dark:bg-transparent dark:disabled:hover:bg-transparent",
+        mobileLayout ? "size-12 rounded-xl" : "h-7 w-7 rounded-md",
+      )}
     >
       <Trash2 size={13} strokeWidth={2} />
     </button>

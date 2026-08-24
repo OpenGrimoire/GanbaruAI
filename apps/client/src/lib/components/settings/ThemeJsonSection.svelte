@@ -11,6 +11,7 @@
     jsonDirty,
     jsonErrors,
     jsonNotice,
+    fileSaveAvailable,
     onCopy,
     onSave,
     onApply,
@@ -22,6 +23,7 @@
     jsonDirty: boolean;
     jsonErrors: string[];
     jsonNotice: string | undefined;
+    fileSaveAvailable: boolean;
     onCopy: () => void;
     onSave: () => void;
     onApply: () => void;
@@ -69,14 +71,16 @@
           <Copy size={11} strokeWidth={2.25} />
           <span>{t("settings.theme.copyJson")}</span>
         </button>
-        <button
-          type="button"
-          onclick={onSave}
-          class="flex items-center gap-1.5 rounded-md border border-border bg-card px-2.5 py-1 text-[0.733333rem] text-foreground transition-colors hover:bg-accent"
-        >
-          <Download size={11} strokeWidth={2.25} />
-          <span>{t("settings.theme.saveToFile")}</span>
-        </button>
+        {#if fileSaveAvailable}
+          <button
+            type="button"
+            onclick={onSave}
+            class="flex items-center gap-1.5 rounded-md border border-border bg-card px-2.5 py-1 text-[0.733333rem] text-foreground transition-colors hover:bg-accent"
+          >
+            <Download size={11} strokeWidth={2.25} />
+            <span>{t("settings.theme.saveToFile")}</span>
+          </button>
+        {/if}
       </div>
       {#if !isBuiltin}
         <div class="theme-json-action-group flex flex-wrap items-center gap-1.5">

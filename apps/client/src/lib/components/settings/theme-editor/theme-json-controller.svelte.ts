@@ -1,7 +1,10 @@
-import { invoke } from "@tauri-apps/api/core";
 import { onDestroy, untrack } from "svelte";
 import { getLocalization } from "$lib/i18n/translator.svelte";
 import { getTheme } from "$lib/stores/theme.svelte";
+import {
+  THEME_JSON_FILE_SAVE_AVAILABLE,
+  saveThemeJsonFile,
+} from "$lib/components/settings/theme-json-file";
 
 type ThemeStore = ReturnType<typeof getTheme>;
 type Translator = ReturnType<typeof getLocalization>["t"];
@@ -15,6 +18,7 @@ export interface ThemeJsonControllerContext {
 
 /** Own the editable JSON draft and asynchronous import/export feedback. */
 export class ThemeJsonController {
+  readonly fileSaveAvailable = THEME_JSON_FILE_SAVE_AVAILABLE;
   draft = $state("");
   dirty = $state(false);
   errors = $state<string[]>([]);
@@ -49,11 +53,12 @@ export class ThemeJsonController {
   };
 
   save = async (): Promise<void> => {
+    if (!this.fileSaveAvailable) return;
     try {
-      const saved = await invoke<boolean>("vault_pick_and_write_theme_json", {
-        defaultName: `${this.context.themeId()}.json`,
-        contents: this.draft,
-      });
+      const saved = await saveThemeJsonFile(
+        `${this.context.themeId()}.json`,
+        this.draft,
+      );
       if (saved) this.#flash(this.context.translate("settings.theme.editor.jsonSaved"));
     } catch (error) {
       this.context.reportError("save dialog failed", error);
@@ -62,7 +67,7 @@ export class ThemeJsonController {
   };
 
   apply = async (): Promise<void> => {
-    const result = await this.context.store.replaceTheme(
+    const result = this.context.store.replaceThemeDraft(
       this.context.themeId(),
       this.draft,
     );
