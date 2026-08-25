@@ -72,7 +72,7 @@
   const mobileShell = BUILD_PLATFORM_PROFILE.shell === "mobile";
   const mobileBackStack = getMobileBackStack();
   const effectiveSwatchSize = $derived(
-    mobileShell ? Math.max(swatchSize, 44) : swatchSize,
+    mobileShell ? Math.max(swatchSize, 32) : swatchSize,
   );
 
   let open = $state(false);
@@ -447,21 +447,24 @@
     onclick={toggleOpen}
     class={cn(
       "relative shrink-0 overflow-hidden rounded-md border transition-shadow",
-      swatchHasTransparency
-        ? "border-transparent bg-clip-padding shadow-none"
-        : "border-border shadow-sm",
-      readOnly
-        ? "cursor-not-allowed"
+      mobileShell
+        ? "border-border shadow-none"
         : swatchHasTransparency
-          ? "hover:shadow-none"
-          : "hover:shadow-md",
+          ? "border-transparent bg-clip-padding shadow-none"
+          : "border-border shadow-sm",
+      readOnly ? "cursor-not-allowed" : !mobileShell && !swatchHasTransparency && "hover:shadow-md",
     )}
-    style="width: {effectiveSwatchSize}px; height: {effectiveSwatchSize}px;{swatchHasTransparency ? ` background: ${swatchCheckerBg};` : ''}"
+    style="width: {effectiveSwatchSize}px; height: {effectiveSwatchSize}px;{swatchHasTransparency && !mobileShell ? ` background: ${swatchCheckerBg};` : ''}"
   >
     <span
-      class="absolute inset-0 block"
-      style="background: {normalizeHex(value) ?? '#000000'};"
-    ></span>
+      class="absolute inset-0 block overflow-hidden"
+      style={swatchHasTransparency ? `background: ${swatchCheckerBg};` : ""}
+    >
+      <span
+        class="absolute inset-0 block"
+        style="background: {normalizeHex(value) ?? '#000000'};"
+      ></span>
+    </span>
   </button>
   <input
     type="text"
@@ -481,7 +484,7 @@
     }}
     class={cn(
       "h-7 rounded-md border border-border bg-card px-2 text-[0.8rem] leading-6.5 text-foreground focus:outline-none focus:ring-1 focus:ring-ring",
-      mobileShell && "h-11",
+      mobileShell && "h-9",
       fluid ? "min-w-0 flex-1" : "w-19",
       readOnly && "cursor-not-allowed opacity-60",
     )}
@@ -494,11 +497,13 @@
       aria-label="Reset color"
       data-app-tooltip-disabled="true"
       class={cn(
-        "flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-border bg-secondary text-secondary-foreground transition-colors",
-        mobileShell && "h-11 w-11 rounded-xl",
+        "flex shrink-0 items-center justify-center text-secondary-foreground transition-colors",
+        mobileShell
+          ? "size-8 rounded-md border border-border bg-secondary active:bg-accent"
+          : "h-7 w-7 rounded-md border border-border bg-secondary",
         canReset
           ? "hover:bg-accent hover:text-accent-foreground"
-          : "cursor-not-allowed opacity-40",
+          : "cursor-not-allowed opacity-40 hover:bg-transparent",
       )}
     >
       <RotateCcw size={12} strokeWidth={2.25} />
@@ -750,8 +755,4 @@
     -webkit-appearance: none;
   }
 
-  .mobile-color-picker button,
-  .mobile-color-picker input {
-    min-height: 44px;
-  }
 </style>

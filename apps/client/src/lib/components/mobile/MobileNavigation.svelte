@@ -4,6 +4,8 @@
   import ListTodo from "@lucide/svelte/icons/list-todo";
   import { getLocalization } from "$lib/i18n/translator.svelte";
   import type { View } from "$lib/navigation";
+  import { getZoom } from "$lib/stores/zoom.svelte";
+  import { mobileNavigationShowsLabels } from "$lib/mobile-layout";
   import { cn } from "$lib/utils";
 
   let {
@@ -17,6 +19,8 @@
   } = $props();
 
   const { t } = getLocalization();
+  const zoom = getZoom();
+  const showLabels = $derived(mobileNavigationShowsLabels(presentation, zoom.level));
   const destinations = [
     { view: "calendar", icon: CalendarDays },
     { view: "projects", icon: ListTodo },
@@ -43,14 +47,20 @@
       onclick={() => onNavigate(destination.view)}
       class={cn(
         "relative flex min-h-12 min-w-12 items-center justify-center rounded-xl text-xs font-medium transition-colors",
-        presentation === "rail" ? "mb-2 flex-col gap-1" : "flex-col gap-0.5",
+        presentation === "rail"
+          ? "mb-2 flex-col gap-1"
+          : showLabels
+            ? "flex-col gap-0.5"
+            : "",
         selected
           ? "bg-sidebar-accent text-sidebar-accent-foreground"
           : "text-sidebar-foreground/70 active:bg-sidebar-accent/70",
       )}
     >
       <Icon size={21} strokeWidth={selected ? 2 : 1.7} aria-hidden="true" />
-      <span>{t(`titleBar.tab.${destination.view}`)}</span>
+      {#if showLabels}
+        <span>{t(`titleBar.tab.${destination.view}`)}</span>
+      {/if}
     </button>
   {/each}
 </nav>

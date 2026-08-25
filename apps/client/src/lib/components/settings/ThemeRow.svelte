@@ -109,8 +109,10 @@
         aria-label={t("settings.theme.duplicateAndEditTheme")}
         data-app-tooltip-disabled="true"
         class={cn(
-          "flex items-center gap-1.5 rounded-md border border-border bg-card px-2.5 text-[0.8rem] text-foreground transition-colors hover:bg-accent dark:bg-transparent",
-          mobileLayout ? "min-h-12 rounded-xl" : "h-7",
+          "flex items-center gap-1.5 text-[0.8rem] text-foreground transition-colors",
+          mobileLayout
+            ? "h-8 rounded-lg border border-border bg-card px-2.5 active:bg-accent dark:bg-transparent"
+            : "h-7 rounded-md border border-border bg-card px-2.5 hover:bg-accent dark:bg-transparent",
         )}
       >
         <Copy size={13} strokeWidth={2} />
@@ -122,8 +124,10 @@
         aria-label={isBuiltin ? t("settings.theme.viewTheme") : t("settings.theme.editTheme")}
         data-app-tooltip-disabled="true"
         class={cn(
-          "flex items-center justify-center border border-border bg-card text-foreground transition-colors hover:bg-accent dark:bg-transparent",
-          mobileLayout ? "size-12 rounded-xl" : "h-7 w-7 rounded-md",
+          "flex items-center justify-center text-foreground transition-colors",
+          mobileLayout
+            ? "size-8 rounded-lg border border-border bg-card active:bg-accent dark:bg-transparent"
+            : "h-7 w-7 rounded-md border border-border bg-card hover:bg-accent dark:bg-transparent",
         )}
       >
         {#if isBuiltin}
@@ -140,8 +144,10 @@
         aria-label={t("settings.theme.exportJson")}
         data-app-tooltip-disabled="true"
         class={cn(
-          "flex items-center justify-center border border-border bg-card text-foreground transition-colors hover:bg-accent dark:bg-transparent",
-          mobileLayout ? "size-12 rounded-xl" : "h-7 w-7 rounded-md",
+          "flex items-center justify-center text-foreground transition-colors",
+          mobileLayout
+            ? "size-8 rounded-lg border border-border bg-card active:bg-accent dark:bg-transparent"
+            : "h-7 w-7 rounded-md border border-border bg-card hover:bg-accent dark:bg-transparent",
         )}
       >
         <Download size={13} strokeWidth={2} />
@@ -154,8 +160,10 @@
       data-app-tooltip-disabled="true"
       disabled={isBuiltin}
       class={cn(
-        "flex items-center justify-center border border-border bg-card text-foreground transition-colors hover:bg-accent disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-card dark:bg-transparent dark:disabled:hover:bg-transparent",
-        mobileLayout ? "size-12 rounded-xl" : "h-7 w-7 rounded-md",
+        "flex items-center justify-center text-foreground transition-colors disabled:cursor-not-allowed disabled:opacity-40",
+        mobileLayout
+          ? "size-8 rounded-lg border border-border bg-card active:bg-accent disabled:active:bg-transparent dark:bg-transparent"
+          : "h-7 w-7 rounded-md border border-border bg-card hover:bg-accent disabled:hover:bg-card dark:bg-transparent dark:disabled:hover:bg-transparent",
       )}
     >
       <Trash2 size={13} strokeWidth={2} />

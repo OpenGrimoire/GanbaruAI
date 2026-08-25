@@ -45,7 +45,8 @@ describe("ThemeRow mobile actions", () => {
     expect(duplicate).not.toBeNull();
     expect(open).not.toBeNull();
     expect(target.querySelector('[aria-label="Export theme JSON"]')).toBeNull();
-    expect(open?.classList.contains("size-12")).toBe(true);
+    expect(open?.classList.contains("size-8")).toBe(true);
+    expect(open?.querySelector(".theme-action-visual")).toBeNull();
 
     duplicate?.click();
     open?.click();

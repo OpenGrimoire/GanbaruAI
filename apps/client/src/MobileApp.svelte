@@ -23,6 +23,7 @@
   import { getPomodoro } from "$lib/stores/pomodoro.svelte";
   import { getMobileBackStack } from "$lib/stores/mobile-back-stack.svelte";
   import { getViewport } from "$lib/stores/viewport.svelte";
+  import { getZoom } from "$lib/stores/zoom.svelte";
   import { flushConfig } from "$lib/vault/config";
 
   type CalendarComponent = typeof import("$lib/components/calendar/CalendarView.svelte").default;
@@ -39,6 +40,7 @@
   const calendars = getCalendars();
   const pomodoro = getPomodoro();
   const mobileBackStack = getMobileBackStack();
+  getZoom().reapply();
   const { t } = getLocalization();
   const androidSystemBackAvailable = platformHasCapability(
     BUILD_PLATFORM_PROFILE,
@@ -364,7 +366,7 @@
 <div
   class="mobile-app-shell mobile-viewport-height flex w-screen flex-col overflow-hidden bg-background text-foreground"
   data-size-class={viewport.sizeClass}
-  style="padding: var(--safe-area-top) var(--safe-area-right) {useNavigationRail ? 'var(--safe-area-bottom)' : '0'} var(--safe-area-left);"
+  style="width: calc(100vw * var(--mobile-interface-scale-inverse, 1)); height: calc(100vh * var(--mobile-interface-scale-inverse, 1)); height: calc(100dvh * var(--mobile-interface-scale-inverse, 1)); padding: var(--safe-area-top) var(--safe-area-right) {useNavigationRail ? 'var(--safe-area-bottom)' : '0'} var(--safe-area-left);"
 >
   <div
     class="flex min-h-0 flex-1 flex-col"

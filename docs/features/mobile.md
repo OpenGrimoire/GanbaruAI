@@ -58,7 +58,7 @@ Settings use one shared category registry, one controller, and shared section co
 
 | Section | Android behavior |
 | --- | --- |
-| Appearance | Shared themes, font, text scale, language, time format, calendar zoom, and dimming controls. Theme duplicate, built-in inspection, custom editing, live preview, reset, Save, Cancel, and dirty-Back confirmation use a lazy full-screen mobile host over the shared editor model. Color picking also becomes a Back-aware full-screen touch surface. WebView zoom, keyboard hints, desktop quick-theme shortcuts, and native path-based theme file actions are omitted. Manual theme JSON import and editor JSON copy remain available. |
+| Appearance | Shared themes, interface scale, font, text scale, language, time format, calendar zoom, and dimming controls. Theme duplicate, built-in inspection, custom editing, live preview, reset, Save, Cancel, and dirty-Back confirmation use a lazy full-screen mobile host over the shared editor model. Color picking also becomes a Back-aware full-screen touch surface. Android interface scale uses persisted CSS content zoom because Tauri's native WebView zoom command is unsupported on mobile. Keyboard hints, desktop quick-theme shortcuts, and native path-based theme file actions are omitted. Manual theme JSON import and editor JSON copy remain available. |
 | Profile | Shared display and full names. Profile image selection uses the bounded document-input and managed-asset boundary, with browser preflight and Rust revalidation before an atomic write. |
 | Calendars | Shared calendar records, event counts, and deletion. ICS import and export present an Android document-picker status until the streaming content-URI adapter exists. |
 | Projects | The global category directs users to the project-local settings panel, where project workflow and field configuration belong on both platforms. |
@@ -386,7 +386,7 @@ Every release candidate also covers:
 - Process kill from the background, low-memory recreation, reboot, clock change, timezone change, daylight-saving transition, and stale scheduled boundaries.
 - Notification channels and actions, notification denial, exact-alarm unavailability, deep-link cold start, repeated intent delivery, malformed links, and unauthorized targets.
 - Media interruption, audio focus loss, headphones unplugged, Bluetooth route change, lock-screen controls, service restart, and killed Activity during playback.
-- TalkBack, switch or keyboard navigation, 48 dp targets, increased font and display scale, high contrast, reduced motion, and Spanish plus English layouts.
+- TalkBack, switch or keyboard navigation, sufficiently large touch hit areas with compact visual affordances where appropriate, increased font and interface scale, high contrast, reduced motion, and Spanish plus English layouts.
 - Play pre-launch reports, permission and Data safety declarations, release signing, AAB installation through bundle tooling, ABI splits, minification, and 16 KB native alignment.
 
 Automated tests should keep shared domain logic outside Tauri where possible, add focused tests for capability selection and adaptive state, and add Android instrumentation only for lifecycle, Activity, permission, content URI, alarm, notification, deep-link, and service behavior that cannot be proven in Rust or TypeScript.

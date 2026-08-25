@@ -144,7 +144,7 @@
           type="button"
           onclick={requestCancel}
           disabled={pending}
-          class="min-h-12 rounded-xl border border-border bg-card px-4 text-sm font-medium active:bg-accent disabled:opacity-40"
+          class="flex h-9 items-center rounded-lg border border-border bg-card px-3 text-sm font-medium active:bg-accent disabled:opacity-40"
         >
           {t("common.cancel")}
         </button>
@@ -154,9 +154,9 @@
             onclick={resetAllToSeed}
             disabled={!canResetToSeed || pending}
             aria-label={t("settings.theme.editor.resetAllToSeed")}
-            class="flex size-12 items-center justify-center rounded-xl border border-border bg-card active:bg-accent disabled:opacity-40"
+            class="flex size-9 items-center justify-center rounded-lg border border-border bg-card active:bg-accent disabled:opacity-40"
           >
-            <RotateCcw size={18} aria-hidden="true" />
+            <RotateCcw size={16} aria-hidden="true" />
           </button>
         {/if}
       </div>
@@ -164,9 +164,9 @@
         type="button"
         onclick={() => void commit()}
         disabled={pending}
-        class="flex min-h-12 items-center gap-2 rounded-xl bg-primary px-4 text-sm font-semibold text-primary-foreground active:bg-primary/90 disabled:opacity-40"
+        class="flex h-9 items-center gap-2 rounded-lg bg-primary px-3 text-sm font-semibold text-primary-foreground active:opacity-90 disabled:opacity-40"
       >
-        <Check size={18} aria-hidden="true" />
+        <Check size={16} aria-hidden="true" />
         <span>
           {isBuiltin
             ? t("settings.theme.editor.applyAndReturn")
@@ -194,16 +194,6 @@
 {/if}
 
 <style>
-  .mobile-theme-editor :global(.theme-editor-root button),
-  .mobile-theme-editor :global(.theme-editor-root input),
-  .mobile-theme-editor :global(.theme-editor-root textarea) {
-    min-height: 44px;
-  }
-
-  .mobile-theme-editor :global(.theme-editor-root button) {
-    min-width: 44px;
-  }
-
   .mobile-theme-editor :global(.theme-editor-identity),
   .mobile-theme-editor :global(.theme-editor-nav-shell) {
     height: 44px;
