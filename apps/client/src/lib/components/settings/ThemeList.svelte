@@ -4,7 +4,6 @@
   import X from "@lucide/svelte/icons/x";
   import Sun from "@lucide/svelte/icons/sun";
   import Moon from "@lucide/svelte/icons/moon";
-  import { invoke } from "@tauri-apps/api/core";
   import { themeDisplayName } from "$lib/i18n/theme-labels";
   import { getLocalization } from "$lib/i18n/translator.svelte";
   import { getTheme } from "$lib/stores/theme.svelte";
@@ -15,6 +14,10 @@
   import ShortcutDescription from "./ShortcutDescription.svelte";
   import ConfirmDialog from "$lib/components/ui/ConfirmDialog.svelte";
   import { BUILD_PLATFORM_PROFILE } from "$lib/platform";
+  import {
+    pickThemeJsonFile,
+    saveThemeJsonFile,
+  } from "$lib/components/settings/theme-json-file";
 
   const themeStore = getTheme();
   const themeEditor = getThemeEditor();
@@ -103,7 +106,7 @@
 
   async function handleImportFromFile() {
     try {
-      const text = await invoke<string | null>("vault_pick_and_read_theme_json");
+      const text = await pickThemeJsonFile();
       if (text === null) return;
       const result = await themeStore.importTheme(text);
       if (!result.ok) {
@@ -146,11 +149,13 @@
       return;
     }
     try {
-      const saved = await invoke<boolean>("vault_pick_and_write_theme_json", {
-        defaultName: `${id}.json`,
-        contents,
-      });
-      if (saved) flashToast(t("settings.theme.exported"));
+      const outcome = await saveThemeJsonFile(`${id}.json`, contents);
+      if (!outcome.saved) return;
+      flashToast(
+        outcome.destination === "downloads" && outcome.fileName
+          ? t("settings.theme.exportedToDownloads", outcome.fileName)
+          : t("settings.theme.exported"),
+      );
     } catch (err) {
       console.error("theme export failed", err);
       flashToast(t("settings.theme.exportFailed"));
@@ -243,7 +248,6 @@
           onDuplicate={() => handleDuplicate(theme.id)}
           onExport={() => handleExport(theme.id)}
           onDelete={() => handleDelete(theme.id)}
-          showFileActions={desktopShell}
           mobileLayout={!desktopShell}
         />
       {/each}
@@ -293,16 +297,16 @@
                 >
                   {t("settings.theme.pasteClipboard")}
                 </button>
-                {#if desktopShell}
-                  <button
-                    type="button"
-                    onclick={handleImportFromFile}
-                    class="flex items-center gap-1.5 rounded-md border border-border bg-card px-2.5 py-1 text-[0.733333rem] text-foreground transition-colors hover:bg-accent dark:bg-transparent"
-                  >
-                    <FolderOpen size={11} strokeWidth={2.25} />
-                    <span>{t("settings.theme.openFile")}</span>
-                  </button>
-                {/if}
+                <button
+                  type="button"
+                  onclick={handleImportFromFile}
+                  class={desktopShell
+                    ? "flex items-center gap-1.5 rounded-md border border-border bg-card px-2.5 py-1 text-[0.733333rem] text-foreground transition-colors hover:bg-accent dark:bg-transparent"
+                    : "flex min-h-12 items-center gap-1.5 rounded-xl border border-border bg-card px-3 text-sm text-foreground active:bg-accent dark:bg-transparent"}
+                >
+                  <FolderOpen size={11} strokeWidth={2.25} />
+                  <span>{t("settings.theme.openFile")}</span>
+                </button>
               </div>
               <button
                 type="button"

@@ -1,0 +1,93 @@
+use serde::{Deserialize, Serialize};
+use tauri::{
+    plugin::{PluginApi, PluginHandle},
+    AppHandle, Manager, Runtime,
+};
+
+const PLUGIN_IDENTIFIER: &str = "app.ganbaru.mobile_documents";
+
+#[derive(Debug)]
+pub struct MobileDocuments<R: Runtime>(PluginHandle<R>);
+
+impl<R: Runtime> Clone for MobileDocuments<R> {
+    fn clone(&self) -> Self {
+        Self(self.0.clone())
+    }
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct PickUtf8DocumentRequest {
+    max_bytes: u64,
+}
+
+#[derive(Deserialize)]
+struct PickUtf8DocumentResponse {
+    contents: Option<String>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct SaveUtf8DownloadRequest<'a> {
+    file_name: &'a str,
+    contents: &'a str,
+    max_bytes: u64,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct SaveUtf8DownloadResponse {
+    display_name: String,
+}
+
+pub(crate) fn init<R: Runtime, C: serde::de::DeserializeOwned>(
+    _app: &AppHandle<R>,
+    api: PluginApi<R, C>,
+) -> tauri::Result<MobileDocuments<R>> {
+    let handle = api.register_android_plugin(PLUGIN_IDENTIFIER, "MobileDocumentsPlugin")?;
+    Ok(MobileDocuments(handle))
+}
+
+impl<R: Runtime> MobileDocuments<R> {
+    /// Ask Android to select and read one UTF-8 document within `max_bytes`.
+    pub fn pick_utf8_document(&self, max_bytes: u64) -> Result<Option<String>, String> {
+        self.0
+            .run_mobile_plugin::<PickUtf8DocumentResponse>(
+                "pickUtf8Document",
+                PickUtf8DocumentRequest { max_bytes },
+            )
+            .map(|response| response.contents)
+            .map_err(|error| format!("pick theme document: {error}"))
+    }
+
+    /// Save bounded UTF-8 text into Android's public Downloads collection.
+    pub fn save_utf8_download(
+        &self,
+        file_name: &str,
+        contents: &str,
+        max_bytes: u64,
+    ) -> Result<String, String> {
+        self.0
+            .run_mobile_plugin::<SaveUtf8DownloadResponse>(
+                "saveUtf8Download",
+                SaveUtf8DownloadRequest {
+                    file_name,
+                    contents,
+                    max_bytes,
+                },
+            )
+            .map(|response| response.display_name)
+            .map_err(|error| format!("save theme download: {error}"))
+    }
+}
+
+/// Access Ganbaru AI's Android document adapter from managed Tauri state.
+pub trait MobileDocumentsExt<R: Runtime> {
+    fn mobile_documents(&self) -> &MobileDocuments<R>;
+}
+
+impl<R: Runtime, T: Manager<R>> MobileDocumentsExt<R> for T {
+    fn mobile_documents(&self) -> &MobileDocuments<R> {
+        self.state::<MobileDocuments<R>>().inner()
+    }
+}

@@ -7,8 +7,14 @@ use crate::{
 
 /// Run the mobile application without desktop-only processes or lifecycle hooks.
 pub fn run(context: tauri::Context<tauri::Wry>) {
-    let app = tauri::Builder::default()
-        .plugin(tauri_plugin_opener::init())
+    let builder = tauri::Builder::default().plugin(tauri_plugin_opener::init());
+    #[cfg(target_os = "android")]
+    let builder = builder.plugin(ganbaru_mobile_documents::init());
+    #[cfg(target_os = "ios")]
+    let builder = builder
+        .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_fs::init());
+    let app = builder
         .manage(db_path::DatabaseState::default())
         .invoke_handler(tauri::generate_handler![
             vault::vault_read_app_state,
@@ -18,6 +24,8 @@ pub fn run(context: tauri::Context<tauri::Wry>) {
             vault::vault_active_info,
             vault::vault_read_config,
             vault::vault_patch_config,
+            vault::vault_pick_and_read_theme_json,
+            vault::vault_pick_and_write_theme_json,
             calendar_reads::calendar_load_window,
             calendar_reads::calendar_load_pomodoro_scheduler_window,
             calendar_reads::calendar_load_panel_event,

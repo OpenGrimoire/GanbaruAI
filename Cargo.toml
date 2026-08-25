@@ -7,6 +7,7 @@ members = [
   "crates/ganbaru-chat-contracts",
   "crates/ganbaru-chat-providers",
   "crates/ganbaru-db",
+  "crates/ganbaru-mobile-documents",
   "crates/ganbaru-native-messaging",
   "crates/ganbaru-notes",
   "crates/ganbaru-working-folders",
@@ -21,6 +22,7 @@ block2 = "0.6.2"
 cairo-rs = { version = "0.18.5", features = ["png"] }
 chrono = { version = "0.4", default-features = false, features = ["std", "serde"] }
 flate2 = "1.1.9"
+ganbaru-mobile-documents = { path = "crates/ganbaru-mobile-documents" }
 gtk = "0.18"
 keyring = "4.1.5"
 libc = "0.2"
@@ -79,6 +81,7 @@ sqlx = { version = "0.8", default-features = false, features = ["sqlite", "runti
 tauri = { version = "~2.11.1" }
 tauri-build = { version = "~2.6.1", features = [] }
 tauri-plugin-dialog = "2"
+tauri-plugin-fs = "2"
 tauri-plugin-opener = "2.5.4"
 tauri-plugin-single-instance = "2.4.2"
 tauri-plugin-updater = "2.10.1"

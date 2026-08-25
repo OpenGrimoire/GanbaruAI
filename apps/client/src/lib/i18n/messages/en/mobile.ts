@@ -5,7 +5,7 @@ export const mobile = {
   startupFailed: "Ganbaru AI could not open its private mobile data",
   privateDataHeading: "Private mobile storage",
   privateDataDescription:
-    "Ganbaru AI keeps the live mobile database in the app's private storage. File import, export, and backup will use Android's document picker when that bridge is available.",
+    "Ganbaru AI keeps the live mobile database in the app's private storage. Theme imports use Android's document picker and exports go to Downloads. Backup and remaining file transfers will use similarly scoped system boundaries.",
   pomodoroForegroundOnly:
     "Background timer alerts are not available in this Android foundation yet. Keep Ganbaru AI open while using Pomodoro.",
   pomodoroInactiveDescription:
@@ -29,7 +29,7 @@ export const mobile = {
     doomscrollingDescription:
       "Website and desktop-process controls do not apply to Android. Mobile usage awareness and app enforcement need their own explicit system access flow.",
     dataDetail:
-      "Uninstalling the app can remove this private data. Backup, restore, import, and export will use Android's document picker.",
+      "Uninstalling the app can remove this private data. Theme imports use Android's document picker and exports go to Downloads. Backup, restore, and remaining transfers will use similarly scoped system boundaries.",
     updatesHeading: "Updates follow the Android distribution channel",
     updatesDescription:
       "Production builds will update through the installed store or the documented signed-APK channel. The desktop updater does not run on Android.",

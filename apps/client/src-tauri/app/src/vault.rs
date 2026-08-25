@@ -9,15 +9,19 @@
 //! on next read.
 
 use chrono::{DateTime, SecondsFormat, Utc};
+#[cfg(target_os = "android")]
+use ganbaru_mobile_documents::MobileDocumentsExt;
 use std::collections::BTreeMap;
 use std::fs;
-#[cfg(not(any(target_os = "android", target_os = "ios")))]
+#[cfg(not(target_os = "android"))]
 use std::io::Read;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use tauri::{Manager, Runtime};
-#[cfg(not(any(target_os = "android", target_os = "ios")))]
+#[cfg(not(target_os = "android"))]
 use tauri_plugin_dialog::{DialogExt, FilePath};
+#[cfg(target_os = "ios")]
+use tauri_plugin_fs::{FsExt, OpenOptions};
 
 static APP_STATE_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 static CONFIG_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
@@ -641,7 +645,6 @@ fn dialog_path(path: FilePath) -> Result<PathBuf, String> {
         .map_err(|e| format!("selected path is not a local file: {e}"))
 }
 
-#[cfg(not(any(target_os = "android", target_os = "ios")))]
 fn default_file_name(input: &str, fallback_stem: &str, extension: &str) -> String {
     let trimmed = input.trim();
     let from_input = Path::new(trimmed)
@@ -660,6 +663,29 @@ fn default_file_name(input: &str, fallback_stem: &str, extension: &str) -> Strin
     }
 }
 
+#[cfg(not(target_os = "android"))]
+fn read_utf8_capped(reader: &mut impl Read, max_bytes: u64, label: &str) -> Result<String, String> {
+    let mut contents = String::new();
+    let mut limited = reader.take(max_bytes + 1);
+    limited
+        .read_to_string(&mut contents)
+        .map_err(|e| format!("failed to read {label} as UTF-8: {e}"))?;
+    if contents.len() as u64 > max_bytes {
+        return Err(format!("{label} exceeds the limit of {max_bytes} bytes"));
+    }
+    Ok(contents)
+}
+
+fn require_text_within_limit(contents: &str, max_bytes: u64, label: &str) -> Result<(), String> {
+    let byte_count = contents.len() as u64;
+    if byte_count > max_bytes {
+        return Err(format!(
+            "{label} is {byte_count} bytes, exceeding the limit of {max_bytes} bytes"
+        ));
+    }
+    Ok(())
+}
+
 #[cfg(not(any(target_os = "android", target_os = "ios")))]
 fn read_text_file_capped(path: &Path, max_bytes: u64, label: &str) -> Result<String, String> {
     require_absolute_path(path)?;
@@ -672,15 +698,7 @@ fn read_text_file_capped(path: &Path, max_bytes: u64, label: &str) -> Result<Str
     }
 
     let mut file = fs::File::open(path).map_err(|e| format!("failed to open {label}: {e}"))?;
-    let mut contents = String::new();
-    let mut limited = std::io::Read::by_ref(&mut file).take(max_bytes + 1);
-    limited
-        .read_to_string(&mut contents)
-        .map_err(|e| format!("failed to read {label} as UTF-8: {e}"))?;
-    if contents.len() as u64 > max_bytes {
-        return Err(format!("{label} exceeds the limit of {max_bytes} bytes"));
-    }
-    Ok(contents)
+    read_utf8_capped(&mut file, max_bytes, label)
 }
 
 /// Write a UTF-8 text file atomically via `.tmp` plus rename so an
@@ -820,8 +838,47 @@ const ICS_PLAIN_MAX_BYTES: u64 = ICS_ZIP_MAX_ENTRY_BYTES;
 
 /// Theme JSON is small configuration data. One MiB leaves room for custom
 /// comments and future tokens while rejecting accidental large-file picks.
-#[cfg(not(any(target_os = "android", target_os = "ios")))]
 const THEME_JSON_MAX_BYTES: u64 = 1024 * 1024;
+
+#[cfg(target_os = "ios")]
+const THEME_JSON_DOCUMENT_FILTERS: &[&str] = &["json"];
+
+#[derive(Debug, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ThemeJsonWriteOutcome {
+    saved: bool,
+    destination: Option<&'static str>,
+    file_name: Option<String>,
+}
+
+impl ThemeJsonWriteOutcome {
+    #[cfg(not(target_os = "android"))]
+    fn cancelled() -> Self {
+        Self {
+            saved: false,
+            destination: None,
+            file_name: None,
+        }
+    }
+
+    #[cfg(not(target_os = "android"))]
+    fn saved_to_selected_file() -> Self {
+        Self {
+            saved: true,
+            destination: None,
+            file_name: None,
+        }
+    }
+
+    #[cfg(target_os = "android")]
+    fn saved_to_downloads(file_name: String) -> Self {
+        Self {
+            saved: true,
+            destination: Some("downloads"),
+            file_name: Some(file_name),
+        }
+    }
+}
 
 #[cfg(not(any(target_os = "android", target_os = "ios")))]
 #[derive(Debug, serde::Serialize)]
@@ -1037,7 +1094,8 @@ pub async fn vault_pick_and_write_theme_json(
     app: tauri::AppHandle,
     default_name: String,
     contents: String,
-) -> Result<bool, String> {
+) -> Result<ThemeJsonWriteOutcome, String> {
+    require_text_within_limit(&contents, THEME_JSON_MAX_BYTES, "theme export")?;
     let default_name = default_file_name(&default_name, "theme", "json");
     let Some(path) = pick_save_path(
         &app,
@@ -1048,11 +1106,134 @@ pub async fn vault_pick_and_write_theme_json(
         existing_downloads_directory(&app),
     )?
     else {
-        return Ok(false);
+        return Ok(ThemeJsonWriteOutcome::cancelled());
     };
     require_extension(&path, &["json"], "theme export")?;
     write_text_file_atomically(&path, &contents)?;
-    Ok(true)
+    Ok(ThemeJsonWriteOutcome::saved_to_selected_file())
+}
+
+#[cfg(target_os = "ios")]
+fn finish_mobile_document_access<R: Runtime, T>(
+    app: &tauri::AppHandle<R>,
+    path: FilePath,
+    result: Result<T, String>,
+) -> Result<T, String> {
+    let cleanup = app
+        .fs()
+        .stop_accessing_security_scoped_resource(path)
+        .map_err(|e| format!("release selected theme document: {e}"));
+    match result {
+        Err(error) => Err(error),
+        Ok(value) => cleanup.map(|()| value),
+    }
+}
+
+#[cfg(target_os = "ios")]
+fn read_mobile_theme_document<R: Runtime>(
+    app: &tauri::AppHandle<R>,
+    path: FilePath,
+) -> Result<String, String> {
+    let mut options = OpenOptions::new();
+    options.read(true);
+    let result = (|| {
+        let mut file = app
+            .fs()
+            .open(path.clone(), options)
+            .map_err(|e| format!("failed to open theme import: {e}"))?;
+        read_utf8_capped(&mut file, THEME_JSON_MAX_BYTES, "theme import")
+    })();
+    finish_mobile_document_access(app, path, result)
+}
+
+#[cfg(target_os = "ios")]
+fn write_mobile_theme_document<R: Runtime>(
+    app: &tauri::AppHandle<R>,
+    path: FilePath,
+    contents: &str,
+) -> Result<(), String> {
+    require_text_within_limit(contents, THEME_JSON_MAX_BYTES, "theme export")?;
+    let mut options = OpenOptions::new();
+    options.write(true).truncate(true);
+    let result = (|| {
+        let mut file = app
+            .fs()
+            .open(path.clone(), options)
+            .map_err(|e| format!("failed to open theme export: {e}"))?;
+        file.write_all(contents.as_bytes())
+            .map_err(|e| format!("failed to write theme export: {e}"))?;
+        file.flush()
+            .map_err(|e| format!("failed to flush theme export: {e}"))?;
+        Ok(())
+    })();
+    finish_mobile_document_access(app, path, result)
+}
+
+/// Open iOS document storage and read one bounded theme JSON file.
+#[cfg(target_os = "ios")]
+#[tauri::command]
+pub async fn vault_pick_and_read_theme_json(
+    app: tauri::AppHandle,
+) -> Result<Option<String>, String> {
+    let selected = app
+        .dialog()
+        .file()
+        .add_filter("Theme JSON", THEME_JSON_DOCUMENT_FILTERS)
+        .blocking_pick_file();
+    selected
+        .map(|path| read_mobile_theme_document(&app, path))
+        .transpose()
+}
+
+/// Create a theme JSON document through iOS document storage.
+#[cfg(target_os = "ios")]
+#[tauri::command]
+pub async fn vault_pick_and_write_theme_json(
+    app: tauri::AppHandle,
+    default_name: String,
+    contents: String,
+) -> Result<ThemeJsonWriteOutcome, String> {
+    require_text_within_limit(&contents, THEME_JSON_MAX_BYTES, "theme export")?;
+    let default_name = default_file_name(&default_name, "theme", "json");
+    let selected = app
+        .dialog()
+        .file()
+        .set_file_name(default_name)
+        .add_filter("Theme JSON", THEME_JSON_DOCUMENT_FILTERS)
+        .blocking_save_file();
+    let Some(path) = selected else {
+        return Ok(ThemeJsonWriteOutcome::cancelled());
+    };
+    write_mobile_theme_document(&app, path, &contents)?;
+    Ok(ThemeJsonWriteOutcome::saved_to_selected_file())
+}
+
+/// Ask Android to select and read one bounded UTF-8 theme document.
+#[cfg(target_os = "android")]
+#[tauri::command]
+pub async fn vault_pick_and_read_theme_json(
+    app: tauri::AppHandle,
+) -> Result<Option<String>, String> {
+    app.mobile_documents()
+        .pick_utf8_document(THEME_JSON_MAX_BYTES)
+}
+
+/// Save a theme JSON export to Android's public Downloads collection.
+#[cfg(target_os = "android")]
+#[tauri::command]
+pub async fn vault_pick_and_write_theme_json(
+    app: tauri::AppHandle,
+    default_name: String,
+    contents: String,
+) -> Result<ThemeJsonWriteOutcome, String> {
+    require_text_within_limit(&contents, THEME_JSON_MAX_BYTES, "theme export")?;
+    let default_name = default_file_name(&default_name, "theme", "json");
+    let file_name = app.mobile_documents().save_utf8_download(
+        &default_name,
+        &contents,
+        THEME_JSON_MAX_BYTES,
+    )?;
+    Ok(ThemeJsonWriteOutcome::saved_to_downloads(file_name))
 }
 
 #[cfg(test)]
@@ -1099,6 +1280,33 @@ mod tests {
         let result = read_text_file_capped(&path, 1024, "test");
         let _ = fs::remove_file(&path);
         assert_eq!(result.unwrap(), "hello vault");
+    }
+
+    #[test]
+    fn read_utf8_capped_enforces_the_limit_while_streaming() {
+        let mut reader = std::io::Cursor::new(b"12345");
+        let error = read_utf8_capped(&mut reader, 4, "theme import").unwrap_err();
+        assert_eq!(error, "theme import exceeds the limit of 4 bytes");
+    }
+
+    #[test]
+    fn theme_export_rejects_oversized_text_before_opening_a_document() {
+        let contents = "x".repeat((THEME_JSON_MAX_BYTES + 1) as usize);
+        let error =
+            require_text_within_limit(&contents, THEME_JSON_MAX_BYTES, "theme export").unwrap_err();
+        assert!(error.contains("exceeding the limit"));
+    }
+
+    #[test]
+    fn default_file_name_drops_path_components_and_preserves_json_extension() {
+        assert_eq!(
+            default_file_name("../../midnight", "theme", "json"),
+            "midnight.json"
+        );
+        assert_eq!(
+            default_file_name("midnight.JSON", "theme", "json"),
+            "midnight.JSON"
+        );
     }
 
     #[test]

@@ -1635,11 +1635,13 @@ dependencies = [
 name = "ganbaru-ai"
 version = "0.1.5"
 dependencies = [
+ "ganbaru-mobile-documents",
  "ganbaru-tauri-app",
  "serde_json",
  "tauri",
  "tauri-build",
  "tauri-plugin-dialog",
+ "tauri-plugin-fs",
  "tauri-plugin-opener",
  "tauri-plugin-single-instance",
  "tauri-plugin-updater",
@@ -1700,6 +1702,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "ganbaru-mobile-documents"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "tauri",
+ "tauri-plugin",
+]
+
+[[package]]
 name = "ganbaru-native-messaging"
 version = "0.1.5"
 dependencies = [
@@ -1744,6 +1755,7 @@ dependencies = [
  "ganbaru-chat-contracts",
  "ganbaru-chat-providers",
  "ganbaru-db",
+ "ganbaru-mobile-documents",
  "ganbaru-notes",
  "ganbaru-working-folders",
  "gtk",
@@ -1767,6 +1779,7 @@ dependencies = [
  "sqlx",
  "tauri",
  "tauri-plugin-dialog",
+ "tauri-plugin-fs",
  "tauri-plugin-opener",
  "tauri-plugin-single-instance",
  "tauri-plugin-updater",

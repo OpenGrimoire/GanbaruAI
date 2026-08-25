@@ -140,6 +140,7 @@ apps/
       build.rs, tauri.conf.json, tauri.dev.conf.json, tauri.android.conf.json, Cargo.toml
     index.html, package.json, svelte.config.js, vite.config.ts, tsconfig.json
 crates/
+  ganbaru-mobile-documents/: Android MediaStore export and bounded document-picker transfer plugin
   ganbaru-working-folders/: Tauri-free working-folder IDs, repository kinds, timestamps, bindings, and device-state operations
   ganbaru-db/: Tauri-free SQLite pool registry, connection configuration, migrations, row macro, and schema tests
   ganbaru-chat-contracts/: stable provider-neutral Chat IDs, commands, events, DTOs, errors, and Serde contracts

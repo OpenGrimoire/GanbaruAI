@@ -81,6 +81,8 @@ mod composition_tests {
             "profile_images::profile_image_asset_data_url",
             "profile_images::profile_image_save_data_url",
             "project_icons::project_icon_asset_data_url",
+            "vault::vault_pick_and_read_theme_json",
+            "vault::vault_pick_and_write_theme_json",
         ] {
             assert!(
                 MOBILE_RUNTIME.contains(command),
@@ -90,7 +92,7 @@ mod composition_tests {
     }
 
     #[test]
-    fn mobile_runtime_excludes_desktop_and_path_picker_commands() {
+    fn mobile_runtime_excludes_desktop_only_commands() {
         for command in [
             "chat::",
             "doomscrolling::",
@@ -101,7 +103,10 @@ mod composition_tests {
             "tray::",
             "updates::",
             "benchmark_seed::",
-            "vault::vault_pick_",
+            "vault::vault_pick_create",
+            "vault::vault_pick_open",
+            "vault::vault_pick_and_read_ics_import",
+            "vault::vault_pick_and_write_ics_export",
             "notes::notes_pick_",
             "notes::working_markdown::",
             "notes::notes_import_notion_export_folder",
@@ -110,7 +115,6 @@ mod composition_tests {
             "project_icons::project_icon_pick_image_file",
             "project_icons::project_icon_download_image_url",
             "project_icons::project_icon_asset_path",
-            "tauri_plugin_dialog",
             "pomodoro::pomodoro_recover_open_runs",
         ] {
             assert!(

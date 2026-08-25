@@ -16,9 +16,10 @@ describe("ThemeRow mobile actions", () => {
     target = undefined;
   });
 
-  it("keeps editor actions while omitting the unavailable file export", async () => {
+  it("keeps editor and file actions available in the compact mobile row", async () => {
     const onOpen = vi.fn();
     const onDuplicate = vi.fn();
+    const onExport = vi.fn();
     target = document.createElement("div");
     document.body.append(target);
     component = mount(ThemeRow, {
@@ -30,9 +31,8 @@ describe("ThemeRow mobile actions", () => {
         onApply: vi.fn(),
         onOpen,
         onDuplicate,
-        onExport: vi.fn(),
+        onExport,
         onDelete: vi.fn(),
-        showFileActions: false,
         mobileLayout: true,
       },
     });
@@ -42,15 +42,20 @@ describe("ThemeRow mobile actions", () => {
       '[aria-label="Duplicate and edit theme"]',
     );
     const open = target.querySelector<HTMLButtonElement>('[aria-label="View theme"]');
+    const exportButton = target.querySelector<HTMLButtonElement>(
+      '[aria-label="Export theme JSON"]',
+    );
     expect(duplicate).not.toBeNull();
     expect(open).not.toBeNull();
-    expect(target.querySelector('[aria-label="Export theme JSON"]')).toBeNull();
+    expect(exportButton).not.toBeNull();
     expect(open?.classList.contains("size-8")).toBe(true);
     expect(open?.querySelector(".theme-action-visual")).toBeNull();
 
     duplicate?.click();
     open?.click();
+    exportButton?.click();
     expect(onDuplicate).toHaveBeenCalledOnce();
     expect(onOpen).toHaveBeenCalledOnce();
+    expect(onExport).toHaveBeenCalledOnce();
   });
 });

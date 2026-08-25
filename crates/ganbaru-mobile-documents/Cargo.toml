@@ -1,0 +1,19 @@
+[package]
+name = "ganbaru-mobile-documents"
+version = "0.1.0"
+description = "Bounded native document transfer for Ganbaru AI mobile platforms"
+authors = ["Ganbaru AI"]
+license = "AGPL-3.0-only"
+edition = "2021"
+build = "build.rs"
+links = "ganbaru-mobile-documents"
+
+[lib]
+doctest = false
+
+[dependencies]
+serde = { workspace = true }
+tauri = { workspace = true }
+
+[build-dependencies]
+tauri-plugin = { version = "2.5", features = ["build"] }

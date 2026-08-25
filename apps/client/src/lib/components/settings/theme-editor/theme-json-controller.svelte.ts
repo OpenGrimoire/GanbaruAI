@@ -55,11 +55,19 @@ export class ThemeJsonController {
   save = async (): Promise<void> => {
     if (!this.fileSaveAvailable) return;
     try {
-      const saved = await saveThemeJsonFile(
+      const outcome = await saveThemeJsonFile(
         `${this.context.themeId()}.json`,
         this.draft,
       );
-      if (saved) this.#flash(this.context.translate("settings.theme.editor.jsonSaved"));
+      if (!outcome.saved) return;
+      this.#flash(
+        outcome.destination === "downloads" && outcome.fileName
+          ? this.context.translate(
+              "settings.theme.editor.jsonSavedToDownloads",
+              outcome.fileName,
+            )
+          : this.context.translate("settings.theme.editor.jsonSaved"),
+      );
     } catch (error) {
       this.context.reportError("save dialog failed", error);
       this.#flash(this.context.translate("settings.theme.editor.jsonSaveFailed"));

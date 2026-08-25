@@ -8,7 +8,7 @@ export const mobile = {
   startupFailed: "Ganbaru AI no pudo abrir sus datos móviles privados",
   privateDataHeading: "Almacenamiento móvil privado",
   privateDataDescription:
-    "Ganbaru AI guarda la base de datos móvil activa en el almacenamiento privado de la app. La importación, exportación y copia de seguridad usarán el selector de documentos de Android cuando ese puente esté disponible.",
+    "Ganbaru AI guarda la base de datos móvil activa en el almacenamiento privado de la app. Las importaciones de temas usan el selector de documentos de Android y las exportaciones van a Descargas. Las copias de seguridad y transferencias restantes usarán límites del sistema con un alcance similar.",
   pomodoroForegroundOnly:
     "Las alertas del temporizador en segundo plano aún no están disponibles en esta base para Android. Mantén Ganbaru AI abierto mientras usas Pomodoro.",
   pomodoroInactiveDescription:
@@ -32,7 +32,7 @@ export const mobile = {
     doomscrollingDescription:
       "Los controles de sitios web y procesos de escritorio no aplican en Android. La medición de uso y el bloqueo de apps necesitan su propio flujo explícito de acceso al sistema.",
     dataDetail:
-      "Desinstalar la app puede eliminar estos datos privados. La copia de seguridad, restauración, importación y exportación usarán el selector de documentos de Android.",
+      "Desinstalar la app puede eliminar estos datos privados. Las importaciones de temas usan el selector de documentos de Android y las exportaciones van a Descargas. Las copias de seguridad, restauraciones y transferencias restantes usarán límites del sistema con un alcance similar.",
     updatesHeading: "Las actualizaciones siguen el canal de distribución de Android",
     updatesDescription:
       "Las compilaciones de producción se actualizarán mediante la tienda instalada o el canal documentado de APK firmado. El actualizador de escritorio no se ejecuta en Android.",
