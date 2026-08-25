@@ -5,6 +5,7 @@
   import Eye from "@lucide/svelte/icons/eye";
   import Trash2 from "@lucide/svelte/icons/trash-2";
   import Download from "@lucide/svelte/icons/download";
+  import LoaderCircle from "@lucide/svelte/icons/loader-circle";
   import Sun from "@lucide/svelte/icons/sun";
   import Moon from "@lucide/svelte/icons/moon";
   import { themeDisplayName } from "$lib/i18n/theme-labels";
@@ -24,6 +25,8 @@
     onDelete,
     showEditorActions = true,
     showFileActions = true,
+    exporting = false,
+    exportDisabled = false,
     mobileLayout = false,
   }: {
     theme: Theme;
@@ -36,6 +39,8 @@
     onDelete: () => void;
     showEditorActions?: boolean;
     showFileActions?: boolean;
+    exporting?: boolean;
+    exportDisabled?: boolean;
     mobileLayout?: boolean;
   } = $props();
 
@@ -141,16 +146,28 @@
       <button
         type="button"
         onclick={onExport}
-        aria-label={t("settings.theme.exportJson")}
+        disabled={exporting || exportDisabled}
+        aria-busy={exporting}
+        aria-label={exporting
+          ? t("settings.theme.exportingJson")
+          : t("settings.theme.exportJson")}
         data-app-tooltip-disabled="true"
         class={cn(
-          "flex items-center justify-center text-foreground transition-colors",
+          "flex items-center justify-center text-foreground transition-colors disabled:cursor-wait disabled:opacity-55",
           mobileLayout
             ? "size-8 rounded-lg border border-border bg-card active:bg-accent dark:bg-transparent"
             : "h-7 w-7 rounded-md border border-border bg-card hover:bg-accent dark:bg-transparent",
         )}
       >
-        <Download size={13} strokeWidth={2} />
+        {#if exporting}
+          <LoaderCircle
+            size={13}
+            strokeWidth={2}
+            class="animate-spin motion-reduce:animate-none"
+          />
+        {:else}
+          <Download size={13} strokeWidth={2} />
+        {/if}
       </button>
     {/if}
     <button

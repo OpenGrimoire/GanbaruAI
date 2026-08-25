@@ -49,14 +49,19 @@
   );
 
   const reservedActionLabel = $derived(reserveActionLabel ?? actionLabel);
+  const viewportBottom = $derived(
+    stacked
+      ? "calc(var(--keyboard-inset) + var(--safe-area-bottom) + 4rem)"
+      : "calc(var(--keyboard-inset) + var(--safe-area-bottom) + 1rem)",
+  );
 </script>
 
 <div
   role="status"
   aria-live="polite"
+  style:bottom={viewportBottom}
   class={cn(
     "fixed left-1/2 z-70 flex w-[min(22rem,calc(100vw-2rem))] -translate-x-1/2 items-center gap-3 rounded-md border px-3 py-2 text-[0.866667rem] shadow-lg",
-    stacked ? "bottom-16" : "bottom-4",
     toastVariantClass,
   )}
 >

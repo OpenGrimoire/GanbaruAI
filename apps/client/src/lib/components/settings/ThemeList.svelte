@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { onDestroy } from "svelte";
   import Upload from "@lucide/svelte/icons/upload";
   import FolderOpen from "@lucide/svelte/icons/folder-open";
   import X from "@lucide/svelte/icons/x";
@@ -13,6 +14,7 @@
   import CustomSelect from "./CustomSelect.svelte";
   import ShortcutDescription from "./ShortcutDescription.svelte";
   import ConfirmDialog from "$lib/components/ui/ConfirmDialog.svelte";
+  import ActionToast from "$lib/components/ui/ActionToast.svelte";
   import { BUILD_PLATFORM_PROFILE } from "$lib/platform";
   import {
     pickThemeJsonFile,
@@ -28,7 +30,12 @@
   let importOpen = $state(false);
   let importDraft = $state("");
   let importErrors = $state<string[]>([]);
-  let toast = $state<string | undefined>(undefined);
+  let exportingThemeId = $state<ThemeId | undefined>(undefined);
+  let toast = $state<{
+    message: string;
+    variant: "default" | "success" | "error";
+    pending: boolean;
+  } | undefined>(undefined);
   let toastTimer: ReturnType<typeof setTimeout> | undefined;
   const quickToggleShortcuts = ["Mod + Shift + L"] as const;
   const themePickerShortcuts = ["Mod + Shift + T"] as const;
@@ -47,13 +54,31 @@
     })),
   );
 
-  function flashToast(message: string) {
-    toast = message;
+  function clearToastTimer(): void {
     if (toastTimer) clearTimeout(toastTimer);
+    toastTimer = undefined;
+  }
+
+  function dismissToast(): void {
+    clearToastTimer();
+    toast = undefined;
+  }
+
+  function showToast(
+    message: string,
+    variant: "default" | "success" | "error" = "default",
+    pending = false,
+  ): void {
+    clearToastTimer();
+    toast = { message, variant, pending };
+    if (pending) return;
     toastTimer = setTimeout(() => {
       toast = undefined;
-    }, 1800);
+      toastTimer = undefined;
+    }, variant === "error" ? 8_000 : 3_000);
   }
+
+  onDestroy(clearToastTimer);
 
   function handleApply(id: ThemeId) {
     themeStore.setTheme(id);
@@ -117,7 +142,7 @@
       importErrors = [];
       importDraft = "";
       importOpen = false;
-      flashToast(t("settings.theme.imported"));
+      showToast(t("settings.theme.imported"), "success");
     } catch (err) {
       console.error("import from file failed", err);
       importErrors = [
@@ -139,26 +164,37 @@
     importErrors = [];
     importDraft = "";
     importOpen = false;
-    flashToast(t("settings.theme.imported"));
+    showToast(t("settings.theme.imported"), "success");
   }
 
   async function handleExport(id: ThemeId) {
+    if (exportingThemeId) return;
     const contents = themeStore.exportTheme(id);
     if (!contents) {
-      flashToast(t("settings.theme.exportFailed"));
+      showToast(t("settings.theme.exportFailed"), "error");
       return;
+    }
+    exportingThemeId = id;
+    if (!desktopShell) {
+      showToast(t("settings.theme.exporting"), "default", true);
     }
     try {
       const outcome = await saveThemeJsonFile(`${id}.json`, contents);
-      if (!outcome.saved) return;
-      flashToast(
+      if (!outcome.saved) {
+        if (toast?.pending) dismissToast();
+        return;
+      }
+      showToast(
         outcome.destination === "downloads" && outcome.fileName
           ? t("settings.theme.exportedToDownloads", outcome.fileName)
           : t("settings.theme.exported"),
+        "success",
       );
     } catch (err) {
       console.error("theme export failed", err);
-      flashToast(t("settings.theme.exportFailed"));
+      showToast(t("settings.theme.exportFailed"), "error");
+    } finally {
+      exportingThemeId = undefined;
     }
   }
 
@@ -248,6 +284,8 @@
           onDuplicate={() => handleDuplicate(theme.id)}
           onExport={() => handleExport(theme.id)}
           onDelete={() => handleDelete(theme.id)}
+          exporting={exportingThemeId === theme.id}
+          exportDisabled={exportingThemeId !== undefined && exportingThemeId !== theme.id}
           mobileLayout={!desktopShell}
         />
       {/each}
@@ -340,11 +378,13 @@
   </section>
 
   {#if toast}
-    <div
-      class="pointer-events-none fixed bottom-6 left-1/2 z-80 -translate-x-1/2 rounded-md border border-border bg-popover px-3 py-1.5 text-[0.8rem] text-foreground shadow-lg"
-    >
-      {toast}
-    </div>
+    <ActionToast
+      message={toast.message}
+      variant={toast.variant}
+      controlsVisible={!toast.pending}
+      dismissLabel={t("settings.theme.dismissTransferNotification")}
+      onDismiss={dismissToast}
+    />
   {/if}
 </div>
 

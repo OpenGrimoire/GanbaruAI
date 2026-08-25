@@ -58,4 +58,36 @@ describe("ThemeRow mobile actions", () => {
     expect(onOpen).toHaveBeenCalledOnce();
     expect(onExport).toHaveBeenCalledOnce();
   });
+
+  it("shows and locks the active mobile export while the file is being written", async () => {
+    const onExport = vi.fn();
+    target = document.createElement("div");
+    document.body.append(target);
+    component = mount(ThemeRow, {
+      target,
+      props: {
+        theme: lightTheme,
+        isActive: false,
+        isBuiltin: true,
+        onApply: vi.fn(),
+        onOpen: vi.fn(),
+        onDuplicate: vi.fn(),
+        onExport,
+        onDelete: vi.fn(),
+        exporting: true,
+        mobileLayout: true,
+      },
+    });
+    await tick();
+
+    const exportButton = target.querySelector<HTMLButtonElement>(
+      '[aria-label="Exporting theme JSON"]',
+    );
+    expect(exportButton?.disabled).toBe(true);
+    expect(exportButton?.getAttribute("aria-busy")).toBe("true");
+    expect(exportButton?.querySelector(".animate-spin")).not.toBeNull();
+
+    exportButton?.click();
+    expect(onExport).not.toHaveBeenCalled();
+  });
 });

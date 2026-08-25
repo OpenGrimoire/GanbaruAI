@@ -28,6 +28,8 @@
   import ThemeEditorNavigation from "./theme-editor/ThemeEditorNavigation.svelte";
   import ThemeSourcePairRow from "./theme-editor/ThemeSourcePairRow.svelte";
   import ThemeTokenEditor from "./theme-editor/ThemeTokenEditor.svelte";
+  import ActionToast from "$lib/components/ui/ActionToast.svelte";
+  import { BUILD_PLATFORM_PROFILE } from "$lib/platform";
   import {
     SOURCE_GROUPS,
     isCalendarGroup,
@@ -49,6 +51,7 @@
 
   const themeStore = getTheme();
   const { t } = getLocalization();
+  const mobileShell = BUILD_PLATFORM_PROFILE.shell === "mobile";
   const sourceGroups = $derived(localizedSourceGroups(t));
   const textActionGroups = $derived(sourceGroups.filter(isTextActionGroup));
   const calendarGroups = $derived(sourceGroups.filter(isCalendarGroup));
@@ -662,7 +665,8 @@
             jsonDraft={json.draft}
             jsonDirty={json.dirty}
             jsonErrors={json.errors}
-            jsonNotice={json.notice}
+            jsonNotice={mobileShell ? undefined : json.notice?.message}
+            jsonSaving={json.saving}
             fileSaveAvailable={json.fileSaveAvailable}
             onCopy={json.copy}
             onSave={json.save}
@@ -682,6 +686,15 @@
       />
     {/if}
   </div>
+
+  {#if mobileShell && json.notice}
+    <ActionToast
+      message={json.notice.message}
+      variant={json.notice.variant}
+      dismissLabel={t("settings.theme.editor.dismissFileNotification")}
+      onDismiss={json.dismissNotice}
+    />
+  {/if}
 </div>
 
 <style>
