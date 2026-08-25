@@ -344,6 +344,12 @@ pnpm --dir apps/client run tauri android build --apk
 pnpm --dir apps/client run tauri android build --aab
 ```
 
+The Android platform configuration keeps its development URL at the Vite origin root. Android
+WebView requests are intercepted at `tauri.localhost` and proxied to that URL by Wry. A path-based
+readiness endpoint would become the base of every proxied module request, causing Vite to return
+the HTML entry document for JavaScript modules. Desktop development may retain a path-based
+readiness endpoint because its WebView loads the Vite origin directly.
+
 Run `pnpm --dir apps/client run generate:icons` after changing the source logo or deliberately regenerating either native project. Tauri stores mobile launcher resources directly in the generated Android and Apple projects, while the desktop `bundle.icon` list alone does not replace those generated mobile resources. The Android project contract verifies the expected Ganbaru AI launcher fingerprint plus normal and round manifest resources so the default Tauri launcher cannot return unnoticed. See the [Tauri app icon guide](https://v2.tauri.app/develop/icons/).
 
 The APK is for direct device and emulator testing. Google Play distribution uses an Android App Bundle. Development may build only the connected device ABI for speed. Release ABI policy is explicit and validated against supported devices rather than assumed from API level.

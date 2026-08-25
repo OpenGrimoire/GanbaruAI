@@ -49,6 +49,12 @@ mod tray;
 mod updates;
 mod vault;
 
+fn install_default_tls_crypto_provider() {
+    rustls::crypto::ring::default_provider()
+        .install_default()
+        .expect("the default TLS crypto provider must be installed only once during startup");
+}
+
 #[cfg(not(any(target_os = "android", target_os = "ios")))]
 mod desktop_runtime;
 #[cfg(any(target_os = "android", target_os = "ios"))]

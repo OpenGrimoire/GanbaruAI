@@ -7,6 +7,8 @@ use crate::{
 
 /// Run the mobile application without desktop-only processes or lifecycle hooks.
 pub fn run(context: tauri::Context<tauri::Wry>) {
+    crate::install_default_tls_crypto_provider();
+
     let builder = tauri::Builder::default().plugin(tauri_plugin_opener::init());
     #[cfg(target_os = "android")]
     let builder = builder.plugin(ganbaru_mobile_documents::init());
