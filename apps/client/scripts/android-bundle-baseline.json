@@ -46,9 +46,16 @@
         "src/lib/components/music/MusicPlaybackHost.svelte"
       ],
       "maxSourceModules": 152
+    },
+    {
+      "name": "chat",
+      "roots": [
+        "src/lib/components/chat/ChatWorkspace.svelte"
+      ],
+      "maxSourceModules": 252
     }
   ],
-  "maxTotalSourceModules": 756,
+  "maxTotalSourceModules": 885,
   "requiredMobileModules": [
     "src/main.ts",
     "src/main-mobile.ts",
@@ -91,6 +98,11 @@
     "src/lib/components/mobile/MobileNoopMusicSoundscapeControl.svelte",
     "src/lib/components/music/MusicPanel.svelte",
     "src/lib/components/music/MusicPlaybackHost.svelte",
+    "src/lib/components/chat/ChatWorkspace.svelte",
+    "src/lib/chat/local-execution-ui.mobile.ts",
+    "src/lib/chat/review-diff-loader.mobile.ts",
+    "src/lib/api/chat.ts",
+    "src/lib/stores/chat.svelte.ts",
     "src/lib/music/music-platform-controls.mobile.ts",
     "src/lib/music/platform-library.mobile.ts",
     "src/lib/music/platform-paths.mobile.ts",
@@ -118,6 +130,18 @@
     "src/lib/components/settings/SettingsSectionRenderer.svelte",
     "src/lib/components/settings/settings-detail-registry.ts",
     "src/lib/components/settings/mobile-theme-editor-loader.ts",
+    "src/lib/chat/local-execution-ui.ts",
+    "src/lib/chat/review-diff-loader.ts",
+    "src/lib/chat/review-diff-runtime.ts",
+    "src/lib/chat/code-editor-loader.ts",
+    "src/lib/chat/code-editor-runtime.ts",
+    "src/lib/components/chat/ChatCommandMenu.svelte",
+    "src/lib/components/chat/ChatWorkspaceObserver.svelte",
+    "src/lib/components/chat/ChatWorkspacePanel.svelte",
+    "src/lib/components/chat/ChatReviewPanel.svelte",
+    "src/lib/components/chat/ChatPierreDiff.svelte",
+    "src/lib/components/chat/ChatPlainDiff.svelte",
+    "src/lib/windows/detached.ts",
     "src/lib/components/settings/FloatingThemeEditor.svelte",
     "src/lib/components/projects/project-component-registry.ts",
     "src/lib/components/projects/project-desktop-view-components.ts",
@@ -150,12 +174,8 @@
     "src/lib/components/benchmark/",
     "src/lib/benchmark/",
     "src/lib/stores/benchmark",
-    "src/lib/components/chat/",
     "src/lib/components/settings/chat/",
     "src/lib/components/settings/ChatSection.svelte",
-    "src/lib/chat/",
-    "src/lib/api/chat",
-    "src/lib/stores/chat",
     "src/lib/components/settings/MusicSection.svelte",
     "src/lib/api/soundscape",
     "src/lib/components/title-bar/",

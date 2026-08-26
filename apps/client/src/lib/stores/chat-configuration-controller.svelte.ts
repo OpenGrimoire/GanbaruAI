@@ -16,6 +16,12 @@ import type {
   ProviderSetupTestRead,
   RemoveProviderResult,
 } from "$lib/chat/contracts";
+import { BUILD_PLATFORM_PROFILE, platformHasCapability } from "$lib/platform";
+
+const localExecutionAvailable = platformHasCapability(
+  BUILD_PLATFORM_PROFILE,
+  "chat.local-execution",
+);
 
 export interface ChatConfigurationControllerOptions {
   onSettingsChanged: () => void;
@@ -77,6 +83,7 @@ export class ChatConfigurationController {
   }
 
   async refreshWorkingFolders(): Promise<void> {
+    if (!localExecutionAvailable) return;
     if (this.workingFolderRefreshPromise) return this.workingFolderRefreshPromise;
     const generation = this.generation;
     const refresh = workingFolderApi.listProjectWorkingFolders()
@@ -94,6 +101,10 @@ export class ChatConfigurationController {
   }
 
   async readPrimaryWorkingFolder(projectId: string): Promise<void> {
+    if (!localExecutionAvailable) {
+      this.primaryWorkingFolder = null;
+      return;
+    }
     this.primaryWorkingFolder = await chatApi.readChatProjectPrimaryWorkingFolder(projectId);
   }
 

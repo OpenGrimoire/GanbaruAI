@@ -89,6 +89,32 @@ describe("ChatChannelRail", () => {
     expect(target.querySelectorAll(".channel-row")).toHaveLength(0);
     expect(target.textContent).not.toContain("No direct messages yet.");
   });
+
+  it("closes the mobile surface after navigating to a channel", async () => {
+    const chat = getChat();
+    const selectChannel = vi.spyOn(chat, "selectChannel").mockResolvedValue();
+    const onCollapse = vi.fn();
+    component = mount(ChatChannelRail, {
+      target,
+      props: {
+        presentation: "surface",
+        expanded: true,
+        showCollapsedStrip: false,
+        onExpand: vi.fn(),
+        onCollapse,
+      },
+    });
+    await tick();
+
+    const designChannel = [...target.querySelectorAll<HTMLButtonElement>(".channel-row")]
+      .find((button) => button.textContent?.trim() === "design");
+    designChannel?.click();
+
+    await vi.waitFor(() => {
+      expect(selectChannel).toHaveBeenCalledWith("channel-design");
+      expect(onCollapse).toHaveBeenCalledOnce();
+    });
+  });
 });
 
 function channel(id: string, name: string): ChatChannelRead {

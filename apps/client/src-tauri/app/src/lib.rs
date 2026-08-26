@@ -97,6 +97,11 @@ mod composition_tests {
             "project_icons::project_icon_asset_data_url",
             "vault::vault_pick_and_read_theme_json",
             "vault::vault_pick_and_write_theme_json",
+            "chat::channel_commands::chat_list_navigation_channels",
+            "chat::coordination_commands::chat_post_message",
+            "chat::coordination_commands::chat_read_channel_page",
+            "chat::coordination_commands::chat_read_reply_thread_page",
+            "chat::settings_commands::chat_read_settings",
         ] {
             assert!(
                 MOBILE_RUNTIME.contains(command),
@@ -108,7 +113,12 @@ mod composition_tests {
     #[test]
     fn mobile_runtime_excludes_desktop_only_commands() {
         for command in [
-            "chat::",
+            "chat::send_commands::",
+            "chat::terminal_commands::",
+            "chat::git_commands::",
+            "chat::workspace_commands::",
+            "chat::interaction_commands::",
+            "chat::preview::",
             "doomscrolling::",
             "notification::",
             "soundscape::",

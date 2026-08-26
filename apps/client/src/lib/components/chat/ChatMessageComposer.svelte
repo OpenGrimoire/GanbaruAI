@@ -54,6 +54,7 @@
   import { getChat, type ChatOrganizationalDraft } from "$lib/stores/chat.svelte";
   import { getProjects } from "$lib/stores/projects.svelte";
   import { requireActiveVaultIdentity } from "$lib/vault/active-vault";
+  import { BUILD_PLATFORM_PROFILE, platformHasCapability } from "$lib/platform";
   import ChatParticipantAvatar from "./ChatParticipantAvatar.svelte";
 
   type ScheduleMenuComponent = typeof import("./ChatMessageScheduleMenu.svelte").default;
@@ -139,6 +140,11 @@
   const projects = getProjects();
   const localization = getLocalization();
   const { t } = localization;
+  const localExecutionAvailable = platformHasCapability(
+    BUILD_PLATFORM_PROFILE,
+    "chat.local-execution",
+  );
+  const focusEditorOnMount = BUILD_PLATFORM_PROFILE.shell === "desktop";
   const initialDraft = untrack(() => chat.organizationalDraft(destination));
   const initialDocument = parseChatComposerDocument(
     initialDraft.richContent,
@@ -265,7 +271,9 @@
     const stop = () => { void stopAssignment(); };
     document.addEventListener("selectionchange", selectionChanged);
     window.addEventListener("ganbaru-ai:chat-stop-requested", stop);
-    editorController.focus({ start: selectionStart, end: selectionEnd });
+    if (focusEditorOnMount) {
+      editorController.focus({ start: selectionStart, end: selectionEnd });
+    }
     return () => {
       document.removeEventListener("selectionchange", selectionChanged);
       window.removeEventListener("ganbaru-ai:chat-stop-requested", stop);
@@ -1342,7 +1350,7 @@
       <div class="composer-tools">
         <div bind:this={addMenuAnchor} class="menu-anchor">
           <button type="button" class="tool-button" aria-label={t("chat.organization.addContext")} aria-expanded={addMenuOpen} onclick={() => { addMenuOpen = !addMenuOpen; scheduleMenuOpen = false; scheduledMessagesOpen = false; }}><Plus size={16} /></button>
-          {#if addMenuOpen}<div class="composer-menu add-menu"><button type="button" onclick={() => void pickImages()}><Image size={14} />{t("chat.composer.attachImages")}</button><button type="button" onclick={() => { addMenuOpen = false; insertReferenceTrigger("@"); }}><AtSign size={14} />{t("chat.organization.peopleAndResources")}</button><button type="button" onclick={() => { addMenuOpen = false; insertReferenceTrigger("#"); }}><Hash size={14} />{t("chat.organization.channels")}</button></div>{/if}
+          {#if addMenuOpen}<div class="composer-menu add-menu">{#if localExecutionAvailable}<button type="button" onclick={() => void pickImages()}><Image size={14} />{t("chat.composer.attachImages")}</button>{/if}<button type="button" onclick={() => { addMenuOpen = false; insertReferenceTrigger("@"); }}><AtSign size={14} />{t("chat.organization.peopleAndResources")}</button><button type="button" onclick={() => { addMenuOpen = false; insertReferenceTrigger("#"); }}><Hash size={14} />{t("chat.organization.channels")}</button></div>{/if}
         </div>
         <button type="button" class="tool-button" class:active={boldActive} aria-label={t("chat.organization.bold")} aria-pressed={boldActive} onclick={() => editorController?.toggleMark("bold")}><Bold size={15} /></button>
         <button type="button" class="tool-button" class:active={italicActive} aria-label={t("chat.organization.italic")} aria-pressed={italicActive} onclick={() => editorController?.toggleMark("italic")}><Italic size={15} /></button>

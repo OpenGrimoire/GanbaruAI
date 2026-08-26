@@ -28,11 +28,13 @@
   import ChatChannelSetupDialog from "./ChatChannelSetupDialog.svelte";
 
   let {
+    presentation = "column",
     expanded,
     showCollapsedStrip,
     onExpand,
     onCollapse,
   }: {
+    presentation?: "column" | "sheet" | "surface";
     expanded: boolean;
     showCollapsedStrip: boolean;
     onExpand: () => void;
@@ -250,6 +252,12 @@
     moveChannel(channel.id, sectionId);
     setupChannel = undefined;
     setupSectionId = null;
+    if (presentation === "surface") onCollapse();
+  }
+
+  function openArchive(): void {
+    chat.openChannelArchive();
+    if (presentation === "surface") onCollapse();
   }
 
   function openSearch(): void {
@@ -266,6 +274,7 @@
     railError = null;
     try {
       await chat.selectChannel(channelId);
+      if (presentation === "surface") onCollapse();
     } catch (cause: unknown) {
       railError = cause instanceof Error ? cause.message : String(cause);
     }
@@ -276,6 +285,7 @@
     try {
       await chat.openMessageSearchResult(result);
       query = "";
+      if (presentation === "surface") onCollapse();
     } catch (cause: unknown) {
       railError = cause instanceof Error ? cause.message : String(cause);
     }
@@ -321,10 +331,10 @@
 </script>
 
 {#if expanded}
-  <aside bind:this={railElement} class="flex h-full min-h-0 flex-col bg-sidebar/45" aria-label={t("chat.channels.explorerLabel")}>
-    <div class="flex h-11 shrink-0 items-center gap-1 px-2">
+  <aside bind:this={railElement} class="flex h-full min-h-0 flex-col bg-sidebar/45" class:mobileSurface={presentation === "surface"} aria-label={t("chat.channels.explorerLabel")}>
+    <div class="rail-toolbar flex h-11 shrink-0 items-center gap-1 px-2">
       <label class="flex min-w-0 flex-1 items-center gap-1 rounded-md border border-border bg-background px-2"><Search size={13} class="text-muted-foreground" /><input bind:this={searchInput} class="channel-search-input h-7 min-w-0 flex-1 bg-transparent text-xs outline-none" type="search" bind:value={query} placeholder={t("chat.channels.search")} aria-label={t("chat.channels.search")} /></label>
-      <button type="button" class="rail-icon" aria-label={t("chat.collapseRail")} onclick={onCollapse}><ChevronsLeft size={15} /></button>
+      <button type="button" class="rail-icon" data-chat-rail-close aria-label={t("chat.collapseRail")} onclick={onCollapse}><ChevronsLeft size={15} /></button>
     </div>
 
     {#if railError}<p class="mx-2 mb-1 rounded bg-destructive/10 px-2 py-1 text-xs text-destructive" role="alert">{railError}</p>{/if}
@@ -407,7 +417,7 @@
     </div>
 
     <div class="shrink-0 p-2">
-      <button type="button" class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-[0.8rem] text-muted-foreground hover:bg-accent hover:text-foreground" class:bg-accent={chat.channelArchiveOpen} onclick={() => chat.openChannelArchive()}><Archive size={15} /><span class="min-w-0 flex-1 truncate">{t("chat.channels.archive")}</span>{#if chat.archivedChannels.length > 0}<span class="rounded bg-muted px-1.5 text-[0.666667rem]">{chat.archivedChannels.length}</span>{/if}</button>
+      <button type="button" class="archive-button flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-[0.8rem] text-muted-foreground hover:bg-accent hover:text-foreground" class:bg-accent={chat.channelArchiveOpen} onclick={openArchive}><Archive size={15} /><span class="min-w-0 flex-1 truncate">{t("chat.channels.archive")}</span>{#if chat.archivedChannels.length > 0}<span class="rounded bg-muted px-1.5 text-[0.666667rem]">{chat.archivedChannels.length}</span>{/if}</button>
     </div>
   </aside>
 {:else if showCollapsedStrip}
@@ -485,4 +495,12 @@
   .channel-row { display: flex; width: 100%; min-width: 0; height: 1.85rem; align-items: center; gap: 0.4rem; border-radius: 0.35rem; padding: 0 1.8rem 0 0.55rem; color: var(--muted-foreground); font-size: calc(0.8rem * var(--type-scale)); text-align: left; }
   .channel-row:hover, .channel-row.selected { background: var(--accent); color: var(--foreground); }
   .channel-loading { padding-right: 0.55rem; opacity: 0.72; }
+  .mobileSurface { background: var(--sidebar); }
+  .mobileSurface .rail-toolbar { height: 3.25rem; }
+  .mobileSurface .rail-icon { width: 2.5rem; height: 2.5rem; }
+  .mobileSurface .channel-search-input { height: 2.5rem; font-size: calc(0.875rem * var(--type-scale)); }
+  .mobileSurface .section-heading { min-height: 2.75rem; font-size: calc(0.8rem * var(--type-scale)); }
+  .mobileSurface .section-heading > button, .mobileSurface .section-menu summary { min-width: 2.5rem; min-height: 2.5rem; }
+  .mobileSurface .channel-row { height: 2.75rem; padding-right: 0.75rem; font-size: calc(0.9rem * var(--type-scale)); }
+  .mobileSurface .archive-button { min-height: 2.75rem; font-size: calc(0.875rem * var(--type-scale)); }
 </style>

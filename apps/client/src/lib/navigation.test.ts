@@ -39,15 +39,15 @@ describe("navigation helpers", () => {
     expect(parseInitialViewSearch("")).toBeUndefined();
   });
 
-  it("rejects unavailable Android views from direct and query navigation", () => {
+  it("exposes portable Android views without desktop window controls", () => {
     const android = platformProfileFor("android");
 
-    expect(availableAppViews(android)).toEqual(["calendar", "projects", "notes"]);
+    expect(availableAppViews(android)).toEqual(["calendar", "projects", "notes", "chat"]);
     expect(isViewAvailable("notes", android)).toBe(true);
-    expect(isViewAvailable("chat", android)).toBe(false);
+    expect(isViewAvailable("chat", android)).toBe(true);
     expect(parseInitialViewSearch("?view=notes", android)).toBe("notes");
-    expect(parseInitialViewSearch("?view=chat", android)).toBeUndefined();
-    expect(mainTabViews(new Set(), android)).toEqual(["calendar", "projects", "notes"]);
+    expect(parseInitialViewSearch("?view=chat", android)).toBe("chat");
+    expect(mainTabViews(new Set(), android)).toEqual(["calendar", "projects", "notes", "chat"]);
     expect(canDetachMainView(new Set(), android)).toBe(false);
   });
 

@@ -307,6 +307,18 @@ export default defineConfig({
           ? "src/lib/components/settings/mobile-theme-editor-loader.mobile.ts"
           : "src/lib/components/settings/mobile-theme-editor-loader.ts",
       ),
+      "$lib/chat/local-execution-ui": path.resolve(
+        configDir,
+        mobileBuild
+          ? "src/lib/chat/local-execution-ui.mobile.ts"
+          : "src/lib/chat/local-execution-ui.ts",
+      ),
+      "$lib/chat/review-diff-loader": path.resolve(
+        configDir,
+        mobileBuild
+          ? "src/lib/chat/review-diff-loader.mobile.ts"
+          : "src/lib/chat/review-diff-loader.ts",
+      ),
       "$lib/api/db": path.resolve(
         configDir,
         mobileBuild

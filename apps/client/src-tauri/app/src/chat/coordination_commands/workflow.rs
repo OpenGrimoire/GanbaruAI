@@ -4,16 +4,20 @@ use super::super::coordination::contracts::*;
 use super::super::models::*;
 use super::common::{
     conversation_item_id, has_thread_eligible_mention, json_object, message_revision_id, new_id,
-    parse_participant_kind, reply_thread_id, serialization_error, wire_approval_policy,
-    wire_participant_kind, wire_work_state, work_assignment_id,
+    parse_participant_kind, reply_thread_id, serialization_error, wire_participant_kind,
 };
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
+use super::common::{wire_approval_policy, wire_work_state, work_assignment_id};
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 use super::context::freeze_context_package;
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
+use super::now_timestamp;
 use super::reads::{
     read_active_or_latest_assignment, read_assignment, read_message, read_participant,
 };
 use super::{
-    i64_value, identifier_error, now_timestamp, persistence_error, u64_value,
-    StoredPostMessageReceipt, LOCAL_PARTICIPANT_ID,
+    i64_value, identifier_error, persistence_error, u64_value, StoredPostMessageReceipt,
+    LOCAL_PARTICIPANT_ID,
 };
 use serde::{Deserialize, Serialize};
 use sqlx::{Row, Sqlite, SqlitePool, Transaction};
@@ -22,6 +26,7 @@ use sqlx::{Row, Sqlite, SqlitePool, Transaction};
 pub(super) struct ResolvedInvocation {
     pub(super) teammate_id: ChatParticipantId,
     pub(super) active_assignment: Option<ChatWorkAssignmentRead>,
+    #[cfg(not(any(target_os = "android", target_os = "ios")))]
     pub(super) latest_assignment: Option<ChatWorkAssignmentRead>,
 }
 
@@ -120,10 +125,12 @@ pub(super) async fn resolve_invoked_teammate(
     Ok(Some(ResolvedInvocation {
         teammate_id,
         active_assignment,
+        #[cfg(not(any(target_os = "android", target_os = "ios")))]
         latest_assignment,
     }))
 }
 
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 pub(super) async fn persist_assignment_routing(
     transaction: &mut Transaction<'_, Sqlite>,
     reply_thread_id: &ChatReplyThreadId,
@@ -258,6 +265,28 @@ pub(super) async fn persist_assignment_routing(
     .map_err(persistence_error)?;
     Ok(AssignmentWrite {
         assignment_id: Some(assignment_id),
+        input_queued: false,
+    })
+}
+
+#[cfg(any(target_os = "android", target_os = "ios"))]
+pub(super) async fn persist_assignment_routing(
+    _transaction: &mut Transaction<'_, Sqlite>,
+    _reply_thread_id: &ChatReplyThreadId,
+    _message_item_id: &ChatConversationItemId,
+    invocation: Option<&ResolvedInvocation>,
+    _execution_target: Option<&ChatExecutionTarget>,
+    _now: &UtcTimestamp,
+) -> ChatResult<AssignmentWrite> {
+    if invocation.is_some() {
+        return Err(ChatError::new(
+            ChatErrorCode::DriverUnavailable,
+            "Local coding-agent execution is unavailable on this device",
+            true,
+        ));
+    }
+    Ok(AssignmentWrite {
+        assignment_id: None,
         input_queued: false,
     })
 }
@@ -972,6 +1001,7 @@ pub(super) async fn require_participating_teammate(
     Ok(())
 }
 
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 pub(super) async fn insert_policy_revision(
     transaction: &mut Transaction<'_, Sqlite>,
     teammate_id: &ChatParticipantId,
@@ -1223,6 +1253,7 @@ pub(super) async fn read_post_receipt(
     }))
 }
 
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 pub(super) async fn set_assignment_state(
     pool: &SqlitePool,
     assignment_id: &ChatWorkAssignmentId,

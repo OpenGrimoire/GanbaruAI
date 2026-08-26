@@ -2,6 +2,7 @@
   import BookOpen from "@lucide/svelte/icons/book-open";
   import CalendarDays from "@lucide/svelte/icons/calendar-days";
   import ListTodo from "@lucide/svelte/icons/list-todo";
+  import MessageSquare from "@lucide/svelte/icons/message-square";
   import { getLocalization } from "$lib/i18n/translator.svelte";
   import type { View } from "$lib/navigation";
   import { getZoom } from "$lib/stores/zoom.svelte";
@@ -25,6 +26,7 @@
     { view: "calendar", icon: CalendarDays },
     { view: "projects", icon: ListTodo },
     { view: "notes", icon: BookOpen },
+    { view: "chat", icon: MessageSquare },
   ] as const;
 </script>
 
@@ -34,7 +36,7 @@
     "mobile-primary-navigation shrink-0 border-sidebar-border bg-sidebar text-sidebar-foreground",
     presentation === "rail"
       ? "flex w-(--mobile-nav-rail-w) flex-col border-r px-2 py-3"
-      : "grid h-(--mobile-nav-h) grid-cols-3 border-t px-2",
+      : "grid h-(--mobile-nav-h) grid-cols-4 border-t px-2",
   )}
 >
   {#each destinations as destination}

@@ -10,6 +10,7 @@ export const PLATFORM_CAPABILITIES = [
   "view.notes",
   "view.chat",
   "view.music",
+  "chat.local-execution",
   "content.managed-image-downloads",
   "notes.external-image-references",
   "music.context-assignments",
@@ -52,6 +53,7 @@ const DESKTOP_CAPABILITIES = Object.freeze([
   "view.notes",
   "view.chat",
   "view.music",
+  "chat.local-execution",
   "content.managed-image-downloads",
   "music.context-assignments",
   "music.local-file-reveal",
@@ -71,6 +73,7 @@ const BASE_MOBILE_CAPABILITIES = Object.freeze([
   "view.calendar",
   "view.projects",
   "view.notes",
+  "view.chat",
 ] satisfies PlatformCapability[]);
 const ANDROID_CAPABILITIES = Object.freeze([
   ...BASE_MOBILE_CAPABILITIES,

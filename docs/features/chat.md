@@ -61,7 +61,7 @@ Chat's ideal product scope includes:
 - Work-in-progress limits, review-capacity awareness, exception routing, and digest-style progress so parallel agents do not create supervision burnout.
 - Wide, compact, detached, increased-font, reduced-motion, keyboard, screen-reader, and minimum-recovery layouts.
 
-The current foundation provides project channels, provider-free messages, reply threads, vault-wide AI teammate identities, explicit channel capabilities, profile ceilings, folder grants, durable assignments, inline exact-run execution activity, and local coding workspace tools. Automatic planning, task spawning, functional direct messages, human membership, permission-aware sync, remote clients, mobile continuation, a general BYOK assistant, and hosted execution remain later layers. Local branch publication, pull-request automation, and browser preview belong to the coding workspace.
+The current foundation provides project channels, provider-free messages, reply threads, vault-wide AI teammate identities, explicit channel capabilities, profile ceilings, folder grants, durable assignments, inline exact-run execution activity, and local coding workspace tools. Android exposes the shared responsive channel, message, reply-thread, search, draft, and scheduling surfaces over its app-private vault while omitting local provider and workspace execution. Automatic planning, task spawning, functional direct messages, human membership, permission-aware sync, remote clients and execution, a general BYOK assistant, and hosted execution remain later layers. Local branch publication, pull-request automation, and browser preview belong to the coding workspace.
 
 ## First use
 

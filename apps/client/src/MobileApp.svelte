@@ -30,6 +30,7 @@
   type ProjectsComponent = typeof import("$lib/components/projects/ProjectsView.svelte").default;
   type ProjectMobileListComponent = typeof import("$lib/components/projects/ProjectMobileListView.svelte").default;
   type NotesComponent = typeof import("$lib/components/notes/NotesView.svelte").default;
+  type ChatComponent = typeof import("$lib/components/chat/ChatWorkspace.svelte").default;
   type QuickNotesComponent = typeof import("$lib/components/quick-notes/QuickNotesPanel.svelte").default;
   type SettingsComponent = typeof import("$lib/components/settings/SettingsModal.svelte").default;
   type MusicComponent = typeof import("$lib/components/music/MusicPanel.svelte").default;
@@ -69,6 +70,7 @@
   let ProjectsSurface = $state<ProjectsComponent | null>(null);
   let ProjectMobileListSurface = $state<ProjectMobileListComponent | null>(null);
   let NotesSurface = $state<NotesComponent | null>(null);
+  let ChatSurface = $state<ChatComponent | null>(null);
   let QuickNotesSurface = $state<QuickNotesComponent | null>(null);
   let SettingsSurface = $state<SettingsComponent | null>(null);
   let MusicSurface = $state<MusicComponent | null>(null);
@@ -158,6 +160,9 @@
           notesStore = nextNotesStore;
           NotesSurface = module.default;
         }
+      } else if (view === "chat" && !ChatSurface) {
+        const module = await import("$lib/components/chat/ChatWorkspace.svelte");
+        if (generation === surfaceLoadGeneration) ChatSurface = module.default;
       }
     } catch (error) {
       if (generation !== surfaceLoadGeneration) return;
@@ -481,6 +486,8 @@
           <ProjectsSurface mobileLayout mobileListComponent={ProjectMobileListSurface} />
         {:else if nav.current === "notes" && NotesSurface}
           <NotesSurface mobileLayout />
+        {:else if nav.current === "chat" && ChatSurface}
+          <ChatSurface />
         {:else}
           <div class="flex h-full items-center justify-center text-sm text-muted-foreground" aria-busy="true">
             {t("common.loading")}

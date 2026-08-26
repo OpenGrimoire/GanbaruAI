@@ -5,7 +5,7 @@ use super::models::{
     ChatWorkAssignmentState, UtcTimestamp,
 };
 use crate::db_path;
-use chrono::{SecondsFormat, Utc};
+use chrono::{DateTime, SecondsFormat, Utc};
 use serde::Deserialize;
 use sqlx::{Row, SqlitePool};
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -619,7 +619,7 @@ pub(crate) async fn chat_pool(app: tauri::AppHandle, db_url: String) -> ChatResu
 }
 
 pub(crate) fn now_timestamp() -> ChatResult<UtcTimestamp> {
-    timestamp(Utc::now().to_rfc3339_opts(SecondsFormat::Millis, true))
+    timestamp(DateTime::<Utc>::from(SystemTime::now()).to_rfc3339_opts(SecondsFormat::Millis, true))
 }
 
 pub(crate) fn timestamp(value: String) -> ChatResult<UtcTimestamp> {

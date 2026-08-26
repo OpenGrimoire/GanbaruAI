@@ -20,11 +20,11 @@ export const mobile = {
     projectsHeading: "Los ajustes de proyecto están dentro de cada proyecto",
     projectsDescription:
       "Abre un proyecto y usa su panel de ajustes para el flujo, valores predeterminados, estados, prioridades y campos.",
-    chatHeading: "Los agentes de programación locales requieren una computadora",
+    chatHeading: "La comunicación de Chat está disponible en este dispositivo",
     chatDescription:
-      "Este dispositivo no puede iniciar procesos locales de Codex, Claude, Cursor, OpenCode u otros agentes de programación.",
+      "Los canales, mensajes, hilos de respuestas, búsqueda, borradores y mensajes programados usan el mismo modelo local de Chat que en escritorio.",
     chatDetail:
-      "La comunicación móvil de canales aparecerá aquí cuando existan la sincronización cifrada y el límite de comunicación remota.",
+      "Android no inicia procesos locales de agentes de programación ni herramientas del espacio de trabajo. La ejecución remota futura conectará agentes sin reemplazar esta interfaz de Chat.",
     musicHeading: "El soporte multimedia de Android aún no está conectado",
     musicDescription:
       "Los ajustes de música usarán la biblioteca y preferencias compartidas cuando se implementen la reproducción y los controles multimedia nativos de Android.",

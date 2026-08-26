@@ -30,12 +30,14 @@
     showRailButton,
     onOpenRail,
     reserveGlobalActions,
+    mobilePresentation = false,
     editingTitle = $bindable(false),
   }: {
     explorerExpanded: boolean;
     showRailButton: boolean;
     onOpenRail: () => void;
     reserveGlobalActions: boolean;
+    mobilePresentation?: boolean;
     editingTitle?: boolean;
   } = $props();
 
@@ -149,7 +151,7 @@
 
 <svelte:window onpointerdown={handleWindowPointerDown} />
 
-<div bind:this={headerElement} class="chat-workspace-header flex min-w-0 items-center gap-1 overflow-x-auto pl-3" style={`height:var(--cal-header-row-h);background-color:var(--cal-header-bg);border-bottom:1px solid var(--sidebar);padding-right:var(--chat-header-action-inset, ${reserveGlobalActions ? "6.5rem" : "0.75rem"})`} onscroll={refreshNavigatorGeometry} data-chat-workspace-header>
+<div bind:this={headerElement} class="chat-workspace-header flex min-w-0 items-center gap-1 overflow-x-auto pl-3" class:mobilePresentation style={`height:var(--cal-header-row-h);background-color:var(--cal-header-bg);border-bottom:1px solid var(--sidebar);padding-right:var(--chat-header-action-inset, ${reserveGlobalActions ? "6.5rem" : "0.75rem"})`} onscroll={refreshNavigatorGeometry} data-chat-workspace-header>
   {#if showRailButton}<button type="button" class="chat-toolbar-icon-button" aria-label={t("chat.openRail")} onclick={onOpenRail}><Menu size={14} /></button>{/if}
   <div bind:this={identityElement} class="relative min-w-36 shrink-0 min-[760px]:max-w-3xl">
     <div class="flex h-7 min-w-0 max-w-full items-center gap-0.5 text-identity font-medium">
@@ -211,6 +213,8 @@
 </div>
 
 <style>
+  .chat-workspace-header.mobilePresentation { scrollbar-width: none; }
+  .chat-workspace-header.mobilePresentation::-webkit-scrollbar { display: none; }
   .chat-context-segment { display:flex;height:1.75rem;min-width:0;align-items:center;gap:0.375rem;border-radius:0.375rem;padding-inline:0.375rem;text-align:left; }
   button.chat-context-segment:hover { background:var(--accent);color:var(--accent-foreground); }
   .chat-context-divider { flex:0 0 auto;padding-inline:0.125rem;font-weight:600;color:var(--muted-foreground); }
@@ -219,4 +223,11 @@
   .chat-branch { display:none;min-width:0;max-width:9rem;align-items:center;gap:0.3rem;border-radius:0.375rem;padding:0.25rem 0.4rem;color:var(--muted-foreground);font-size: calc(0.666667rem * var(--type-scale)); }
   .chat-branch span { overflow:hidden;text-overflow:ellipsis;white-space:nowrap; }
   @container chat-shell (min-width:760px) { .chat-branch { display:inline-flex; } }
+  @container chat-shell (max-width: 560px) {
+    .chat-workspace-header.mobilePresentation { gap: 0; overflow-x: hidden; padding-left: 0.5rem; }
+    .chat-workspace-header.mobilePresentation > .relative { min-width: 0; flex: 1 1 auto; }
+    .mobilePresentation [data-chat-group-trigger], .mobilePresentation [data-chat-project-trigger], .mobilePresentation .chat-context-divider, .mobilePresentation .chat-inline-new-button { display: none; }
+    .mobilePresentation [data-chat-channel-trigger] { max-width: 100%; font-size: calc(0.9rem * var(--type-scale)); }
+    .mobilePresentation .chat-toolbar-icon-button { width: 2.5rem; height: 2.5rem; }
+  }
 </style>

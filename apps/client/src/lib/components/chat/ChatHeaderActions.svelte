@@ -11,7 +11,8 @@
   import { getChat } from "$lib/stores/chat.svelte";
   import { getSettingsLauncher } from "$lib/stores/settingsLauncher.svelte";
   import { cn } from "$lib/utils";
-  import { openDetachedViewWindow } from "$lib/windows/detached";
+  import { BUILD_PLATFORM_PROFILE, platformHasCapability } from "$lib/platform";
+  import { openDetachedChatWindow } from "$lib/chat/local-execution-ui";
 
   let {
     bottomPanelOpen,
@@ -26,6 +27,10 @@
   const chat = getChat();
   const settings = getSettingsLauncher();
   const { t } = getLocalization();
+  const localExecutionAvailable = platformHasCapability(
+    BUILD_PLATFORM_PROFILE,
+    "chat.local-execution",
+  );
   let actionError = $state<string | null>(null);
   let moreActions = $state<HTMLDetailsElement | null>(null);
   const selectedFolder = $derived(chat.selectedWorkingFolder);
@@ -57,18 +62,20 @@
 
 <div class="chat-header-actions flex min-w-0 shrink-0 items-center gap-1" data-chat-header-actions>
   {#if actionError}<p role="alert" class="max-w-40 truncate text-[0.666667rem] text-destructive">{actionError}</p>{/if}
-  <button type="button" class={cn("chat-header-icon-button", bottomPanelOpen && "bg-accent text-foreground")} aria-label={bottomPanelOpen ? t("chat.closeBottomPanel") : t("chat.openBottomPanel")} aria-pressed={bottomPanelOpen} data-chat-bottom-panel-action onclick={onToggleBottomPanel}>
-    <PanelBottom size={14} strokeWidth={1.75} />
-  </button>
-  <button type="button" class={cn("chat-header-icon-button", chat.inspectorOpen && "bg-accent text-foreground")} aria-label={chat.inspectorOpen ? t("chat.closeInspector") : t("chat.openInspector")} aria-pressed={chat.inspectorOpen} data-chat-inspector-action onclick={() => { chat.inspectorOpen = !chat.inspectorOpen; }}>
-    <PanelRight size={14} strokeWidth={1.75} />
-  </button>
+  {#if localExecutionAvailable}
+    <button type="button" class={cn("chat-header-icon-button", bottomPanelOpen && "bg-accent text-foreground")} aria-label={bottomPanelOpen ? t("chat.closeBottomPanel") : t("chat.openBottomPanel")} aria-pressed={bottomPanelOpen} data-chat-bottom-panel-action onclick={onToggleBottomPanel}>
+      <PanelBottom size={14} strokeWidth={1.75} />
+    </button>
+    <button type="button" class={cn("chat-header-icon-button", chat.inspectorOpen && "bg-accent text-foreground")} aria-label={chat.inspectorOpen ? t("chat.closeInspector") : t("chat.openInspector")} aria-pressed={chat.inspectorOpen} data-chat-inspector-action onclick={() => { chat.inspectorOpen = !chat.inspectorOpen; }}>
+      <PanelRight size={14} strokeWidth={1.75} />
+    </button>
+  {/if}
   <details bind:this={moreActions} class="relative">
     <summary class="chat-header-icon-button list-none" aria-label={t("chat.moreActions")}><EllipsisVertical size={14} strokeWidth={1.75} /></summary>
     <div class="chat-actions-menu right-0 top-8">
       {#if selectedChannel && !selectedChannel.isDefault}<button type="button" onclick={onRename}><Pencil size={13} />{t("chat.rename")}</button>{/if}
-      {#if selectedFolder?.bindingStatus === "available"}<button type="button" onclick={() => run(() => chat.openWorkingFolder(selectedFolder.workingFolder.id))}><FolderOpen size={13} />{t("chat.openFolder")}</button>{/if}
-      {#if selectedThread}<button type="button" onclick={() => run(() => openDetachedViewWindow("chat"))}><SquareArrowOutUpRight size={13} />{t("chat.detach")}</button>{/if}
+      {#if localExecutionAvailable && selectedFolder?.bindingStatus === "available"}<button type="button" onclick={() => run(() => chat.openWorkingFolder(selectedFolder.workingFolder.id))}><FolderOpen size={13} />{t("chat.openFolder")}</button>{/if}
+      {#if localExecutionAvailable && selectedThread}<button type="button" onclick={() => run(openDetachedChatWindow)}><SquareArrowOutUpRight size={13} />{t("chat.detach")}</button>{/if}
       {#if selectedChannel && !selectedChannel.isDefault && !selectedChannel.archivedAt}<button type="button" onclick={archiveSelectedChannel}><Archive size={13} />{t("chat.archive")}</button>{/if}
       <button type="button" onclick={() => settings.open("chat")}><Settings size={13} />{t("chat.settings")}</button>
     </div>

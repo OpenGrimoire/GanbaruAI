@@ -17,11 +17,11 @@ export const mobile = {
     projectsHeading: "Project settings stay with each project",
     projectsDescription:
       "Open a project and use its settings panel for workflow, defaults, statuses, priorities, and fields.",
-    chatHeading: "Local coding agents require a desktop",
+    chatHeading: "Chat communication is available on this device",
     chatDescription:
-      "This device cannot launch Codex, Claude, Cursor, OpenCode, or other local coding-agent processes.",
+      "Channels, messages, reply threads, search, drafts, and scheduled messages use the same local Chat model as desktop.",
     chatDetail:
-      "Mobile channel communication will appear here after the encrypted sync and remote communication boundary exists.",
+      "Android does not launch local coding-agent processes or workspace tools. Future remote execution will connect agents without replacing this Chat interface.",
     musicHeading: "Android media support is not connected yet",
     musicDescription:
       "Music settings will use the shared library and preferences after native Android playback and media controls are implemented.",

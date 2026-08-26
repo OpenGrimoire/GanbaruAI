@@ -18,6 +18,7 @@ const requiredDestinationNames = [
   "notes",
   "quick-notes",
   "music",
+  "chat",
 ];
 
 /** Read and parse one JSON file with a path-aware error. */

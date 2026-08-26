@@ -7,40 +7,65 @@ use super::channel_commands::{
 pub use super::coordination::contracts::*;
 use super::models::*;
 use serde::{Deserialize, Serialize};
-use sqlx::{Row, Sqlite, Transaction};
+use sqlx::Row;
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
+use sqlx::{Sqlite, Transaction};
 
 const LOCAL_PARTICIPANT_ID: &str = "participant:local-owner";
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 const MAX_CHANNEL_CONTEXT_MESSAGES: usize = 20;
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 const MAX_THREAD_CONTEXT_REPLIES: usize = 50;
 const MAX_PAGE_SIZE: u32 = 100;
 const DEFAULT_PAGE_SIZE: u32 = 50;
 const MAX_SEARCH_RESULTS: u32 = 100;
 
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
+#[path = "coordination_commands/access.rs"]
 pub mod access;
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
+#[path = "coordination_commands/assignments.rs"]
 mod assignments;
+#[path = "coordination_commands/common.rs"]
 mod common;
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
+#[path = "coordination_commands/context.rs"]
 mod context;
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
+#[path = "coordination_commands/dispatch.rs"]
 mod dispatch;
+#[path = "coordination_commands/reads.rs"]
 mod reads;
+#[path = "coordination_commands/scheduling.rs"]
 mod scheduling;
+#[path = "coordination_commands/teammate_lifecycle.rs"]
 mod teammate_lifecycle;
+#[path = "coordination_commands/workflow.rs"]
 mod workflow;
 
 use common::{
-    conversation_item_id, has_thread_eligible_mention, json_object, map_command_receipt_error,
-    map_teammate_write_error, message_revision_id, normalized_fts_query, parse_cursor,
-    parse_participant_kind, reply_thread_id, serialization_error, validate_display_name,
-    validate_message_request, validate_policy, validate_profile_text, validate_teammate_role,
+    conversation_item_id, has_thread_eligible_mention, map_command_receipt_error,
+    message_revision_id, normalized_fts_query, parse_cursor, parse_participant_kind,
+    reply_thread_id, serialization_error, validate_message_request,
 };
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
+use common::{
+    json_object, map_teammate_write_error, validate_display_name, validate_policy,
+    validate_profile_text, validate_teammate_role,
+};
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 use dispatch::{deliver_assignment_input, dispatch_assignment_job};
 pub(crate) use reads::read_memberships_for_conversation;
 use reads::{
     read_active_or_latest_assignment, read_assignment, read_message, read_reply_thread_page,
     read_teammate,
 };
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 use teammate_lifecycle::{delete_unused_teammate, set_teammate_archived};
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
+use workflow::insert_policy_revision;
 use workflow::{
-    insert_channel_copy, insert_communication_message, insert_policy_revision, next_item_ordinal,
+    insert_channel_copy, insert_communication_message, next_item_ordinal,
     persist_assignment_routing, read_post_receipt, require_continuation_scope_is_unchanged,
     require_reply_thread, resolve_invoked_teammate, AssignmentWrite, CommunicationMessageWrite,
 };
@@ -96,6 +121,7 @@ pub async fn chat_read_teammate(
 }
 
 #[tauri::command]
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 pub async fn chat_create_teammate(
     app: tauri::AppHandle,
     db_url: String,
@@ -150,6 +176,7 @@ pub async fn chat_create_teammate(
 }
 
 #[tauri::command]
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 pub async fn chat_archive_teammate(
     app: tauri::AppHandle,
     db_url: String,
@@ -162,6 +189,7 @@ pub async fn chat_archive_teammate(
 }
 
 #[tauri::command]
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 pub async fn chat_delete_unused_teammate(
     app: tauri::AppHandle,
     db_url: String,
@@ -184,6 +212,31 @@ pub async fn chat_list_channel_memberships(
 }
 
 #[tauri::command]
+pub async fn chat_read_mobile_channel_roster(
+    app: tauri::AppHandle,
+    db_url: String,
+    channel_id: ChatChannelId,
+) -> ChatResult<ChatChannelRosterRead> {
+    let pool = chat_pool(app, db_url).await?;
+    let channel = super::channel_commands::read_channel(&pool, &channel_id).await?;
+    let audience_revision: i64 = sqlx::query_scalar(
+        "SELECT revision FROM chat_conversation_audience_state WHERE conversation_id = ?",
+    )
+    .bind(channel.conversation_id.as_str())
+    .fetch_one(&pool)
+    .await
+    .map_err(persistence_error)?;
+    Ok(ChatChannelRosterRead {
+        channel_id,
+        conversation_id: channel.conversation_id.clone(),
+        audience_revision: u64_value(audience_revision)?,
+        memberships: read_memberships_for_conversation(&pool, &channel.conversation_id, false)
+            .await?,
+    })
+}
+
+#[tauri::command]
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 pub async fn chat_read_project_primary_working_folder(
     app: tauri::AppHandle,
     db_url: String,
@@ -216,6 +269,7 @@ pub async fn chat_read_project_primary_working_folder(
 }
 
 #[tauri::command]
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 pub async fn chat_set_project_primary_working_folder(
     app: tauri::AppHandle,
     db_url: String,
@@ -254,7 +308,9 @@ pub async fn chat_post_message(
     request: PostChatMessageCommand,
 ) -> ChatResult<PostChatMessageResult> {
     validate_message_request(&request)?;
+    #[cfg(not(any(target_os = "android", target_os = "ios")))]
     let dispatch_app = app.clone();
+    #[cfg(not(any(target_os = "android", target_os = "ios")))]
     let dispatch_db_url = db_url.clone();
     let pool = chat_pool(app, db_url).await?;
     if let Some(result) = read_post_receipt(&pool, &request.client_command_id).await? {
@@ -449,6 +505,7 @@ pub async fn chat_post_message(
     .execute(&pool)
     .await
     .map_err(persistence_error)?;
+    #[cfg(not(any(target_os = "android", target_os = "ios")))]
     if let Some(assignment_id) = assignment_write.assignment_id.clone() {
         if assignment_write.input_queued {
             let input_message_id = item_id.clone();
@@ -525,6 +582,7 @@ pub async fn chat_dispatch_due_scheduled_messages(
 }
 
 #[tauri::command]
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 pub async fn chat_recover_assignment_dispatch_jobs(
     app: tauri::AppHandle,
     db_url: String,
@@ -686,6 +744,7 @@ pub async fn chat_search_messages(
 }
 
 #[tauri::command]
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 pub async fn chat_cancel_assignment(
     app: tauri::AppHandle,
     db_url: String,
@@ -696,6 +755,7 @@ pub async fn chat_cancel_assignment(
 }
 
 #[tauri::command]
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 pub async fn chat_retry_assignment(
     app: tauri::AppHandle,
     db_url: String,
@@ -705,6 +765,7 @@ pub async fn chat_retry_assignment(
     assignments::retry_assignment(app, db_url, assignment_id, expected_revision).await
 }
 
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 pub(crate) async fn project_provider_event_in_transaction(
     transaction: &mut Transaction<'_, Sqlite>,
     runtime: &super::events::CanonicalRuntimeEvent,

@@ -1,4 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
+import { BUILD_PLATFORM_PROFILE, platformHasCapability } from "$lib/platform";
 import { ensureDbUrl } from "$lib/api/db";
 import type {
   ChatBehaviorPreferences,
@@ -198,6 +199,11 @@ import {
   parseHostedChangeRequests,
 } from "$lib/chat/validation";
 
+const localExecutionAvailable = platformHasCapability(
+  BUILD_PLATFORM_PROFILE,
+  "chat.local-execution",
+);
+
 export async function listChatProjectShells(): Promise<ChatProjectShellRead[]> {
   return parseChatProjectShells(await invoke<unknown>("chat_list_project_shells", { dbUrl: await ensureDbUrl() }));
 }
@@ -386,7 +392,10 @@ export async function listChatChannelMemberships(
 }
 
 export async function readChatChannelRoster(channelId: ChatChannelId): Promise<ChatChannelRosterRead> {
-  return parseChatChannelRoster(await invoke<unknown>("chat_read_channel_roster", {
+  const command = localExecutionAvailable
+    ? "chat_read_channel_roster"
+    : "chat_read_mobile_channel_roster";
+  return parseChatChannelRoster(await invoke<unknown>(command, {
     dbUrl: await ensureDbUrl(), channelId,
   }));
 }

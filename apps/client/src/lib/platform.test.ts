@@ -23,6 +23,7 @@ describe("platform profiles", () => {
     expect(platformHasCapability(profile, "view.notes")).toBe(true);
     expect(platformHasCapability(profile, "view.chat")).toBe(true);
     expect(platformHasCapability(profile, "view.music")).toBe(true);
+    expect(platformHasCapability(profile, "chat.local-execution")).toBe(true);
     expect(platformHasCapability(profile, "content.managed-image-downloads")).toBe(true);
     expect(platformHasCapability(profile, "notes.external-image-references")).toBe(false);
     expect(platformHasCapability(profile, "music.context-assignments")).toBe(true);
@@ -50,11 +51,13 @@ describe("platform profiles", () => {
       "view.calendar",
       "view.projects",
       "view.notes",
+      "view.chat",
       "view.music",
       "music.local-root-reselection",
       "system.android-back",
     ]);
-    expect(platformHasCapability(profile, "view.chat")).toBe(false);
+    expect(platformHasCapability(profile, "view.chat")).toBe(true);
+    expect(platformHasCapability(profile, "chat.local-execution")).toBe(false);
     expect(platformHasCapability(profile, "view.music")).toBe(true);
     expect(platformHasCapability(profile, "content.managed-image-downloads")).toBe(false);
     expect(platformHasCapability(profile, "notes.external-image-references")).toBe(false);
