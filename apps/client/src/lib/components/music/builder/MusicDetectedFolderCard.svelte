@@ -31,7 +31,7 @@
       <div class="min-w-0 flex-1">
         <h2 id="detected-music-folder-title" class="text-sm font-semibold">{t("music.builder.detectedFolderTitle")}</h2>
         <p class="mt-1 text-[0.7rem] leading-relaxed text-muted-foreground">{t("music.builder.detectedFolderDescription", selection.tracks.length)}</p>
-        <p class="mt-1.5 truncate rounded-lg bg-secondary/60 px-2 py-1.5 text-[0.65rem] text-secondary-foreground" title={selection.folderPath}>{selection.folderPath}</p>
+        <p class="mt-1.5 truncate rounded-lg bg-secondary/60 px-2 py-1.5 text-[0.65rem] text-secondary-foreground" title={selection.folderPath}>{selection.displayName ?? selection.folderPath}</p>
         {#if selection.truncated}<p class="mt-1.5 text-[0.63rem] leading-relaxed text-muted-foreground">{t("music.builder.previewTruncated")}</p>{/if}
       </div>
     </div>

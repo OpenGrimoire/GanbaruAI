@@ -55,7 +55,7 @@ export function createMusicNativeLocalAdapter(
 
   function isActive(): boolean {
     return state.currentSource?.kind === "local-file"
-      && state.localBackendKind === "rodio";
+      && (state.localBackendKind === "rodio" || state.localBackendKind === "media3");
   }
 
   function applySnapshot(localSnapshot: LocalPlayerSnapshot): void {
@@ -173,7 +173,7 @@ export function createMusicNativeLocalAdapter(
   }
 
   async function reset(): Promise<void> {
-    if (isActive()) await stopLocalMedia().catch(() => null);
+    await stopLocalMedia().catch(() => null);
   }
 
   return {

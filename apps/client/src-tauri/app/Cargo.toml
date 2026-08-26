@@ -49,6 +49,7 @@ tauri-plugin-updater = { workspace = true }
 
 [target.'cfg(target_os = "android")'.dependencies]
 ganbaru-mobile-documents = { workspace = true }
+ganbaru-mobile-media = { workspace = true }
 
 [target.'cfg(target_os = "ios")'.dependencies]
 tauri-plugin-dialog = { workspace = true }

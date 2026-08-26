@@ -1,4 +1,3 @@
-#[cfg(not(any(target_os = "android", target_os = "ios")))]
 pub(crate) mod commands;
 pub(crate) mod contexts;
 mod defaults;
@@ -10,6 +9,8 @@ mod interchange;
 mod item_repair;
 #[cfg(not(any(target_os = "android", target_os = "ios")))]
 pub(crate) mod local_refresh;
+#[cfg(target_os = "android")]
+mod mobile_refresh;
 mod models;
 mod playback;
 mod playlist_edits;

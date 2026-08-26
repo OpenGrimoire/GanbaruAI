@@ -108,6 +108,123 @@ describe("MusicSourcesController", () => {
     expect(createRoot).not.toHaveBeenCalled();
   });
 
+  it("reselects an Android document tree without replacing the logical source", async () => {
+    const collection = {
+      id: "collection-1",
+      kind: "local-root" as const,
+      identityKey: "local-root:root-1",
+      name: "Music",
+      localRootId: "root-1",
+      youtubePlaylistId: null,
+      discoveryEnabled: true,
+      refreshState: "idle" as const,
+      lastSuccessfulRefreshAt: null,
+      previousSuccessfulRefreshAt: null,
+      lastRefreshErrorCode: null,
+      snapshotGeneration: 0,
+      createdAt: 1,
+      updatedAt: 1,
+      version: 1,
+      removedAt: null,
+    };
+    const bindRoot = vi.fn(async (_vaultId: string, rootId: string, folderPath: string) => ({
+      rootId,
+      folderPath,
+      status: "available" as const,
+    }));
+    const refresh = refreshStub();
+    const controller = createMusicSourcesController(api({
+      roots: vi.fn(async () => [{ id: "root-1", name: "Music", createdAt: 1, updatedAt: 1, version: 1 }]),
+      collections: vi.fn(async () => [collection]),
+      bindings: vi.fn(async () => [{ rootId: "root-1", folderPath: "content://new-tree", status: "available" as const }]),
+      pickFolder: vi.fn(async () => ({ folderPath: "content://new-tree", tracks: [], truncated: false })),
+      bindRoot,
+    }), () => 20, () => "job-1", refresh);
+    controller.setVault("vault-1");
+
+    expect(await controller.reselectLocalRoot(collection)).toBe(true);
+    expect(bindRoot).toHaveBeenCalledWith("vault-1", "root-1", "content://new-tree");
+    expect(refresh.run).toHaveBeenCalledOnce();
+    expect(refresh.prepare).toBeDefined();
+  });
+
+  it("surfaces a failed initial folder refresh instead of opening an empty review", async () => {
+    const refresh = refreshStub();
+    refresh.run = vi.fn(async (plan) => [{
+      collectionId: plan.targets[0]?.collectionId ?? "collection-1",
+      kind: "local-root" as const,
+      name: "Music",
+      state: "failed" as const,
+      progress: null,
+      error: "The Android music refresh could not be saved.",
+    }]);
+    const ids = ["root-1", "collection-1", "job-1"];
+    const controller = createMusicSourcesController(
+      api(),
+      () => 20,
+      () => ids.shift() ?? "id",
+      refresh,
+    );
+    controller.setVault("vault-1");
+
+    await expect(controller.addLocalFolder({
+      folderPath: "content://music",
+      tracks: [],
+      truncated: false,
+    }, "Music", true)).rejects.toThrow("The Android music refresh could not be saved.");
+    expect(controller.error).toBe("The Android music refresh could not be saved.");
+  });
+
+  it("recovers only uninitialized local sources with an available folder grant", async () => {
+    const controller = createMusicSourcesController(api(), () => 20, () => "job-1", refreshStub());
+    controller.collections = [
+      {
+        id: "recover",
+        kind: "local-root",
+        identityKey: "local-root:recover-root",
+        name: "Music",
+        localRootId: "recover-root",
+        youtubePlaylistId: null,
+        discoveryEnabled: true,
+        refreshState: "idle",
+        lastSuccessfulRefreshAt: null,
+        previousSuccessfulRefreshAt: null,
+        lastRefreshErrorCode: null,
+        snapshotGeneration: 0,
+        createdAt: 1,
+        updatedAt: 1,
+        version: 1,
+        removedAt: null,
+      },
+      {
+        id: "ready",
+        kind: "local-root",
+        identityKey: "local-root:ready-root",
+        name: "Ready",
+        localRootId: "ready-root",
+        youtubePlaylistId: null,
+        discoveryEnabled: true,
+        refreshState: "idle",
+        lastSuccessfulRefreshAt: 10,
+        previousSuccessfulRefreshAt: null,
+        lastRefreshErrorCode: null,
+        snapshotGeneration: 1,
+        createdAt: 1,
+        updatedAt: 10,
+        version: 2,
+        removedAt: null,
+      },
+    ];
+    controller.bindings = [
+      { rootId: "recover-root", folderPath: "content://music", status: "available" },
+      { rootId: "ready-root", folderPath: "content://ready", status: "available" },
+    ];
+
+    const plan = controller.prepareUninitializedLocalRefresh();
+
+    expect(plan.targets.map((target) => target.collectionId)).toEqual(["recover"]);
+  });
+
   it("automatically adopts and scans the system Music folder once when no local root exists", async () => {
     const detectDefaultFolder = vi.fn(async () => ({
       folderPath: "/home/user/Music",

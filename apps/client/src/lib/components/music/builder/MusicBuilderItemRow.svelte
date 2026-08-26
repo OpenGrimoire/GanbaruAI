@@ -22,6 +22,7 @@
     setSize = undefined,
     bindings,
     playlistName,
+    showLocationAction = true,
     onTogglePlayback,
     onShowLocation,
     onSnooze,
@@ -34,6 +35,7 @@
     position?: number;
     setSize?: number;
     playlistName: string;
+    showLocationAction?: boolean;
     onTogglePlayback: (item: MusicItemListEntry) => void;
     onShowLocation: (item: MusicItemListEntry) => Promise<void>;
     onSnooze: (item: MusicItemListEntry, duration: MusicSnoozeDuration, everywhere: boolean) => Promise<void>;
@@ -102,7 +104,7 @@
       <span class="row-status" title={t("music.builder.snoozed")}><Clock3 size={12} strokeWidth={1.7} /><span class="sr-only">{t("music.builder.snoozed")}</span></span>
     {/if}
     {#if duration}<span class="w-10 text-right text-[0.65rem] tabular-nums text-muted-foreground">{duration}</span>{/if}
-    <MusicPlaylistItemMenu {item} {playlistName} {onShowLocation} {onSnooze} {onWeight} {onRemove} />
+    <MusicPlaylistItemMenu {item} {playlistName} {showLocationAction} {onShowLocation} {onSnooze} {onWeight} {onRemove} />
   </div>
 </div>
 

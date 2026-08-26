@@ -25,7 +25,10 @@ mod first_use_contracts;
 mod media_controls;
 #[cfg(not(any(target_os = "android", target_os = "ios")))]
 mod media_player;
-#[cfg(not(any(target_os = "android", target_os = "ios")))]
+#[cfg(target_os = "android")]
+#[path = "media_player_mobile.rs"]
+mod media_player;
+#[cfg(not(target_os = "ios"))]
 mod music;
 mod music_context;
 mod music_error;
@@ -85,6 +88,10 @@ mod composition_tests {
             "pomodoro::pomodoro_recover_mobile_run",
             "quick_notes::quick_notes_list",
             "themes::theme_load_all",
+            "media_player::media_player_load",
+            "music::music_get_playback_state",
+            "music::library::commands::music_library_playlist_summaries",
+            "music::root_bindings::music_get_local_root_bindings",
             "profile_images::profile_image_asset_data_url",
             "profile_images::profile_image_save_data_url",
             "project_icons::project_icon_asset_data_url",
@@ -103,8 +110,6 @@ mod composition_tests {
         for command in [
             "chat::",
             "doomscrolling::",
-            "media_player::",
-            "music::",
             "notification::",
             "soundscape::",
             "tray::",
@@ -122,6 +127,11 @@ mod composition_tests {
             "project_icons::project_icon_download_image_url",
             "project_icons::project_icon_asset_path",
             "pomodoro::pomodoro_recover_open_runs",
+            "music::music_pick_soundscape_file",
+            "music::music_reveal_local_file",
+            "music::library::commands::music_library_create_relink_plan",
+            "music::library::commands::music_library_preview_item_repair",
+            "music::library::commands::music_library_soundscapes",
         ] {
             assert!(
                 !MOBILE_RUNTIME.contains(command),

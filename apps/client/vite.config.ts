@@ -319,6 +319,18 @@ export default defineConfig({
           ? "src/lib/music/platform-library.mobile.ts"
           : "src/lib/music/platform-library.ts",
       ),
+      "$lib/music/platform-paths": path.resolve(
+        configDir,
+        mobileBuild
+          ? "src/lib/music/platform-paths.mobile.ts"
+          : "src/lib/music/platform-paths.ts",
+      ),
+      "$lib/music/music-platform-controls": path.resolve(
+        configDir,
+        mobileBuild
+          ? "src/lib/music/music-platform-controls.mobile.ts"
+          : "src/lib/music/music-platform-controls.ts",
+      ),
       "$lib/window-sync-transport": path.resolve(
         configDir,
         mobileBuild
@@ -390,6 +402,42 @@ export default defineConfig({
         mobileBuild
           ? "src/lib/components/mobile/MobileNoopMusicAssignmentEditor.svelte"
           : "src/lib/components/music/MusicSoundtrackAssignmentEditor.svelte",
+      ),
+      "$lib/components/music/MusicSoundscapeControl.svelte": path.resolve(
+        configDir,
+        mobileBuild
+          ? "src/lib/components/mobile/MobileNoopMusicSoundscapeControl.svelte"
+          : "src/lib/components/music/MusicSoundscapeControl.svelte",
+      ),
+      "$lib/components/music/MusicSoundscapeBuilder.svelte": path.resolve(
+        configDir,
+        mobileBuild
+          ? "src/lib/components/mobile/MobileNoopMusicSoundscapeBuilder.svelte"
+          : "src/lib/components/music/MusicSoundscapeBuilder.svelte",
+      ),
+      "$lib/stores/soundscape.svelte": path.resolve(
+        configDir,
+        mobileBuild
+          ? "src/lib/stores/soundscape.mobile.svelte.ts"
+          : "src/lib/stores/soundscape.svelte.ts",
+      ),
+      "$lib/stores/music-external-controls": path.resolve(
+        configDir,
+        mobileBuild
+          ? "src/lib/stores/music-external-controls.mobile.ts"
+          : "src/lib/stores/music-external-controls.ts",
+      ),
+      "$lib/components/music/builder/MusicItemRepairDialog.svelte": path.resolve(
+        configDir,
+        mobileBuild
+          ? "src/lib/components/mobile/MobileNoopMusicItemRepairDialog.svelte"
+          : "src/lib/components/music/builder/MusicItemRepairDialog.svelte",
+      ),
+      "$lib/components/music/builder/MusicRelinkWizard.svelte": path.resolve(
+        configDir,
+        mobileBuild
+          ? "src/lib/components/mobile/MobileNoopMusicRelinkWizard.svelte"
+          : "src/lib/components/music/builder/MusicRelinkWizard.svelte",
       ),
       "$lib/components/projects/ProjectSettingsWorkingFoldersSection.svelte": path.resolve(
         configDir,

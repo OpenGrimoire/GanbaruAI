@@ -62,6 +62,7 @@
     onDeletePlaylist,
     onReorderPlaylists,
     issue = null,
+    repairAvailable = true,
     onRepairIssue = () => undefined,
     viewState,
   }: {
@@ -83,6 +84,7 @@
     onDeletePlaylist: (playlistId: string) => void;
     onReorderPlaylists: (playlistIds: string[]) => Promise<boolean>;
     issue?: MusicIssue | null;
+    repairAvailable?: boolean;
     onRepairIssue?: (issue: MusicIssue) => void;
     viewState: MusicReviewWorkspaceViewState;
   } = $props();
@@ -537,7 +539,7 @@
               <div class="mt-1 flex min-w-0 items-center gap-1.5 text-[0.65rem]">
                 <TriangleAlert size={12} class="shrink-0 text-destructive" />
                 <span class="min-w-0 truncate text-muted-foreground">{attentionLabel()}</span>
-                {#if issue?.actionRequired}<button type="button" onclick={() => onRepairIssue(issue)} class="shrink-0 font-semibold text-primary hover:underline">{t("music.builder.repair")}</button>{/if}
+                {#if issue?.actionRequired && repairAvailable}<button type="button" onclick={() => onRepairIssue(issue)} class="shrink-0 font-semibold text-primary hover:underline">{t("music.builder.repair")}</button>{/if}
               </div>
             {/if}
           </div>

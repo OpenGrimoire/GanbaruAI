@@ -32,6 +32,8 @@
   type NotesComponent = typeof import("$lib/components/notes/NotesView.svelte").default;
   type QuickNotesComponent = typeof import("$lib/components/quick-notes/QuickNotesPanel.svelte").default;
   type SettingsComponent = typeof import("$lib/components/settings/SettingsModal.svelte").default;
+  type MusicComponent = typeof import("$lib/components/music/MusicPanel.svelte").default;
+  type MusicPlaybackHostComponent = typeof import("$lib/components/music/MusicPlaybackHost.svelte").default;
   type NotesStore = ReturnType<typeof import("$lib/stores/notes.svelte").getNotes>;
 
   const nav = getNavigation();
@@ -46,10 +48,15 @@
     BUILD_PLATFORM_PROFILE,
     "system.android-back",
   );
+  const musicAvailable = platformHasCapability(BUILD_PLATFORM_PROFILE, "view.music");
 
   let showPomodoro = $state(false);
   let showSettings = $state(false);
   let showQuickNotes = $state(false);
+  let showMusic = $state(false);
+  let musicLoading = $state(false);
+  let musicLoadError = $state("");
+  let musicLoadDialog = $state<HTMLDivElement | null>(null);
   let quickNotesLoading = $state(false);
   let quickNotesLoadError = $state("");
   let quickNotesLoadDialog = $state<HTMLDivElement | null>(null);
@@ -64,16 +71,20 @@
   let NotesSurface = $state<NotesComponent | null>(null);
   let QuickNotesSurface = $state<QuickNotesComponent | null>(null);
   let SettingsSurface = $state<SettingsComponent | null>(null);
+  let MusicSurface = $state<MusicComponent | null>(null);
+  let MusicPlaybackHostSurface = $state<MusicPlaybackHostComponent | null>(null);
   let notesStore = $state.raw<NotesStore | null>(null);
   let notesSurfaceMounted = $state(false);
   let surfaceLoadGeneration = 0;
   let quickNotesLoadGeneration = 0;
   let settingsLoadGeneration = 0;
+  let musicLoadGeneration = 0;
   let settingsLoading = $state(false);
   let settingsLoadError = $state("");
   let removePomodoroBackLayer = (): void => undefined;
   let removeSettingsBackLayer = (): void => undefined;
   let removeQuickNotesBackLayer = (): void => undefined;
+  let removeMusicBackLayer = (): void => undefined;
 
   const navigationPresentation = $derived(
     mobileNavigationPresentation(viewport.layoutWidth),
@@ -82,7 +93,7 @@
   const suspendInfo = $derived(pomodoro.suspendedAway);
   const suspendDecisionOpen = $derived(suspendInfo !== null);
   const modalOpen = $derived(
-    showPomodoro || showSettings || showQuickNotes || suspendDecisionOpen,
+    showPomodoro || showSettings || showQuickNotes || showMusic || suspendDecisionOpen,
   );
   const currentTitle = $derived(t(`titleBar.tab.${nav.current}`));
   const shouldInterceptSystemBack = $derived(
@@ -221,6 +232,7 @@
   function openPomodoro(): void {
     closeSettings();
     closeQuickNotes();
+    closeMusic();
     showPomodoro = true;
     removePomodoroBackLayer();
     removePomodoroBackLayer = mobileBackStack.activate({ handle: closePomodoro });
@@ -255,6 +267,7 @@
   function openSettings(): void {
     closePomodoro();
     closeQuickNotes();
+    closeMusic();
     showSettings = true;
     removeSettingsBackLayer();
     removeSettingsBackLayer = mobileBackStack.activate({ handle: closeSettings });
@@ -291,10 +304,54 @@
     if (showQuickNotes || !backendReady) return;
     closePomodoro();
     closeSettings();
+    closeMusic();
     showQuickNotes = true;
     removeQuickNotesBackLayer();
     removeQuickNotesBackLayer = mobileBackStack.activate({ handle: closeQuickNotes });
     void loadQuickNotesSurface();
+  }
+
+  function closeMusic(): void {
+    musicLoadGeneration += 1;
+    removeMusicBackLayer();
+    removeMusicBackLayer = () => undefined;
+    showMusic = false;
+    musicLoading = false;
+    musicLoadError = "";
+  }
+
+  async function loadMusicSurface(): Promise<void> {
+    if ((MusicSurface && MusicPlaybackHostSurface) || musicLoading) return;
+    const generation = ++musicLoadGeneration;
+    musicLoading = true;
+    musicLoadError = "";
+    try {
+      const [panelModule, hostModule] = await Promise.all([
+        import("$lib/components/music/MusicPanel.svelte"),
+        import("$lib/components/music/MusicPlaybackHost.svelte"),
+      ]);
+      if (generation === musicLoadGeneration) {
+        MusicSurface = panelModule.default;
+        MusicPlaybackHostSurface = hostModule.default;
+      }
+    } catch (error) {
+      if (generation !== musicLoadGeneration) return;
+      musicLoadError = error instanceof Error ? error.message : String(error);
+      console.error("Failed to load the mobile Music surface", error);
+    } finally {
+      if (generation === musicLoadGeneration) musicLoading = false;
+    }
+  }
+
+  function openMusic(): void {
+    if (!musicAvailable || showMusic || !backendReady) return;
+    closePomodoro();
+    closeSettings();
+    closeQuickNotes();
+    showMusic = true;
+    removeMusicBackLayer();
+    removeMusicBackLayer = mobileBackStack.activate({ handle: closeMusic });
+    void loadMusicSurface();
   }
 
   function handleSystemBack(): void {
@@ -331,6 +388,7 @@
       removePomodoroBackLayer();
       removeSettingsBackLayer();
       removeQuickNotesBackLayer();
+      removeMusicBackLayer();
       detachPersistenceLifecycle();
       void persistenceLifecycle.flush();
       void backListenerController.dispose();
@@ -361,6 +419,11 @@
     if (!showSettings || SettingsSurface || !settingsLoadDialog) return;
     return activateModalFocus(settingsLoadDialog);
   });
+
+  $effect(() => {
+    if (!showMusic || MusicSurface || !musicLoadDialog) return;
+    return activateModalFocus(musicLoadDialog);
+  });
 </script>
 
 <div
@@ -380,8 +443,13 @@
       quickNotesOpen={showQuickNotes}
       quickNotesLoading={quickNotesLoading}
       quickNotesDisabled={!backendReady}
+      musicOpen={showMusic}
+      musicLoading={musicLoading}
+      musicDisabled={!backendReady}
+      musicVisible={musicAvailable}
       onOpenPomodoro={openPomodoro}
       onOpenQuickNotes={openQuickNotes}
+      onOpenMusic={openMusic}
       onOpenSettings={openSettings}
     />
 
@@ -428,6 +496,10 @@
     {/if}
   </div>
 
+  {#if MusicPlaybackHostSurface}
+    <MusicPlaybackHostSurface />
+  {/if}
+
   {#if showPomodoro}
     <div inert={suspendDecisionOpen} aria-hidden={suspendDecisionOpen ? "true" : undefined}>
       <MobilePomodoroSheet
@@ -437,6 +509,37 @@
           navigate("calendar");
         }}
       />
+    </div>
+  {/if}
+
+  {#if showMusic && MusicSurface}
+    <div inert={suspendDecisionOpen} aria-hidden={suspendDecisionOpen ? "true" : undefined}>
+      <MusicSurface presentation="mobile" onclose={closeMusic} />
+    </div>
+  {:else if showMusic}
+    <div
+      class="fixed z-50 flex items-center justify-center bg-background/95"
+      inert={suspendDecisionOpen}
+      aria-hidden={suspendDecisionOpen ? "true" : undefined}
+      style="left: var(--visual-viewport-offset-left); top: var(--visual-viewport-offset-top); width: var(--visual-viewport-width); height: var(--visual-viewport-height); padding: calc(var(--safe-area-top) + 1rem) calc(var(--safe-area-right) + 1rem) calc(var(--safe-area-bottom) + 1rem) calc(var(--safe-area-left) + 1rem);"
+    >
+      <div
+        bind:this={musicLoadDialog}
+        class="flex w-full max-w-sm flex-col items-center gap-3 rounded-2xl border border-border bg-card p-5 text-center text-card-foreground outline-none"
+        role="dialog"
+        aria-modal="true"
+        aria-label={t("music.title")}
+        tabindex="-1"
+      >
+        {#if musicLoadError}
+          <p class="text-sm font-medium" role="alert">{t("common.viewLoadFailed", t("music.title"))}</p>
+          <p class="max-w-full wrap-break-word text-xs text-muted-foreground">{musicLoadError}</p>
+          <button type="button" class="min-h-12 w-full rounded-xl border border-border px-4 text-sm font-medium active:bg-accent" onclick={() => void loadMusicSurface()}>{t("common.retry")}</button>
+        {:else}
+          <p class="text-sm text-muted-foreground" aria-busy="true">{t("common.loading")}</p>
+        {/if}
+        <button type="button" class="min-h-12 w-full rounded-xl px-4 text-sm font-medium active:bg-accent" onclick={closeMusic}>{t("common.close")}</button>
+      </div>
     </div>
   {/if}
 

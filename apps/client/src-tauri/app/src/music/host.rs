@@ -15,7 +15,9 @@ use std::{
 
 use tauri::{Manager, State};
 
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 use super::artwork::{embedded_artwork_id, extract_embedded_artwork};
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 use super::require_absolute_file;
 use super::youtube_host::{youtube_host_content_security_policy, youtube_host_html};
 
@@ -258,6 +260,7 @@ const BASIC_RESPONSE_CSP: &str =
     "default-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'; sandbox";
 
 #[tauri::command]
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 pub fn music_register_media_file(
     state: State<'_, MusicHostState>,
     path: String,
@@ -275,6 +278,7 @@ pub fn music_register_media_file(
 }
 
 #[tauri::command]
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 pub fn music_register_embedded_artwork(
     state: State<'_, MusicHostState>,
     path: String,

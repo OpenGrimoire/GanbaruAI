@@ -1636,6 +1636,7 @@ name = "ganbaru-ai"
 version = "0.1.5"
 dependencies = [
  "ganbaru-mobile-documents",
+ "ganbaru-mobile-media",
  "ganbaru-tauri-app",
  "serde_json",
  "tauri",
@@ -1711,6 +1712,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "ganbaru-mobile-media"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "tauri",
+ "tauri-plugin",
+]
+
+[[package]]
 name = "ganbaru-native-messaging"
 version = "0.1.5"
 dependencies = [
@@ -1756,6 +1766,7 @@ dependencies = [
  "ganbaru-chat-providers",
  "ganbaru-db",
  "ganbaru-mobile-documents",
+ "ganbaru-mobile-media",
  "ganbaru-notes",
  "ganbaru-working-folders",
  "gtk",

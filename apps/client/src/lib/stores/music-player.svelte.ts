@@ -1,5 +1,3 @@
-import { invoke } from "@tauri-apps/api/core";
-import { getCurrentWindow } from "@tauri-apps/api/window";
 import type { MusicRepeatMode, MusicSelectionKind } from "$lib/music/library-contracts";
 import type {
   MusicActivityPhase,
@@ -36,6 +34,7 @@ import { getConfigKey, setConfigKey } from "$lib/vault/config";
 import { onActiveVaultIdentityChange } from "$lib/vault/active-vault";
 import { planMusicQueueMutation } from "$lib/music/music-queue-mutation";
 import { musicContextStateAfterAction } from "$lib/music/music-automation-ownership";
+import { focusMusicWindow, publishMusicTray } from "$lib/music/music-platform-controls";
 import { MusicSavedPlaylistRuntime } from "./music-saved-playlist-runtime";
 import { MusicSurfaceClaims } from "./music-surface-claims";
 import {
@@ -52,7 +51,7 @@ import {
   createMusicHostedMediaController,
   type MusicStaleVisual,
 } from "./music-hosted-media-controller";
-import { createMusicExternalControls } from "./music-external-controls";
+import { createMusicExternalControls } from "$lib/stores/music-external-controls";
 import { createMusicPlaybackRuntime } from "./music-playback-runtime";
 import { createMusicYouTubeAdapter } from "./music-youtube-adapter";
 import { createMusicNativeLocalAdapter } from "./music-native-local-adapter";
@@ -515,8 +514,7 @@ class MusicPlayerStore {
     window.dispatchEvent(new CustomEvent("ganbaru-ai:inspect-music-assignment", {
       detail: { eventId: context.eventId },
     }));
-    const appWindow = getCurrentWindow();
-    void appWindow.show().then(() => appWindow.setFocus()).catch(() => {});
+    focusMusicWindow();
   }
 
   private registerManualContextAction(origin: MusicPlaybackActionOrigin): void {
@@ -609,7 +607,8 @@ class MusicPlayerStore {
     this.updateMusicTray();
   }
   async togglePlay(origin: MusicPlaybackActionOrigin = "manual"): Promise<void> {
-    if (!this.currentSource || this.snapshot.status === "loading") return;
+    if (!this.currentSource) return;
+    if (this.snapshot.status === "loading" && !this.usesNativeLocalBackend()) return;
     if (this.snapshot.status === "playing") {
       await this.pausePlayback(origin);
       return;
@@ -1067,18 +1066,16 @@ class MusicPlayerStore {
     ].join("|");
     if (signature === this.lastTraySignature) return;
     this.lastTraySignature = signature;
-    invoke("update_music_tray", {
-      update: {
-        status: this.snapshot.status,
-        title: this.currentSource ? this.loadedTitle : null,
-        canPlayPause: Boolean(this.currentSource) && !this.isBusy,
-        canPrevious: this.canPlayPreviousTrack,
-        canNext: this.canPlayNextTrack,
-        contextLabel: this.contextPlayback?.state !== "overridden"
-          ? this.contextPlayback?.displayLabel ?? null
-          : null,
-      },
-    }).catch(() => {});
+    void publishMusicTray({
+      status: this.snapshot.status,
+      title: this.currentSource ? this.loadedTitle : null,
+      canPlayPause: Boolean(this.currentSource) && !this.isBusy,
+      canPrevious: this.canPlayPreviousTrack,
+      canNext: this.canPlayNextTrack,
+      contextLabel: this.contextPlayback?.state !== "overridden"
+        ? this.contextPlayback?.displayLabel ?? null
+        : null,
+    }).catch(() => undefined);
   }
 }
 

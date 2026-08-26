@@ -1,5 +1,7 @@
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 use base64::{engine::general_purpose, Engine as _};
 use serde::{Deserialize, Serialize};
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 use std::{
     collections::{HashMap, VecDeque},
     fs,
@@ -11,23 +13,23 @@ use std::{
     sync::atomic::{AtomicU64, Ordering},
     time::{SystemTime, UNIX_EPOCH},
 };
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 use tauri::Manager;
 #[cfg(not(any(target_os = "android", target_os = "ios")))]
 use tauri_plugin_dialog::{DialogExt, FilePath};
 
 use crate::db_path::connect_sqlite;
 
-mod artwork;
 #[cfg(not(any(target_os = "android", target_os = "ios")))]
+mod artwork;
 pub(crate) mod host;
 pub(crate) mod library;
 pub(crate) mod root_bindings;
-#[cfg(not(any(target_os = "android", target_os = "ios")))]
 mod youtube_host;
 
-#[cfg(not(any(target_os = "android", target_os = "ios")))]
 pub(crate) use host::setup_youtube_host;
 
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 use artwork::{extract_embedded_artwork, find_track_artwork};
 
 const VALID_SOURCE_KINDS: &[&str] = &["local-file", "youtube-video", "youtube-playlist"];
@@ -36,10 +38,11 @@ const VALID_PLAYBACK_STATUSES: &[&str] = &[
 ];
 const MAX_MEDIA_FOLDER_FILES: usize = 5_000;
 const MAX_ARTWORK_BYTES: u64 = 12 * 1024 * 1024;
-#[cfg(not(any(target_os = "android", target_os = "ios")))]
+#[cfg(not(target_os = "ios"))]
 const MAX_INTERCHANGE_BYTES: u64 = 8 * 1024 * 1024;
 #[cfg(not(any(target_os = "android", target_os = "ios")))]
 static MEDIA_FOLDER_SCAN_GENERATION: AtomicU64 = AtomicU64::new(0);
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 const MEDIA_EXTENSIONS: &[&str] = &[
     "aac", "aif", "aiff", "alac", "ape", "avi", "flac", "flv", "m4a", "m4v", "mkv", "mov", "mp3",
     "mp4", "mpeg", "mpg", "ogg", "ogv", "opus", "wav", "webm", "wma", "wmv",
@@ -96,6 +99,7 @@ pub struct MediaFolderTrack {
 #[serde(rename_all = "camelCase")]
 pub struct MediaFolderSelection {
     pub folder_path: String,
+    pub display_name: Option<String>,
     pub tracks: Vec<MediaFolderTrack>,
     pub truncated: bool,
 }
@@ -209,6 +213,35 @@ pub async fn music_pick_media_folder(
     .map_err(|e| format!("media folder picker failed: {e}"))?
 }
 
+#[cfg(target_os = "android")]
+#[tauri::command]
+pub async fn music_pick_media_folder(
+    app: tauri::AppHandle,
+) -> Result<Option<MediaFolderSelection>, String> {
+    use ganbaru_mobile_media::MobileMediaExt;
+
+    app.mobile_media()
+        .pick_media_tree(MAX_MEDIA_FOLDER_FILES as u32, 48)
+        .await
+        .map(|selection| {
+            selection.map(|tree| MediaFolderSelection {
+                folder_path: tree.tree_uri,
+                display_name: Some(tree.display_name),
+                tracks: tree
+                    .tracks
+                    .into_iter()
+                    .map(|track| MediaFolderTrack {
+                        path: track.uri,
+                        title: track.title,
+                        artwork_path: track.artwork_uri,
+                    })
+                    .collect(),
+                truncated: tree.truncated,
+            })
+        })
+}
+
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 #[tauri::command]
 pub async fn music_detect_default_folder(
     app: tauri::AppHandle,
@@ -223,6 +256,13 @@ pub async fn music_detect_default_folder(
     .map_err(|error| format!("default music folder scan failed: {error}"))?
 }
 
+#[cfg(target_os = "android")]
+#[tauri::command]
+pub async fn music_detect_default_folder() -> Result<Option<MediaFolderSelection>, String> {
+    Ok(None)
+}
+
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 fn detect_non_empty_media_folder(folder: &Path) -> Result<Option<MediaFolderSelection>, String> {
     require_absolute_directory(folder)?;
     let mut queue = VecDeque::from([folder.to_path_buf()]);
@@ -248,6 +288,10 @@ fn detect_non_empty_media_folder(folder: &Path) -> Result<Option<MediaFolderSele
             } else if file_type.is_file() && is_supported_media_path(&path) {
                 return Ok(Some(MediaFolderSelection {
                     folder_path: folder.to_string_lossy().into_owned(),
+                    display_name: folder
+                        .file_name()
+                        .and_then(|name| name.to_str())
+                        .map(str::to_string),
                     tracks: vec![MediaFolderTrack {
                         title: media_title_from_path(&path),
                         path: path.to_string_lossy().into_owned(),
@@ -279,6 +323,19 @@ pub async fn music_pick_root_binding_folder(
     })
     .await
     .map_err(|error| format!("music folder mapping picker failed: {error}"))?
+}
+
+#[cfg(target_os = "android")]
+#[tauri::command]
+pub async fn music_pick_root_binding_folder(
+    app: tauri::AppHandle,
+) -> Result<Option<String>, String> {
+    use ganbaru_mobile_media::MobileMediaExt;
+
+    app.mobile_media()
+        .pick_media_tree(1, 48)
+        .await
+        .map(|selection| selection.map(|tree| tree.tree_uri))
 }
 
 #[cfg(not(any(target_os = "android", target_os = "ios")))]
@@ -339,6 +396,14 @@ pub async fn music_pick_artwork_file(app: tauri::AppHandle) -> Result<Option<Str
     Ok(selected.map(|path| path.to_string_lossy().into_owned()))
 }
 
+#[cfg(target_os = "android")]
+#[tauri::command]
+pub async fn music_pick_artwork_file(app: tauri::AppHandle) -> Result<Option<String>, String> {
+    use ganbaru_mobile_media::MobileMediaExt;
+
+    app.mobile_media().pick_artwork_file().await
+}
+
 #[cfg(not(any(target_os = "android", target_os = "ios")))]
 #[tauri::command]
 pub async fn music_pick_and_read_interchange_file(
@@ -376,6 +441,26 @@ pub async fn music_pick_and_read_interchange_file(
     .map_err(|error| format!("music import picker failed: {error}"))?
 }
 
+#[cfg(target_os = "android")]
+#[tauri::command]
+pub async fn music_pick_and_read_interchange_file(
+    app: tauri::AppHandle,
+) -> Result<Option<String>, String> {
+    use ganbaru_mobile_documents::MobileDocumentsExt;
+
+    app.mobile_documents().pick_utf8_document_matching(
+        MAX_INTERCHANGE_BYTES,
+        &["json", "m3u8", "m3u"],
+        &[
+            "application/json",
+            "application/vnd.apple.mpegurl",
+            "audio/x-mpegurl",
+            "text/plain",
+        ],
+        "music playlist",
+    )
+}
+
 #[cfg(not(any(target_os = "android", target_os = "ios")))]
 #[tauri::command]
 pub async fn music_pick_and_write_interchange_file(
@@ -392,17 +477,7 @@ pub async fn music_pick_and_write_interchange_file(
         "m3u8" => ("m3u8", "UTF-8 M3U playlist"),
         _ => return Err("unsupported music export format".to_string()),
     };
-    let safe_stem = default_name
-        .chars()
-        .map(|character| {
-            if character.is_alphanumeric() || matches!(character, ' ' | '-' | '_') {
-                character
-            } else {
-                '_'
-            }
-        })
-        .collect::<String>();
-    let file_name = format!("{}.{}", safe_stem.trim().trim_end_matches('.'), extension);
+    let file_name = music_interchange_file_name(&default_name, extension)?;
     tauri::async_runtime::spawn_blocking(move || {
         let Some(path) = app
             .dialog()
@@ -432,6 +507,56 @@ pub async fn music_pick_and_write_interchange_file(
     .map_err(|error| format!("music export picker failed: {error}"))?
 }
 
+#[cfg(target_os = "android")]
+#[tauri::command]
+pub async fn music_pick_and_write_interchange_file(
+    app: tauri::AppHandle,
+    default_name: String,
+    contents: String,
+    format: String,
+) -> Result<bool, String> {
+    use ganbaru_mobile_documents::MobileDocumentsExt;
+
+    if contents.len() as u64 > MAX_INTERCHANGE_BYTES {
+        return Err("music export exceeds the 8 MB safety limit".to_string());
+    }
+    let (extension, mime_type) = match format.as_str() {
+        "json" => ("json", "application/json"),
+        "m3u8" => ("m3u8", "application/vnd.apple.mpegurl"),
+        _ => return Err("unsupported music export format".to_string()),
+    };
+    let file_name = music_interchange_file_name(&default_name, extension)?;
+    app.mobile_documents().save_utf8_download_with_type(
+        &file_name,
+        &contents,
+        MAX_INTERCHANGE_BYTES,
+        &[extension],
+        mime_type,
+        "music playlist",
+    )?;
+    Ok(true)
+}
+
+#[cfg(not(target_os = "ios"))]
+fn music_interchange_file_name(default_name: &str, extension: &str) -> Result<String, String> {
+    let safe_stem = default_name
+        .chars()
+        .map(|character| {
+            if character.is_alphanumeric() || matches!(character, ' ' | '-' | '_') {
+                character
+            } else {
+                '_'
+            }
+        })
+        .collect::<String>();
+    let safe_stem = safe_stem.trim().trim_end_matches('.');
+    if safe_stem.is_empty() {
+        return Err("music export file name is required".to_string());
+    }
+    Ok(format!("{safe_stem}.{extension}"))
+}
+
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 #[tauri::command]
 pub async fn music_artwork_data_url(path: String) -> Result<String, String> {
     tauri::async_runtime::spawn_blocking(move || {
@@ -454,6 +579,18 @@ pub async fn music_artwork_data_url(path: String) -> Result<String, String> {
     .map_err(|error| format!("artwork loading task failed: {error}"))?
 }
 
+#[cfg(target_os = "android")]
+#[tauri::command]
+pub async fn music_artwork_data_url(app: tauri::AppHandle, path: String) -> Result<String, String> {
+    use ganbaru_mobile_media::MobileMediaExt;
+
+    app.mobile_media()
+        .artwork_data_url(&path, false, MAX_ARTWORK_BYTES)
+        .await?
+        .ok_or_else(|| "selected artwork is unavailable".to_string())
+}
+
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 #[tauri::command]
 pub async fn music_embedded_artwork_data_url(path: String) -> Result<Option<String>, String> {
     tauri::async_runtime::spawn_blocking(move || {
@@ -475,6 +612,20 @@ pub async fn music_embedded_artwork_data_url(path: String) -> Result<Option<Stri
     .map_err(|error| format!("embedded artwork loading task failed: {error}"))?
 }
 
+#[cfg(target_os = "android")]
+#[tauri::command]
+pub async fn music_embedded_artwork_data_url(
+    app: tauri::AppHandle,
+    path: String,
+) -> Result<Option<String>, String> {
+    use ganbaru_mobile_media::MobileMediaExt;
+
+    app.mobile_media()
+        .artwork_data_url(&path, true, MAX_ARTWORK_BYTES)
+        .await
+}
+
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 fn artwork_content_type(bytes: &[u8]) -> Option<&'static str> {
     if bytes.starts_with(b"\x89PNG\r\n\x1a\n") {
         Some("image/png")
@@ -493,14 +644,17 @@ fn artwork_content_type(bytes: &[u8]) -> Option<&'static str> {
     }
 }
 
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 fn music_folder_start_directory(app: &tauri::AppHandle) -> Option<PathBuf> {
     existing_music_start_directory(app.path().audio_dir().ok())
 }
 
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 fn existing_music_start_directory(candidate: Option<PathBuf>) -> Option<PathBuf> {
     candidate.filter(|path| path.is_dir())
 }
 
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 #[tauri::command]
 pub fn music_reveal_local_file(path: String) -> Result<(), String> {
     let path = PathBuf::from(path);
@@ -513,6 +667,7 @@ fn scan_media_folder(folder: &Path) -> Result<MediaFolderSelection, String> {
     scan_media_folder_with_cancel(folder, || false)
 }
 
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 fn scan_media_folder_with_cancel(
     folder: &Path,
     is_cancelled: impl Fn() -> bool,
@@ -571,6 +726,10 @@ fn scan_media_folder_with_cancel(
     tracks.sort_by(|a, b| a.path.cmp(&b.path));
     Ok(MediaFolderSelection {
         folder_path: folder.to_string_lossy().to_string(),
+        display_name: folder
+            .file_name()
+            .and_then(|name| name.to_str())
+            .map(str::to_string),
         tracks,
         truncated,
     })
@@ -582,6 +741,7 @@ fn dialog_path(path: FilePath) -> Result<PathBuf, String> {
         .map_err(|e| format!("selected path is not a local folder: {e}"))
 }
 
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 fn require_absolute_directory(path: &Path) -> Result<(), String> {
     if !path.is_absolute() {
         return Err("media folder path must be absolute".to_string());
@@ -595,6 +755,7 @@ fn require_absolute_directory(path: &Path) -> Result<(), String> {
     }
 }
 
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 fn require_absolute_file(path: &Path) -> Result<(), String> {
     if !path.is_absolute() {
         return Err("media file path must be absolute".to_string());
@@ -626,11 +787,15 @@ fn reveal_local_file(path: &Path) -> Result<(), String> {
     spawn_file_manager_command("explorer.exe", [std::ffi::OsStr::new(&selection)])
 }
 
-#[cfg(not(any(target_os = "linux", target_os = "macos", windows)))]
+#[cfg(all(
+    not(any(target_os = "android", target_os = "ios")),
+    not(any(target_os = "linux", target_os = "macos", windows))
+))]
 fn reveal_local_file(_path: &Path) -> Result<(), String> {
     Err("opening media file locations is not implemented for this platform".to_string())
 }
 
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 fn spawn_file_manager_command<I, S>(program: &str, args: I) -> Result<(), String>
 where
     I: IntoIterator<Item = S>,
@@ -646,6 +811,7 @@ where
         .map_err(|e| format!("open media file location: {e}"))
 }
 
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 fn is_supported_media_path(path: &Path) -> bool {
     path.extension()
         .and_then(|value| value.to_str())
@@ -656,6 +822,7 @@ fn is_supported_media_path(path: &Path) -> bool {
         })
 }
 
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 fn media_title_from_path(path: &Path) -> String {
     path.file_stem()
         .and_then(|value| value.to_str())

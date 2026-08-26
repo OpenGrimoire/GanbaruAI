@@ -8,6 +8,7 @@ members = [
   "crates/ganbaru-chat-providers",
   "crates/ganbaru-db",
   "crates/ganbaru-mobile-documents",
+  "crates/ganbaru-mobile-media",
   "crates/ganbaru-native-messaging",
   "crates/ganbaru-notes",
   "crates/ganbaru-working-folders",
@@ -23,6 +24,7 @@ cairo-rs = { version = "0.18.5", features = ["png"] }
 chrono = { version = "0.4", default-features = false, features = ["std", "serde"] }
 flate2 = "1.1.9"
 ganbaru-mobile-documents = { path = "crates/ganbaru-mobile-documents" }
+ganbaru-mobile-media = { path = "crates/ganbaru-mobile-media" }
 gtk = "0.18"
 keyring = "4.1.5"
 libc = "0.2"

@@ -2,7 +2,6 @@
 
 use crate::music_error::{MusicLibraryError, MusicLibraryResult};
 use serde::{Deserialize, Serialize};
-#[cfg(not(any(target_os = "android", target_os = "ios")))]
 use sqlx::SqlitePool;
 use sqlx::{Sqlite, Transaction};
 use std::collections::{HashMap, HashSet};
@@ -67,7 +66,6 @@ string_enum!(MusicAssignmentProvenanceKind {
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
-#[cfg(not(any(target_os = "android", target_os = "ios")))]
 pub struct MusicContextAssignment {
     pub owner_kind: MusicAssignmentOwnerKind,
     pub owner_id: String,
@@ -103,7 +101,6 @@ pub struct MusicContextAssignmentSet {
     pub updated_at: i64,
 }
 
-#[cfg(not(any(target_os = "android", target_os = "ios")))]
 type AssignmentRow = (
     String,
     String,
@@ -118,7 +115,6 @@ type AssignmentRow = (
     i64,
 );
 
-#[cfg(not(any(target_os = "android", target_os = "ios")))]
 pub(crate) async fn assignments(
     pool: &SqlitePool,
     owner_kind: MusicAssignmentOwnerKind,
@@ -140,7 +136,6 @@ pub(crate) async fn assignments(
     rows.into_iter().map(decode).collect()
 }
 
-#[cfg(not(any(target_os = "android", target_os = "ios")))]
 pub(crate) async fn assignments_for_playlists(
     pool: &SqlitePool,
     playlist_ids: Vec<String>,
@@ -164,7 +159,6 @@ pub(crate) async fn assignments_for_playlists(
     rows.into_iter().map(decode).collect()
 }
 
-#[cfg(not(any(target_os = "android", target_os = "ios")))]
 pub(crate) async fn replace_assignments(
     pool: &SqlitePool,
     request: MusicContextAssignmentSet,
@@ -312,7 +306,6 @@ fn validate_id(value: &str, field: &str) -> MusicLibraryResult<()> {
     Ok(())
 }
 
-#[cfg(not(any(target_os = "android", target_os = "ios")))]
 fn validate_bounded_unique_ids(values: &[String], field: &str) -> MusicLibraryResult<()> {
     const MAX_IDS: usize = 500;
     if values.is_empty() {
@@ -347,7 +340,6 @@ fn validate_optional_id(value: &Option<String>, field: &str) -> MusicLibraryResu
     Ok(())
 }
 
-#[cfg(not(any(target_os = "android", target_os = "ios")))]
 fn decode(row: AssignmentRow) -> MusicLibraryResult<MusicContextAssignment> {
     Ok(MusicContextAssignment {
         owner_kind: MusicAssignmentOwnerKind::try_from(row.0.as_str())

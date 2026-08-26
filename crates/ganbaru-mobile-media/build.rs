@@ -1,0 +1,20 @@
+fn main() {
+    tauri_plugin::Builder::new(&[
+        "probe",
+        "load",
+        "play",
+        "pause",
+        "stop",
+        "seek",
+        "setVolume",
+        "setMuted",
+        "setRate",
+        "snapshot",
+        "pickMediaTree",
+        "scanMediaTree",
+        "pickArtworkFile",
+        "artworkDataUrl",
+    ])
+    .android_path("android")
+    .build();
+}

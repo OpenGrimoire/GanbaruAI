@@ -12,6 +12,7 @@
     playbackActive = false,
     bindings,
     playlistName,
+    showLocationAction = true,
     onTogglePlayback,
     onShowLocation,
     onSnooze,
@@ -28,6 +29,7 @@
     playbackActive?: boolean;
     bindings: readonly LocalRootBinding[];
     playlistName: string;
+    showLocationAction?: boolean;
     onTogglePlayback: (item: MusicItemListEntry) => void;
     onShowLocation: (item: MusicItemListEntry) => Promise<void>;
     onSnooze: (item: MusicItemListEntry, duration: MusicSnoozeDuration, everywhere: boolean) => Promise<void>;
@@ -86,6 +88,7 @@
       {item}
       {bindings}
       {playlistName}
+      {showLocationAction}
       position={windowed.startIndex + visibleIndex + 1}
       setSize={items.length}
       playing={playbackActive && item.id === playingItemId}

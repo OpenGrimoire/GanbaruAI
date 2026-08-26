@@ -14,8 +14,10 @@ describe("Music snapshot policy", () => {
   });
 
   it("selects exactly the active source backend", () => {
+    expect(activeMusicSnapshotBackend(local, "loading", true)).toBe("native");
     expect(activeMusicSnapshotBackend(local, "playing", true)).toBe("native");
     expect(activeMusicSnapshotBackend(local, "playing", false)).toBeNull();
+    expect(activeMusicSnapshotBackend(youtube, "loading", true)).toBeNull();
     expect(activeMusicSnapshotBackend(youtube, "playing", true)).toBe("youtube");
     expect(activeMusicSnapshotBackend(youtube, "paused", false)).toBe("youtube");
   });

@@ -22,9 +22,15 @@ describe("platform profiles", () => {
     expect(platformHasCapability(profile, "view.projects")).toBe(true);
     expect(platformHasCapability(profile, "view.notes")).toBe(true);
     expect(platformHasCapability(profile, "view.chat")).toBe(true);
+    expect(platformHasCapability(profile, "view.music")).toBe(true);
     expect(platformHasCapability(profile, "content.managed-image-downloads")).toBe(true);
     expect(platformHasCapability(profile, "notes.external-image-references")).toBe(false);
     expect(platformHasCapability(profile, "music.context-assignments")).toBe(true);
+    expect(platformHasCapability(profile, "music.local-file-reveal")).toBe(true);
+    expect(platformHasCapability(profile, "music.local-item-repair")).toBe(true);
+    expect(platformHasCapability(profile, "music.local-root-relink-plans")).toBe(true);
+    expect(platformHasCapability(profile, "music.local-root-reselection")).toBe(false);
+    expect(platformHasCapability(profile, "music.soundscapes")).toBe(true);
     expect(platformHasCapability(profile, "notifications.native-scheduling")).toBe(true);
     expect(platformHasCapability(profile, "pomodoro.native-idle-detection")).toBe(true);
     expect(platformHasCapability(profile, "projects.working-folders")).toBe(true);
@@ -44,12 +50,20 @@ describe("platform profiles", () => {
       "view.calendar",
       "view.projects",
       "view.notes",
+      "view.music",
+      "music.local-root-reselection",
       "system.android-back",
     ]);
     expect(platformHasCapability(profile, "view.chat")).toBe(false);
+    expect(platformHasCapability(profile, "view.music")).toBe(true);
     expect(platformHasCapability(profile, "content.managed-image-downloads")).toBe(false);
     expect(platformHasCapability(profile, "notes.external-image-references")).toBe(false);
     expect(platformHasCapability(profile, "music.context-assignments")).toBe(false);
+    expect(platformHasCapability(profile, "music.local-file-reveal")).toBe(false);
+    expect(platformHasCapability(profile, "music.local-item-repair")).toBe(false);
+    expect(platformHasCapability(profile, "music.local-root-relink-plans")).toBe(false);
+    expect(platformHasCapability(profile, "music.local-root-reselection")).toBe(true);
+    expect(platformHasCapability(profile, "music.soundscapes")).toBe(false);
     expect(platformHasCapability(profile, "notifications.native-scheduling")).toBe(false);
     expect(platformHasCapability(profile, "pomodoro.native-idle-detection")).toBe(false);
     expect(platformHasCapability(profile, "projects.working-folders")).toBe(false);

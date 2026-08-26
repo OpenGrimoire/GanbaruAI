@@ -9,9 +9,15 @@ export const PLATFORM_CAPABILITIES = [
   "view.projects",
   "view.notes",
   "view.chat",
+  "view.music",
   "content.managed-image-downloads",
   "notes.external-image-references",
   "music.context-assignments",
+  "music.local-file-reveal",
+  "music.local-item-repair",
+  "music.local-root-relink-plans",
+  "music.local-root-reselection",
+  "music.soundscapes",
   "notifications.native-scheduling",
   "pomodoro.native-idle-detection",
   "projects.working-folders",
@@ -45,8 +51,13 @@ const DESKTOP_CAPABILITIES = Object.freeze([
   "view.projects",
   "view.notes",
   "view.chat",
+  "view.music",
   "content.managed-image-downloads",
   "music.context-assignments",
+  "music.local-file-reveal",
+  "music.local-item-repair",
+  "music.local-root-relink-plans",
+  "music.soundscapes",
   "notifications.native-scheduling",
   "pomodoro.native-idle-detection",
   "projects.working-folders",
@@ -63,6 +74,8 @@ const BASE_MOBILE_CAPABILITIES = Object.freeze([
 ] satisfies PlatformCapability[]);
 const ANDROID_CAPABILITIES = Object.freeze([
   ...BASE_MOBILE_CAPABILITIES,
+  "view.music",
+  "music.local-root-reselection",
   "system.android-back",
 ] satisfies PlatformCapability[]);
 

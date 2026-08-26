@@ -5,11 +5,8 @@ use std::fmt;
 #[serde(rename_all = "kebab-case")]
 pub enum MusicLibraryErrorCode {
     Validation,
-    #[cfg(not(any(target_os = "android", target_os = "ios")))]
     NotFound,
-    #[cfg(not(any(target_os = "android", target_os = "ios")))]
     Conflict,
-    #[cfg(not(any(target_os = "android", target_os = "ios")))]
     StaleWrite,
     Database,
 }
@@ -41,7 +38,6 @@ impl MusicLibraryError {
         }
     }
 
-    #[cfg(not(any(target_os = "android", target_os = "ios")))]
     pub fn not_found(entity: &str, id: &str) -> Self {
         Self {
             code: MusicLibraryErrorCode::NotFound,
@@ -50,7 +46,6 @@ impl MusicLibraryError {
         }
     }
 
-    #[cfg(not(any(target_os = "android", target_os = "ios")))]
     pub fn conflict(message: impl Into<String>) -> Self {
         Self {
             code: MusicLibraryErrorCode::Conflict,
@@ -59,7 +54,6 @@ impl MusicLibraryError {
         }
     }
 
-    #[cfg(not(any(target_os = "android", target_os = "ios")))]
     pub fn stale(entity: &str, id: &str) -> Self {
         Self {
             code: MusicLibraryErrorCode::StaleWrite,
@@ -68,7 +62,6 @@ impl MusicLibraryError {
         }
     }
 
-    #[cfg(not(any(target_os = "android", target_os = "ios")))]
     pub fn runtime(context: &str, message: impl fmt::Display) -> Self {
         Self {
             code: MusicLibraryErrorCode::Database,

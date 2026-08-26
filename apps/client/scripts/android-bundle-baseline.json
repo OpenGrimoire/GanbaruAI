@@ -38,9 +38,17 @@
         "src/lib/components/quick-notes/QuickNotesPanel.svelte"
       ],
       "maxSourceModules": 87
+    },
+    {
+      "name": "music",
+      "roots": [
+        "src/lib/components/music/MusicPanel.svelte",
+        "src/lib/components/music/MusicPlaybackHost.svelte"
+      ],
+      "maxSourceModules": 152
     }
   ],
-  "maxTotalSourceModules": 660,
+  "maxTotalSourceModules": 756,
   "requiredMobileModules": [
     "src/main.ts",
     "src/main-mobile.ts",
@@ -77,13 +85,28 @@
     "src/lib/components/mobile/MobileNoopNotesProjectSettingsPanel.svelte",
     "src/lib/components/mobile/MobileNoopNotesWorkingMarkdownTree.svelte",
     "src/lib/components/mobile/MobileNoopMusicAssignmentEditor.svelte",
+    "src/lib/components/mobile/MobileNoopMusicItemRepairDialog.svelte",
+    "src/lib/components/mobile/MobileNoopMusicRelinkWizard.svelte",
+    "src/lib/components/mobile/MobileNoopMusicSoundscapeBuilder.svelte",
+    "src/lib/components/mobile/MobileNoopMusicSoundscapeControl.svelte",
+    "src/lib/components/music/MusicPanel.svelte",
+    "src/lib/components/music/MusicPlaybackHost.svelte",
+    "src/lib/music/music-platform-controls.mobile.ts",
+    "src/lib/music/platform-library.mobile.ts",
+    "src/lib/music/platform-paths.mobile.ts",
+    "src/lib/stores/music-external-controls.mobile.ts",
+    "src/lib/stores/soundscape.mobile.svelte.ts",
     "src/lib/components/quick-notes/QuickNotesPanel.svelte"
   ],
   "forbiddenModules": [
     "src/App.svelte",
     "src/main-desktop.ts",
     "src/lib/api/db.ts",
+    "src/lib/music/music-platform-controls.ts",
     "src/lib/music/platform-library.ts",
+    "src/lib/music/platform-paths.ts",
+    "src/lib/stores/music-external-controls.ts",
+    "src/lib/stores/soundscape.svelte.ts",
     "src/lib/window-sync-transport.ts",
     "src/lib/stores/pomodoro-effects.svelte.ts",
     "src/lib/stores/pomodoro-doomscrolling-controller.ts",
@@ -115,7 +138,11 @@
     "src/lib/components/notes/NotesDatabaseCsvExportPanel.svelte",
     "src/lib/components/notes/NotesJsonGraphExportDialog.svelte",
     "src/lib/components/notes/NotesNotionExportImportDialog.svelte",
-    "src/lib/components/notes/NotesProjectVersionHistoryModal.svelte"
+    "src/lib/components/notes/NotesProjectVersionHistoryModal.svelte",
+    "src/lib/components/music/MusicSoundscapeBuilder.svelte",
+    "src/lib/components/music/MusicSoundscapeControl.svelte",
+    "src/lib/components/music/builder/MusicItemRepairDialog.svelte",
+    "src/lib/components/music/builder/MusicRelinkWizard.svelte"
   ],
   "forbiddenModuleSubstrings": [
     "src/lib/components/projects/ProjectSettings",
@@ -129,11 +156,8 @@
     "src/lib/chat/",
     "src/lib/api/chat",
     "src/lib/stores/chat",
-    "src/lib/components/music/",
     "src/lib/components/settings/MusicSection.svelte",
-    "src/lib/api/music",
     "src/lib/api/soundscape",
-    "src/lib/stores/music",
     "src/lib/components/title-bar/",
     "src/lib/components/TitleBar.svelte",
     "src/lib/components/titlebar-",

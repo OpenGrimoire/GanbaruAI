@@ -538,7 +538,6 @@ pub fn active_vault_path<R: Runtime>(app: &tauri::AppHandle<R>) -> Result<PathBu
     Ok(path)
 }
 
-#[cfg(not(any(target_os = "android", target_os = "ios")))]
 pub(crate) fn active_vault_id<R: Runtime>(app: &tauri::AppHandle<R>) -> Result<String, String> {
     let path = active_vault_path(app)?;
     Ok(read_vault_manifest(&path)?.vault_id)

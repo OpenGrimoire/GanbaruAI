@@ -1,8 +1,9 @@
 //! Mobile Tauri composition with app-private persistence and portable commands.
 
 use crate::{
-    calendar_events, calendar_import, calendar_reads, calendars, db_path, notes, pomodoro,
-    profile_images, project_icons, projects, quick_notes, recurrence, themes, vault,
+    calendar_events, calendar_import, calendar_reads, calendars, db_path, media_player, music,
+    notes, pomodoro, profile_images, project_icons, projects, quick_notes, recurrence, themes,
+    vault,
 };
 
 /// Run the mobile application without desktop-only processes or lifecycle hooks.
@@ -11,7 +12,9 @@ pub fn run(context: tauri::Context<tauri::Wry>) {
 
     let builder = tauri::Builder::default().plugin(tauri_plugin_opener::init());
     #[cfg(target_os = "android")]
-    let builder = builder.plugin(ganbaru_mobile_documents::init());
+    let builder = builder
+        .plugin(ganbaru_mobile_documents::init())
+        .plugin(ganbaru_mobile_media::init());
     #[cfg(target_os = "ios")]
     let builder = builder
         .plugin(tauri_plugin_dialog::init())
@@ -29,6 +32,83 @@ pub fn run(context: tauri::Context<tauri::Wry>) {
             vault::vault_patch_config,
             vault::vault_pick_and_read_theme_json,
             vault::vault_pick_and_write_theme_json,
+            media_player::media_player_probe,
+            media_player::media_player_load,
+            media_player::media_player_play,
+            media_player::media_player_pause,
+            media_player::media_player_stop,
+            media_player::media_player_seek,
+            media_player::media_player_set_volume,
+            media_player::media_player_set_muted,
+            media_player::media_player_set_rate,
+            media_player::media_player_snapshot,
+            music::music_get_playback_state,
+            music::music_save_playback_state,
+            music::music_pick_media_folder,
+            music::music_detect_default_folder,
+            music::music_pick_root_binding_folder,
+            music::music_pick_artwork_file,
+            music::music_pick_and_read_interchange_file,
+            music::music_pick_and_write_interchange_file,
+            music::music_artwork_data_url,
+            music::music_embedded_artwork_data_url,
+            music::host::music_retain_hosted_media,
+            music::host::music_unregister_hosted_media,
+            music::host::music_youtube_host_url,
+            music::root_bindings::music_get_local_root_bindings,
+            music::root_bindings::music_set_local_root_binding,
+            music::root_bindings::music_clear_local_root_binding,
+            music::library::commands::music_library_upsert_item,
+            music::library::commands::music_library_upsert_local_location,
+            music::library::commands::music_library_start_local_refresh,
+            music::library::commands::music_library_refresh_progress,
+            music::library::commands::music_library_cancel_refresh,
+            music::library::commands::music_library_upsert_youtube_video,
+            music::library::commands::music_library_youtube_duplicate_count,
+            music::library::commands::music_library_apply_youtube_playlist_snapshot,
+            music::library::commands::music_library_report_youtube_source_failure,
+            music::library::commands::music_library_source_removal_impact,
+            music::library::commands::music_library_remove_source,
+            music::library::commands::music_library_restore_source,
+            music::library::commands::music_library_create_playlist,
+            music::library::commands::music_library_update_playlist,
+            music::library::commands::music_library_reorder_playlists,
+            music::library::commands::music_library_duplicate_playlist,
+            music::library::commands::music_library_playlist_delete_impact,
+            music::library::commands::music_library_delete_playlist,
+            music::library::commands::music_library_set_review_state,
+            music::library::commands::music_library_set_metadata_overrides,
+            music::library::commands::music_library_set_item_signals,
+            music::library::commands::music_library_upsert_memberships,
+            music::library::commands::music_library_bulk_edit_memberships,
+            music::library::commands::music_library_membership_matrix,
+            music::library::commands::music_library_reorder_playlist,
+            music::library::commands::music_library_playlist_playback_entries,
+            music::library::commands::music_library_record_listening,
+            music::library::commands::music_library_recent_selections,
+            music::library::commands::music_library_context_assignments,
+            music::library::commands::music_library_context_assignments_for_playlists,
+            music::library::commands::music_library_replace_context_assignments,
+            music::library::commands::music_library_bulk_set_review_state,
+            music::library::commands::music_library_apply_review_selection,
+            music::library::commands::music_library_bulk_snooze,
+            music::library::commands::music_library_save_advanced_membership,
+            music::library::commands::music_library_remove_memberships,
+            music::library::commands::music_library_upsert_snooze,
+            music::library::commands::music_library_remove_snooze,
+            music::library::commands::music_library_reset_statistics,
+            music::library::commands::music_library_import_interchange,
+            music::library::commands::music_library_item_window,
+            music::library::commands::music_library_playlist_summaries,
+            music::library::commands::music_library_source_summaries,
+            music::library::commands::music_library_issues,
+            music::library::commands::music_library_inspector_detail,
+            music::library::commands::music_library_rebuild_search_index,
+            music::library::commands::music_library_local_roots,
+            music::library::commands::music_library_create_local_root,
+            music::library::commands::music_library_source_collections,
+            music::library::commands::music_library_playlist_detail,
+            music::library::commands::music_library_upsert_source_collection,
             calendar_reads::calendar_load_window,
             calendar_reads::calendar_load_pomodoro_scheduler_window,
             calendar_reads::calendar_load_panel_event,
@@ -278,6 +358,10 @@ pub fn run(context: tauri::Context<tauri::Wry>) {
             themes::theme_reset_palette_slot_to_seed,
             themes::theme_reset_to_seed,
         ])
+        .setup(|app| {
+            music::setup_youtube_host(app.handle())?;
+            Ok(())
+        })
         .build(context)
         .expect("error while building Tauri mobile application");
 

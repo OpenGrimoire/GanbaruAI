@@ -16,4 +16,10 @@ describe("music builder navigation dock", () => {
     expect(items.find((item) => item.kind === "review")?.badge).toBeNull();
     expect(items.every((item) => item.badge === null)).toBe(true);
   });
+
+  it("omits soundscapes when the platform has no soundscape engine", () => {
+    const items = projectMusicBuilderDockItems({ kind: "playlists" }, 0, false);
+
+    expect(items.map((item) => item.kind)).toEqual(["review", "playlists", "sources"]);
+  });
 });

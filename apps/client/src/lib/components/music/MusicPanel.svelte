@@ -12,6 +12,7 @@
   import SkipForward from "@lucide/svelte/icons/skip-forward";
   import Volume2 from "@lucide/svelte/icons/volume-2";
   import VolumeX from "@lucide/svelte/icons/volume-x";
+  import X from "@lucide/svelte/icons/x";
   import CalendarScrollbar from "$lib/components/calendar/CalendarScrollbar.svelte";
   import MusicPlaylistLauncher from "$lib/components/music/MusicPlaylistLauncher.svelte";
   import MusicCurrentItemMenu from "$lib/components/music/MusicCurrentItemMenu.svelte";
@@ -26,6 +27,7 @@
   } from "$lib/music/playlist-window";
   import { getMusicPlayer } from "$lib/stores/music-player.svelte";
   import { getLocalization } from "$lib/i18n/translator.svelte";
+  import { BUILD_PLATFORM_PROFILE, platformHasCapability } from "$lib/platform";
   import { cn } from "$lib/utils";
   import { formatShortcut, hasShortcutModifier } from "$lib/keyboard-shortcuts";
   import {
@@ -35,11 +37,19 @@
   } from "$lib/music/music-builder-loader";
   import { getMusicSourcesController } from "$lib/music/music-sources-controller.svelte";
 
-  let { onclose }: { onclose: () => void } = $props();
+  let {
+    onclose,
+    presentation = "desktop",
+  }: {
+    onclose: () => void;
+    presentation?: "desktop" | "mobile";
+  } = $props();
 
   const player = getMusicPlayer();
   const sources = getMusicSourcesController();
   const { t } = getLocalization();
+  const supportsLocalFileReveal = platformHasCapability(BUILD_PLATFORM_PROFILE, "music.local-file-reveal");
+  const supportsSoundscapes = platformHasCapability(BUILD_PLATFORM_PROFILE, "music.soundscapes");
 
   type MusicPage = "player" | "playlist-builder";
 
@@ -104,6 +114,9 @@
   const panelMaximumHeight = $derived(
     playlistVisible && fittedPanelHeightPx !== null ? `${fittedPanelHeightPx}px` : "680px",
   );
+  const mobilePresentation = $derived(presentation === "mobile");
+  const mobilePanelStyle = "left: var(--visual-viewport-offset-left); top: var(--visual-viewport-offset-top); width: var(--visual-viewport-width); height: var(--visual-viewport-height); padding: var(--safe-area-top) var(--safe-area-right) var(--safe-area-bottom) var(--safe-area-left);";
+  const desktopPanelStyle = $derived(`top: calc(var(--titlebar-h) + 4px); height: min(${panelMaximumHeight}, calc(100dvh - var(--titlebar-h) - 12px));`);
   const renderedPlaylistWindow = $derived(musicPlaylistWindow(
     player.queue.length,
     playlistScrollTop,
@@ -676,23 +689,42 @@
 
 <!-- svelte-ignore a11y_click_events_have_key_events -->
 <!-- svelte-ignore a11y_no_static_element_interactions -->
-<div class="fixed inset-0 z-40" onclick={(event) => { if (event.target === event.currentTarget) onclose(); }}></div>
 <div
-  class="pointer-events-none fixed right-2 z-50 w-[min(1000px,calc(100vw-1rem))] overflow-hidden rounded-xl shadow-lg"
-  style={`top: calc(var(--titlebar-h) + 4px); height: min(${panelMaximumHeight}, calc(100dvh - var(--titlebar-h) - 12px));`}
-  aria-hidden="true"
->
-  <div class="h-full w-full" style="background-color: var(--cal-bg);"></div>
-</div>
+  class={cn("fixed z-40", mobilePresentation ? "bg-background" : "inset-0")}
+  style={mobilePresentation ? "left: var(--visual-viewport-offset-left); top: var(--visual-viewport-offset-top); width: var(--visual-viewport-width); height: var(--visual-viewport-height);" : undefined}
+  onclick={(event) => { if (!mobilePresentation && event.target === event.currentTarget) onclose(); }}
+></div>
+{#if !mobilePresentation}
+  <div
+    class="pointer-events-none fixed right-2 z-50 w-[min(1000px,calc(100vw-1rem))] overflow-hidden rounded-xl shadow-lg"
+    style={desktopPanelStyle}
+    aria-hidden="true"
+  >
+    <div class="h-full w-full" style="background-color: var(--cal-bg);"></div>
+  </div>
+{/if}
 <div
   bind:this={panel}
-  class="music-panel-root fixed right-2 z-70 flex w-[min(1000px,calc(100vw-1rem))] flex-col overflow-hidden rounded-xl outline-none"
-  style={`top: calc(var(--titlebar-h) + 4px); height: min(${panelMaximumHeight}, calc(100dvh - var(--titlebar-h) - 12px));`}
+  class={cn(
+    "music-panel-root fixed z-70 flex flex-col overflow-hidden outline-none",
+    mobilePresentation ? "bg-background" : "right-2 w-[min(1000px,calc(100vw-1rem))] rounded-xl",
+  )}
+  style={mobilePresentation ? mobilePanelStyle : desktopPanelStyle}
   role="dialog"
   aria-modal="true"
   aria-label={t("music.title")}
   tabindex="-1"
 >
+  {#if mobilePresentation}
+    <button
+      type="button"
+      onclick={onclose}
+      class="absolute right-[calc(var(--safe-area-right)+0.25rem)] top-[calc(var(--safe-area-top)+0.25rem)] z-80 inline-flex min-h-12 min-w-12 items-center justify-center rounded-xl bg-background/80 backdrop-blur-sm active:bg-accent"
+      aria-label={t("common.close")}
+    >
+      <X size={20} strokeWidth={1.8} aria-hidden="true" />
+    </button>
+  {/if}
   {#if PlaylistBuilder}
     <div class:hidden={musicPage !== "playlist-builder"} class="h-full min-h-0" aria-hidden={musicPage !== "playlist-builder"}>
       <PlaylistBuilder
@@ -740,7 +772,7 @@
       style={`left: ${mediaTitleLeft};`}
     >
       {#if topBarMediaTitle}
-        {#if player.currentSource?.kind === "local-file"}
+        {#if player.currentSource?.kind === "local-file" && supportsLocalFileReveal}
           <button
             type="button"
             onclick={() => { void openCurrentLocalFileLocation(); }}
@@ -1046,7 +1078,9 @@
             </button>
           </div>
           <MusicCurrentItemMenu onOpenItem={(itemId) => openPlaylistBuilder({ kind: "open-item", itemId })} onOpenPlaylists={() => openPlaylistBuilder("open-playlists")} />
-          <MusicSoundscapeControl onOpenSoundscapes={() => openPlaylistBuilder({ kind: "open-soundscapes" })} />
+          {#if supportsSoundscapes}
+            <MusicSoundscapeControl onOpenSoundscapes={() => openPlaylistBuilder({ kind: "open-soundscapes" })} />
+          {/if}
           <div
             bind:this={volumeMenuRoot}
             class="music-compact-volume-control relative"

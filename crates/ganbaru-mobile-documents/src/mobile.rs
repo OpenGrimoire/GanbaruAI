@@ -19,6 +19,9 @@ impl<R: Runtime> Clone for MobileDocuments<R> {
 #[serde(rename_all = "camelCase")]
 struct PickUtf8DocumentRequest {
     max_bytes: u64,
+    accepted_extensions: Vec<String>,
+    mime_types: Vec<String>,
+    document_kind: String,
 }
 
 #[derive(Deserialize)]
@@ -32,6 +35,9 @@ struct SaveUtf8DownloadRequest<'a> {
     file_name: &'a str,
     contents: &'a str,
     max_bytes: u64,
+    accepted_extensions: Vec<String>,
+    mime_type: &'a str,
+    document_kind: &'a str,
 }
 
 #[derive(Deserialize)]
@@ -88,13 +94,35 @@ impl<R: Runtime> MobileDocuments<R> {
 
     /// Ask Android to select and read one UTF-8 document within `max_bytes`.
     pub fn pick_utf8_document(&self, max_bytes: u64) -> Result<Option<String>, String> {
+        self.pick_utf8_document_matching(max_bytes, &["json"], &["application/json"], "theme")
+    }
+
+    /// Ask Android to select and read one bounded UTF-8 document of an allowed type.
+    pub fn pick_utf8_document_matching(
+        &self,
+        max_bytes: u64,
+        accepted_extensions: &[&str],
+        mime_types: &[&str],
+        document_kind: &str,
+    ) -> Result<Option<String>, String> {
         self.0
             .run_mobile_plugin::<PickUtf8DocumentResponse>(
                 "pickUtf8Document",
-                PickUtf8DocumentRequest { max_bytes },
+                PickUtf8DocumentRequest {
+                    max_bytes,
+                    accepted_extensions: accepted_extensions
+                        .iter()
+                        .map(|value| (*value).to_string())
+                        .collect(),
+                    mime_types: mime_types
+                        .iter()
+                        .map(|value| (*value).to_string())
+                        .collect(),
+                    document_kind: document_kind.to_string(),
+                },
             )
             .map(|response| response.contents)
-            .map_err(|error| format!("pick theme document: {error}"))
+            .map_err(|error| format!("pick {document_kind} document: {error}"))
     }
 
     /// Save bounded UTF-8 text into Android's public Downloads collection.
@@ -104,6 +132,26 @@ impl<R: Runtime> MobileDocuments<R> {
         contents: &str,
         max_bytes: u64,
     ) -> Result<String, String> {
+        self.save_utf8_download_with_type(
+            file_name,
+            contents,
+            max_bytes,
+            &["json"],
+            "application/json",
+            "theme",
+        )
+    }
+
+    /// Save bounded UTF-8 text with an explicit safe document type into Downloads.
+    pub fn save_utf8_download_with_type(
+        &self,
+        file_name: &str,
+        contents: &str,
+        max_bytes: u64,
+        accepted_extensions: &[&str],
+        mime_type: &str,
+        document_kind: &str,
+    ) -> Result<String, String> {
         self.0
             .run_mobile_plugin::<SaveUtf8DownloadResponse>(
                 "saveUtf8Download",
@@ -111,10 +159,16 @@ impl<R: Runtime> MobileDocuments<R> {
                     file_name,
                     contents,
                     max_bytes,
+                    accepted_extensions: accepted_extensions
+                        .iter()
+                        .map(|value| (*value).to_string())
+                        .collect(),
+                    mime_type,
+                    document_kind,
                 },
             )
             .map(|response| response.display_name)
-            .map_err(|error| format!("save theme download: {error}"))
+            .map_err(|error| format!("save {document_kind} download: {error}"))
     }
 }
 

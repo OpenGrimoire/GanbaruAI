@@ -16,7 +16,7 @@
       "capabilities": ["android"],
       "csp": {
         "script-src": "'self'",
-        "frame-src": "'none'"
+        "frame-src": "http://127.0.0.1:* http://localhost:*"
       },
       "devCsp": {
         "default-src": "'self' http://*:*",
@@ -26,7 +26,7 @@
         "media-src": "'self' http://127.0.0.1:* http://localhost:* http://*:*",
         "font-src": "'self' http://*:*",
         "connect-src": "ipc: http://ipc.localhost http://*:* ws://*:*",
-        "frame-src": "'none'"
+        "frame-src": "http://127.0.0.1:* http://localhost:*"
       }
     }
   },

@@ -15,6 +15,16 @@ class MobileDocumentsPluginTest {
   }
 
   @Test
+  fun acceptsOnlyConfiguredDocumentExtensions() {
+    val allowed = listOf("json", ".m3u8", "M3U")
+
+    assertEquals(true, DocumentTextCodec.hasAllowedExtension("focus.M3U8", allowed))
+    assertEquals(true, DocumentTextCodec.hasAllowedExtension("library.json", allowed))
+    assertEquals(false, DocumentTextCodec.hasAllowedExtension("library.json.txt", allowed))
+    assertEquals(false, DocumentTextCodec.hasAllowedExtension("playlist", allowed))
+  }
+
+  @Test
   fun readsBoundedUtf8() {
     val input = ByteArrayInputStream("Ganbaru".toByteArray())
 

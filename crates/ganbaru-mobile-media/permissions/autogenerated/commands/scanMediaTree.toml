@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-scanMediaTree"
+description = "Enables the scanMediaTree command without any pre-configured scope."
+commands.allow = ["scanMediaTree"]
+
+[[permission]]
+identifier = "deny-scanMediaTree"
+description = "Denies the scanMediaTree command without any pre-configured scope."
+commands.deny = ["scanMediaTree"]

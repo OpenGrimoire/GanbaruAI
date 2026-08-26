@@ -11,16 +11,18 @@
     destination,
     reviewCount,
     compact = false,
+    includeSoundscapes = true,
     onNavigate,
   }: {
     destination: MusicBuilderDestination;
     reviewCount: number;
     compact?: boolean;
+    includeSoundscapes?: boolean;
     onNavigate: (destination: MusicBuilderDestination) => void;
   } = $props();
 
   const { t } = getLocalization();
-  const items = $derived(projectMusicBuilderDockItems(destination, reviewCount));
+  const items = $derived(projectMusicBuilderDockItems(destination, reviewCount, includeSoundscapes));
 
   function label(kind: MusicBuilderPrimaryDestinationKind): string {
     if (kind === "review") return t("music.builder.review");

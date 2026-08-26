@@ -9,7 +9,7 @@
   import { orderMusicPlaylists, systemMusicPlaylistName } from "$lib/music/music-system-playlists";
   import MusicBuilderAsyncState from "./MusicBuilderAsyncState.svelte";
   import MusicPlaylistIcon from "./MusicPlaylistIcon.svelte";
-  import MusicSoundscapeBuilder from "../MusicSoundscapeBuilder.svelte";
+  import MusicSoundscapeBuilder from "$lib/components/music/MusicSoundscapeBuilder.svelte";
 
   let {
     destination,

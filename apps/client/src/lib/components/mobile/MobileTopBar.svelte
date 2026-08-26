@@ -1,5 +1,6 @@
 <script lang="ts">
   import Settings from "@lucide/svelte/icons/settings";
+  import Music from "@lucide/svelte/icons/music";
   import StickyNote from "@lucide/svelte/icons/sticky-note";
   import Timer from "@lucide/svelte/icons/timer";
   import { getLocalization } from "$lib/i18n/translator.svelte";
@@ -11,8 +12,13 @@
     quickNotesOpen,
     quickNotesLoading,
     quickNotesDisabled,
+    musicOpen,
+    musicLoading,
+    musicDisabled,
+    musicVisible = true,
     onOpenPomodoro,
     onOpenQuickNotes,
+    onOpenMusic,
     onOpenSettings,
   }: {
     title: string;
@@ -21,8 +27,13 @@
     quickNotesOpen: boolean;
     quickNotesLoading: boolean;
     quickNotesDisabled: boolean;
+    musicOpen: boolean;
+    musicLoading: boolean;
+    musicDisabled: boolean;
+    musicVisible?: boolean;
     onOpenPomodoro: () => void;
     onOpenQuickNotes: () => void;
+    onOpenMusic: () => void;
     onOpenSettings: () => void;
   } = $props();
 
@@ -46,6 +57,21 @@
   >
     <StickyNote size={20} strokeWidth={1.8} aria-hidden="true" />
   </button>
+  {#if musicVisible}
+    <button
+      type="button"
+      data-mobile-music-trigger
+      disabled={musicDisabled}
+      onclick={onOpenMusic}
+      aria-label={t("titleBar.control.music")}
+      aria-haspopup="dialog"
+      aria-expanded={musicOpen}
+      aria-busy={musicLoading}
+      class="flex min-h-12 min-w-12 items-center justify-center rounded-xl active:bg-sidebar-accent disabled:opacity-40"
+    >
+      <Music size={20} strokeWidth={1.8} aria-hidden="true" />
+    </button>
+  {/if}
   <button
     type="button"
     onclick={onOpenPomodoro}

@@ -22,6 +22,7 @@
   let {
     item,
     playlistName,
+    showLocationAction = true,
     onShowLocation,
     onSnooze,
     onWeight,
@@ -29,6 +30,7 @@
   }: {
     item: MusicItemListEntry;
     playlistName: string;
+    showLocationAction?: boolean;
     onShowLocation: (item: MusicItemListEntry) => Promise<void>;
     onSnooze: (item: MusicItemListEntry, duration: MusicSnoozeDuration, everywhere: boolean) => Promise<void>;
     onWeight: (item: MusicItemListEntry, weight: MusicWeight) => Promise<void>;
@@ -177,7 +179,7 @@
           {@render panelRow(t("music.builder.details"), item.album || t("music.builder.noAlbum"), Info, "details")}
           {@render panelRow(t("music.builder.snoozeTrack"), item.activeSnoozeCount > 0 ? t("music.builder.snoozed") : "", Clock3, "snooze")}
           {@render panelRow(t("music.builder.frequency"), weightLabel(item.membershipWeight), SlidersHorizontal, "weight")}
-          {#if item.sourceKind === "local-file"}
+          {#if item.sourceKind === "local-file" && showLocationAction}
             <button type="button" class="action-row" disabled={busy} onclick={() => { void run(() => onShowLocation(item)); }}><FolderSearch size={14} />{t("music.itemMenu.showLocation")}</button>
           {/if}
           <div class="my-1 border-t border-border/60"></div>

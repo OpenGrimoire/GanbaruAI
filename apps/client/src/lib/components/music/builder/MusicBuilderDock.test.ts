@@ -57,4 +57,21 @@ describe("MusicBuilderDock", () => {
     items[1]?.click();
     expect(onNavigate).toHaveBeenCalledWith({ kind: "playlists" });
   });
+
+  it("omits unsupported soundscapes", async () => {
+    target = document.createElement("div");
+    document.body.append(target);
+    component = mount(MusicBuilderDock, {
+      target,
+      props: {
+        destination: { kind: "playlists" },
+        reviewCount: 0,
+        includeSoundscapes: false,
+        onNavigate: vi.fn(),
+      },
+    });
+    await tick();
+
+    expect(target.querySelectorAll("[data-builder-dock-item]")).toHaveLength(3);
+  });
 });
