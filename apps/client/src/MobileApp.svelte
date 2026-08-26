@@ -2,7 +2,6 @@
   import { onBackButtonPress } from "@tauri-apps/api/app";
   import { onMount } from "svelte";
   import MobileNavigation from "$lib/components/mobile/MobileNavigation.svelte";
-  import MobilePomodoroSheet from "$lib/components/mobile/MobilePomodoroSheet.svelte";
   import MobileTopBar from "$lib/components/mobile/MobileTopBar.svelte";
   import ConfirmDialog from "$lib/components/ui/ConfirmDialog.svelte";
   import { ensureDbUrl } from "$lib/api/db";
@@ -36,6 +35,13 @@
   type MusicComponent = typeof import("$lib/components/music/MusicPanel.svelte").default;
   type MusicPlaybackHostComponent = typeof import("$lib/components/music/MusicPlaybackHost.svelte").default;
   type NotesStore = ReturnType<typeof import("$lib/stores/notes.svelte").getNotes>;
+  interface PomodoroCalendarScheduler {
+    setEnabled(enabled: boolean): void;
+    invalidate(): void;
+    resume(): void;
+    dispose(): void;
+    isEnabled(): boolean;
+  }
 
   const nav = getNavigation();
   const viewport = getViewport();
@@ -87,6 +93,9 @@
   let removeSettingsBackLayer = (): void => undefined;
   let removeQuickNotesBackLayer = (): void => undefined;
   let removeMusicBackLayer = (): void => undefined;
+  let activeBlockScheduler = $state.raw<PomodoroCalendarScheduler | null>(null);
+  let activeBlockSchedulerLoad: Promise<void> | null = null;
+  let activeBlockSchedulerDisposed = false;
 
   const navigationPresentation = $derived(
     mobileNavigationPresentation(viewport.layoutWidth),
@@ -95,7 +104,7 @@
   const suspendInfo = $derived(pomodoro.suspendedAway);
   const suspendDecisionOpen = $derived(suspendInfo !== null);
   const modalOpen = $derived(
-    showPomodoro || showSettings || showQuickNotes || showMusic || suspendDecisionOpen,
+    showSettings || showQuickNotes || showMusic || suspendDecisionOpen,
   );
   const currentTitle = $derived(t(`titleBar.tab.${nav.current}`));
   const shouldInterceptSystemBack = $derived(
@@ -103,7 +112,6 @@
       || mobileBackStack.hasActiveLayer
       || nav.current !== "calendar"),
   );
-
   const backListenerController = new MobileBackListenerController(
     (handler) => onBackButtonPress(handler),
     handleSystemBack,
@@ -127,6 +135,28 @@
   function flushMountedNotes(): Promise<void> {
     if (!notesSurfaceMounted || !notesStore) return Promise.resolve();
     return notesStore.flushPendingWrites();
+  }
+
+  async function ensureActiveBlockScheduler(): Promise<void> {
+    if (activeBlockScheduler) return;
+    if (activeBlockSchedulerLoad) return activeBlockSchedulerLoad;
+    activeBlockSchedulerLoad = (async () => {
+      const { createPomodoroCalendarScheduler } = await import(
+        "$lib/stores/pomodoro-calendar-scheduler"
+      );
+      if (activeBlockSchedulerDisposed) return;
+      activeBlockScheduler = createPomodoroCalendarScheduler({
+        calendar,
+        pomodoro,
+        isBlocked: () => suspendDecisionOpen || pomodoro.idlePaused !== null,
+        onError: (error) => {
+          console.warn("active mobile pomodoro block check failed", error);
+        },
+      });
+    })().finally(() => {
+      activeBlockSchedulerLoad = null;
+    });
+    return activeBlockSchedulerLoad;
   }
 
   async function loadSurface(view: View): Promise<void> {
@@ -182,6 +212,7 @@
         calendars.load(),
         calendar.load(),
       ]);
+      await ensureActiveBlockScheduler();
       backendReady = true;
       await loadSurface(nav.current);
     } catch (error) {
@@ -381,15 +412,35 @@
     const syncNestedRoute = (): void => {
       nestedRouteOpen = window.location.hash.length > 0;
     };
+    const handleMusicAssignmentInspection = (event: Event): void => {
+      if (!(event instanceof CustomEvent) || event.detail?.ready === true || nav.current === "calendar") return;
+      const eventId = typeof event.detail?.eventId === "string" ? event.detail.eventId : null;
+      if (!eventId) return;
+      navigate("calendar");
+      window.setTimeout(() => {
+        window.dispatchEvent(new CustomEvent("ganbaru-ai:inspect-music-assignment", {
+          detail: { eventId, ready: true },
+        }));
+      }, 0);
+    };
+    const resumePomodoroScheduler = (): void => {
+      if (document.visibilityState === "visible") activeBlockScheduler?.resume();
+    };
     syncNestedRoute();
     window.addEventListener("hashchange", syncNestedRoute);
     window.addEventListener("popstate", syncNestedRoute);
+    window.addEventListener("ganbaru-ai:inspect-music-assignment", handleMusicAssignmentInspection);
+    document.addEventListener("visibilitychange", resumePomodoroScheduler);
+    window.addEventListener("focus", resumePomodoroScheduler);
 
     void initializeWorkspace();
 
     return () => {
       window.removeEventListener("hashchange", syncNestedRoute);
       window.removeEventListener("popstate", syncNestedRoute);
+      window.removeEventListener("ganbaru-ai:inspect-music-assignment", handleMusicAssignmentInspection);
+      document.removeEventListener("visibilitychange", resumePomodoroScheduler);
+      window.removeEventListener("focus", resumePomodoroScheduler);
       removePomodoroBackLayer();
       removeSettingsBackLayer();
       removeQuickNotesBackLayer();
@@ -397,11 +448,28 @@
       detachPersistenceLifecycle();
       void persistenceLifecycle.flush();
       void backListenerController.dispose();
+      activeBlockSchedulerDisposed = true;
+      activeBlockScheduler?.dispose();
+      activeBlockScheduler = null;
     };
   });
 
   $effect(() => {
     void backListenerController.setEnabled(shouldInterceptSystemBack);
+  });
+
+  $effect(() => {
+    const _calendarVersion = calendar.indexVersion;
+    const _expired = pomodoro.blockExpired;
+    const _suspended = suspendDecisionOpen;
+    const _idle = pomodoro.idlePaused;
+    const _suppressed = pomodoro.autoStartSuppressed;
+    const scheduler = activeBlockScheduler;
+    if (!scheduler) return;
+    const enabled = backendReady && calendar.loaded;
+    const wasEnabled = scheduler.isEnabled();
+    scheduler.setEnabled(enabled);
+    if (enabled && wasEnabled) scheduler.invalidate();
   });
 
   $effect(() => {
@@ -445,6 +513,15 @@
       title={currentTitle}
       pomodoroTime={pomodoro.formattedTime}
       pomodoroActive={pomodoro.isActive}
+      pomodoroRemainingSeconds={pomodoro.remainingSeconds}
+      pomodoroTotalSeconds={pomodoro.totalSecondsForPhase}
+      pomodoroPaused={pomodoro.isActive
+        && pomodoro.phase === "focus"
+        && !pomodoro.isRunning
+        && !pomodoro.suspendedAway
+        && !pomodoro.idlePaused}
+      pomodoroPausedPulseAmount={pomodoro.pausedPulseAmount}
+      pomodoroOpen={showPomodoro}
       quickNotesOpen={showQuickNotes}
       quickNotesLoading={quickNotesLoading}
       quickNotesDisabled={!backendReady}
@@ -452,7 +529,11 @@
       musicLoading={musicLoading}
       musicDisabled={!backendReady}
       musicVisible={musicAvailable}
-      onOpenPomodoro={openPomodoro}
+      onTogglePomodoro={() => {
+        if (showPomodoro) closePomodoro();
+        else openPomodoro();
+      }}
+      onClosePomodoro={closePomodoro}
       onOpenQuickNotes={openQuickNotes}
       onOpenMusic={openMusic}
       onOpenSettings={openSettings}
@@ -505,18 +586,6 @@
 
   {#if MusicPlaybackHostSurface}
     <MusicPlaybackHostSurface />
-  {/if}
-
-  {#if showPomodoro}
-    <div inert={suspendDecisionOpen} aria-hidden={suspendDecisionOpen ? "true" : undefined}>
-      <MobilePomodoroSheet
-        onClose={closePomodoro}
-        onOpenCalendar={() => {
-          closePomodoro();
-          navigate("calendar");
-        }}
-      />
-    </div>
   {/if}
 
   {#if showMusic && MusicSurface}

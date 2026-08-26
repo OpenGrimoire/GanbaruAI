@@ -1,12 +1,12 @@
 # Pomodoro progress displays
 
-The pomodoro system surfaces progress in three places: a small ring in the title bar, a ring in the system tray, and a vertical timeline rail in the calendar day, work-cycle, and week views. They serve different purposes (always-visible, OS-level, and in-context) and follow different rendering rules, but they share one principle: each shows only what the user needs to make a decision in the next minute, not the full history of the session.
+The pomodoro system surfaces progress in three places: a small ring in the desktop title bar or mobile top bar, a ring in the system tray, and a vertical timeline rail in the calendar day, work-cycle, and week views. They serve different purposes (always-visible, OS-level, and in-context) and follow different rendering rules, but they share one principle: each shows only what the user needs to make a decision in the next minute, not the full history of the session.
 
 This doc covers what each surface shows, when each is visible, and why the design favors near-future information over comprehensive readouts.
 
-## Title bar SVG ring
+## App chrome SVG ring
 
-The title bar ring is a small circular progress indicator rendered as inline SVG inside the app's title bar. It is always visible while the app window is open and a focus phase is running.
+The app chrome ring is a small circular progress indicator rendered as inline SVG inside the desktop title bar or mobile top bar. Both shells use the same component, calendar scheduler, timer semantics, and menu content. Mobile scales the ring to match its touch-oriented chrome and gives the shared menu actions full touch-target height. It is always visible while the app window is open and a focus phase is running.
 
 What it shows:
 
@@ -14,7 +14,7 @@ What it shows:
 - **Time remaining until the next phase transition.** The visible arc represents remaining focus time. If the event window is shorter than the configured focus duration, the segment is clipped to the event end. At the start of a focus period the ring is full, and the remaining arc shrinks toward empty as the transition approaches. The tooltip and menu status show minutes and seconds remaining.
 - **Usable focus opportunity while paused.** Manual pause stops focus credit, but it does not stop the calendar event. While paused, the ring keeps counting down only when the event end is the limiting deadline. The calendar rail remains empty for the paused interval.
 - **Paused reminder.** While a focus session is manually paused, the remaining arc gently pulses between white and empty-ring gray so the paused state is visible at a glance without using a warning color. The pulse holds at both endpoints, then eases through the transition frames. The title bar reads the same pulse frame that drives the tray icon, avoiding a separate CSS animation that can drift out of phase.
-- **Title bar icon fit.** The idle ring uses the subdued empty-track stroke so no active session reads as empty. The active remaining arc uses the same title bar icon color as the Music and utility icons. The ring renders 0.5px larger than the nominal icon box to compensate for the circular SVG's internal padding, so the right-side title bar controls read as one set.
+- **Chrome fit.** The idle ring uses the subdued empty-track stroke so no active session reads as empty. The active remaining arc uses the same chrome icon color as the Music and utility icons. Desktop renders the ring 0.5px larger than its nominal icon box to compensate for the circular SVG's internal padding. Mobile scales the same view box to the top bar's larger icon size without changing the progress calculation.
 
 What it does not show:
 
@@ -29,19 +29,19 @@ The ring menu mirrors the tray menu's compact controls and adds a subdued Music 
 
 ## System tray RGBA ring
 
-The tray icon is an RGBA-rendered circular progress ring. It mirrors the title bar ring's semantics but lives in the OS tray (or menu bar on macOS), making it visible even when the app window is hidden, minimized, or behind other windows.
+The tray icon is an RGBA-rendered circular progress ring. It mirrors the app chrome ring's semantics but lives in the OS tray (or menu bar on macOS), making it visible even when the app window is hidden, minimized, or behind other windows.
 
 Tray-specific menu behavior and platform implementation details live in `features/tray-icon.md`.
 
 What it shows:
 
-- **Focus only**, same as the title bar ring.
+- **Focus only**, same as the app chrome ring.
 - **Time remaining until the next phase transition**, same encoding.
-- **Paused reminder**, same intent as the title bar ring, implemented by switching between cached raster frames.
+- **Paused reminder**, same intent as the app chrome ring, implemented by switching between cached raster frames.
 
 What it does not show:
 
-- Same exclusions as the title bar ring.
+- Same exclusions as the app chrome ring.
 
 The tray ring is the most ambient surface: it sits in the user's peripheral vision constantly. The pixel-level rendering (RGBA, not SVG) is necessary because tray icons on most platforms accept raster images more reliably than vector ones. Normal progress redraws only when the quantized ring state changes. Manual pause uses a small slow frame cycle, fine-grained enough to feel alive without turning the tray into a high-frame-rate animation surface.
 
@@ -124,11 +124,11 @@ Within day, work-cycle, and week views, the rail is shown for any day that has a
 
 | Surface | Shown when | Hidden when |
 |---------|-----------|-------------|
-| Title bar ring | App window is open and a focus phase is active, including manual pause while the event window is still active | Break phase, no active session, or event deadline passed |
+| App chrome ring | Desktop or mobile app window is open and a focus phase is active, including manual pause while the event window is still active | Break phase, no active session, or event deadline passed |
 | Tray ring | A focus phase is active, including manual pause while the event window is still active, regardless of window state | Break phase, no active session, or event deadline passed |
 | Rail | Day view, work-cycle view, or week view, day has at least one pomodoro event | Month view, days with no pomodoro events |
 
-The tray ring and title bar ring are deliberately the same shape and the same metric (focus countdown). The user does not have to learn two visualizations; they learn one and read it from whichever surface is convenient.
+The tray ring and app chrome ring are deliberately the same shape and the same metric (focus countdown). The user does not have to learn two visualizations; they learn one and read it from whichever surface is convenient.
 
 ## Why "until next transition" only
 

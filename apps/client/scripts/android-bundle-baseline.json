@@ -30,7 +30,7 @@
       "roots": [
         "src/lib/components/notes/NotesView.svelte"
       ],
-      "maxSourceModules": 366
+      "maxSourceModules": 367
     },
     {
       "name": "quick-notes",
@@ -45,7 +45,7 @@
         "src/lib/components/music/MusicPanel.svelte",
         "src/lib/components/music/MusicPlaybackHost.svelte"
       ],
-      "maxSourceModules": 152
+      "maxSourceModules": 153
     },
     {
       "name": "chat",
@@ -55,7 +55,7 @@
       "maxSourceModules": 252
     }
   ],
-  "maxTotalSourceModules": 885,
+  "maxTotalSourceModules": 889,
   "requiredMobileModules": [
     "src/main.ts",
     "src/main-mobile.ts",
@@ -75,7 +75,9 @@
     "src/lib/stores/viewport.svelte.ts",
     "src/lib/components/mobile/MobileNavigation.svelte",
     "src/lib/components/mobile/MobileTopBar.svelte",
-    "src/lib/components/mobile/MobilePomodoroSheet.svelte",
+    "src/lib/components/pomodoro/PomodoroMenuContent.svelte",
+    "src/lib/components/pomodoro/PomodoroProgressRing.svelte",
+    "src/lib/stores/pomodoro-calendar-scheduler.ts",
     "src/lib/components/settings/SettingsModal.svelte",
     "src/lib/components/settings/SettingsSectionRenderer.mobile.svelte",
     "src/lib/components/settings/mobile/MobileSettingsStatus.svelte",

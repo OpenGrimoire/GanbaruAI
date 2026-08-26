@@ -23,11 +23,7 @@
   import { UPDATE_AUTO_CHECK_INTERVAL_MS } from "$lib/stores/updates";
   import { getViewport } from "$lib/stores/viewport.svelte";
   import { getDetachedWindows } from "$lib/stores/detached-windows.svelte";
-  import { buildAdaptivePlannedBlocksForDate } from "$lib/pomodoro/adaptive/planned-blocks";
-  import {
-    nextPomodoroBlockBoundaryMs,
-    selectActivePomodoroBlock,
-  } from "$lib/stores/pomodoro-scheduler";
+  import { createPomodoroCalendarScheduler } from "$lib/stores/pomodoro-calendar-scheduler";
   import {
     classifyPomodoroCompletion,
     type PomodoroCompletionKind,
@@ -46,7 +42,6 @@
   import { ensureDbUrl } from "$lib/api/db";
   import { APP_SOUND_IDS, playAppSound, type AppSoundId } from "$lib/app-sounds";
   import "$lib/stores/app-session";
-  import { parseCalendarDate } from "$lib/components/calendar/utils";
   import type { CalendarEvent } from "$lib/components/calendar/types";
   import { Temporal } from "@js-temporal/polyfill";
   import { invoke } from "@tauri-apps/api/core";
@@ -678,39 +673,6 @@
     }
   }
 
-  interface ActivePomodoroBlockSnapshot {
-    activeBlock: CalendarEvent | undefined;
-    plannedBlocks: ReturnType<typeof buildAdaptivePlannedBlocksForDate>;
-    events: readonly CalendarEvent[];
-    nowMs: number;
-  }
-
-  async function findActiveBlock(): Promise<ActivePomodoroBlockSnapshot> {
-    const now = new Date();
-    const today = Temporal.Now.plainDateISO();
-    const events = await calendar.loadPomodoroSchedulerEvents(
-      today.subtract({ days: 1 }),
-      today.add({ days: 1 }),
-    );
-    const activeBlock = selectActivePomodoroBlock(events, {
-      now,
-      activeBlockId: pomodoro.activeBlockId,
-    });
-    const eventDate = activeBlock?.start.split(" ")[0] ?? null;
-    return {
-      activeBlock,
-      plannedBlocks: eventDate ? buildAdaptivePlannedBlocksForDate(events, eventDate) : [],
-      events,
-      nowMs: now.getTime(),
-    };
-  }
-
-  function nextLocalDayBoundaryMs(nowMs: number): number {
-    const next = new Date(nowMs);
-    next.setHours(24, 0, 0, 50);
-    return next.getTime();
-  }
-
   function soundForCompletionKind(kind: PomodoroCompletionKind): AppSoundId {
     if (kind === "workweek") return APP_SOUND_IDS.pomodoroWorkweekComplete;
     if (kind === "day") return APP_SOUND_IDS.pomodoroDayComplete;
@@ -837,73 +799,14 @@
     restoreMusicAfterCompletionSound(duck, kind);
   }
 
-  let trackedBlockSnapshot: CalendarEvent | null = null;
-
-  async function runActiveBlockCheck(context: SchedulerRunContext): Promise<number | null> {
-    if (!isMainWindow || !calendar.loaded) return null;
-    if (showStopConfirm || reverting || suspendInfo || idleInfo || pomodoro.autoStartSuppressed) {
-      return null;
-    }
-
-    const { activeBlock, plannedBlocks, events, nowMs } = await findActiveBlock();
-    if (!context.isCurrent()) return null;
-    const nextDeadlineMs = nextPomodoroBlockBoundaryMs(events, nowMs)
-      ?? nextLocalDayBoundaryMs(nowMs);
-
-    // Clear dismissed block once its time window passes
-    if (pomodoro.dismissedBlockId && activeBlock?.id !== pomodoro.dismissedBlockId) {
-      pomodoro.dismissedBlockId = null;
-    }
-
-    if (activeBlock && activeBlock.id === pomodoro.dismissedBlockId) {
-      return nextDeadlineMs;
-    }
-
-    if (activeBlock) {
-      if (pomodoro.blockExpired) pomodoro.clearBlockExpired();
-      const pc = activeBlock.pomodoroConfig!;
-      await pomodoro.startFromBlock(
-        activeBlock.id,
-        pc,
-        activeBlock.end,
-        activeBlock.start.split(" ")[0],
-        pc.idleTimeoutMinutes,
-        false,
-        plannedBlocks,
-      );
-      if (!context.isCurrent()) return null;
-      trackedBlockSnapshot = { ...activeBlock };
-    } else if (pomodoro.activeBlockId && pomodoro.blockExpired) {
-      // Block naturally ended, no successor: stop the timer and show a terminal notice.
-      const completedBlock = trackedBlockSnapshot;
-      pomodoro.clearBlockExpired();
-      trackedBlockSnapshot = null;
-      await pomodoro.stopSession();
-      await showNaturalPomodoroCompletion(completedBlock);
-    } else if (
-      pomodoro.activeBlockId &&
-      trackedBlockSnapshot &&
-      parseCalendarDate(trackedBlockSnapshot.end).getTime() <= Date.now()
-    ) {
-      // A paused session has no tick to mark blockExpired. If the event window
-      // has naturally passed, finish it silently instead of offering an edit
-      // rollback that would not change anything useful.
-      const completedBlock = trackedBlockSnapshot;
+  const activeBlockScheduler = createPomodoroCalendarScheduler({
+    calendar,
+    pomodoro,
+    isBlocked: () => showStopConfirm || reverting || Boolean(suspendInfo) || Boolean(idleInfo),
+    onBeforeNaturalCompletion: () => {
       savedBlockState = null;
-      trackedBlockSnapshot = null;
-      await pomodoro.stopSession();
-      await showNaturalPomodoroCompletion(completedBlock);
-    } else if (pomodoro.activeBlockId && trackedBlockSnapshot) {
-      // No overlapping scheduler candidate is not proof that the active event vanished.
-      // Explicit expiry and protected edit/delete paths own session stops.
-      return nextDeadlineMs;
-    }
-    return nextDeadlineMs;
-  }
-
-  const activeBlockScheduler = createLifecycleScheduler({
-    run: runActiveBlockCheck,
-    errorRetryMs: 60_000,
+    },
+    onNaturalCompletion: showNaturalPomodoroCompletion,
     onError: (error) => {
       console.warn("active pomodoro block check failed", error);
     },
@@ -912,7 +815,7 @@
   function confirmStop() {
     showStopConfirm = false;
     savedBlockState = null;
-    trackedBlockSnapshot = null;
+    activeBlockScheduler.clearTrackedBlock();
     pomodoro.stopSession();
   }
 
