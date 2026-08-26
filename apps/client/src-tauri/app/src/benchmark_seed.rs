@@ -2,8 +2,6 @@ use serde::Deserialize;
 use sqlx::{Row, Sqlite, Transaction};
 use tauri::{AppHandle, Runtime};
 
-use crate::chat::benchmark::{measure_provider_stop, process_tree_cpu_time_ms};
-use crate::chat::benchmark::{seed_dense_chat_fixture, DenseChatFixtureSummary};
 use crate::db_path::connect_sqlite;
 use crate::music::library::fixtures::{seed_dense_music_fixture, DenseMusicFixtureSummary};
 
@@ -112,27 +110,6 @@ pub async fn benchmark_seed_dense_music_library<R: Runtime>(
     seed_dense_music_fixture(&pool)
         .await
         .map_err(|error| error.to_string())
-}
-
-#[tauri::command]
-pub async fn benchmark_seed_dense_chat_workspace<R: Runtime>(
-    app: AppHandle<R>,
-    db_url: String,
-) -> Result<DenseChatFixtureSummary, String> {
-    let pool = connect_sqlite(app, db_url).await?;
-    seed_dense_chat_fixture(&pool)
-        .await
-        .map_err(|error| format!("seed dense Chat fixture: {error}"))
-}
-
-#[tauri::command]
-pub async fn benchmark_measure_chat_provider_stop() -> Result<f64, String> {
-    measure_provider_stop().await.map_err(|error| error.message)
-}
-
-#[tauri::command]
-pub fn benchmark_read_process_cpu_ms() -> Result<f64, String> {
-    process_tree_cpu_time_ms()
 }
 
 async fn insert_config(

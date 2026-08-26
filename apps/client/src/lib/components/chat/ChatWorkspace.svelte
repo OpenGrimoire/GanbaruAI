@@ -49,7 +49,6 @@
   import ChatChannelArchive from "./ChatChannelArchive.svelte";
   import ChatChannelFeed from "./ChatChannelFeed.svelte";
   import ChatReplyThreadPanel from "./ChatReplyThreadPanel.svelte";
-  import { registerMountedChatBenchmark } from "./benchmark-handle.svelte";
 
   const localization = getLocalization();
   const { t } = localization;
@@ -240,9 +239,7 @@
     window.addEventListener("ganbaru-ai:chat-configure-teammate", openTeammates);
     window.addEventListener("ganbaru-ai:chat-manage-members", openTeammates);
     window.addEventListener("ganbaru-ai:chat-new-teammate", openTeammates);
-    const unregisterBenchmark = registerMountedChatBenchmark();
     return () => {
-      unregisterBenchmark();
       observer.disconnect();
       headerGeometryObserver.disconnect();
       if (inspectorResizeFrame !== null) window.cancelAnimationFrame(inspectorResizeFrame);

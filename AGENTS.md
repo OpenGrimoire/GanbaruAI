@@ -117,7 +117,7 @@ apps/
             checkpoints/, restore_commands/: authorization cleanup and restoration workflows over the core Chat service
             preview/, workspace_observer/: browser previews, webviews, and workspace change observation
             settings/: provider discovery, native credentials, preferences, model mapping, and pickers
-            benchmark/, tests/: dense benchmark support and Tauri integration tests
+            tests/: Tauri integration tests
           chat_mobile.rs: mobile-compatible Chat configuration and vault contract surface
           notes.rs, notes/: Notes Tauri command adapters, working-Markdown composition, dialogs, and asset authorization
           pomodoro.rs, pomodoro/: timer commands, DTOs, persistence, validation, reads, and tests

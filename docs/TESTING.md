@@ -66,7 +66,8 @@ Run root scripts with the workspace flag:
 | Command | Purpose |
 | --- | --- |
 | `pnpm -w run check` | Rust formatting and Clippy, followed by frontend Svelte and TypeScript checks. |
-| `pnpm -w run test` | All Rust tests, followed by all frontend tests in sequential shards. |
+| `pnpm -w run test` | Normal Rust tests, followed by normal frontend tests in sequential shards. Benchmark workloads and benchmark-harness contract tests are excluded. |
+| `pnpm -w run test:benchmark-contracts` | Benchmark fixture and harness contract tests. This is separate from normal validation. |
 | `pnpm -w run editor-check` | Tailwind editor-style diagnostics. |
 | `pnpm -w run bundle-contracts` | Cached production build and bundle-contract validation. |
 | `pnpm -w run audit` | pnpm and Rust dependency audits. |
@@ -82,13 +83,15 @@ The broad root scripts intentionally optimize for bounded peak resource use rath
 1. Rust formatting and Clippy with one Cargo build job.
 2. Rust workspace tests with one Cargo build job and one runtime test thread.
 3. Svelte Check with a 1,536 MiB Node old-space limit, followed by TypeScript checking.
-4. Four sequential Vitest shards, each with one worker.
+4. Four sequential Vitest shards, each with one worker and benchmark-harness tests excluded.
 5. Tailwind diagnostics through Turbo.
 6. A production build and bundle-contract checks through Turbo.
 
 Rust work runs first because compiler and linker peaks are the least predictable. Rust and frontend tools must not overlap. Do not start another Cargo, Vitest, Svelte Check, Turbo, or broad validation command while a root `check`, `test`, `validate`, or `validate:full` command is active.
 
-One Cargo build job prevents multiple large compiler or linker processes from competing for memory. One Rust test thread also serializes data-heavy integration behavior. Sequential Vitest shards release transformed module graphs between groups while preserving the complete frontend suite.
+One Cargo build job prevents multiple large compiler or linker processes from competing for memory. One Rust test thread also serializes data-sensitive integration behavior. Sequential Vitest shards release transformed module graphs between groups while preserving the normal frontend suite.
+
+Normal validation must prove production correctness without running performance, stress, timing, or dense benchmark-fixture workloads. Rust benchmark fixture contracts are ignored by the default Cargo test run, and frontend benchmark-harness tests are excluded from the normal Vitest shards. Run `pnpm -w run test:benchmark-contracts` explicitly when changing an implemented benchmark harness. Benchmark measurements remain manual release-build work and are never part of `validate`.
 
 Do not increase broad concurrency, combine Rust and frontend stages, or remove Vitest sharding solely to make a warm run faster. Any topology change requires measurements and proof that coverage is unchanged.
 

@@ -29,7 +29,6 @@ const CORE_BENCHMARK_SCENARIO_IDS = [
   "idle-memory",
   "calendar-nav",
   "calendar-panel-latency",
-  "chat-workspace",
 ];
 
 const BACKEND_BENCHMARK_SCENARIO_IDS = ["calendar-import-ops"];
@@ -96,21 +95,6 @@ export const BENCHMARK_SCENARIOS: BenchmarkScenarioMetadata[] = [
     runMode: "dense-only",
   },
   {
-    id: "chat-workspace",
-    label: "Project Chat",
-    description:
-      "Measures dense Chat activation, switching, paging, search, streaming, idle CPU, memory, and owned process stop.",
-    workload: {
-      kind: "stress-memory",
-      question: "Does dense local Chat remain responsive, bounded, and idle when no provider is running?",
-      label: "dense project working-folder Chat interactions",
-      durationMs: 0,
-      memoryMode: "post-workload",
-    },
-    defaultDataset: DEFAULT_BENCHMARK_DATASET,
-    runMode: "dense-only",
-  },
-  {
     id: "calendar-import-ops",
     label: "Calendar import operations",
     description:
@@ -154,8 +138,6 @@ const SCENARIO_LOADERS: Record<string, BenchmarkScenarioLoader> = {
   "calendar-nav": () => import("./scenarios/calendar-nav").then((module) => module.calendarNavScenario),
   "calendar-panel-latency": () => import("./scenarios/calendar-panel-latency")
     .then((module) => module.calendarPanelLatencyScenario),
-  "chat-workspace": () => import("./scenarios/chat-workspace")
-    .then((module) => module.chatWorkspaceScenario),
   "calendar-import-ops": () => import("./scenarios/calendar-import-ops")
     .then((module) => module.calendarImportOpsScenario),
 };

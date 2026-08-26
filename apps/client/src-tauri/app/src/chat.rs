@@ -4,7 +4,6 @@
 //! and workspace authorization boundaries before runtime processes exist.
 
 pub(crate) use ganbaru_chat::chat::agent_runs;
-pub mod benchmark;
 pub mod channel_commands;
 pub mod checkpoint_commands;
 pub mod checkpoints;
@@ -29,6 +28,7 @@ pub mod internal_mcp;
 mod internal_mcp_tools;
 pub mod models;
 pub mod preview;
+#[cfg(test)]
 pub mod process;
 pub mod provider_files;
 pub mod providers;
