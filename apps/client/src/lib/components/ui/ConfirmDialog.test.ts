@@ -74,4 +74,35 @@ describe("ConfirmDialog", () => {
     target.querySelectorAll<HTMLButtonElement>(".confirm-dialog button").item(0).click();
     expect(onCancel).toHaveBeenCalledOnce();
   });
+
+  it("keeps Enter and Escape authoritative while the safe cancel action has focus", async () => {
+    target = document.createElement("div");
+    document.body.append(target);
+    const onConfirm = vi.fn();
+    const onCancel = vi.fn();
+    component = mount(ConfirmDialog, {
+      target,
+      props: {
+        message: "Delete this item?",
+        onConfirm,
+        onCancel,
+      },
+    });
+    await tick();
+
+    const cancelButton = target.querySelector<HTMLButtonElement>(".confirm-dialog button");
+    cancelButton?.focus();
+    expect(document.activeElement).toBe(cancelButton);
+
+    cancelButton?.dispatchEvent(
+      new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }),
+    );
+    expect(onConfirm).toHaveBeenCalledOnce();
+    expect(onCancel).not.toHaveBeenCalled();
+
+    cancelButton?.dispatchEvent(
+      new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }),
+    );
+    expect(onCancel).toHaveBeenCalledOnce();
+  });
 });

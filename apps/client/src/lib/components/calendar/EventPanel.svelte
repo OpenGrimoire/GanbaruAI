@@ -36,6 +36,7 @@
   import {
     EventPanelActionsController,
     canRunEventPanelSave,
+    isEventPanelDeleteActionTarget,
   } from "./event-panel-actions-controller.svelte";
   import type { PanelSaveData } from "./event-panel-payloads";
   import { getMusicContextAssignments, getMusicPlaylistSummaries } from "$lib/music/platform-library";
@@ -185,7 +186,6 @@
   // ─── Inline delete confirmation ────────────────────────────────
   // Two-step delete: first click arms, second click confirms. Any other
   // click inside the panel disarms (see panel-root onclick below).
-  let confirmDeleteBtn: HTMLButtonElement | undefined = $state();
   const deleteAction = $derived(event ? deleteActionForCalendarEvent(event) : "delete");
   const deleteActionLabel = $derived(
     endEventAction
@@ -677,9 +677,7 @@
   function handlePanelClick(e: MouseEvent) {
     if (parked) return;
     e.stopPropagation();
-    // Disarm the inline delete confirmation if the click landed outside the
-    // confirm button. The confirm button handles its own disarm on click.
-    actions.disarmOutsideConfirm(!!confirmDeleteBtn?.contains(e.target as Node));
+    actions.disarmOutsideConfirm(isEventPanelDeleteActionTarget(e.target));
   }
 
   function focusPanelArrowTarget(target: HTMLElement) {
@@ -1354,7 +1352,8 @@
       <div class="panel-footer-actions flex">
         {#if actions.deleteArmed && mode === "edit" && event && (onDelete || onEndEvent) && (!endEventAction || inlineEndEventConfirm)}
           <button
-            bind:this={confirmDeleteBtn}
+            type="button"
+            data-event-panel-delete-action
             onclick={() => actions.confirmArmedDelete()}
             disabled={deleteControlsDisabled}
             class="readonly-interactive flex flex-1 items-center justify-center gap-2 py-1.5 text-[0.866667rem] text-action-danger-armed-foreground bg-action-danger-armed">
@@ -1369,7 +1368,10 @@
           </button>
         {:else}
           {#if mode === "edit" && (onDelete || onEndEvent) && event}
-            <button onclick={() => actions.armOrConfirmDelete()}
+            <button
+              type="button"
+              data-event-panel-delete-action
+              onclick={() => actions.armOrConfirmDelete()}
               disabled={deleteControlsDisabled}
               class={cn(
                 "readonly-interactive event-panel-delete-icon-button flex w-10 shrink-0 items-center justify-center text-foreground",

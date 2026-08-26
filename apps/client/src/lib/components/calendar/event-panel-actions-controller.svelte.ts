@@ -2,6 +2,11 @@ import { hasOnlyShortcutModifier, hasShortcutModifier } from "$lib/keyboard-shor
 
 export type EventPanelKeyboardAction = "confirm-delete" | "save" | "delete" | null;
 
+export function isEventPanelDeleteActionTarget(target: EventTarget | null): boolean {
+  return target instanceof Element
+    && target.closest("[data-event-panel-delete-action]") !== null;
+}
+
 export function canRunEventPanelSave(input: {
   parked: boolean;
   controlsDisabled: boolean;

@@ -1,7 +1,11 @@
 <script lang="ts">
   import { onMount, tick } from "svelte";
   import { getLocalization } from "$lib/i18n/translator.svelte";
-  import { activateModalFocus, trapModalTabKey } from "$lib/modal-focus";
+  import {
+    activateModalFocus,
+    activateModalKeyboardLayer,
+    trapModalTabKey,
+  } from "$lib/modal-focus";
   import { BUILD_PLATFORM_PROFILE, platformHasCapability } from "$lib/platform";
   import { getMobileBackStack } from "$lib/stores/mobile-back-stack.svelte";
 
@@ -47,10 +51,6 @@
       return;
     }
     if (e.key === "Enter") {
-      if (e.target instanceof HTMLButtonElement && element?.contains(e.target)) {
-        e.stopPropagation();
-        return;
-      }
       e.preventDefault();
       e.stopPropagation();
       onConfirm();
@@ -80,15 +80,15 @@
     const deactivateMobileBack = androidSystemBackAvailable
       ? mobileBackStack.activate({ handle: () => onDismiss() })
       : () => undefined;
+    const deactivateKeyboard = activateModalKeyboardLayer(handleKeydown);
     let deactivateModalFocus = (): void => undefined;
     void tick().then(() => {
       if (element) deactivateModalFocus = activateModalFocus(element, cancelButtonElement);
     });
-    window.addEventListener("keydown", handleKeydown, true);
     return () => {
       deactivateMobileBack();
+      deactivateKeyboard();
       deactivateModalFocus();
-      window.removeEventListener("keydown", handleKeydown, true);
     };
   });
 </script>
@@ -122,6 +122,7 @@
     </div>
     <div class="flex flex-wrap items-center justify-start gap-2">
       <button
+        type="button"
         bind:this={cancelButtonElement}
         onclick={onCancel}
         class="min-h-12 rounded-md border border-border bg-card px-3.5 py-2 text-[0.866667rem] font-medium text-foreground transition-colors hover:bg-accent"
@@ -129,6 +130,7 @@
         {#if mobileShell}{cancelLabel}{:else}{`${cancelLabel} (${t("common.escapeKey")})`}{/if}
       </button>
       <button
+        type="button"
         onclick={onConfirm}
         class="min-h-12 rounded-md border border-border bg-primary px-3.5 py-2 text-[0.866667rem] font-medium text-primary-foreground transition-colors hover:bg-primary/90"
       >

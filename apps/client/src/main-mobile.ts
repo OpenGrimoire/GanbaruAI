@@ -14,10 +14,12 @@ import {
   readPreVaultLanguagePreference,
 } from "$lib/i18n/pre-vault-language";
 import { applyPlatformProfileToDocument } from "$lib/platform";
+import { installModalKeyboardRouter } from "$lib/modal-focus";
 import { hydrateUserThemes } from "$lib/stores/theme.svelte";
 
 (globalThis as unknown as { Temporal: typeof Temporal }).Temporal = Temporal;
 applyPlatformProfileToDocument();
+installModalKeyboardRouter();
 
 function safeStorage(): Storage | undefined {
   try {

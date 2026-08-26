@@ -1,7 +1,12 @@
 // @vitest-environment jsdom
 
-import { afterEach, describe, expect, it } from "vitest";
-import { activateModalFocus, trapModalTabKey } from "./modal-focus";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import {
+  activateModalFocus,
+  activateModalKeyboardLayer,
+  installModalKeyboardRouter,
+  trapModalTabKey,
+} from "./modal-focus";
 
 describe("modal focus", () => {
   afterEach(() => {
@@ -59,5 +64,21 @@ describe("modal focus", () => {
     expect(trapModalTabKey(parent, event)).toBe(false);
     expect(event.defaultPrevented).toBe(false);
     expect(document.activeElement).toBe(nestedButton);
+  });
+
+  it("routes keys before feature handlers mounted after application bootstrap", () => {
+    const uninstallRouter = installModalKeyboardRouter(window);
+    const onParentKeydown = vi.fn();
+    const onModalKeydown = vi.fn();
+    window.addEventListener("keydown", onParentKeydown, true);
+    const deactivateModal = activateModalKeyboardLayer(onModalKeydown);
+
+    window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", cancelable: true }));
+
+    expect(onModalKeydown).toHaveBeenCalledOnce();
+    expect(onParentKeydown).not.toHaveBeenCalled();
+    deactivateModal();
+    window.removeEventListener("keydown", onParentKeydown, true);
+    uninstallRouter();
   });
 });

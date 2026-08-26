@@ -7,6 +7,53 @@ const FOCUSABLE_SELECTOR = [
   "[tabindex]:not([tabindex='-1'])",
 ].join(",");
 
+interface ModalKeyboardLayer {
+  id: symbol;
+  handle: (event: KeyboardEvent) => void;
+}
+
+let modalKeyboardLayers: ModalKeyboardLayer[] = [];
+let modalKeyboardRouterTarget: Window | null = null;
+
+function routeModalKeyboardEvent(event: KeyboardEvent): void {
+  const layer = modalKeyboardLayers.at(-1);
+  if (!layer) return;
+  try {
+    layer.handle(event);
+  } finally {
+    event.stopImmediatePropagation();
+  }
+}
+
+/** Install the modal keyboard router before application-level shortcut listeners. */
+export function installModalKeyboardRouter(target: Window = window): () => void {
+  if (modalKeyboardRouterTarget === target) return () => undefined;
+  if (modalKeyboardRouterTarget) {
+    modalKeyboardRouterTarget.removeEventListener("keydown", routeModalKeyboardEvent, true);
+  }
+  modalKeyboardRouterTarget = target;
+  target.addEventListener("keydown", routeModalKeyboardEvent, true);
+  return () => {
+    if (modalKeyboardRouterTarget !== target) return;
+    target.removeEventListener("keydown", routeModalKeyboardEvent, true);
+    modalKeyboardRouterTarget = null;
+  };
+}
+
+/** Give the most recently opened modal first ownership of keyboard input. */
+export function activateModalKeyboardLayer(
+  handle: (event: KeyboardEvent) => void,
+): () => void {
+  if (!modalKeyboardRouterTarget && typeof window !== "undefined") {
+    installModalKeyboardRouter(window);
+  }
+  const id = Symbol("modal-keyboard-layer");
+  modalKeyboardLayers = [...modalKeyboardLayers, { id, handle }];
+  return () => {
+    modalKeyboardLayers = modalKeyboardLayers.filter((layer) => layer.id !== id);
+  };
+}
+
 function visibleFocusableElements(container: HTMLElement): HTMLElement[] {
   return [...container.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR)]
     .filter((element) => !element.hidden && element.getAttribute("aria-hidden") !== "true");

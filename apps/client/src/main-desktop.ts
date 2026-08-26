@@ -24,8 +24,10 @@ import {
   type PomodoroBlockedScreenState,
 } from "./lib/components/pomodoro/blocked-screen";
 import { applyPlatformProfileToDocument } from "./lib/platform";
+import { installModalKeyboardRouter } from "./lib/modal-focus";
 
 applyPlatformProfileToDocument();
+installModalKeyboardRouter();
 
 interface BenchmarkBootProbe {
   vaultMode?: "user" | "benchmark";
