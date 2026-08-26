@@ -88,3 +88,68 @@ jobs:
 
       - name: check Windows Rust
         run: cargo check -p ganbaru-ai --locked
+
+  android:
+    name: Android ARM64 build
+    runs-on: ubuntu-22.04
+    timeout-minutes: 90
+    permissions:
+      contents: read
+    env:
+      CARGO_TERM_COLOR: always
+    steps:
+      - name: checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          persist-credentials: false
+
+      - name: setup node
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e
+        with:
+          node-version: "24"
+
+      - name: setup Java 21
+        # actions/setup-java v5
+        uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - name: enable pnpm
+        env:
+          COREPACK_ENABLE_DOWNLOAD_PROMPT: "0"
+        run: |
+          corepack enable
+          corepack prepare pnpm@11.1.1 --activate
+
+      - name: install Rust stable and Android target
+        run: |
+          rustup toolchain install stable --profile minimal --no-self-update
+          rustup default stable
+          rustup target add aarch64-linux-android
+
+      - name: install pinned Android SDK components
+        run: |
+          sdkmanager "platforms;android-36" "build-tools;35.0.0" "ndk;30.0.15729638"
+          echo "NDK_HOME=$ANDROID_HOME/ndk/30.0.15729638" >> "$GITHUB_ENV"
+
+      - name: install workspace dependencies
+        run: pnpm install --frozen-lockfile --ignore-scripts
+
+      - name: fetch Rust dependencies
+        run: cargo fetch --locked
+
+      - name: validate committed Android project
+        run: pnpm --dir apps/client run check:android-project
+
+      - name: build Android ARM64 debug APK
+        run: pnpm --dir apps/client tauri android build --debug --apk --target aarch64 --ci
+
+      - name: upload Android development APK
+        # actions/upload-artifact v7.0.1
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: android-arm64-development
+          path: apps/client/src-tauri/gen/android/app/build/outputs/apk/universal/debug/app-universal-debug.apk
+          if-no-files-found: error
+          retention-days: 7

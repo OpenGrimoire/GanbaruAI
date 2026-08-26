@@ -40,6 +40,21 @@ struct SaveUtf8DownloadResponse {
     display_name: String,
 }
 
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct PickVaultTreeToPathRequest<'a> {
+    destination_path: &'a str,
+    max_files: u32,
+    max_bytes: u64,
+    max_depth: u32,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct PickVaultTreeToPathResponse {
+    display_name: Option<String>,
+}
+
 pub(crate) fn init<R: Runtime, C: serde::de::DeserializeOwned>(
     _app: &AppHandle<R>,
     api: PluginApi<R, C>,
@@ -49,6 +64,28 @@ pub(crate) fn init<R: Runtime, C: serde::de::DeserializeOwned>(
 }
 
 impl<R: Runtime> MobileDocuments<R> {
+    /// Select an Android document tree and stream it into an empty app-private directory.
+    pub fn pick_vault_tree_to_path(
+        &self,
+        destination_path: &str,
+        max_files: u32,
+        max_bytes: u64,
+        max_depth: u32,
+    ) -> Result<Option<String>, String> {
+        self.0
+            .run_mobile_plugin::<PickVaultTreeToPathResponse>(
+                "pickVaultTreeToPath",
+                PickVaultTreeToPathRequest {
+                    destination_path,
+                    max_files,
+                    max_bytes,
+                    max_depth,
+                },
+            )
+            .map(|response| response.display_name)
+            .map_err(|error| format!("import Ganbaru AI folder: {error}"))
+    }
+
     /// Ask Android to select and read one UTF-8 document within `max_bytes`.
     pub fn pick_utf8_document(&self, max_bytes: u64) -> Result<Option<String>, String> {
         self.0

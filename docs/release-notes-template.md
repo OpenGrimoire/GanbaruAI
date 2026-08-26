@@ -10,7 +10,7 @@ Expand the Assets section below and choose the installer for your platform.
 | **Other Linux x64 desktops** | `.AppImage` |
 | **Windows 10 or Windows 11 x64** | `.msi` installer, or the `.exe` setup if preferred |
 | **macOS** | Not available yet. macOS builds are planned, but they need Apple hardware and signing before release. |
-| **Android** | Not available yet. Android support is planned soon after the current desktop release path settles. |
+| **Android 10 or newer** | Signed universal `.apk` for direct installation. Android support is still in early development, so protect important data before uninstalling. |
 | **iOS** | Not available yet. iOS depends on the same Apple build and signing path as macOS. |
 
 Arch-based distro users can install with `yay -S ganbaru-ai-bin` or another AUR helper.

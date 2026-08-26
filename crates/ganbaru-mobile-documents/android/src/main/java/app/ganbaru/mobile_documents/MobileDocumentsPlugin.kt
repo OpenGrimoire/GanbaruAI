@@ -7,6 +7,7 @@ import android.content.ContentValues
 import android.content.Intent
 import android.net.Uri
 import android.os.Environment
+import android.provider.DocumentsContract
 import android.provider.OpenableColumns
 import android.provider.MediaStore
 import androidx.activity.result.ActivityResult
@@ -18,6 +19,8 @@ import app.tauri.plugin.Invoke
 import app.tauri.plugin.JSObject
 import app.tauri.plugin.Plugin
 import java.io.ByteArrayOutputStream
+import java.io.File
+import java.io.FileOutputStream
 import java.io.InputStream
 import java.nio.ByteBuffer
 import java.nio.charset.CodingErrorAction
@@ -35,6 +38,73 @@ internal class SaveUtf8DownloadArgs {
   lateinit var contents: String
   var maxBytes: Long = 0
 }
+
+@InvokeArg
+internal class PickVaultTreeToPathArgs {
+  lateinit var destinationPath: String
+  var maxFiles: Int = 0
+  var maxBytes: Long = 0
+  var maxDepth: Int = 0
+}
+
+internal data class VaultTreeCopyLimits(
+  val maxFiles: Int,
+  val maxBytes: Long,
+  val maxDepth: Int,
+)
+
+internal class VaultTreeCopyBudget(private val limits: VaultTreeCopyLimits) {
+  private var fileCount = 0
+  private var byteCount = 0L
+
+  fun enter(depth: Int) {
+    require(depth <= limits.maxDepth) { "Selected folder is nested too deeply" }
+    fileCount += 1
+    require(fileCount <= limits.maxFiles) { "Selected folder contains too many entries" }
+  }
+
+  fun addBytes(count: Int) {
+    byteCount += count
+    require(byteCount <= limits.maxBytes) { "Selected folder exceeds the import size limit" }
+  }
+}
+
+internal object VaultTreePaths {
+  fun validateDisplayName(name: String): String {
+    require(name.isNotBlank()) { "Selected folder contains an unnamed entry" }
+    require(name != "." && name != "..") { "Selected folder contains an invalid entry name" }
+    require('/' !in name && '\\' !in name && '\u0000' !in name) {
+      "Selected folder contains an invalid entry name"
+    }
+    return name
+  }
+
+  fun privateEmptyDestination(dataRoot: File, requestedPath: String): File {
+    require(requestedPath.isNotBlank()) { "Import destination is required" }
+    val canonicalRoot = dataRoot.canonicalFile
+    val destination = File(requestedPath).canonicalFile
+    require(destination.path.startsWith(canonicalRoot.path + File.separator)) {
+      "Import destination must be inside app-private storage"
+    }
+    require(!destination.exists()) { "Import destination already exists" }
+    val parent = destination.parentFile
+      ?: throw IllegalArgumentException("Import destination has no parent")
+    require(parent.isDirectory) { "Import destination parent is unavailable" }
+    return destination
+  }
+}
+
+private data class DocumentEntry(
+  val documentId: String,
+  val displayName: String,
+  val mimeType: String,
+  val flags: Int,
+)
+
+private data class PendingVaultTreeCopy(
+  val destination: File,
+  val limits: VaultTreeCopyLimits,
+)
 
 internal object DocumentTextCodec {
   fun isJsonFileName(fileName: String): Boolean =
@@ -69,6 +139,158 @@ internal object DocumentTextCodec {
 @TauriPlugin
 class MobileDocumentsPlugin(private val activity: Activity) : Plugin(activity) {
   private var pendingReadLimit: Long? = null
+  private var pendingVaultTreeCopy: PendingVaultTreeCopy? = null
+
+  @Command
+  fun pickVaultTreeToPath(invoke: Invoke) {
+    try {
+      require(pendingVaultTreeCopy == null) { "A folder import is already active" }
+      val args = invoke.parseArgs(PickVaultTreeToPathArgs::class.java)
+      require(args.maxFiles > 0) { "Folder entry limit must be positive" }
+      require(args.maxBytes > 0) { "Folder size limit must be positive" }
+      require(args.maxDepth > 0) { "Folder depth limit must be positive" }
+      val destination = VaultTreePaths.privateEmptyDestination(
+        File(activity.applicationInfo.dataDir),
+        args.destinationPath,
+      )
+      pendingVaultTreeCopy = PendingVaultTreeCopy(
+        destination,
+        VaultTreeCopyLimits(args.maxFiles, args.maxBytes, args.maxDepth),
+      )
+      val pickerIntent = Intent(Intent.ACTION_OPEN_DOCUMENT_TREE).apply {
+        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+      }
+      startActivityForResult(invoke, pickerIntent, "pickVaultTreeToPathResult")
+    } catch (error: Exception) {
+      pendingVaultTreeCopy = null
+      invoke.reject(error.message ?: "Failed to open folder picker")
+    }
+  }
+
+  @ActivityCallback
+  fun pickVaultTreeToPathResult(invoke: Invoke, result: ActivityResult) {
+    val pending = pendingVaultTreeCopy
+    pendingVaultTreeCopy = null
+    if (result.resultCode == Activity.RESULT_CANCELED) {
+      invoke.resolve(JSObject().apply { put("displayName", null) })
+      return
+    }
+    if (result.resultCode != Activity.RESULT_OK || pending == null) {
+      invoke.reject("Failed to select folder")
+      return
+    }
+    val treeUri = result.data?.data
+    if (treeUri == null) {
+      invoke.reject("The selected folder is unavailable")
+      return
+    }
+
+    Thread {
+      try {
+        check(pending.destination.mkdir()) { "Android could not create the import staging folder" }
+        val rootId = DocumentsContract.getTreeDocumentId(treeUri)
+        val rootUri = DocumentsContract.buildDocumentUriUsingTree(treeUri, rootId)
+        val displayName = resolveDocumentDisplayName(rootUri)
+          ?: throw IllegalArgumentException("The selected folder has no name")
+        copyDocumentDirectory(
+          treeUri,
+          rootId,
+          pending.destination,
+          0,
+          VaultTreeCopyBudget(pending.limits),
+        )
+        invoke.resolve(JSObject().apply { put("displayName", displayName) })
+      } catch (error: Exception) {
+        pending.destination.deleteRecursively()
+        invoke.reject(error.message ?: "Failed to import selected folder")
+      }
+    }.start()
+  }
+
+  private fun copyDocumentDirectory(
+    treeUri: Uri,
+    documentId: String,
+    destination: File,
+    depth: Int,
+    budget: VaultTreeCopyBudget,
+  ) {
+    budget.enter(depth)
+    for (entry in queryDocumentChildren(treeUri, documentId)) {
+      val name = VaultTreePaths.validateDisplayName(entry.displayName)
+      val child = File(destination, name)
+      require(child.canonicalFile.parentFile == destination.canonicalFile) {
+        "Selected folder contains an unsafe entry path"
+      }
+      require(!child.exists()) { "Selected folder contains duplicate entry names" }
+      if (entry.mimeType == DocumentsContract.Document.MIME_TYPE_DIR) {
+        check(child.mkdir()) { "Android could not create an imported directory" }
+        copyDocumentDirectory(treeUri, entry.documentId, child, depth + 1, budget)
+      } else {
+        require(entry.flags and DocumentsContract.Document.FLAG_VIRTUAL_DOCUMENT == 0) {
+          "Selected folder contains an unsupported virtual document"
+        }
+        copyDocumentFile(treeUri, entry.documentId, child, depth + 1, budget)
+      }
+    }
+  }
+
+  private fun copyDocumentFile(
+    treeUri: Uri,
+    documentId: String,
+    destination: File,
+    depth: Int,
+    budget: VaultTreeCopyBudget,
+  ) {
+    budget.enter(depth)
+    val documentUri = DocumentsContract.buildDocumentUriUsingTree(treeUri, documentId)
+    val input = activity.contentResolver.openInputStream(documentUri)
+      ?: throw IllegalStateException("Android could not open an imported document")
+    input.use { source ->
+      FileOutputStream(destination).use { target ->
+        val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
+        while (true) {
+          val count = source.read(buffer)
+          if (count < 0) break
+          budget.addBytes(count)
+          target.write(buffer, 0, count)
+        }
+        target.flush()
+        target.fd.sync()
+      }
+    }
+  }
+
+  private fun queryDocumentChildren(treeUri: Uri, parentDocumentId: String): List<DocumentEntry> {
+    val childrenUri = DocumentsContract.buildChildDocumentsUriUsingTree(treeUri, parentDocumentId)
+    val projection = arrayOf(
+      DocumentsContract.Document.COLUMN_DOCUMENT_ID,
+      DocumentsContract.Document.COLUMN_DISPLAY_NAME,
+      DocumentsContract.Document.COLUMN_MIME_TYPE,
+      DocumentsContract.Document.COLUMN_FLAGS,
+    )
+    return activity.contentResolver.query(childrenUri, projection, null, null, null)?.use { cursor ->
+      val entries = ArrayList<DocumentEntry>()
+      while (cursor.moveToNext()) {
+        entries.add(
+          DocumentEntry(
+            documentId = cursor.getString(0),
+            displayName = cursor.getString(1),
+            mimeType = cursor.getString(2),
+            flags = cursor.getInt(3),
+          ),
+        )
+      }
+      entries
+    } ?: throw IllegalStateException("Android could not list the selected folder")
+  }
+
+  private fun resolveDocumentDisplayName(uri: Uri): String? {
+    val projection = arrayOf(DocumentsContract.Document.COLUMN_DISPLAY_NAME)
+    return activity.contentResolver.query(uri, projection, null, null, null)?.use { cursor ->
+      if (!cursor.moveToFirst()) return@use null
+      cursor.getString(0)
+    }
+  }
 
   @Command
   fun pickUtf8Document(invoke: Invoke) {

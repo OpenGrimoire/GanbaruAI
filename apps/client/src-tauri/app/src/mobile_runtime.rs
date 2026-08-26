@@ -24,6 +24,7 @@ pub fn run(context: tauri::Context<tauri::Wry>) {
             vault::vault_default_location,
             vault::vault_use_default_folder,
             vault::vault_active_info,
+            vault::vault_pick_open,
             vault::vault_read_config,
             vault::vault_patch_config,
             vault::vault_pick_and_read_theme_json,

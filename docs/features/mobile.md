@@ -10,12 +10,12 @@ The Android product is not yet delivered. The repository now has an implemented 
 
 - Tauri v2, Svelte 5, and Vite already provide the shared native shell and frontend toolchain.
 - Tauri-free Rust crates hold substantial database, Notes, working-folder, Chat contract, and domain behavior that can be reused where its authority is valid on mobile.
-- Production uses `org.opengrimoire.ganbaruai`. Android debug builds append the official `.dev` application ID suffix, and the Android platform override also defines API level 29 as the minimum with one visible `main` window.
+- Production uses `org.opengrimoire.ganbaruai`. Android debug builds append the official `.dev` application ID suffix and override the launcher label with `Ganbaru AI Dev`. The Android platform override also defines API level 29 as the minimum with one visible `main` window.
 - The reviewed generated Android project builds a universal debug APK and AAB containing ARM64, ARMv7, x86, and x86_64 Rust libraries with API level 36 as the compile and target SDK. Its committed contract pins Android Gradle Plugin 8.11.0, Gradle 8.14.3, SDK Build Tools 35.0.0, NDK 30.0.15729638, Java 17 source and target compatibility, and Kotlin JVM target 17.
 - `apps/client/src-tauri/src/lib.rs` provides the Tauri mobile entry. Separate desktop and mobile Rust composition roots register different commands, plugins, setup, and lifecycle behavior at compile time. Desktop-only crates and Tauri features are target-scoped out of Android.
 - An Android capability grants the `main` WebView only Back-listener registration and removal plus scoped HTTPS URL opening. Cross-window Calendar, Quick notes, and theme synchronization resolves to a build-time no-op transport because Android owns one WebView. Android therefore receives no core event authority. It also receives no unencrypted HTTP, email, telephone, file revealing, or path opening authority. The desktop capability retains its separate desktop window, event, and updater authority.
 - The mobile command surface currently exposes app-private SQLite behavior for Calendar, Projects, Notes, Pomodoro, Quick notes, Themes, Vault, and managed assets. It excludes local Chat execution, desktop notification and overlay windows, Doomscrolling enforcement, desktop music playback, soundscapes, benchmarks, working-folder Markdown, and native path pickers.
-- The mobile default vault is created under Tauri's app data directory as `Ganbaru AI` or `Ganbaru AI Dev`, while desktop keeps its configured Documents default.
+- First use reuses the desktop setup content and visual hierarchy instead of presenting Android implementation details as onboarding. The default action creates the canonical vault under Tauri's app data directory as `Ganbaru AI` or `Ganbaru AI Dev`. Import opens Android's native directory-tree picker, streams a bounded existing Ganbaru AI folder into a private staging directory, validates it with the shared vault boundary, and atomically activates the imported copy.
 - A typed build-platform profile and immutable frontend capability registry distinguish desktop from Android and iOS before Svelte mounts. Mobile route parsing and navigation currently admit Calendar, Projects, and Notes while rejecting Chat and desktop detached-view behavior.
 - Vite selects separate desktop and mobile entry graphs at build time. Android production assets use mobile adapters for Pomodoro effects, music assignments, working-folder settings, and desktop-only Notes panels. Desktop-owned Chat actions and music mention state enter shared feature views through optional typed integrations, so the mobile shell can omit them without importing desktop stores. The Android artifact therefore does not package the desktop App shell, Chat store, coding workspace, desktop music player, native media controls, Doomscrolling runtime, or benchmark surfaces.
 - An initial one-WebView Svelte shell provides phone bottom navigation, a larger-window rail, lazy Calendar, Projects, Notes, Settings, and Quick notes surfaces, an in-app Pomodoro sheet, 48 dp primary targets, and localized English and Spanish copy. Calendar starts in day mode without precision pointer editing, Projects starts in list mode, and Notes omits desktop working-folder controls. Lazy Settings loading keeps the initial shell closure within its existing source-module budget even though the complete category registry is discoverable.
@@ -28,11 +28,13 @@ The Android product is not yet delivered. The repository now has an implemented 
 - The Android Rust target compiles with the NDK toolchain. Desktop music playback and the remaining desktop-only vault, picker, benchmark, networking, and recovery paths are excluded from the Android compile graph instead of being linked as dormant code.
 - The base Android manifest requests only network access. Android backup and device transfer exclude the unencrypted app-private vault and all other application storage until an intentional encrypted backup design exists. The capture FileProvider exposes only the app-scoped `Pictures/` directory.
 - The universal debug APK passes 16 KB ZIP alignment verification. Its ARM64 and x86_64 native libraries use 16 KB ELF load alignment, which is the Android 15 or newer 64-bit compatibility requirement. Physical 16 KB runtime testing remains a release gate.
+- Pull requests build an ARM64 `Ganbaru AI Dev` APK from the committed Android project with the pinned JDK, SDK, NDK, Gradle, and Rust target contract. The artifact is retained for seven days for targeted acceptance testing.
+- The protected release workflow is configured to build minified universal APK and AAB artifacts with a durable Android signing key, verify both signatures, and include them in the draft GitHub Release. The workflow cannot run until the protected Android signing secrets are configured.
 
 The following remain roadmap work and must not be presented as available:
 
-- Release signing, Android CI artifacts, a minified production release AAB, and the remaining emulator and release-device acceptance matrix.
-- Native Storage Access Framework streaming transfers, notification and alarm boundaries, deep links, contextual runtime permissions, encrypted user-controlled backup, and Media3 playback.
+- Durable release-key creation and backup, protected GitHub secret configuration, the first minified production build, and the remaining emulator and release-device acceptance matrix.
+- Remaining Storage Access Framework export, backup, restore, attachment, and media transfers, notification and alarm boundaries, deep links, contextual runtime permissions, encrypted user-controlled backup, and Media3 playback.
 - Android backup UX, restoration for remaining noncanonical drafts and navigation state, physical process-death recovery, root-yielding and predictive Back validation, and remaining touch or narrow-layout adaptations inside shared feature components.
 - Android device and emulator validation, Play policy work, and a production Android release.
 - Mobile sync, remote Chat communication, sleep alarm, and Android Doomscrolling enforcement.
@@ -111,7 +113,7 @@ The frontend receives one typed platform-capabilities snapshot during bootstrap.
 | --- | --- | --- | --- |
 | Calendar, Projects, Notes, Quick notes | Shared contracts, validation, and adaptive screens | App-private SQLite and managed assets | Active desktop vault SQLite and files |
 | Pomodoro | Shared state machine and persisted deadlines | Implemented cold reconciliation, with alarm or notification boundaries still pending | Desktop windows, notifications, and enforcement |
-| Import and export | Shared typed transfer plans | Storage Access Framework content URIs | Native paths and folder dialogs |
+| Import and export | Shared typed transfer plans | Native tree import implemented; remaining transfers use Storage Access Framework content URIs | Native paths and folder dialogs |
 | Music | Shared queue, playlist, and transport contracts | Media3, ExoPlayer, MediaSessionService | Rodio, Symphonia, WebView media, and desktop controls |
 | Deep links | Shared validated navigation intents | Cold-start and running-intent delivery | Desktop protocol and single-instance delivery where supported |
 | Updates | Shared release information UI only when available | Play or signed package distribution | Tauri updater or package-manager instructions |
@@ -124,7 +126,7 @@ Tauri capabilities are split by platform and selected explicitly in each platfor
 
 ## Canonical vault and Android storage
 
-The Android canonical vault lives under app-private internal storage. The implemented mobile default resolves to `<app_data_dir>/Ganbaru AI` in production or `<app_data_dir>/Ganbaru AI Dev` in development and is selected automatically at mobile bootstrap. Its logical structure remains a Ganbaru AI vault, including `vault.json`, `config.json`, `ganbaru-ai.sqlite`, managed documents, and assets, but its physical root is assigned by Android and is not a public `Documents` path.
+The Android canonical vault lives under app-private internal storage. On a fresh install, mobile bootstrap mounts the shared vault setup content and does not create a vault until the user chooses the default or imports an existing Ganbaru AI folder. The selected default resolves to `<app_data_dir>/Ganbaru AI` in production or `<app_data_dir>/Ganbaru AI Dev` in development. Its logical structure remains a Ganbaru AI vault, including `vault.json`, `config.json`, `ganbaru-ai.sqlite`, managed documents, and assets, but its physical root is assigned by Android and is not a public `Documents` path.
 
 App-private storage is the only suitable home for the canonical SQLite database because it provides a real private filesystem path, requires no storage permission, and supports the existing SQLx and bounded filesystem model. Android's scoped-storage model applies to modern targets, while broad legacy write permission no longer provides unrestricted shared-storage access. See the [Android data storage guide](https://developer.android.com/training/data-storage).
 
@@ -133,6 +135,7 @@ The Storage Access Framework is an interoperability boundary, not the live vault
 - Import, export, backup, restore, and attachment selection use system document UI.
 - Android document results are opaque content URIs, not paths.
 - Imported canonical documents are validated and copied into managed storage before direct filesystem use.
+- Whole-vault import uses `ACTION_OPEN_DOCUMENT_TREE`, streams recursively into a bounded app-private staging directory without buffering the vault in JavaScript or Rust memory, rejects unsafe names, excessive depth, entry count, byte count, and virtual documents, then atomically promotes only a valid Ganbaru AI vault.
 - Exports stream to the selected URI and never construct a path from it.
 - A persisted URI grant is retained only when an external object must remain referenced.
 - Revoked, moved, deleted, or unavailable URI content becomes an explicit recoverable state.
@@ -146,7 +149,7 @@ Large local music files are a deliberate exception to copying. A native Android 
 
 Android Auto Backup includes much app-private data by default. The generated manifest therefore disables backup and supplies both legacy backup rules and Android 12 or newer data-extraction rules. Every app storage domain is excluded from cloud backup and device-to-device transfer. This prevents the unencrypted vault, credentials, caches, and device-local state from entering an implicit platform backup. A future encrypted, user-controlled backup is an explicit product flow and can narrow these rules only after its threat model is reviewed. See [Android Auto Backup](https://developer.android.com/identity/data/autobackup) and [Android backup security guidance](https://developer.android.com/privacy-and-security/risks/backup-best-practices).
 
-Uninstalling the app can remove app-private data. First-use and Settings copy must explain this plainly and make export, backup, and later encrypted sync easy to discover.
+Uninstalling the app can remove app-private data. Settings and the future backup flow must explain this plainly and make export, backup, and later encrypted sync easy to discover. This implementation boundary does not belong in first-use copy.
 
 ## Mobile shell and adaptive UX
 
@@ -331,7 +334,7 @@ Performance results belong in `docs/PERFORMANCE.md` only after the Android bench
 
 ## Build and release
 
-The required local toolchain is Android Studio, Android SDK Platform 36, Platform Tools, SDK Build Tools 35.0.0, command-line tools, side-by-side NDK 30.0.15729638, JDK 21 to run Gradle and Tauri, and the selected Rust Android targets. Java and Kotlin application bytecode remains explicitly targeted to version 17. This separates the supported build-runtime LTS from the Android application language level and avoids machine-dependent bytecode. Configure `JAVA_HOME`, `ANDROID_HOME`, and `NDK_HOME` as described by the [Tauri prerequisites](https://v2.tauri.app/start/prerequisites/).
+The required local toolchain is Android Studio, Android SDK Platform 36, Platform Tools, SDK Build Tools 35.0.0, command-line tools, side-by-side NDK 30.0.15729638, JDK 21 to run Gradle and Tauri, and the selected Rust Android targets. Java and Kotlin application bytecode remains explicitly targeted to version 17. This separates the supported build-runtime LTS from the Android application language level and avoids machine-dependent bytecode. The repository-owned Tauri wrapper selects JDK 21 from `GANBARU_AI_ANDROID_JAVA_HOME`, a compatible `JAVA_HOME`, the GitHub runner JDK variable, the Java executable on `PATH`, or reviewed Linux installation paths. It fails with a direct setup error instead of falling back to an incompatible Android Studio runtime. Configure `ANDROID_HOME` and `NDK_HOME` as described by the [Tauri prerequisites](https://v2.tauri.app/start/prerequisites/).
 
 The supported Rust target set is `aarch64-linux-android`, `armv7-linux-androideabi`, `i686-linux-android`, and `x86_64-linux-android`. Local development installs the connected device or emulator target first. Release configuration states its ABI support explicitly and tests every included ABI. It must not become ARM64-only by accident.
 
@@ -354,7 +357,7 @@ Run `pnpm --dir apps/client run generate:icons` after changing the source logo o
 
 The APK is for direct device and emulator testing. Google Play distribution uses an Android App Bundle. Development may build only the connected device ABI for speed. Release ABI policy is explicit and validated against supported devices rather than assumed from API level.
 
-Release signing uses a protected keystore and private Gradle signing properties. Signing secrets never enter source control. The package identifier and release key are permanent product identity once distributed. See [Tauri Android signing](https://v2.tauri.app/distribute/sign/android/).
+Release signing uses a protected keystore and private Gradle signing properties. Release Gradle tasks fail when signing properties are absent, while debug tasks remain independent of release credentials. Pull requests build an ARM64 debug APK under the `.dev` identifier. The protected tag workflow builds all four supported Rust ABIs into one signed universal APK and AAB, verifies their signatures, and stages them with the desktop assets. Signing secrets never enter source control. The package identifier and release key are permanent product identity once distributed. See [Tauri Android signing](https://v2.tauri.app/distribute/sign/android/).
 
 Once created, the generated Android project and intentional native changes are reviewed as source. Regeneration is deliberate and followed by a diff. Release builds validate minification, manifest merging, capabilities, permissions, content providers, deep links, backup rules, native library alignment, and installation from the built AAB, not only a debug APK.
 
@@ -370,7 +373,7 @@ Android work is divided into independently useful milestones:
 6. **Policy-sensitive features:** diary and sleep alarm, usage awareness, and carefully reviewed Doomscrolling capabilities. Each remains useful with special permissions denied.
 7. **iOS alignment:** implement equivalent shared contracts through iOS-native adapters without weakening Android architecture or pretending platform capabilities are identical.
 
-The current source foundation completes the local build and physical-shell portions of milestone 1 and parts of milestone 2. The native Android project builds all four supported ABIs into a universal debug APK and AAB. An ARM64 debug APK installs and passes initial Android 10 acceptance for cold start, background process restart, portrait and landscape insets, compact and wide navigation, system-bar theme contrast, root Back, Calendar, Projects, Notes, Quick notes, Pomodoro, and Settings. Signing, CI, production AAB validation, emulators, and the complete release matrix remain milestone 1 work. Milestones 1 through 4 do not depend on sync and can proceed before Phase 9. Milestone 5 depends on Phase 9. Sleep alarm depends on the diary domain and native alarm design. Policy-sensitive features require their own store-policy review before release.
+The current source foundation completes the local build, CI wiring, protected signing configuration, and physical-shell portions of milestone 1 and parts of milestone 2. The native Android project builds all four supported ABIs into universal APK and AAB artifacts, while pull requests build only ARM64 for bounded feedback. An ARM64 debug APK installs and passes initial Android 10 acceptance for cold start, background process restart, portrait and landscape insets, compact and wide navigation, system-bar theme contrast, root Back, Calendar, Projects, Notes, Quick notes, Pomodoro, and Settings. Creating and protecting the durable release key, validating the first minified signed artifacts, emulators, and the complete release matrix remain milestone 1 work. Milestones 1 through 4 do not depend on sync and can proceed before Phase 9. Milestone 5 depends on Phase 9. Sleep alarm depends on the diary domain and native alarm design. Policy-sensitive features require their own store-policy review before release.
 
 ## Test matrix
 

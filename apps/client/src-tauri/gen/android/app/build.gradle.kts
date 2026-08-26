@@ -13,6 +13,27 @@ val tauriProperties = Properties().apply {
     }
 }
 
+val releaseSigningPropertiesFile = rootProject.file("keystore.properties")
+val releaseSigningProperties = Properties().apply {
+    if (releaseSigningPropertiesFile.exists()) {
+        releaseSigningPropertiesFile.inputStream().use { load(it) }
+    }
+}
+
+fun requiredReleaseSigningProperty(name: String): String =
+    releaseSigningProperties.getProperty(name)?.takeIf { it.isNotBlank() }
+        ?: throw GradleException("Android release signing property '$name' is missing")
+
+val releaseTaskRequested = gradle.startParameter.taskNames.any { taskName ->
+    taskName.contains("release", ignoreCase = true)
+}
+
+if (releaseTaskRequested && !releaseSigningPropertiesFile.isFile) {
+    throw GradleException(
+        "Android release builds require gen/android/keystore.properties; see docs/release.md",
+    )
+}
+
 android {
     buildToolsVersion = "35.0.0"
     compileSdk = 36
@@ -25,6 +46,16 @@ android {
         targetSdk = 36
         versionCode = tauriProperties.getProperty("tauri.android.versionCode", "1").toInt()
         versionName = tauriProperties.getProperty("tauri.android.versionName", "1.0")
+    }
+    signingConfigs {
+        if (releaseSigningPropertiesFile.isFile) {
+            create("release") {
+                keyAlias = requiredReleaseSigningProperty("keyAlias")
+                keyPassword = requiredReleaseSigningProperty("keyPassword")
+                storeFile = file(requiredReleaseSigningProperty("storeFile"))
+                storePassword = requiredReleaseSigningProperty("storePassword")
+            }
+        }
     }
     buildTypes {
         getByName("debug") {
@@ -41,6 +72,7 @@ android {
             }
         }
         getByName("release") {
+            signingConfig = signingConfigs.findByName("release")
             isMinifyEnabled = true
             proguardFiles(
                 *fileTree(".") { include("**/*.pro") }

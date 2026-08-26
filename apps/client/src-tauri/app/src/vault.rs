@@ -40,6 +40,12 @@ const MAX_CONFIG_PATCH_SEGMENT_BYTES: usize = 128;
 const MAX_CONFIG_PATCH_PATH_BYTES: usize = 1024;
 const MAX_CONFIG_PATCH_COUNT: usize = 256;
 const MAX_CONFIG_PATCH_BATCH_BYTES: usize = 1024 * 1024;
+#[cfg(target_os = "android")]
+const MOBILE_VAULT_IMPORT_MAX_FILES: u32 = 100_000;
+#[cfg(target_os = "android")]
+const MOBILE_VAULT_IMPORT_MAX_BYTES: u64 = 100 * 1024 * 1024 * 1024;
+#[cfg(target_os = "android")]
+const MOBILE_VAULT_IMPORT_MAX_DEPTH: u32 = 64;
 
 #[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -447,6 +453,56 @@ pub async fn vault_pick_open(app: tauri::AppHandle) -> Result<Option<VaultInfo>,
     ensure_vault_skeleton(&PathBuf::from(&info.path))?;
     select_vault(&app, &info)?;
     Ok(Some(info))
+}
+
+#[cfg(target_os = "android")]
+#[tauri::command]
+pub fn vault_pick_open(app: tauri::AppHandle) -> Result<Option<VaultInfo>, String> {
+    let target = default_data_folder_path(&app)?;
+    let parent = target
+        .parent()
+        .ok_or_else(|| "Ganbaru AI folder has no parent directory".to_string())?;
+    fs::create_dir_all(parent).map_err(|error| format!("create app data directory: {error}"))?;
+    let staging = parent.join(format!(".{}.import", default_data_folder_name()));
+    if staging.exists() {
+        fs::remove_dir_all(&staging)
+            .map_err(|error| format!("remove stale folder import: {error}"))?;
+    }
+    if target.exists() {
+        if !folder_is_empty(&target)? {
+            return Err(
+                "the private Ganbaru AI folder already exists; use it or remove its test data first"
+                    .to_string(),
+            );
+        }
+        fs::remove_dir(&target)
+            .map_err(|error| format!("remove empty Ganbaru AI folder: {error}"))?;
+    }
+
+    let staging_path = path_to_string(&staging, "folder import staging")?;
+    let selected = app.mobile_documents().pick_vault_tree_to_path(
+        &staging_path,
+        MOBILE_VAULT_IMPORT_MAX_FILES,
+        MOBILE_VAULT_IMPORT_MAX_BYTES,
+        MOBILE_VAULT_IMPORT_MAX_DEPTH,
+    )?;
+    if selected.is_none() {
+        return Ok(None);
+    }
+
+    let result = (|| {
+        let imported = vault_info_from_path(&staging)?;
+        ensure_vault_skeleton(Path::new(&imported.path))?;
+        fs::rename(&staging, &target)
+            .map_err(|error| format!("activate imported Ganbaru AI folder: {error}"))?;
+        let info = vault_info_from_path(&target)?;
+        select_vault(&app, &info)?;
+        Ok(Some(info))
+    })();
+    if result.is_err() && staging.exists() {
+        let _ = fs::remove_dir_all(&staging);
+    }
+    result
 }
 
 #[cfg(not(any(target_os = "android", target_os = "ios")))]

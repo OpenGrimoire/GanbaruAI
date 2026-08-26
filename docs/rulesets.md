@@ -71,7 +71,7 @@ Branch rules:
 - [x] Require status checks to pass.
   - [ ] Require branches to be up to date before merging.
   - [x] Do not require status checks on creation.
-  - Required status checks: `linux validation` and `windows Rust check`.
+  - Required status checks: `linux validation`, `windows Rust check`, and `Android ARM64 build`.
   - Required status check source: GitHub Actions.
 - [x] Block force pushes.
 - [ ] Require code scanning results.
@@ -129,7 +129,7 @@ Branch rules:
 - [x] Require status checks to pass.
   - [x] Require branches to be up to date before merging.
   - [x] Do not require status checks on creation.
-  - Required status checks: `linux validation` and `windows Rust check`.
+  - Required status checks: `linux validation`, `windows Rust check`, and `Android ARM64 build`.
   - Required status check source: GitHub Actions.
 - [x] Block force pushes.
 - [ ] Require code scanning results.
@@ -155,7 +155,7 @@ Rationale:
 
 ## protect release tags
 
-Purpose: prevent untrusted users from creating, moving, or deleting release tags that trigger signed desktop release builds.
+Purpose: prevent untrusted users from creating, moving, or deleting release tags that trigger signed desktop and Android release builds.
 
 Ruleset basics:
 

@@ -3,7 +3,7 @@ import "@fontsource-variable/inter";
 import { mount } from "svelte";
 import "./app.css";
 import { ensureConfigLoaded, flushConfig } from "$lib/vault/config";
-import { getActiveVaultInfo, useDefaultDataFolder } from "$lib/vault/state";
+import { getActiveVaultInfo } from "$lib/vault/state";
 import {
   getLocalization,
   initializeLocalizationFromConfig,
@@ -50,6 +50,19 @@ async function mountMobileVaultError(message: string) {
   });
 }
 
+async function mountMobileVaultSetup(initialError: string | null) {
+  const { default: MobileVaultSetupView } = await import(
+    "$lib/components/mobile/MobileVaultSetupView.svelte"
+  );
+  return mount(MobileVaultSetupView, {
+    target: document.getElementById("app")!,
+    props: {
+      initialError,
+      onReady: () => window.location.reload(),
+    },
+  });
+}
+
 const appPromise = (async () => {
   const preVaultPreference = readPreVaultLanguagePreference(safeStorage());
   await getLocalization().setLanguagePreference(
@@ -58,8 +71,8 @@ const appPromise = (async () => {
   );
 
   try {
-    const activeVault = await getActiveVaultInfo() ?? await useDefaultDataFolder();
-    if (!activeVault) throw new Error("The private mobile data folder is unavailable");
+    const activeVault = await getActiveVaultInfo();
+    if (!activeVault) return mountMobileVaultSetup(null);
     await ensureConfigLoaded();
     await initializeLocalizationFromConfig();
     await applyPreVaultLanguagePreference();

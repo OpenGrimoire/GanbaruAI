@@ -307,6 +307,18 @@
           "markdownDescription": "Denies the pickUtf8Document command without any pre-configured scope."
         },
         {
+          "description": "Enables the pickVaultTreeToPath command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-pickVaultTreeToPath",
+          "markdownDescription": "Enables the pickVaultTreeToPath command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the pickVaultTreeToPath command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-pickVaultTreeToPath",
+          "markdownDescription": "Denies the pickVaultTreeToPath command without any pre-configured scope."
+        },
+        {
           "description": "Enables the saveUtf8Download command without any pre-configured scope.",
           "type": "string",
           "const": "allow-saveUtf8Download",

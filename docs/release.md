@@ -1,12 +1,13 @@
 # Release process
 
-Ganbaru AI releases are published through GitHub Releases. The release workflow builds Linux x64 packages and Windows x64 installers, signs updater assets in a protected job, writes the `latest.json` updater feed, and uploads everything to a draft release for inspection before publishing. After the draft is published, the release workflow updates the GitHub Pages package repository for `.deb` and `.rpm` users and publishes the `ganbaru-ai-bin` AUR package for Arch-based users.
+Ganbaru AI releases are published through GitHub Releases. The release workflow builds Linux x64 packages and Windows x64 installers, signs updater assets, builds signed Android universal APK and AAB artifacts in a protected job, writes the desktop `latest.json` updater feed, and uploads everything to a draft release for inspection before publishing. After the draft is published, the release workflow updates the GitHub Pages package repository for `.deb` and `.rpm` users and publishes the `ganbaru-ai-bin` AUR package for Arch-based users.
 
 The workflow is intentionally conservative:
 
 - GitHub Actions permissions default to read-only.
 - Only the publish and package repository jobs get `contents: write`.
 - The Tauri updater private key is used only in the signing job.
+- The Android keystore and passwords are used only in the signing job.
 - The package repository GPG private key is used only in the package repository job.
 - The AUR SSH private key is used only in the AUR publish job.
 - The signing, publishing, package repository, and AUR jobs use the protected `release` GitHub Environment.
@@ -19,6 +20,7 @@ The workflow is intentionally conservative:
 
 - Linux x64: `.deb`, `.rpm`, and `.AppImage` bundles from the Tauri Linux build.
 - Windows x64: Tauri Windows installers for Windows 10 and Windows 11 users.
+- Android 10 or newer: a signed universal APK for direct installation and a signed universal AAB for later Google Play submission. Both contain ARM64, ARMv7, x86, and x86_64 libraries.
 - macOS is intentionally not part of the first release workflow.
 
 The workflow runs on Ubuntu 22.04 for Linux artifacts to keep glibc compatibility broader than newer Ubuntu runners. Windows artifacts are built on GitHub's hosted Windows runner, but the installers target normal Windows desktop installs, not the runner OS specifically.
@@ -29,6 +31,10 @@ Create a GitHub Environment named `release` before running the workflow. Configu
 
 - Environment secret `TAURI_SIGNING_PRIVATE_KEY`: the private key file content.
 - Environment secret `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`: the key password, if one was set.
+- Environment secret `ANDROID_KEYSTORE_BASE64`: the complete Android release keystore encoded as canonical base64 without surrounding text.
+- Environment secret `ANDROID_KEYSTORE_PASSWORD`: the Android keystore password.
+- Environment secret `ANDROID_KEY_ALIAS`: the release key alias inside the keystore.
+- Environment secret `ANDROID_KEY_PASSWORD`: the password for that key. This is normally the same as the keystore password for a PKCS12 keystore.
 - Environment secret `GANBARU_AI_PACKAGE_REPO_GPG_PRIVATE_KEY`: the ASCII-armored private key for signing package repository metadata.
 - Environment secret `GANBARU_AI_PACKAGE_REPO_GPG_PASSPHRASE`: the package repository signing key passphrase.
 - Environment secret `AUR_SSH_PRIVATE_KEY`: the dedicated private SSH key that can push to `ssh://aur@aur.archlinux.org/ganbaru-ai-bin.git`.
@@ -69,6 +75,44 @@ The package repository also needs a stable OpenPGP signing key before `.deb` and
 
 The AUR package publish job needs a dedicated SSH key, separate from personal SSH keys. Add the public key to the maintainer's AUR account and store the private key in `AUR_SSH_PRIVATE_KEY` in the protected `release` environment. This key should only have AUR access and should be rotated if it is exposed.
 
+### Android signing
+
+Android requires every installable APK and AAB to be signed. The certificate that signs the first direct APK becomes part of the permanent identity of `org.opengrimoire.ganbaruai`. Android only installs later builds as updates when their package identifier and signing certificate match.
+
+Generate the durable release keystore once on a trusted maintainer machine. The command is interactive because its passwords and certificate identity must not enter shell history:
+
+```sh
+mkdir -p ~/.config/ganbaru-ai
+keytool -genkeypair -v -keystore ~/.config/ganbaru-ai/android-release.jks -storetype PKCS12 -keyalg RSA -keysize 4096 -validity 10000 -alias ganbaru-ai
+```
+
+Back up the keystore and passwords in two durable, access-controlled locations before installing or distributing the first production APK. Do not commit the keystore or `gen/android/keystore.properties`. Losing a self-managed app-signing key prevents existing direct APK installations from receiving normal updates. If Google Play distribution is added later, provide this app-signing key to Play App Signing when cross-channel certificate compatibility is required, then use a separate upload key for routine Play submissions.
+
+For a local signed build, create the ignored `apps/client/src-tauri/gen/android/keystore.properties` file:
+
+```properties
+storeFile=/absolute/path/to/android-release.jks
+storePassword=replace-with-keystore-password
+keyAlias=ganbaru-ai
+keyPassword=replace-with-key-password
+```
+
+Then build the production APK and AAB:
+
+```sh
+pnpm --dir apps/client tauri android build --ci
+```
+
+Release Gradle tasks fail if this file is absent. Android debug builds do not read release credentials and continue to use `org.opengrimoire.ganbaruai.dev` with the `Ganbaru AI Dev` launcher label.
+
+For GitHub Actions, encode the keystore without line wrapping and place the result in `ANDROID_KEYSTORE_BASE64`:
+
+```sh
+base64 -w 0 ~/.config/ganbaru-ai/android-release.jks
+```
+
+The protected signing job decodes the keystore into runner-temporary storage, writes private Gradle properties with restrictive file permissions, builds minified universal artifacts, verifies the APK with `apksigner`, verifies the AAB with `jarsigner`, and removes the temporary signing files before uploading the release artifacts. The signing key must never be exposed to pull-request jobs or development APK artifacts.
+
 ## Branch flow
 
 Ganbaru AI uses `dev` as the integration branch and `main` as the release source branch.
@@ -77,7 +121,7 @@ Ganbaru AI uses `dev` as the integration branch and `main` as the release source
 - Topic branches open pull requests into `dev`.
 - Release preparation changes, such as version bumps and release documentation updates, go through normal pull requests into `dev`.
 - Release promotion opens one pull request from `dev` into `main`, then adds it to the `main` merge queue after review and green pull request checks.
-- A merge to `main` does not publish by itself. The release workflow is intentionally tag-based so signed desktop assets can be inspected before publishing.
+- A merge to `main` does not publish by itself. The release workflow is intentionally tag-based so signed desktop and Android assets can be inspected before publishing.
 
 This keeps frequent development PRs visible for review and generated release notes while preserving an explicit release gate for installers, updater metadata, checksums, and signing.
 
@@ -106,7 +150,7 @@ Use concise PR titles because they become release-note entries. Labels control c
 7. Push the tag to GitHub.
 8. Approve the `release` environment when GitHub asks.
 9. Wait for the `release` workflow to finish.
-10. Download and smoke test the draft release assets.
+10. Download and smoke test the draft release assets. Install the signed APK on the Android 10 reference phone, confirm it appears as `Ganbaru AI`, confirm `Ganbaru AI Dev` can coexist, and verify offline restart after the development server is stopped.
 11. Inspect generated release notes, `latest.json`, and `SHA256SUMS`.
 12. Publish the draft GitHub Release.
 13. Wait for the `publish package repo` and `publish AUR package` jobs triggered by the published release event.
@@ -125,7 +169,7 @@ https://github.com/<owner>/<repo>/releases/latest/download/latest.json
 
 The generated file is ignored by git and must not be committed.
 
-The build job creates unsigned installers with the public updater configuration embedded. The signing job signs only updater assets (`.AppImage`, `.exe`, and `.msi`) with the Tauri signer. The publish job writes `latest.json` from those signatures and points each platform to the tag-specific release asset URL. The updater feed includes GitHub's generated release notes so the app can show the What's changed section in Settings, Updates.
+The desktop build job creates unsigned installers with the public updater configuration embedded. The signing job signs updater assets (`.AppImage`, `.exe`, and `.msi`) with the Tauri signer and separately builds Android with the protected Android keystore. The publish job writes `latest.json` from desktop updater signatures and points each supported desktop platform to the tag-specific release asset URL. Android does not consume this desktop updater feed. Direct Android installations update through a newly downloaded APK signed with the same certificate, while future store installations follow that store's update channel.
 
 Release builds check the configured GitHub Releases feed at most once per day by default to notify users when a new version is available. Users can turn this off in Settings, Updates. The automatic check never downloads or installs anything.
 

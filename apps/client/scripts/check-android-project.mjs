@@ -47,6 +47,8 @@ function countText(source, value) {
 const [
   rootBuild,
   appBuild,
+  productionStrings,
+  developmentStrings,
   wrapper,
   manifest,
   mainActivity,
@@ -60,6 +62,8 @@ const [
   await Promise.all([
     readAndroidFile("build.gradle.kts"),
     readAndroidFile("app/build.gradle.kts"),
+    readAndroidFile("app/src/main/res/values/strings.xml"),
+    readAndroidFile("app/src/debug/res/values/strings.xml"),
     readAndroidFile("gradle/wrapper/gradle-wrapper.properties"),
     readAndroidFile("app/src/main/AndroidManifest.xml"),
     readAndroidFile("app/src/main/java/org/opengrimoire/ganbaruai/MainActivity.kt"),
@@ -89,12 +93,27 @@ for (const [expected, label] of [
   ["minSdk = 29", "minimum SDK"],
   ["targetSdk = 36", "target SDK"],
   ['applicationIdSuffix = ".dev"', "debug application ID suffix"],
+  ['rootProject.file("keystore.properties")', "release signing properties"],
+  ['signingConfig = signingConfigs.findByName("release")', "release signing configuration"],
   ['manifestPlaceholders["usesCleartextTraffic"] = "false"', "production cleartext policy"],
   ["sourceCompatibility = JavaVersion.VERSION_17", "Java source compatibility"],
   ["targetCompatibility = JavaVersion.VERSION_17", "Java target compatibility"],
   ['jvmTarget = "17"', "Kotlin JVM target"],
 ]) {
   requireText(appBuild, expected, label, failures);
+}
+
+for (const expected of [
+  '<string name="app_name">Ganbaru AI</string>',
+  '<string name="main_activity_title">Ganbaru AI</string>',
+]) {
+  requireText(productionStrings, expected, "production app identity", failures);
+}
+for (const expected of [
+  '<string name="app_name">Ganbaru AI Dev</string>',
+  '<string name="main_activity_title">Ganbaru AI Dev</string>',
+]) {
+  requireText(developmentStrings, expected, "development app identity", failures);
 }
 
 requireText(manifest, '<uses-permission android:name="android.permission.INTERNET" />', "manifest", failures);

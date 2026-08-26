@@ -2,6 +2,7 @@ package app.ganbaru.mobile_documents
 
 import java.io.ByteArrayInputStream
 import java.nio.charset.MalformedInputException
+import java.nio.file.Files
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertThrows
 import org.junit.Test
@@ -36,5 +37,54 @@ class MobileDocumentsPluginTest {
     assertThrows(MalformedInputException::class.java) {
       DocumentTextCodec.readUtf8(input, 2)
     }
+  }
+
+  @Test
+  fun rejectsUnsafeVaultEntryNames() {
+    assertEquals("notes", VaultTreePaths.validateDisplayName("notes"))
+    for (name in listOf("", ".", "..", "notes/daily", "notes\\daily", "bad\u0000name")) {
+      assertThrows(IllegalArgumentException::class.java) {
+        VaultTreePaths.validateDisplayName(name)
+      }
+    }
+  }
+
+  @Test
+  fun acceptsOnlyUnusedAppPrivateImportDestinations() {
+    val dataRoot = Files.createTempDirectory("ganbaru-mobile-data").toFile()
+    val outsideRoot = Files.createTempDirectory("ganbaru-mobile-outside").toFile()
+    try {
+      val destination = dataRoot.resolve("files/.Ganbaru AI.import")
+      requireNotNull(destination.parentFile).mkdirs()
+      assertEquals(
+        destination.canonicalFile,
+        VaultTreePaths.privateEmptyDestination(dataRoot, destination.path),
+      )
+      assertThrows(IllegalArgumentException::class.java) {
+        VaultTreePaths.privateEmptyDestination(dataRoot, outsideRoot.resolve("vault").path)
+      }
+      destination.mkdir()
+      assertThrows(IllegalArgumentException::class.java) {
+        VaultTreePaths.privateEmptyDestination(dataRoot, destination.path)
+      }
+    } finally {
+      dataRoot.deleteRecursively()
+      outsideRoot.deleteRecursively()
+    }
+  }
+
+  @Test
+  fun enforcesVaultTreeCopyBudgets() {
+    val entries = VaultTreeCopyBudget(VaultTreeCopyLimits(maxFiles = 2, maxBytes = 4, maxDepth = 1))
+    entries.enter(0)
+    entries.enter(1)
+    entries.addBytes(4)
+    assertThrows(IllegalArgumentException::class.java) { entries.enter(1) }
+
+    val bytes = VaultTreeCopyBudget(VaultTreeCopyLimits(maxFiles = 2, maxBytes = 4, maxDepth = 1))
+    assertThrows(IllegalArgumentException::class.java) { bytes.addBytes(5) }
+
+    val depth = VaultTreeCopyBudget(VaultTreeCopyLimits(maxFiles = 2, maxBytes = 4, maxDepth = 1))
+    assertThrows(IllegalArgumentException::class.java) { depth.enter(2) }
   }
 }

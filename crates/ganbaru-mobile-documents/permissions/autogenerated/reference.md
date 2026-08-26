@@ -36,6 +36,32 @@ Denies the pickUtf8Document command without any pre-configured scope.
 <tr>
 <td>
 
+`ganbaru-mobile-documents:allow-pickVaultTreeToPath`
+
+</td>
+<td>
+
+Enables the pickVaultTreeToPath command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`ganbaru-mobile-documents:deny-pickVaultTreeToPath`
+
+</td>
+<td>
+
+Denies the pickVaultTreeToPath command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
 `ganbaru-mobile-documents:allow-saveUtf8Download`
 
 </td>

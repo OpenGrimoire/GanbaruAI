@@ -27,7 +27,7 @@
     type DataFolderDefaultLocation,
     type DataFolderInfo,
   } from "$lib/vault/state";
-  import VaultLanguageDropdown from "./VaultLanguageDropdown.svelte";
+  import VaultSetupContent from "./VaultSetupContent.svelte";
 
   let {
     initialError = null,
@@ -142,6 +142,54 @@
   }
 </script>
 
+{#snippet setupActions()}
+  <div class="grid gap-2">
+    <button
+      type="button"
+      onclick={() => void chooseDataFolder("default")}
+      disabled={busy !== null}
+      class="flex min-h-11 w-full items-center justify-center gap-2 rounded-md bg-primary px-3 py-2 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-60"
+    >
+      {#if busy === "default"}
+        <LoaderCircle size={16} strokeWidth={2} class="animate-spin" />
+      {:else}
+        <Folder size={16} strokeWidth={1.8} />
+      {/if}
+      <span>{t("vaultSetup.useDefaultFolder")}</span>
+    </button>
+
+    <div class="grid gap-2 min-[560px]:grid-cols-2">
+      <button
+        type="button"
+        onclick={() => void chooseDataFolder("change")}
+        disabled={busy !== null}
+        class="flex min-h-11 w-full items-center justify-center gap-2 rounded-md border border-border bg-background px-3 py-2 text-sm font-medium text-foreground transition-colors hover:bg-accent disabled:cursor-not-allowed disabled:opacity-60"
+      >
+        {#if busy === "change"}
+          <LoaderCircle size={16} strokeWidth={2} class="animate-spin" />
+        {:else}
+          <FolderOpen size={16} strokeWidth={1.8} />
+        {/if}
+        <span>{t("vaultSetup.changeFolder")}</span>
+      </button>
+
+      <button
+        type="button"
+        onclick={() => void chooseDataFolder("import")}
+        disabled={busy !== null}
+        class="flex min-h-11 w-full items-center justify-center gap-2 rounded-md border border-border bg-background px-3 py-2 text-sm font-medium text-foreground transition-colors hover:bg-accent disabled:cursor-not-allowed disabled:opacity-60"
+      >
+        {#if busy === "import"}
+          <LoaderCircle size={16} strokeWidth={2} class="animate-spin" />
+        {:else}
+          <FolderInput size={16} strokeWidth={1.8} />
+        {/if}
+        <span>{t("vaultSetup.importFolder")}</span>
+      </button>
+    </div>
+  </div>
+{/snippet}
+
 <main
   class="setup-shell app-shell relative h-screen w-screen overflow-hidden bg-background text-foreground"
 >
@@ -180,107 +228,17 @@
     </header>
 
     <div class="min-h-0 flex-1 bg-background">
-      <section class="h-full overflow-y-auto px-4 min-[560px]:px-8 min-[760px]:px-10">
-        <div class="setup-content-grid mx-auto grid min-h-full w-full max-w-2xl py-5 min-[760px]:py-8">
-          <div class="flex items-end pb-4">
-            <VaultLanguageDropdown />
-          </div>
-
-          <div class="flex flex-col gap-7">
-            <div class="space-y-2">
-              <h1 class="max-w-xl text-2xl font-semibold leading-tight text-foreground min-[560px]:text-3xl">
-                {t("vaultSetup.title")}
-              </h1>
-              <p class="text-sm leading-6 text-muted-foreground">
-                {t("vaultSetup.intro")}
-                {#if defaultLocation?.developmentBuild}
-                  <br />
-                  <strong class="font-semibold text-warning">
-                    {t("vaultSetup.developmentBuildWarning", defaultLocation.folderName)}
-                  </strong>
-                {/if}
-              </p>
-            </div>
-
-            <div class="grid gap-5">
-              <div class="grid gap-2 border-y border-border py-4 min-[560px]:grid-cols-[auto_1fr] min-[560px]:items-start">
-                <div class="flex items-center gap-2 text-sm font-medium text-foreground">
-                  <Folder size={16} strokeWidth={1.8} />
-                  {t("vaultSetup.defaultLocation")}
-                </div>
-                <p class="break-all text-sm leading-5 text-muted-foreground min-[560px]:text-right">
-                  {defaultLocation?.path ?? fallbackDefaultPath}
-                </p>
-              </div>
-
-              <div class="grid gap-2">
-                <button
-                  type="button"
-                  onclick={() => void chooseDataFolder("default")}
-                  disabled={busy !== null}
-                  class="flex min-h-11 w-full items-center justify-center gap-2 rounded-md bg-primary px-3 py-2 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-60"
-                >
-                  {#if busy === "default"}
-                    <LoaderCircle size={16} strokeWidth={2} class="animate-spin" />
-                  {:else}
-                    <Folder size={16} strokeWidth={1.8} />
-                  {/if}
-                  <span>{t("vaultSetup.useDefaultFolder")}</span>
-                </button>
-
-                <div class="grid gap-2 min-[560px]:grid-cols-2">
-                  <button
-                    type="button"
-                    onclick={() => void chooseDataFolder("change")}
-                    disabled={busy !== null}
-                    class="flex min-h-11 w-full items-center justify-center gap-2 rounded-md border border-border bg-background px-3 py-2 text-sm font-medium text-foreground transition-colors hover:bg-accent disabled:cursor-not-allowed disabled:opacity-60"
-                  >
-                    {#if busy === "change"}
-                      <LoaderCircle size={16} strokeWidth={2} class="animate-spin" />
-                    {:else}
-                      <FolderOpen size={16} strokeWidth={1.8} />
-                    {/if}
-                    <span>{t("vaultSetup.changeFolder")}</span>
-                  </button>
-
-                  <button
-                    type="button"
-                    onclick={() => void chooseDataFolder("import")}
-                    disabled={busy !== null}
-                    class="flex min-h-11 w-full items-center justify-center gap-2 rounded-md border border-border bg-background px-3 py-2 text-sm font-medium text-foreground transition-colors hover:bg-accent disabled:cursor-not-allowed disabled:opacity-60"
-                  >
-                    {#if busy === "import"}
-                      <LoaderCircle size={16} strokeWidth={2} class="animate-spin" />
-                    {:else}
-                      <FolderInput size={16} strokeWidth={1.8} />
-                    {/if}
-                    <span>{t("vaultSetup.importFolder")}</span>
-                  </button>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <div class="pt-4">
-            {#if error}
-              <p
-                role="alert"
-                class="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive"
-              >
-                {error}
-              </p>
-            {/if}
-          </div>
-        </div>
-      </section>
+      <VaultSetupContent
+        intro={t("vaultSetup.intro")}
+        developmentWarning={defaultLocation?.developmentBuild
+          ? t("vaultSetup.developmentBuildWarning", defaultLocation.folderName)
+          : null}
+        location={defaultLocation?.path ?? fallbackDefaultPath}
+        actions={setupActions}
+        {error}
+      />
     </div>
   </div>
 
   <WindowResizeHandles disabled={isMaximized} />
 </main>
-
-<style>
-  .setup-content-grid {
-    grid-template-rows: minmax(4.5rem, 1fr) auto minmax(4.5rem, 1fr);
-  }
-</style>

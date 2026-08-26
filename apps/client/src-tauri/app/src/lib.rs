@@ -77,6 +77,7 @@ mod composition_tests {
     fn mobile_runtime_registers_portable_core_commands() {
         for command in [
             "vault::vault_use_default_folder",
+            "vault::vault_pick_open",
             "calendar_reads::calendar_load_window",
             "projects::workspace::projects_load_workspace",
             "notes::notes_load_workspace_shell",
@@ -110,7 +111,6 @@ mod composition_tests {
             "updates::",
             "benchmark_seed::",
             "vault::vault_pick_create",
-            "vault::vault_pick_open",
             "vault::vault_pick_and_read_ics_import",
             "vault::vault_pick_and_write_ics_export",
             "notes::notes_pick_",
