@@ -92,7 +92,7 @@
     );
   });
   const topBarSelectedPage = $derived.by(() => {
-    if (notes.pageOpenMode !== "full" || !notes.selectedPageId) return null;
+    if ((!mobileLayout && notes.pageOpenMode !== "full") || !notes.selectedPageId) return null;
     if (notes.loadedPage?.id === notes.selectedPageId) return notes.loadedPage;
     return notes.allPages.find((page) => page.id === notes.selectedPageId)
       ?? notes.linkResolutionPages.find((page) => page.id === notes.selectedPageId)
@@ -505,25 +505,23 @@
   style="background-color: var(--cal-bg);"
   data-first-use-shell="notes"
 >
-  {#if !mobileLayout || activeSurfaceKind !== "editor" || !showFullPageEditor}
-    <NotesWorkspaceHeader
-      {mobileLayout}
-      {selectedProject}
-      {selectedGroup}
-      {selectedProjectId}
-      selectedPage={topBarSelectedPage}
-      {explorerCollapsed}
-      {creationFolderId}
-      {showInactiveProjects}
-      onShowInactiveProjectsChange={(value) => {
-        showInactiveProjects = value;
-      }}
-      onProjectSelected={handleProjectSelected}
-      onShowHome={showProjectHome}
-      {projectSettingsOpen}
-      onToggleProjectSettings={toggleProjectSettings}
-    />
-  {/if}
+  <NotesWorkspaceHeader
+    {mobileLayout}
+    {selectedProject}
+    {selectedGroup}
+    {selectedProjectId}
+    selectedPage={topBarSelectedPage}
+    {explorerCollapsed}
+    {creationFolderId}
+    {showInactiveProjects}
+    onShowInactiveProjectsChange={(value) => {
+      showInactiveProjects = value;
+    }}
+    onProjectSelected={handleProjectSelected}
+    onShowHome={showProjectHome}
+    {projectSettingsOpen}
+    onToggleProjectSettings={toggleProjectSettings}
+  />
   {#if !mobileLayout && projectSettingsOpen && selectedProjectId}
     <NotesProjectSettingsPanel
         projectId={selectedProjectId}

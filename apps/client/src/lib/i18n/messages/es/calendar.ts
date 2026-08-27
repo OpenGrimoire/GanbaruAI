@@ -12,6 +12,7 @@ export const calendar = {
     workCycleView: "Vista de ciclo laboral",
     weekView: "Vista de semana",
     monthView: "Vista de mes",
+    views: "Vistas del calendario",
     zoomOut: "Reducir zoom",
     zoomOutTitle: "Reducir zoom (Shift + -)",
     zoomIn: "Aumentar zoom",

@@ -15,6 +15,8 @@ export const shell = {
     nextEvent: (title: string, start: string) => `Next: ${title}, ${start}`,
   },
   toolbar: {
+    customization: "Customization",
+    views: "Project views",
     customize: "Columns",
     group: "Group",
     sort: "Sort",

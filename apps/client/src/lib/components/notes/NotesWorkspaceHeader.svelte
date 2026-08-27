@@ -129,7 +129,14 @@
     selectedProjectFolders,
     notes.sidebarPageIdsWithChildren,
   ));
-  const showSelectedPagePath = $derived(explorerCollapsed && selectedPagePath.length > 0);
+  const visibleSelectedPagePath = $derived(
+    mobileLayout && selectedPagePath.length > 1
+      ? selectedPagePath.slice(-1)
+      : selectedPagePath,
+  );
+  const showSelectedPagePath = $derived(
+    (mobileLayout || explorerCollapsed) && selectedPagePath.length > 0,
+  );
   const notesNavigatorItemCount = $derived(notesHierarchyChildren(
     selectedProjectPages,
     selectedProjectFolders,
@@ -302,14 +309,25 @@
 
 <div
   bind:this={notesHeaderElement}
-  class="flex shrink-0 items-center gap-1 overflow-x-auto px-3"
+  class={cn(
+    "flex shrink-0 items-center gap-1 px-3",
+    mobileLayout ? "overflow-hidden" : "overflow-x-auto",
+  )}
   style="height: var(--cal-header-row-h); background-color: var(--cal-header-bg); border-bottom: 1px solid var(--sidebar);"
   onscroll={refreshNavigatorPanelGeometry}
   data-notes-workspace-header
 >
-  <div bind:this={notesIdentityElement} class="relative min-w-36 shrink-0 min-[760px]:max-w-xl">
+  <div
+    bind:this={notesIdentityElement}
+    class={cn(
+      "relative",
+      mobileLayout
+        ? "min-w-0 flex-1 overflow-hidden"
+        : "min-w-36 shrink-0 min-[760px]:max-w-xl",
+    )}
+  >
     <div class={cn(
-      "flex min-w-0 max-w-full items-center gap-0.5 text-identity font-medium",
+      "flex min-w-0 max-w-full items-center gap-0.5 overflow-hidden text-identity font-medium",
       mobileLayout ? "h-12" : "h-7",
     )}>
       {#if selectedProject && selectedGroup}
@@ -328,13 +346,15 @@
           }}
           onclick={() => toggleNavigator("groups")}
         >
-          <ProjectIcon
-            name={selectedGroup.icon}
-            size={identityIconSize}
-            strokeWidth={identityIconStrokeWidth}
-            emojiScale={projectIdentityEmojiScale}
-            class="shrink-0"
-          />
+          {#if !mobileLayout}
+            <ProjectIcon
+              name={selectedGroup.icon}
+              size={identityIconSize}
+              strokeWidth={identityIconStrokeWidth}
+              emojiScale={projectIdentityEmojiScale}
+              class="shrink-0"
+            />
+          {/if}
           <span class="min-w-0 truncate text-foreground">{selectedGroup.name}</span>
         </button>
         <span class="shrink-0 px-0.5 text-muted-foreground">/</span>
@@ -354,13 +374,15 @@
           }}
           onclick={handleProjectTriggerClick}
         >
-          <ProjectIcon
-            name={selectedProject.icon}
-            size={identityIconSize}
-            strokeWidth={identityIconStrokeWidth}
-            emojiScale={projectIdentityEmojiScale}
-            class="shrink-0"
-          />
+          {#if !mobileLayout}
+            <ProjectIcon
+              name={selectedProject.icon}
+              size={identityIconSize}
+              strokeWidth={identityIconStrokeWidth}
+              emojiScale={projectIdentityEmojiScale}
+              class="shrink-0"
+            />
+          {/if}
           <span class="min-w-0 truncate text-foreground">{selectedProject.name}</span>
           {#if selectedProject.status !== "active"}
             <span class={cn("shrink-0 rounded border px-1.5 py-0.5 text-[0.666667rem]", projectLifecycleBadgeClass(selectedProject.status))}>
@@ -384,7 +406,7 @@
           </button>
         {/if}
         {#if showSelectedPagePath}
-          {#each selectedPagePath as node, nodeIndex (node.key)}
+          {#each visibleSelectedPagePath as node, nodeIndex (node.key)}
             {@const pathTitle = node.kind === "folder"
               ? node.folder.name
               : node.page.id === selectedPageId && selectedPageTitle
@@ -408,23 +430,25 @@
               }}
               onclick={(event) => toggleHierarchyNavigator(node, event.currentTarget)}
             >
-              {#if node.kind === "folder"}
-                <Folder
-                  size={identityIconSize}
-                  strokeWidth={identityIconStrokeWidth}
-                  class="shrink-0"
-                />
-              {:else}
-                <NotesPageIcon
-                  icon={node.page.icon}
-                  size={identityIconSize}
-                  strokeWidth={identityIconStrokeWidth}
-                  emojiScale={NOTES_PAGE_CHROME_EMOJI_SCALE}
-                  class="shrink-0"
-                />
+              {#if !mobileLayout}
+                {#if node.kind === "folder"}
+                  <Folder
+                    size={identityIconSize}
+                    strokeWidth={identityIconStrokeWidth}
+                    class="shrink-0"
+                  />
+                {:else}
+                  <NotesPageIcon
+                    icon={node.page.icon}
+                    size={identityIconSize}
+                    strokeWidth={identityIconStrokeWidth}
+                    emojiScale={NOTES_PAGE_CHROME_EMOJI_SCALE}
+                    class="shrink-0"
+                  />
+                {/if}
               {/if}
               <span class="min-w-0 truncate text-foreground">{pathTitle}</span>
-              {#if nodeIndex === selectedPagePath.length - 1}
+              {#if nodeIndex === visibleSelectedPagePath.length - 1}
                 <WorkspaceBreadcrumbTerminalIcon kind="chevron" context="notes" class="shrink-0 text-muted-foreground" />
               {/if}
             </button>
@@ -453,13 +477,15 @@
           aria-expanded={navigatorOpen && navigatorMode === "notes"}
           onclick={() => toggleNavigator("notes")}
         >
-          <NotesPageIcon
-            icon={selectedPage?.icon ?? null}
-            size={identityIconSize}
-            strokeWidth={identityIconStrokeWidth}
-            emojiScale={NOTES_PAGE_CHROME_EMOJI_SCALE}
-            class="shrink-0"
-          />
+          {#if !mobileLayout}
+            <NotesPageIcon
+              icon={selectedPage?.icon ?? null}
+              size={identityIconSize}
+              strokeWidth={identityIconStrokeWidth}
+              emojiScale={NOTES_PAGE_CHROME_EMOJI_SCALE}
+              class="shrink-0"
+            />
+          {/if}
           <span class="min-w-0 truncate text-foreground">{selectedPageTitle ?? t("notes.title")}</span>
           <WorkspaceBreadcrumbTerminalIcon kind="chevron" class="shrink-0 text-muted-foreground" />
         </button>
@@ -515,7 +541,7 @@
       </div>
     {/if}
   </div>
-  <div class="flex-1"></div>
+  {#if !mobileLayout}<div class="flex-1"></div>{/if}
   <div class="flex shrink-0 items-center gap-1">
     {#if selectedProject && !mobileLayout}
       <button

@@ -12,28 +12,30 @@ export type {
   ProjectOptionalComponentKind,
 } from "./project-component-registry-contract";
 
-type LoadedTaskDetailComponent = Extract<
+type LoadedMobileOptionalComponent = Extract<
   LoadedProjectOptionalComponent,
-  { kind: "task-detail" }
+  { kind: "toolbar" | "task-detail" }
 >;
 
-const TASK_DETAIL_IMPORTERS = {
+const MOBILE_OPTIONAL_IMPORTERS = {
+  toolbar: () => import("./ProjectToolbarPanels.svelte")
+    .then((module) => ({ default: { kind: "toolbar" as const, component: module.default } })),
   "task-detail": () => import("./ProjectTaskDetailPanel.svelte")
     .then((module) => ({
       default: { kind: "task-detail" as const, component: module.default },
     })),
 } satisfies Readonly<Record<
-  "task-detail",
-  LazyComponentImporter<LoadedTaskDetailComponent>
+  "toolbar" | "task-detail",
+  LazyComponentImporter<LoadedMobileOptionalComponent>
 >>;
 
-const taskDetailLoader = createLazyComponentLoader<
-  "task-detail",
-  LoadedTaskDetailComponent
->(TASK_DETAIL_IMPORTERS);
+const mobileOptionalLoader = createLazyComponentLoader<
+  "toolbar" | "task-detail",
+  LoadedMobileOptionalComponent
+>(MOBILE_OPTIONAL_IMPORTERS);
 
 function unsupportedMobileComponent(
-  kind: Exclude<ProjectOptionalComponentKind, "task-detail">,
+  kind: Exclude<ProjectOptionalComponentKind, "toolbar" | "task-detail">,
 ): Promise<LoadedProjectOptionalComponent> {
   return Promise.reject(new Error(`Project ${kind} is unavailable in the mobile composition`));
 }
@@ -42,21 +44,19 @@ function unsupportedMobileComponent(
 export function loadProjectOptionalComponent(
   kind: ProjectOptionalComponentKind,
 ): Promise<LoadedProjectOptionalComponent> {
-  return kind === "task-detail"
-    ? taskDetailLoader.load(kind)
-    : unsupportedMobileComponent(kind);
+  if (kind === "toolbar" || kind === "task-detail") return mobileOptionalLoader.load(kind);
+  return unsupportedMobileComponent(kind);
 }
 
 /** Retry the only optional Project surface available in the mobile composition. */
 export function retryProjectOptionalComponent(
   kind: ProjectOptionalComponentKind,
 ): Promise<LoadedProjectOptionalComponent> {
-  return kind === "task-detail"
-    ? taskDetailLoader.retry(kind)
-    : unsupportedMobileComponent(kind);
+  if (kind === "toolbar" || kind === "task-detail") return mobileOptionalLoader.retry(kind);
+  return unsupportedMobileComponent(kind);
 }
 
 /** Report whether the mobile task-detail constructor is cached. */
 export function projectOptionalComponentHasLoaded(kind: ProjectOptionalComponentKind): boolean {
-  return kind === "task-detail" && taskDetailLoader.hasLoaded(kind);
+  return (kind === "toolbar" || kind === "task-detail") && mobileOptionalLoader.hasLoaded(kind);
 }

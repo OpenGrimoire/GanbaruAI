@@ -31,6 +31,7 @@
     BUILD_PLATFORM_PROFILE,
     "chat.local-execution",
   );
+  const mobilePresentation = BUILD_PLATFORM_PROFILE.shell === "mobile";
   let actionError = $state<string | null>(null);
   let moreActions = $state<HTMLDetailsElement | null>(null);
   const selectedFolder = $derived(chat.selectedWorkingFolder);
@@ -60,7 +61,7 @@
 
 <svelte:window onpointerdown={closeMoreActionsFromOutside} />
 
-<div class="chat-header-actions flex min-w-0 shrink-0 items-center gap-1" data-chat-header-actions>
+<div class="chat-header-actions flex min-w-0 shrink-0 items-center gap-1" class:mobilePresentation data-chat-header-actions>
   {#if actionError}<p role="alert" class="max-w-40 truncate text-[0.666667rem] text-destructive">{actionError}</p>{/if}
   {#if localExecutionAvailable}
     <button type="button" class={cn("chat-header-icon-button", bottomPanelOpen && "bg-accent text-foreground")} aria-label={bottomPanelOpen ? t("chat.closeBottomPanel") : t("chat.openBottomPanel")} aria-pressed={bottomPanelOpen} data-chat-bottom-panel-action onclick={onToggleBottomPanel}>
@@ -88,5 +89,8 @@
   .chat-actions-menu { position: absolute; z-index: 90; display: grid; min-width: 11rem; overflow: hidden; border: 1px solid var(--border); border-radius: 0.5rem; background: var(--popover); padding: 0.25rem; color: var(--popover-foreground); box-shadow: 0 12px 30px rgb(0 0 0 / 0.2); }
   .chat-actions-menu button { display: flex; min-height: 2rem; align-items: center; gap: 0.5rem; border-radius: 0.375rem; padding-inline: 0.5rem; text-align: left; font-size: calc(0.733333rem * var(--type-scale)); }
   .chat-actions-menu button:hover { background: var(--accent); color: var(--accent-foreground); }
+  .chat-header-actions.mobilePresentation .chat-header-icon-button { width: 3rem; height: 3rem; }
+  .chat-header-actions.mobilePresentation .chat-actions-menu { top: 3rem; }
+  .chat-header-actions.mobilePresentation .chat-actions-menu button { min-height: 3rem; }
   @media (prefers-reduced-motion: reduce) { .chat-header-icon-button { transition: none; } }
 </style>

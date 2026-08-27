@@ -27,6 +27,7 @@
   import { getPomodoro } from "$lib/stores/pomodoro.svelte";
   import { getMobileBackStack } from "$lib/stores/mobile-back-stack.svelte";
   import { getViewport } from "$lib/stores/viewport.svelte";
+  import { getSettingsLauncher } from "$lib/stores/settingsLauncher.svelte";
   import { getZoom } from "$lib/stores/zoom.svelte";
   import { flushConfig } from "$lib/vault/config";
 
@@ -50,6 +51,7 @@
 
   const nav = getNavigation();
   const viewport = getViewport();
+  const settingsLauncher = getSettingsLauncher();
   const calendar = getCalendar();
   const calendars = getCalendars();
   const pomodoro = getPomodoro();
@@ -61,6 +63,10 @@
     "system.android-back",
   );
   const musicAvailable = platformHasCapability(BUILD_PLATFORM_PROFILE, "view.music");
+  const projectMobileViewLoadRecovery = {
+    classify: classifyLoadFailure,
+    recover: recoverLoadFailure,
+  } as const;
 
   let showPomodoro = $state(false);
   let showSettings = $state(false);
@@ -178,7 +184,6 @@
           import("$lib/components/projects/ProjectMobileListView.svelte"),
         ]);
         const projects = storeModule.getProjects();
-        projects.activeView = "list";
         await projects.ensureLoaded();
         if (generation === surfaceLoadGeneration) {
           ProjectMobileListSurface = mobileListModule.default;
@@ -226,6 +231,33 @@
     } finally {
       initializingWorkspace = false;
     }
+  }
+
+  function retryWorkspaceLoad(): void {
+    const failure = loadError;
+    if (!failure) return;
+    recoverLoadFailure(failure, () => {
+      if (backendReady) void loadSurface(nav.current);
+      else void initializeWorkspace();
+    });
+  }
+
+  function retryMusicLoad(): void {
+    const failure = musicLoadError;
+    if (!failure) return;
+    recoverLoadFailure(failure, () => void loadMusicSurface());
+  }
+
+  function retrySettingsLoad(): void {
+    const failure = settingsLoadError;
+    if (!failure) return;
+    recoverLoadFailure(failure, () => void loadSettingsSurface());
+  }
+
+  function retryQuickNotesLoad(): void {
+    const failure = quickNotesLoadError;
+    if (!failure) return;
+    recoverLoadFailure(failure, () => void loadQuickNotesSurface());
   }
 
   function clearNestedRoute(): void {
@@ -286,6 +318,7 @@
     showSettings = false;
     settingsLoading = false;
     settingsLoadError = null;
+    if (settingsLauncher.isOpen) settingsLauncher.close();
   }
 
   async function loadSettingsSurface(): Promise<void> {
@@ -314,6 +347,11 @@
     removeSettingsBackLayer = mobileBackStack.activate({ handle: closeSettings });
     void loadSettingsSurface();
   }
+
+  $effect(() => {
+    if (!settingsLauncher.isOpen || showSettings) return;
+    openSettings();
+  });
 
   function closeQuickNotes(): void {
     quickNotesLoadGeneration += 1;
@@ -560,12 +598,7 @@
               type="button"
               disabled={initializingWorkspace}
               class="min-h-12 rounded-xl border border-border bg-card px-5 text-sm font-medium active:bg-accent"
-              onclick={() => {
-                recoverLoadFailure(loadError, () => {
-                  if (backendReady) void loadSurface(nav.current);
-                  else void initializeWorkspace();
-                });
-              }}
+              onclick={retryWorkspaceLoad}
             >
               {initializingWorkspace ? t("common.loading") : t("common.retry")}
             </button>
@@ -573,7 +606,11 @@
         {:else if nav.current === "calendar" && CalendarSurface}
           <CalendarSurface initialViewMode="day" mobileLayout />
         {:else if nav.current === "projects" && ProjectsSurface && ProjectMobileListSurface}
-          <ProjectsSurface mobileLayout mobileListComponent={ProjectMobileListSurface} />
+          <ProjectsSurface
+            mobileLayout
+            mobileListComponent={ProjectMobileListSurface}
+            mobileViewLoadRecovery={projectMobileViewLoadRecovery}
+          />
         {:else if nav.current === "notes" && NotesSurface}
           <NotesSurface mobileLayout />
         {:else if nav.current === "chat" && ChatSurface}
@@ -613,7 +650,7 @@
         {#if musicLoadError}
           <p class="text-sm font-medium" role="alert">{t("common.viewLoadFailed", t("music.title"))}</p>
           <p class="max-w-full wrap-break-word text-xs text-muted-foreground">{musicLoadError.message}</p>
-          <button type="button" class="min-h-12 w-full rounded-xl border border-border px-4 text-sm font-medium active:bg-accent" onclick={() => recoverLoadFailure(musicLoadError, () => void loadMusicSurface())}>{t("common.retry")}</button>
+          <button type="button" class="min-h-12 w-full rounded-xl border border-border px-4 text-sm font-medium active:bg-accent" onclick={retryMusicLoad}>{t("common.retry")}</button>
         {:else}
           <p class="text-sm text-muted-foreground" aria-busy="true">{t("common.loading")}</p>
         {/if}
@@ -624,7 +661,16 @@
 
   {#if showSettings && SettingsSurface}
     <div inert={suspendDecisionOpen} aria-hidden={suspendDecisionOpen ? "true" : undefined}>
-      <SettingsSurface presentation="mobile" onClose={closeSettings} />
+      <SettingsSurface
+        presentation="mobile"
+        initialSection={settingsLauncher.targetSection}
+        initialDoomscrollingTab={settingsLauncher.targetDoomscrollingTab}
+        initialChatSubsection={settingsLauncher.targetChatSubsection}
+        initialChatTeammateId={settingsLauncher.targetChatTeammateId}
+        initialChatChannelId={settingsLauncher.targetChatChannelId}
+        initialChatCreateTeammate={settingsLauncher.targetChatCreateTeammate}
+        onClose={closeSettings}
+      />
     </div>
   {:else if showSettings}
     <div
@@ -647,7 +693,7 @@
           <button
             type="button"
             class="min-h-12 w-full rounded-xl border border-border px-4 text-sm font-medium active:bg-accent"
-            onclick={() => recoverLoadFailure(settingsLoadError, () => void loadSettingsSurface())}
+            onclick={retrySettingsLoad}
           >{t("common.retry")}</button>
         {:else}
           <p class="text-sm text-muted-foreground" aria-busy="true">{t("common.loading")}</p>
@@ -686,7 +732,7 @@
           <button
             type="button"
             class="min-h-12 w-full rounded-xl border border-border px-4 text-sm font-medium active:bg-accent"
-            onclick={() => recoverLoadFailure(quickNotesLoadError, () => void loadQuickNotesSurface())}
+            onclick={retryQuickNotesLoad}
           >{t("quickNotes.retry")}</button>
         {:else}
           <p class="text-sm text-muted-foreground" aria-busy="true">{t("common.loading")}</p>

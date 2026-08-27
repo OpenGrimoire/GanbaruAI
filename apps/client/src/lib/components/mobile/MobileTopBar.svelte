@@ -91,6 +91,12 @@
     }
   }
 
+  function retryPomodoroMenuLoad(): void {
+    const failure = pomodoroMenuLoadError;
+    if (!failure) return;
+    recoverLoadFailure(failure, () => void loadPomodoroMenu());
+  }
+
   function togglePomodoro(): void {
     if (!pomodoroOpen) void loadPomodoroMenu();
     onTogglePomodoro();
@@ -162,7 +168,7 @@
             <button
               type="button"
               class="min-h-12 rounded-lg border border-border px-3 font-medium active:bg-accent"
-              onclick={() => recoverLoadFailure(pomodoroMenuLoadError, () => void loadPomodoroMenu())}
+              onclick={retryPomodoroMenuLoad}
             >{t("common.retry")}</button>
           </div>
         {:else}

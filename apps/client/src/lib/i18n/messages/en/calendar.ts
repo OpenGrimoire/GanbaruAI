@@ -9,6 +9,7 @@ export const calendar = {
     workCycleView: "Work cycle view",
     weekView: "Week view",
     monthView: "Month view",
+    views: "Calendar views",
     zoomOut: "Zoom out",
     zoomOutTitle: "Zoom out (Shift + -)",
     zoomIn: "Zoom in",

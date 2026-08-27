@@ -18,6 +18,8 @@ export const shell = {
     nextEvent: (title: string, start: string) => `Siguiente: ${title}, ${start}`,
   },
   toolbar: {
+    customization: "Personalización",
+    views: "Vistas del proyecto",
     customize: "Columnas",
     group: "Agrupar",
     sort: "Ordenar",
