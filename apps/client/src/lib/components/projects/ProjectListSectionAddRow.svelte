@@ -8,6 +8,7 @@
   let {
     gridTemplate,
     gridMinWidth,
+    leadingGridTemplate,
     label,
     draft,
     active,
@@ -17,6 +18,7 @@
   }: {
     gridTemplate: string;
     gridMinWidth: string;
+    leadingGridTemplate: string;
     label: string;
     draft: string;
     active: boolean;
@@ -38,39 +40,44 @@
   }}
 >
   <div class="absolute inset-0 z-0 cursor-text" aria-hidden="true"></div>
-  <div class="relative z-10"></div>
-  <div class="relative z-10"></div>
   <form
     class="contents"
     onsubmit={(event) => { event.preventDefault(); void onSubmit(); }}
   >
-    <div class="relative z-10 min-w-0 px-2" style="grid-column: 3;">
-      {#if !draft.trim() && !active}
-        <div
-          class="pointer-events-none absolute inset-y-0 left-2 flex items-center gap-2 text-muted-foreground"
-          aria-hidden="true"
-        >
-          <span class="flex h-5 w-5 shrink-0 items-center justify-center">
-            <Plus size={15} strokeWidth={1.75} />
-          </span>
-          <span class="text-[0.866667rem]">{label}</span>
-        </div>
-      {/if}
-      <input
-        data-add-section-input="true"
-        aria-label={label}
-        value={draft}
-        onfocus={() => onActiveChange(true)}
-        onblur={() => onActiveChange(false)}
-        oninput={(event) => onDraftChange(event.currentTarget.value)}
-        class="min-h-8 w-full min-w-0 bg-transparent text-[0.866667rem] text-foreground"
-      />
-      {#if active && !draft.trim()}
-        <span
-          class="project-list-add-row-caret pointer-events-none absolute left-2 top-1/2 h-4 w-px -translate-y-1/2 bg-foreground"
-          aria-hidden="true"
-        ></span>
-      {/if}
+    <div
+      class="project-list-leading-row relative z-10 grid items-center"
+      style={`grid-column: 1 / span 3; grid-template-columns: ${leadingGridTemplate};`}
+    >
+      <div></div>
+      <div></div>
+      <div class="relative min-w-0 px-2">
+        {#if !draft.trim() && !active}
+          <div
+            class="pointer-events-none absolute inset-y-0 left-2 flex items-center gap-2 text-muted-foreground"
+            aria-hidden="true"
+          >
+            <span class="flex h-5 w-5 shrink-0 items-center justify-center">
+              <Plus size={15} strokeWidth={1.75} />
+            </span>
+            <span class="text-[0.866667rem]">{label}</span>
+          </div>
+        {/if}
+        <input
+          data-add-section-input="true"
+          aria-label={label}
+          value={draft}
+          onfocus={() => onActiveChange(true)}
+          onblur={() => onActiveChange(false)}
+          oninput={(event) => onDraftChange(event.currentTarget.value)}
+          class="min-h-8 w-full min-w-0 bg-transparent text-[0.866667rem] text-foreground"
+        />
+        {#if active && !draft.trim()}
+          <span
+            class="project-list-add-row-caret pointer-events-none absolute left-2 top-1/2 h-4 w-px -translate-y-1/2 bg-foreground"
+            aria-hidden="true"
+          ></span>
+        {/if}
+      </div>
     </div>
     {#if draft.trim()}
       <div class="relative z-10 flex min-w-0 items-center px-2" style="grid-column: 4;">

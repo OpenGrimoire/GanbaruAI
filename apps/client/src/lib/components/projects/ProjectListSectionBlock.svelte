@@ -29,6 +29,7 @@
     sectionTasks,
     gridTemplate,
     gridMinWidth,
+    leadingGridTemplate,
     taskListColumns,
     taskListColumnLabel,
     statuses,
@@ -128,6 +129,7 @@
     sectionTasks: ProjectTask[];
     gridTemplate: string;
     gridMinWidth: string;
+    leadingGridTemplate: string;
     taskListColumns: ProjectTaskListColumn[];
     taskListColumnLabel: (column: ProjectTaskListColumn) => string;
     statuses: ProjectStatus[];
@@ -249,6 +251,7 @@
     {section}
     {gridTemplate}
     {gridMinWidth}
+    {leadingGridTemplate}
     taskCount={sectionTasks.length}
     allSelected={allTasksSelected}
     partiallySelected={partiallySelected}

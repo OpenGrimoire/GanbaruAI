@@ -11,6 +11,7 @@
   import {
     projectTaskListGridMinWidth,
     projectTaskListGridTemplate,
+    projectTaskListLeadingGridTemplate,
     type ProjectTaskListColumnWidths,
     type ProjectTaskListGridInput,
   } from "$lib/projects/project-list-view";
@@ -159,10 +160,11 @@
   const taskListGridInput = $derived(taskListGridInputFor(viewport.effectiveColumnWidths));
   const taskListGridTemplate = $derived(projectTaskListGridTemplate(taskListGridInput));
   const taskListGridMinWidth = $derived(projectTaskListGridMinWidth(taskListGridInput));
+  const taskListLeadingGridTemplate = $derived(projectTaskListLeadingGridTemplate(taskListGridInput));
   const listRangeDateColumnsVisible = $derived(taskListColumns.includes("start") && taskListColumns.includes("due"));
 
   $effect(() => {
-    if (viewport.container) viewport.syncCounterScroll();
+    if (!mobileLayout && viewport.container) viewport.syncCounterScroll();
   });
 
   function handleProjectListHorizontalKeydown(event: KeyboardEvent): void {
@@ -445,7 +447,7 @@
   }
 
   function handleProjectListScroll(event: Event): void {
-    viewport.syncCounterScroll();
+    if (!mobileLayout) viewport.syncCounterScroll();
     const target = event.currentTarget as HTMLElement;
     if (target.scrollHeight - target.scrollTop - target.clientHeight < 600) onNeedMore();
   }
@@ -474,6 +476,7 @@
             {sectionTasks}
             gridTemplate={taskListGridTemplate}
             gridMinWidth={taskListGridMinWidth}
+            leadingGridTemplate={taskListLeadingGridTemplate}
             {taskListColumns}
             {taskListColumnLabel}
             {statuses}
@@ -600,6 +603,7 @@
       <ProjectListSectionAddRow
         gridTemplate={taskListGridTemplate}
         gridMinWidth={taskListGridMinWidth}
+        leadingGridTemplate={taskListLeadingGridTemplate}
         label={t("projects.header.addSection")}
         draft={quickAdd.sectionDraft}
         active={quickAdd.sectionDraftInputActive}
@@ -625,6 +629,7 @@
             title={groupTitle}
             gridTemplate={taskListGridTemplate}
             gridMinWidth={taskListGridMinWidth}
+            leadingGridTemplate={taskListLeadingGridTemplate}
             taskCount={group.tasks.length}
             allSelected={interaction.allTasksSelected(group.tasks)}
             partiallySelected={interaction.someTasksSelected(group.tasks) && !interaction.allTasksSelected(group.tasks)}
@@ -807,6 +812,22 @@
   .project-list-scroll[data-mobile-layout="true"] {
     overflow-x: auto;
     touch-action: pan-x pan-y pinch-zoom;
+  }
+
+  .project-list-scroll[data-mobile-layout="true"] :global(.project-list-sticky-row) {
+    transform: none;
+  }
+
+  .project-list-scroll[data-mobile-layout="true"] :global(.project-list-sticky-row.project-list-divider)::after {
+    transform: none;
+  }
+
+  .project-list-scroll[data-mobile-layout="true"] :global(.project-list-leading-row) {
+    position: sticky;
+    left: 1rem;
+    z-index: 2;
+    width: min(22rem, calc(100vw - 2rem));
+    background-color: var(--cal-bg);
   }
 
   .project-list-scroll::-webkit-scrollbar {
