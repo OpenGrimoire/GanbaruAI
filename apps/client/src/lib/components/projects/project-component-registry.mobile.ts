@@ -14,49 +14,53 @@ export type {
 
 type LoadedMobileOptionalComponent = Extract<
   LoadedProjectOptionalComponent,
-  { kind: "toolbar" | "task-detail" }
+  { kind: "toolbar" | "bulk-actions" | "task-detail" }
 >;
 
 const MOBILE_OPTIONAL_IMPORTERS = {
   toolbar: () => import("./ProjectToolbarPanels.svelte")
     .then((module) => ({ default: { kind: "toolbar" as const, component: module.default } })),
+  "bulk-actions": () => import("./ProjectBulkActionController.svelte")
+    .then((module) => ({
+      default: { kind: "bulk-actions" as const, component: module.default },
+    })),
   "task-detail": () => import("./ProjectTaskDetailPanel.svelte")
     .then((module) => ({
       default: { kind: "task-detail" as const, component: module.default },
     })),
 } satisfies Readonly<Record<
-  "toolbar" | "task-detail",
+  "toolbar" | "bulk-actions" | "task-detail",
   LazyComponentImporter<LoadedMobileOptionalComponent>
 >>;
 
 const mobileOptionalLoader = createLazyComponentLoader<
-  "toolbar" | "task-detail",
+  "toolbar" | "bulk-actions" | "task-detail",
   LoadedMobileOptionalComponent
 >(MOBILE_OPTIONAL_IMPORTERS);
 
 function unsupportedMobileComponent(
-  kind: Exclude<ProjectOptionalComponentKind, "toolbar" | "task-detail">,
+  kind: Exclude<ProjectOptionalComponentKind, "toolbar" | "bulk-actions" | "task-detail">,
 ): Promise<LoadedProjectOptionalComponent> {
   return Promise.reject(new Error(`Project ${kind} is unavailable in the mobile composition`));
 }
 
-/** Load the mobile task detail without emitting desktop-only optional chunks. */
+/** Load a shared optional Project surface supported by the mobile composition. */
 export function loadProjectOptionalComponent(
   kind: ProjectOptionalComponentKind,
 ): Promise<LoadedProjectOptionalComponent> {
-  if (kind === "toolbar" || kind === "task-detail") return mobileOptionalLoader.load(kind);
+  if (kind === "toolbar" || kind === "bulk-actions" || kind === "task-detail") return mobileOptionalLoader.load(kind);
   return unsupportedMobileComponent(kind);
 }
 
-/** Retry the only optional Project surface available in the mobile composition. */
+/** Retry a shared optional Project surface supported by the mobile composition. */
 export function retryProjectOptionalComponent(
   kind: ProjectOptionalComponentKind,
 ): Promise<LoadedProjectOptionalComponent> {
-  if (kind === "toolbar" || kind === "task-detail") return mobileOptionalLoader.retry(kind);
+  if (kind === "toolbar" || kind === "bulk-actions" || kind === "task-detail") return mobileOptionalLoader.retry(kind);
   return unsupportedMobileComponent(kind);
 }
 
-/** Report whether the mobile task-detail constructor is cached. */
+/** Report whether a supported mobile Project constructor is cached. */
 export function projectOptionalComponentHasLoaded(kind: ProjectOptionalComponentKind): boolean {
-  return (kind === "toolbar" || kind === "task-detail") && mobileOptionalLoader.hasLoaded(kind);
+  return (kind === "toolbar" || kind === "bulk-actions" || kind === "task-detail") && mobileOptionalLoader.hasLoaded(kind);
 }

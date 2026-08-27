@@ -33,7 +33,7 @@
 
   type CalendarComponent = typeof import("$lib/components/calendar/CalendarView.svelte").default;
   type ProjectsComponent = typeof import("$lib/components/projects/ProjectsView.svelte").default;
-  type ProjectMobileListComponent = typeof import("$lib/components/projects/ProjectMobileListView.svelte").default;
+  type ProjectListComponent = typeof import("$lib/components/projects/ProjectListView.svelte").default;
   type NotesComponent = typeof import("$lib/components/notes/NotesView.svelte").default;
   type ChatComponent = typeof import("$lib/components/chat/ChatWorkspace.svelte").default;
   type QuickNotesComponent = typeof import("$lib/components/quick-notes/QuickNotesPanel.svelte").default;
@@ -85,7 +85,7 @@
   let initializingWorkspace = $state(false);
   let CalendarSurface = $state<CalendarComponent | null>(null);
   let ProjectsSurface = $state<ProjectsComponent | null>(null);
-  let ProjectMobileListSurface = $state<ProjectMobileListComponent | null>(null);
+  let ProjectListSurface = $state<ProjectListComponent | null>(null);
   let NotesSurface = $state<NotesComponent | null>(null);
   let ChatSurface = $state<ChatComponent | null>(null);
   let QuickNotesSurface = $state<QuickNotesComponent | null>(null);
@@ -178,15 +178,15 @@
         const module = await import("$lib/components/calendar/CalendarView.svelte");
         if (generation === surfaceLoadGeneration) CalendarSurface = module.default;
       } else if (view === "projects" && !ProjectsSurface) {
-        const [storeModule, module, mobileListModule] = await Promise.all([
+        const [storeModule, module, listModule] = await Promise.all([
           import("$lib/stores/projects.svelte"),
           import("$lib/components/projects/ProjectsView.svelte"),
-          import("$lib/components/projects/ProjectMobileListView.svelte"),
+          import("$lib/components/projects/ProjectListView.svelte"),
         ]);
         const projects = storeModule.getProjects();
         await projects.ensureLoaded();
         if (generation === surfaceLoadGeneration) {
-          ProjectMobileListSurface = mobileListModule.default;
+          ProjectListSurface = listModule.default;
           ProjectsSurface = module.default;
         }
       } else if (view === "notes" && !NotesSurface) {
@@ -605,10 +605,10 @@
           </div>
         {:else if nav.current === "calendar" && CalendarSurface}
           <CalendarSurface initialViewMode="day" mobileLayout />
-        {:else if nav.current === "projects" && ProjectsSurface && ProjectMobileListSurface}
+        {:else if nav.current === "projects" && ProjectsSurface && ProjectListSurface}
           <ProjectsSurface
             mobileLayout
-            mobileListComponent={ProjectMobileListSurface}
+            listComponent={ProjectListSurface}
             mobileViewLoadRecovery={projectMobileViewLoadRecovery}
           />
         {:else if nav.current === "notes" && NotesSurface}

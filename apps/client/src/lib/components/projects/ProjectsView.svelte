@@ -30,7 +30,7 @@
   import { ProjectRouteLoadController } from "./project-route-load-controller.svelte";
   import { ProjectRouteUiController } from "./project-route-ui-controller.svelte";
 
-  type ProjectMobileListComponent = typeof import("./ProjectMobileListView.svelte").default;
+  type ProjectListComponent = typeof import("./ProjectListView.svelte").default;
   interface MobileViewLoadRecovery {
     classify(error: unknown): LoadFailure;
     recover(failure: LoadFailure, retry: () => void): void;
@@ -38,13 +38,13 @@
 
   let {
     mobileLayout = false,
-    mobileListComponent: MobileListView = null,
+    listComponent = null,
     mobileViewLoadRecovery = null,
     desktopViewComponents = null,
     projectChat = null,
   }: {
     mobileLayout?: boolean;
-    mobileListComponent?: ProjectMobileListComponent | null;
+    listComponent?: ProjectListComponent | null;
     mobileViewLoadRecovery?: MobileViewLoadRecovery | null;
     desktopViewComponents?: ProjectDesktopViewComponents | null;
     projectChat?: ProjectChatIntegration | null;
@@ -264,7 +264,7 @@
   });
 
   $effect(() => {
-    if (!mobileLayout && routeUi.selectedTaskIds.length > 0) {
+    if (routeUi.selectedTaskIds.length > 0) {
       routeLoad.requestOptional("bulk-actions");
     }
   });
@@ -445,7 +445,7 @@
             <span class="sr-only" aria-busy="true">{t("common.loading")}</span>
           {/if}
         {/if}
-        {#if !mobileLayout && routeUi.selectedTaskIds.length > 0}
+        {#if routeUi.selectedTaskIds.length > 0}
           {#if bulkActionsLoadState?.status === "ready" && bulkActionsLoadState.component.kind === "bulk-actions"}
             {@const ProjectBulkActionController = bulkActionsLoadState.component.component}
             <ProjectBulkActionController
@@ -516,21 +516,10 @@
               </button>
             </div>
           {:else if projects.activeView === "list"}
-            {#if mobileLayout && MobileListView}
-            <MobileListView
-              {tasks}
-              {statuses}
-              {priorities}
-              onOpenTask={(task) => routeUi.openTask(task)}
-              onCreateTask={async (title) => {
-                if (!selectedProjectId) return undefined;
-                return projects.addTask(selectedProjectId, title);
-              }}
-              onNeedMore={() => taskQuery.loadNextList(routeUi.selectedTaskIds)}
-            />
-            {:else if !mobileLayout && desktopViewComponents}
-            {@const ProjectListView = desktopViewComponents.list}
+            {@const ProjectListView = mobileLayout ? listComponent : desktopViewComponents?.list ?? null}
+            {#if ProjectListView}
             <ProjectListView
+              {mobileLayout}
               {selectedProjectId}
               {sections}
               {statuses}

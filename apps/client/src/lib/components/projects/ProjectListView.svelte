@@ -53,6 +53,7 @@
   import { ProjectListViewportController } from "./project-list-viewport-controller.svelte";
 
   let {
+    mobileLayout = false,
     selectedProjectId,
     sections,
     statuses,
@@ -75,6 +76,7 @@
     onTaskListColumnWidthsChange,
     onNeedMore,
   }: {
+    mobileLayout?: boolean;
     selectedProjectId: string | null;
     sections: ProjectSection[];
     statuses: ProjectStatus[];
@@ -459,7 +461,8 @@
 
 <div
   bind:this={viewport.container}
-  class="project-list-scroll h-full min-h-0 overflow-auto"
+  class="project-list-scroll h-full min-h-0 overflow-auto overscroll-contain"
+  data-mobile-layout={mobileLayout}
   onscroll={handleProjectListScroll}
 >
   <div class="flex min-h-full flex-col gap-5 p-3">
@@ -799,6 +802,11 @@
     padding-right: 0.5rem;
     padding-bottom: 0.5rem;
     scrollbar-width: none;
+  }
+
+  .project-list-scroll[data-mobile-layout="true"] {
+    overflow-x: auto;
+    touch-action: pan-x pan-y pinch-zoom;
   }
 
   .project-list-scroll::-webkit-scrollbar {
