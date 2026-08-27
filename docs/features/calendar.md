@@ -66,6 +66,16 @@ The day, work-cycle, and week views support direct manipulation:
 - **Right-click** opens a context menu (delete, archive, duplicate). Protected events show archive instead of delete.
 - **Delete event** removes only future untracked events. Past, in-progress, started, or tracked events are archived instead. Active pomodoro events show End event first; delete and archive are available only after the active run is no longer attached to the current event.
 
+On compact touch layouts, the same operations use deliberate mobile gestures instead of desktop pointer precision:
+
+- **Swipe horizontally on the calendar surface** navigates backward or forward by the current view unit. A day advances by one day, a work-cycle advances through its 5d/2d sequence, a week advances by seven days, and a month advances by one month. The gesture commits by distance or horizontal velocity and gives a bounded resisted preview before navigation.
+- **Move vertically before a hold activates** keeps native timeline scrolling and momentum. Horizontal and vertical intent use platform-style touch slop so normal scrolling does not move, resize, or create an event accidentally.
+- **Press and hold an editable timed event, then drag** moves it through the same snapping, cross-day, permission, recurrence, active-session, and persistence path as desktop. Mobile does not expose finger resizing because reliable edge selection conflicts with compact event blocks and normal timeline movement. Exact duration changes remain available in the full-screen event editor.
+- **Press and hold empty timed space, then drag** creates a snapped range in either direction. Releasing opens the full-screen mobile event editor with that range. Releasing without extending the range still creates a useful minimum snapped block, so touch creation does not require precise placement.
+- **Press and hold an editable all-day event in work-cycle or week view** moves it by whole days. Exact date-range changes use the event editor. Month remains a browse-and-open surface rather than trying to fit reliable direct manipulation into compact cells.
+
+A stationary hold activates after 450 ms and movement beyond 10 CSS pixels cancels it before activation. Once manipulation starts, the app owns that touch sequence and prevents viewport panning until release or cancellation. A WebView pointer cancellation before horizontal intent clears the pending swipe. After horizontal intent is established, cancellation commits its tracked direction without applying the normal release-distance threshold because Android can end the pointer stream before that threshold when the gesture begins over the vertically scrollable timeline. View teardown and failed eligibility checks always clear gesture listeners and previews. Imported past events, locked historical events, and active events retain the same restrictions as desktop. The event editor remains the accessible alternative for exact date and time changes.
+
 In month view, click on a day cell to switch to day view focused on that date. Click on a `+N more` chip to open the full-day event modal. Click on an event chip to open the edit panel.
 
 ## Edit panel

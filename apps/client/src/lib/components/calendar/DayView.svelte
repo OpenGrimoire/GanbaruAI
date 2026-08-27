@@ -48,6 +48,9 @@
     onWheelNavigate,
     onDayHeaderClick,
     allowPointerEditing = true,
+    mobileLayout = false,
+    onMobileTouchEditStart,
+    onMobileTouchEditEnd,
   }: {
     anchorDate: Date;
     events: CalendarEvent[];
@@ -72,6 +75,9 @@
     onWheelNavigate?: (direction: "back" | "forward") => void;
     onDayHeaderClick?: () => void;
     allowPointerEditing?: boolean;
+    mobileLayout?: boolean;
+    onMobileTouchEditStart?: () => void;
+    onMobileTouchEditEnd?: () => void;
   } = $props();
 
   /** Stable empty fallback so the day column keeps a consistent prop reference. */
@@ -356,6 +362,9 @@
     canDrag: (id) => editingId ? id === editingId : !previewedIds || !previewedIds.has(id),
     isActiveEvent: isActiveCalendarEvent,
     isEventLocked: isLockedCalendarEvent,
+    mobileLayout: () => mobileLayout,
+    onTouchEditStart: () => onMobileTouchEditStart?.(),
+    onTouchEditEnd: () => onMobileTouchEditEnd?.(),
   });
 
   function allDayCreateAnchorFromHeader(target: HTMLElement): PanelAnchor {
@@ -527,6 +536,7 @@
           isActiveEvent={isActiveCalendarEvent}
           isEventLocked={isLockedCalendarEvent}
           {allowPointerEditing}
+          {mobileLayout}
         />
       </div>
       </div>

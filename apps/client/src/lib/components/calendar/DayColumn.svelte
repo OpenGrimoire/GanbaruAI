@@ -56,6 +56,7 @@
     visibleStartMinute = 0,
     visibleEndMinute = 1440,
     allowPointerEditing = true,
+    mobileLayout = false,
   }: {
     date: Date;
     positionedEvents: PositionedEvent[];
@@ -74,6 +75,7 @@
     visibleStartMinute?: number;
     visibleEndMinute?: number;
     allowPointerEditing?: boolean;
+    mobileLayout?: boolean;
     onEventClick: (event: CalendarEvent, rect?: DOMRect) => void;
     onEventPrefetch?: (event: CalendarEvent) => void;
     onDragStart: (eventId: string, e: PointerEvent, forceEdge?: "resize-top" | "resize-bottom") => void;
@@ -449,6 +451,7 @@
 
   // Get resize edge for a specific block from click coordinates
   function getBlockEdgeFromClick(eventId: string, e: PointerEvent): "resize-top" | "resize-bottom" | undefined {
+    if (mobileLayout) return undefined;
     if (!columnEl) return undefined;
     const colRect = columnEl.getBoundingClientRect();
     const colOffsetX = e.clientX - colRect.left;
@@ -615,6 +618,7 @@
       grabbing={pos.event.id === grabbingId}
       animateLayout={layoutAnimationActive}
       canDrag={allowPointerEditing && (!panelOpen || pos.event.id === editingId)}
+      {mobileLayout}
       isPast={!isPendingCreateEventId(pos.event.id) && (
         isPast || (isToday && currentTimeMinute >= 0 && effectiveMinuteRange(pos.event, dateStr).endMinute <= currentTimeMinute)
       )}

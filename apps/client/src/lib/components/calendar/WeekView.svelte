@@ -55,6 +55,9 @@
     onTzAbbrModeChange,
     onWheelNavigate,
     onDayHeaderClick,
+    mobileLayout = false,
+    onMobileTouchEditStart,
+    onMobileTouchEditEnd,
   }: {
     anchorDate: Date;
     days?: Date[];
@@ -79,6 +82,9 @@
     onTzAbbrModeChange?: (mode: TimezoneAbbrMode) => void;
     onWheelNavigate?: (direction: "back" | "forward") => void;
     onDayHeaderClick?: (date: Date) => void;
+    mobileLayout?: boolean;
+    onMobileTouchEditStart?: () => void;
+    onMobileTouchEditEnd?: () => void;
   } = $props();
 
   /** Stable empty fallback so day columns without events keep a consistent prop reference. */
@@ -373,6 +379,9 @@
     canDrag: (id) => editingId ? id === editingId : !previewedIds || !previewedIds.has(id),
     isActiveEvent: isActiveCalendarEvent,
     isEventLocked: isLockedCalendarEvent,
+    mobileLayout: () => mobileLayout,
+    onTouchEditStart: () => onMobileTouchEditStart?.(),
+    onTouchEditEnd: () => onMobileTouchEditEnd?.(),
   });
 
   // All-day column bounds from header cells
@@ -392,6 +401,9 @@
     onEventUpdate: (e) => onEventUpdate(e),
     canDrag: (id) => editingId ? id === editingId : !previewedIds || !previewedIds.has(id),
     isEventLocked: isLockedCalendarEvent,
+    mobileLayout: () => mobileLayout,
+    onTouchEditStart: () => onMobileTouchEditStart?.(),
+    onTouchEditEnd: () => onMobileTouchEditEnd?.(),
   });
 
   const allDayEffectiveRows = $derived.by(() => {
@@ -581,6 +593,7 @@
               preview={previewedIds?.has(pos.event.id) ?? false}
               grabbing={allDayDrag.grabbingId === pos.event.id}
               canDrag={(!editingId || pos.event.id === editingId) && !isLockedCalendarEvent(pos.event.id)}
+              {mobileLayout}
               isPast={endDateStr < todayStr}
               onclick={(rect) => { if (!allDayDrag.didDrag) onEventClick(pos.event, rect); }}
               onprefetch={() => onEventPrefetch?.(pos.event)}
@@ -721,6 +734,8 @@
               onCreateStart={drag.handleCreateStart}
               isActiveEvent={isActiveCalendarEvent}
               isEventLocked={isLockedCalendarEvent}
+              allowPointerEditing={true}
+              {mobileLayout}
             />
           </div>
         {/each}

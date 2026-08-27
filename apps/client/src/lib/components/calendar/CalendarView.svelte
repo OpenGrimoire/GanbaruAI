@@ -81,6 +81,13 @@
     projectCalendarSurfaceStatuses,
     visibleCalendarEvents,
   } from "./calendar-view-display-projection";
+  import {
+    calendarSwipeAxis,
+    calendarSwipeDirection,
+    calendarSwipeNavigation,
+    calendarSwipePreviewOffset,
+    type CalendarSwipeAxis,
+  } from "./calendar-mobile-gestures";
 
   const calendarStore = getCalendar();
   const calendarsStore = getCalendars();
@@ -661,7 +668,176 @@
     });
   }
 
+  let mobileSwipeOffset = $state(0);
+  let mobileSwipeAnimating = $state(false);
+  let mobileSwipeSuppressClick = false;
+  let mobileSwipeResetTimer = 0;
+  let mobileSwipeAnimationFrame = 0;
+  let mobileSwipeState = $state<{
+    pointerId: number;
+    startX: number;
+    startY: number;
+    startedAt: number;
+    lastX: number;
+    lastY: number;
+    lastAt: number;
+    axis: CalendarSwipeAxis;
+  } | null>(null);
+
+  function removeMobileSwipeListeners(): void {
+    window.removeEventListener("pointermove", handleMobileSwipeMove);
+    window.removeEventListener("pointerup", handleMobileSwipeEnd);
+    window.removeEventListener("pointercancel", handleMobileSwipeCancel);
+  }
+
+  function finishMobileSwipeAnimation(): void {
+    if (mobileSwipeResetTimer) window.clearTimeout(mobileSwipeResetTimer);
+    mobileSwipeResetTimer = window.setTimeout(() => {
+      mobileSwipeAnimating = false;
+      mobileSwipeResetTimer = 0;
+    }, 180);
+  }
+
+  function prefersReducedMotion(): boolean {
+    return window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  }
+
+  function resetMobileSwipe(animate: boolean): void {
+    removeMobileSwipeListeners();
+    if (mobileSwipeAnimationFrame) {
+      window.cancelAnimationFrame(mobileSwipeAnimationFrame);
+      mobileSwipeAnimationFrame = 0;
+    }
+    mobileSwipeState = null;
+    mobileSwipeAnimating = animate && mobileSwipeOffset !== 0 && !prefersReducedMotion();
+    mobileSwipeOffset = 0;
+    if (mobileSwipeAnimating) finishMobileSwipeAnimation();
+  }
+
+  function completeMobileSwipeNavigation(direction: "back" | "forward"): void {
+    removeMobileSwipeListeners();
+    mobileSwipeState = null;
+    if (prefersReducedMotion()) {
+      mobileSwipeOffset = 0;
+      mobileSwipeAnimating = false;
+      navigate(direction, "touch");
+      return;
+    }
+
+    if (mobileSwipeResetTimer) {
+      window.clearTimeout(mobileSwipeResetTimer);
+      mobileSwipeResetTimer = 0;
+    }
+    const viewportWidth = viewportController.viewWrapper?.clientWidth ?? window.innerWidth;
+    const entryOffset = direction === "forward" ? viewportWidth : -viewportWidth;
+    mobileSwipeAnimating = false;
+    mobileSwipeOffset = entryOffset;
+    navigate(direction, "touch");
+    void tick().then(() => {
+      if (mobileSwipeOffset !== entryOffset || mobileSwipeAnimating) return;
+      mobileSwipeAnimationFrame = window.requestAnimationFrame(() => {
+        mobileSwipeAnimationFrame = 0;
+        mobileSwipeAnimating = true;
+        mobileSwipeOffset = 0;
+        finishMobileSwipeAnimation();
+      });
+    });
+  }
+
+  function handleMobileSwipeStart(event: PointerEvent): void {
+    if (!mobileLayout || event.pointerType !== "touch" || !event.isPrimary || event.button !== 0
+      || session.state.mode !== "closed" || confirm.action || mobileSwipeAnimating) return;
+    mobileSwipeState = {
+      pointerId: event.pointerId,
+      startX: event.clientX,
+      startY: event.clientY,
+      startedAt: performance.now(),
+      lastX: event.clientX,
+      lastY: event.clientY,
+      lastAt: performance.now(),
+      axis: null,
+    };
+    window.addEventListener("pointermove", handleMobileSwipeMove);
+    window.addEventListener("pointerup", handleMobileSwipeEnd);
+    window.addEventListener("pointercancel", handleMobileSwipeCancel);
+  }
+
+  function handleMobileSwipeMove(event: PointerEvent): void {
+    const state = mobileSwipeState;
+    if (!state || event.pointerId !== state.pointerId) return;
+    state.lastX = event.clientX;
+    state.lastY = event.clientY;
+    state.lastAt = performance.now();
+    const deltaX = event.clientX - state.startX;
+    const deltaY = event.clientY - state.startY;
+    if (state.axis === null) {
+      const axis = calendarSwipeAxis(deltaX, deltaY);
+      if (axis === null) return;
+      if (axis === "vertical") {
+        resetMobileSwipe(false);
+        return;
+      }
+      state.axis = axis;
+    }
+    event.preventDefault();
+    mobileSwipeOffset = calendarSwipePreviewOffset(deltaX);
+  }
+
+  function finishMobileSwipe(state: NonNullable<typeof mobileSwipeState>): void {
+    const direction = state.axis === "horizontal"
+      ? calendarSwipeNavigation({
+        deltaX: state.lastX - state.startX,
+        elapsedMs: state.lastAt - state.startedAt,
+        viewportWidth: viewportController.viewWrapper?.clientWidth ?? window.innerWidth,
+      })
+      : null;
+    if (state.axis === "horizontal") mobileSwipeSuppressClick = true;
+    if (direction) completeMobileSwipeNavigation(direction);
+    else resetMobileSwipe(true);
+  }
+
+  function handleMobileSwipeEnd(event: PointerEvent): void {
+    const state = mobileSwipeState;
+    if (!state || event.pointerId !== state.pointerId) return;
+    finishMobileSwipe(state);
+  }
+
+  function handleMobileSwipeCancel(event: PointerEvent): void {
+    const state = mobileSwipeState;
+    if (!state || state.pointerId !== event.pointerId) return;
+    if (state.axis !== "horizontal") {
+      resetMobileSwipe(true);
+      return;
+    }
+    const direction = calendarSwipeDirection(state.lastX - state.startX);
+    mobileSwipeSuppressClick = true;
+    if (direction) completeMobileSwipeNavigation(direction);
+    else resetMobileSwipe(true);
+  }
+
+  function handleMobileSwipeClick(event: MouseEvent): void {
+    if (!mobileSwipeSuppressClick) return;
+    mobileSwipeSuppressClick = false;
+    event.preventDefault();
+    event.stopImmediatePropagation();
+  }
+
+  function handleMobileContextMenu(event: MouseEvent): void {
+    if (mobileLayout) event.preventDefault();
+  }
+
+  function handleMobileTouchEditStart(): void {
+    resetMobileSwipe(true);
+  }
+
+  function handleMobileTouchEditEnd(): void {
+    mobileSwipeSuppressClick = true;
+  }
+
   onDestroy(() => {
+    resetMobileSwipe(false);
+    if (mobileSwipeResetTimer) window.clearTimeout(mobileSwipeResetTimer);
+    if (mobileSwipeAnimationFrame) window.cancelAnimationFrame(mobileSwipeAnimationFrame);
     toasts.destroy();
   });
 
@@ -736,7 +912,7 @@
 
   function navigate(
     direction: "today" | "back" | "forward",
-    source: "programmatic" | "wheel" | "key" | "hold-repeat" = "programmatic",
+    source: "programmatic" | "wheel" | "key" | "hold-repeat" | "touch" = "programmatic",
   ) {
     perfMark("nav.start", { dir: direction, source });
     if (direction === "today") {
@@ -1083,7 +1259,18 @@
     }}
   />
 
-  <div bind:this={viewportController.viewWrapper} class="min-w-0 flex-1 overflow-hidden" style="background-color: var(--cal-bg);">
+  <div
+    bind:this={viewportController.viewWrapper}
+    class="min-w-0 flex-1 overflow-hidden"
+    style="background-color: var(--cal-bg); touch-action: {mobileLayout ? 'pan-y pinch-zoom' : 'auto'};"
+    onpointerdowncapture={handleMobileSwipeStart}
+    onclickcapture={handleMobileSwipeClick}
+    oncontextmenu={handleMobileContextMenu}
+  >
+    <div
+      class="h-full min-h-0"
+      style="transform: translate3d({mobileSwipeOffset}px, 0, 0); transition: {mobileSwipeAnimating ? 'transform 180ms cubic-bezier(0.2, 0, 0, 1)' : 'none'}; will-change: {mobileSwipeState?.axis === 'horizontal' ? 'transform' : 'auto'};"
+    >
     {#if viewMode === "week" || viewMode === "workweek"}
       <WeekView
         {anchorDate}
@@ -1109,6 +1296,9 @@
         onTzAbbrModeChange={(mode) => { viewportController.timezoneAbbreviationMode = mode; }}
         onWheelNavigate={handleWheelNavigate}
         onDayHeaderClick={handleWeekDayHeaderClick}
+        {mobileLayout}
+        onMobileTouchEditStart={handleMobileTouchEditStart}
+        onMobileTouchEditEnd={handleMobileTouchEditEnd}
       />
     {:else if viewMode === "day"}
       <DayView
@@ -1134,7 +1324,10 @@
         onTzAbbrModeChange={(mode) => { viewportController.timezoneAbbreviationMode = mode; }}
         onWheelNavigate={handleWheelNavigate}
         onDayHeaderClick={handleDayHeaderClick}
-        allowPointerEditing={!mobileLayout}
+        allowPointerEditing={true}
+        {mobileLayout}
+        onMobileTouchEditStart={handleMobileTouchEditStart}
+        onMobileTouchEditEnd={handleMobileTouchEditEnd}
       />
     {:else}
       <MonthView
@@ -1148,6 +1341,7 @@
         onWheelNavigate={handleWheelNavigate}
       />
     {/if}
+    </div>
   </div>
 
   {#if mobileLayout}
