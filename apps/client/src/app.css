@@ -149,7 +149,6 @@
   --visual-viewport-offset-top: 0px;
   --visual-viewport-offset-left: 0px;
   --mobile-topbar-h: 56px;
-  --mobile-nav-h: 64px;
   --mobile-nav-rail-w: 72px;
   --touch-target-min: 48px;
 }
@@ -394,7 +393,7 @@ svg.lucide[stroke-width="1.5"]:not(.app-title-bar *) {
     }
   }
   html[data-shell="mobile"] :where(button, a, input, select, textarea) {
-    scroll-margin-bottom: calc(var(--keyboard-inset) + var(--mobile-nav-h));
+    scroll-margin-bottom: calc(var(--keyboard-inset) + var(--safe-area-bottom));
   }
   ::selection {
     color: inherit;

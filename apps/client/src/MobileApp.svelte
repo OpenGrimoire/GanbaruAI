@@ -11,6 +11,11 @@
     resolveMobileBackAction,
   } from "$lib/mobile-back";
   import { mobileNavigationPresentation } from "$lib/mobile-layout";
+  import {
+    classifyLoadFailure,
+    recoverLoadFailure,
+    type LoadFailure,
+  } from "$lib/module-load-recovery";
   import { MobilePersistenceLifecycleController } from "$lib/mobile-persistence-lifecycle";
   import { activateModalFocus } from "$lib/modal-focus";
   import type { View } from "$lib/navigation";
@@ -62,14 +67,14 @@
   let showQuickNotes = $state(false);
   let showMusic = $state(false);
   let musicLoading = $state(false);
-  let musicLoadError = $state("");
+  let musicLoadError = $state<LoadFailure | null>(null);
   let musicLoadDialog = $state<HTMLDivElement | null>(null);
   let quickNotesLoading = $state(false);
-  let quickNotesLoadError = $state("");
+  let quickNotesLoadError = $state<LoadFailure | null>(null);
   let quickNotesLoadDialog = $state<HTMLDivElement | null>(null);
   let settingsLoadDialog = $state<HTMLDivElement | null>(null);
   let nestedRouteOpen = $state(false);
-  let loadError = $state<string | null>(null);
+  let loadError = $state<LoadFailure | null>(null);
   let backendReady = $state(false);
   let initializingWorkspace = $state(false);
   let CalendarSurface = $state<CalendarComponent | null>(null);
@@ -88,7 +93,7 @@
   let settingsLoadGeneration = 0;
   let musicLoadGeneration = 0;
   let settingsLoading = $state(false);
-  let settingsLoadError = $state("");
+  let settingsLoadError = $state<LoadFailure | null>(null);
   let removePomodoroBackLayer = (): void => undefined;
   let removeSettingsBackLayer = (): void => undefined;
   let removeQuickNotesBackLayer = (): void => undefined;
@@ -196,7 +201,7 @@
       }
     } catch (error) {
       if (generation !== surfaceLoadGeneration) return;
-      loadError = error instanceof Error ? error.message : String(error);
+      loadError = classifyLoadFailure(error);
       console.error(`Failed to load mobile ${view} surface`, error);
     }
   }
@@ -216,7 +221,7 @@
       backendReady = true;
       await loadSurface(nav.current);
     } catch (error) {
-      loadError = error instanceof Error ? error.message : String(error);
+      loadError = classifyLoadFailure(error);
       console.error("Failed to initialize the mobile workspace", error);
     } finally {
       initializingWorkspace = false;
@@ -280,20 +285,20 @@
     removeSettingsBackLayer = () => undefined;
     showSettings = false;
     settingsLoading = false;
-    settingsLoadError = "";
+    settingsLoadError = null;
   }
 
   async function loadSettingsSurface(): Promise<void> {
     if (SettingsSurface || settingsLoading) return;
     const generation = ++settingsLoadGeneration;
     settingsLoading = true;
-    settingsLoadError = "";
+    settingsLoadError = null;
     try {
       const module = await import("$lib/components/settings/SettingsModal.svelte");
       if (generation === settingsLoadGeneration) SettingsSurface = module.default;
     } catch (error) {
       if (generation !== settingsLoadGeneration) return;
-      settingsLoadError = error instanceof Error ? error.message : String(error);
+      settingsLoadError = classifyLoadFailure(error);
       console.error("Failed to load the mobile settings surface", error);
     } finally {
       if (generation === settingsLoadGeneration) settingsLoading = false;
@@ -316,20 +321,20 @@
     removeQuickNotesBackLayer = () => undefined;
     showQuickNotes = false;
     quickNotesLoading = false;
-    quickNotesLoadError = "";
+    quickNotesLoadError = null;
   }
 
   async function loadQuickNotesSurface(): Promise<void> {
     if (QuickNotesSurface || quickNotesLoading) return;
     const generation = ++quickNotesLoadGeneration;
     quickNotesLoading = true;
-    quickNotesLoadError = "";
+    quickNotesLoadError = null;
     try {
       const module = await import("$lib/components/quick-notes/QuickNotesPanel.svelte");
       if (generation === quickNotesLoadGeneration) QuickNotesSurface = module.default;
     } catch (error) {
       if (generation !== quickNotesLoadGeneration) return;
-      quickNotesLoadError = error instanceof Error ? error.message : String(error);
+      quickNotesLoadError = classifyLoadFailure(error);
       console.error("Failed to load the mobile Quick notes surface", error);
     } finally {
       if (generation === quickNotesLoadGeneration) quickNotesLoading = false;
@@ -353,14 +358,14 @@
     removeMusicBackLayer = () => undefined;
     showMusic = false;
     musicLoading = false;
-    musicLoadError = "";
+    musicLoadError = null;
   }
 
   async function loadMusicSurface(): Promise<void> {
     if ((MusicSurface && MusicPlaybackHostSurface) || musicLoading) return;
     const generation = ++musicLoadGeneration;
     musicLoading = true;
-    musicLoadError = "";
+    musicLoadError = null;
     try {
       const [panelModule, hostModule] = await Promise.all([
         import("$lib/components/music/MusicPanel.svelte"),
@@ -372,7 +377,7 @@
       }
     } catch (error) {
       if (generation !== musicLoadGeneration) return;
-      musicLoadError = error instanceof Error ? error.message : String(error);
+      musicLoadError = classifyLoadFailure(error);
       console.error("Failed to load the mobile Music surface", error);
     } finally {
       if (generation === musicLoadGeneration) musicLoading = false;
@@ -502,7 +507,7 @@
 <div
   class="mobile-app-shell mobile-viewport-height flex w-screen flex-col overflow-hidden bg-background text-foreground"
   data-size-class={viewport.sizeClass}
-  style="width: calc(100vw * var(--mobile-interface-scale-inverse, 1)); height: calc(100vh * var(--mobile-interface-scale-inverse, 1)); height: calc(100dvh * var(--mobile-interface-scale-inverse, 1)); padding: var(--safe-area-top) var(--safe-area-right) {useNavigationRail ? 'var(--safe-area-bottom)' : '0'} var(--safe-area-left);"
+  style="width: calc(100vw * var(--mobile-interface-scale-inverse, 1)); height: calc(100vh * var(--mobile-interface-scale-inverse, 1)); height: calc(100dvh * var(--mobile-interface-scale-inverse, 1)); padding: var(--safe-area-top) var(--safe-area-right) var(--safe-area-bottom) var(--safe-area-left);"
 >
   <div
     class="flex min-h-0 flex-1 flex-col"
@@ -510,7 +515,7 @@
     aria-hidden={modalOpen ? "true" : undefined}
   >
     <MobileTopBar
-      title={currentTitle}
+      current={nav.current}
       pomodoroTime={pomodoro.formattedTime}
       pomodoroActive={pomodoro.isActive}
       pomodoroRemainingSeconds={pomodoro.remainingSeconds}
@@ -529,6 +534,7 @@
       musicLoading={musicLoading}
       musicDisabled={!backendReady}
       musicVisible={musicAvailable}
+      primaryNavigationVisible={!useNavigationRail}
       onTogglePomodoro={() => {
         if (showPomodoro) closePomodoro();
         else openPomodoro();
@@ -537,6 +543,7 @@
       onOpenQuickNotes={openQuickNotes}
       onOpenMusic={openMusic}
       onOpenSettings={openSettings}
+      onNavigate={navigate}
     />
 
     <div class="flex min-h-0 flex-1 overflow-hidden">
@@ -548,14 +555,16 @@
         {#if loadError}
           <div class="flex h-full flex-col items-center justify-center gap-3 p-6 text-center" role="alert">
             <p class="text-sm font-medium">{t("common.viewLoadFailed", currentTitle)}</p>
-            <p class="max-w-md text-xs text-muted-foreground">{loadError}</p>
+            <p class="max-w-md text-xs text-muted-foreground">{loadError.message}</p>
             <button
               type="button"
               disabled={initializingWorkspace}
               class="min-h-12 rounded-xl border border-border bg-card px-5 text-sm font-medium active:bg-accent"
               onclick={() => {
-                if (backendReady) void loadSurface(nav.current);
-                else void initializeWorkspace();
+                recoverLoadFailure(loadError, () => {
+                  if (backendReady) void loadSurface(nav.current);
+                  else void initializeWorkspace();
+                });
               }}
             >
               {initializingWorkspace ? t("common.loading") : t("common.retry")}
@@ -576,12 +585,6 @@
         {/if}
       </main>
     </div>
-
-    {#if !useNavigationRail}
-      <div class="shrink-0 bg-sidebar" style="padding-bottom: var(--safe-area-bottom);">
-        <MobileNavigation current={nav.current} presentation="bottom" onNavigate={navigate} />
-      </div>
-    {/if}
   </div>
 
   {#if MusicPlaybackHostSurface}
@@ -609,8 +612,8 @@
       >
         {#if musicLoadError}
           <p class="text-sm font-medium" role="alert">{t("common.viewLoadFailed", t("music.title"))}</p>
-          <p class="max-w-full wrap-break-word text-xs text-muted-foreground">{musicLoadError}</p>
-          <button type="button" class="min-h-12 w-full rounded-xl border border-border px-4 text-sm font-medium active:bg-accent" onclick={() => void loadMusicSurface()}>{t("common.retry")}</button>
+          <p class="max-w-full wrap-break-word text-xs text-muted-foreground">{musicLoadError.message}</p>
+          <button type="button" class="min-h-12 w-full rounded-xl border border-border px-4 text-sm font-medium active:bg-accent" onclick={() => recoverLoadFailure(musicLoadError, () => void loadMusicSurface())}>{t("common.retry")}</button>
         {:else}
           <p class="text-sm text-muted-foreground" aria-busy="true">{t("common.loading")}</p>
         {/if}
@@ -640,11 +643,11 @@
       >
         {#if settingsLoadError}
           <p class="text-sm font-medium" role="alert">{t("common.viewLoadFailed", t("settings.title"))}</p>
-          <p class="max-w-full wrap-break-word text-xs text-muted-foreground">{settingsLoadError}</p>
+          <p class="max-w-full wrap-break-word text-xs text-muted-foreground">{settingsLoadError.message}</p>
           <button
             type="button"
             class="min-h-12 w-full rounded-xl border border-border px-4 text-sm font-medium active:bg-accent"
-            onclick={() => void loadSettingsSurface()}
+            onclick={() => recoverLoadFailure(settingsLoadError, () => void loadSettingsSurface())}
           >{t("common.retry")}</button>
         {:else}
           <p class="text-sm text-muted-foreground" aria-busy="true">{t("common.loading")}</p>
@@ -679,11 +682,11 @@
       >
         {#if quickNotesLoadError}
           <p class="text-sm font-medium" role="alert">{t("quickNotes.loadFailed")}</p>
-          <p class="max-w-full wrap-break-word text-xs text-muted-foreground">{quickNotesLoadError}</p>
+          <p class="max-w-full wrap-break-word text-xs text-muted-foreground">{quickNotesLoadError.message}</p>
           <button
             type="button"
             class="min-h-12 w-full rounded-xl border border-border px-4 text-sm font-medium active:bg-accent"
-            onclick={() => void loadQuickNotesSurface()}
+            onclick={() => recoverLoadFailure(quickNotesLoadError, () => void loadQuickNotesSurface())}
           >{t("quickNotes.retry")}</button>
         {:else}
           <p class="text-sm text-muted-foreground" aria-busy="true">{t("common.loading")}</p>

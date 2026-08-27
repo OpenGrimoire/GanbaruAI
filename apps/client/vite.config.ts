@@ -181,7 +181,18 @@ function reviewCatalogChunkName(moduleId: string): string | undefined {
 }
 
 async function warmTauriDevEntry(server: ViteDevServer): Promise<void> {
-  await server.transformRequest("/src/main.ts");
+  const clientEnvironment = server.environments.client;
+  const entry = await clientEnvironment.transformRequest("/src/main.ts");
+  if (!entry) throw new Error("Vite did not transform the Tauri development entry");
+  const warmupUrls = mobileBuild
+    ? [
+        "/src/main-mobile.ts",
+        "/src/MobileApp.svelte",
+        "/src/lib/components/calendar/CalendarView.svelte",
+      ]
+    : [];
+  await Promise.all(warmupUrls.map((url) => clientEnvironment.warmupRequest(url)));
+  await server.waitForRequestsIdle();
 }
 
 function tauriDevReady(): Plugin {

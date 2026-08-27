@@ -5,8 +5,6 @@
   import MessageSquare from "@lucide/svelte/icons/message-square";
   import { getLocalization } from "$lib/i18n/translator.svelte";
   import type { View } from "$lib/navigation";
-  import { getZoom } from "$lib/stores/zoom.svelte";
-  import { mobileNavigationShowsLabels } from "$lib/mobile-layout";
   import { cn } from "$lib/utils";
 
   let {
@@ -15,13 +13,11 @@
     onNavigate,
   }: {
     current: View;
-    presentation: "bottom" | "rail";
+    presentation: "top" | "rail";
     onNavigate: (view: View) => void;
   } = $props();
 
   const { t } = getLocalization();
-  const zoom = getZoom();
-  const showLabels = $derived(mobileNavigationShowsLabels(presentation, zoom.level));
   const destinations = [
     { view: "calendar", icon: CalendarDays },
     { view: "projects", icon: ListTodo },
@@ -33,10 +29,10 @@
 <nav
   aria-label={t("mobile.primaryNavigation")}
   class={cn(
-    "mobile-primary-navigation shrink-0 border-sidebar-border bg-sidebar text-sidebar-foreground",
+    "mobile-primary-navigation border-sidebar-border bg-sidebar text-sidebar-foreground",
     presentation === "rail"
-      ? "flex w-(--mobile-nav-rail-w) flex-col border-r px-2 py-3"
-      : "grid h-(--mobile-nav-h) grid-cols-4 border-t px-2",
+      ? "flex w-(--mobile-nav-rail-w) shrink-0 flex-col border-r px-2 py-3"
+      : "col-span-4 grid min-w-0 self-stretch grid-cols-4",
   )}
 >
   {#each destinations as destination}
@@ -48,19 +44,17 @@
       aria-label={t(`titleBar.tab.${destination.view}`)}
       onclick={() => onNavigate(destination.view)}
       class={cn(
-        "relative flex min-h-12 min-w-12 items-center justify-center rounded-xl text-xs font-medium transition-colors",
+        "relative flex min-h-12 items-center justify-center rounded-xl text-xs font-medium transition-colors",
         presentation === "rail"
           ? "mb-2 flex-col gap-1"
-          : showLabels
-            ? "flex-col gap-0.5"
-            : "",
+          : "min-w-0",
         selected
           ? "bg-sidebar-accent text-sidebar-accent-foreground"
           : "text-sidebar-foreground/70 active:bg-sidebar-accent/70",
       )}
     >
       <Icon size={21} strokeWidth={selected ? 2 : 1.7} aria-hidden="true" />
-      {#if showLabels}
+      {#if presentation === "rail"}
         <span>{t(`titleBar.tab.${destination.view}`)}</span>
       {/if}
     </button>
