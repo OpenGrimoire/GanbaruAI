@@ -72,6 +72,8 @@
   } = $props();
 
   const { t } = getLocalization();
+  const utilityButtonClass = "group flex h-full items-center justify-center text-muted-foreground transition-colors disabled:opacity-40";
+  const utilityIconClass = "grid h-8 w-8 place-items-center rounded-full transition-colors group-active:bg-accent/70";
   let PomodoroMenuSurface = $state<PomodoroMenuComponent | null>(null);
   let pomodoroMenuLoading = $state(false);
   let pomodoroMenuLoadError = $state<LoadFailure | null>(null);
@@ -109,18 +111,19 @@
 
 <header
   class={cn(
-    "mobile-top-bar min-h-(--mobile-topbar-h) shrink-0 items-center border-b border-sidebar-border bg-sidebar px-1 text-sidebar-foreground",
+    "mobile-top-bar h-(--cal-header-row-h) shrink-0 items-center border-b px-0.5 text-foreground",
     primaryNavigationVisible
       ? musicVisible
         ? "grid grid-cols-8"
         : "grid grid-cols-7"
       : "flex justify-end",
   )}
+  style="background-color: var(--cal-header-bg); border-color: var(--sidebar);"
 >
   {#if primaryNavigationVisible}
     <MobileNavigation {current} presentation="top" {onNavigate} />
   {/if}
-  <div class={cn("relative", primaryNavigationVisible ? "min-w-0" : "w-11 shrink-0")}>
+  <div class={cn("relative h-full", primaryNavigationVisible ? "min-w-0" : "w-11 shrink-0")}>
     <button
       type="button"
       data-mobile-pomodoro-trigger
@@ -131,18 +134,20 @@
         : t("titleBar.control.pomodoro")}
       aria-haspopup="menu"
       aria-expanded={pomodoroOpen}
-      class="flex min-h-12 w-full items-center justify-center rounded-xl active:bg-sidebar-accent"
+      class={cn(utilityButtonClass, primaryNavigationVisible ? "w-full min-w-0" : "w-11 shrink-0", pomodoroOpen && "text-foreground")}
     >
-      <PomodoroProgressRing
-        active={pomodoroActive}
-        remainingSeconds={pomodoroRemainingSeconds}
-        totalSeconds={pomodoroTotalSeconds}
-        paused={pomodoroPaused}
-        pausedPulseAmount={pomodoroPausedPulseAmount}
-        size={21}
-        trackClass="stroke-sidebar-foreground/20"
-        progressClass="text-sidebar-foreground/76 stroke-sidebar-foreground/76"
-      />
+      <span class={cn(utilityIconClass, pomodoroOpen && "bg-accent/70")}>
+        <PomodoroProgressRing
+          active={pomodoroActive}
+          remainingSeconds={pomodoroRemainingSeconds}
+          totalSeconds={pomodoroTotalSeconds}
+          paused={pomodoroPaused}
+          pausedPulseAmount={pomodoroPausedPulseAmount}
+          size={20}
+          trackClass="stroke-muted-foreground/25"
+          progressClass="text-foreground/76 stroke-foreground/76"
+        />
+      </span>
     </button>
     {#if pomodoroOpen}
       <button
@@ -188,12 +193,9 @@
     aria-haspopup="dialog"
     aria-expanded={quickNotesOpen}
     aria-busy={quickNotesLoading}
-    class={cn(
-      "flex min-h-12 items-center justify-center rounded-xl active:bg-sidebar-accent disabled:opacity-40",
-      primaryNavigationVisible ? "min-w-0 w-full" : "w-11 shrink-0",
-    )}
+    class={cn(utilityButtonClass, primaryNavigationVisible ? "w-full min-w-0" : "w-11 shrink-0", quickNotesOpen && "text-foreground")}
   >
-    <StickyNote size={20} strokeWidth={1.8} aria-hidden="true" />
+    <span class={cn(utilityIconClass, quickNotesOpen && "bg-accent/70")}><StickyNote size={19} strokeWidth={1.8} aria-hidden="true" /></span>
   </button>
   {#if musicVisible}
     <button
@@ -205,12 +207,9 @@
       aria-haspopup="dialog"
       aria-expanded={musicOpen}
       aria-busy={musicLoading}
-      class={cn(
-        "flex min-h-12 items-center justify-center rounded-xl active:bg-sidebar-accent disabled:opacity-40",
-        primaryNavigationVisible ? "min-w-0 w-full" : "w-11 shrink-0",
-      )}
+      class={cn(utilityButtonClass, primaryNavigationVisible ? "w-full min-w-0" : "w-11 shrink-0", musicOpen && "text-foreground")}
     >
-      <Music size={20} strokeWidth={1.8} aria-hidden="true" />
+      <span class={cn(utilityIconClass, musicOpen && "bg-accent/70")}><Music size={19} strokeWidth={1.8} aria-hidden="true" /></span>
     </button>
   {/if}
   <button
@@ -218,11 +217,8 @@
     onclick={onOpenSettings}
     aria-label={t("titleBar.control.settings")}
     aria-haspopup="dialog"
-    class={cn(
-      "flex min-h-12 items-center justify-center rounded-xl active:bg-sidebar-accent",
-      primaryNavigationVisible ? "min-w-0 w-full" : "w-11 shrink-0",
-    )}
+    class={cn(utilityButtonClass, primaryNavigationVisible ? "w-full min-w-0" : "w-11 shrink-0")}
   >
-    <Settings size={20} strokeWidth={1.8} aria-hidden="true" />
+    <span class={utilityIconClass}><Settings size={19} strokeWidth={1.8} aria-hidden="true" /></span>
   </button>
 </header>

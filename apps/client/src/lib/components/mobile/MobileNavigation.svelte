@@ -29,10 +29,10 @@
 <nav
   aria-label={t("mobile.primaryNavigation")}
   class={cn(
-    "mobile-primary-navigation border-sidebar-border bg-sidebar text-sidebar-foreground",
+    "mobile-primary-navigation",
     presentation === "rail"
-      ? "flex w-(--mobile-nav-rail-w) shrink-0 flex-col border-r px-2 py-3"
-      : "col-span-4 grid min-w-0 self-stretch grid-cols-4",
+      ? "flex w-(--mobile-nav-rail-w) shrink-0 flex-col border-r border-sidebar-border bg-sidebar px-2 py-3 text-sidebar-foreground"
+      : "col-span-4 grid min-w-0 self-stretch grid-cols-4 px-1 text-foreground",
   )}
 >
   {#each destinations as destination}
@@ -44,16 +44,28 @@
       aria-label={t(`titleBar.tab.${destination.view}`)}
       onclick={() => onNavigate(destination.view)}
       class={cn(
-        "relative flex min-h-12 items-center justify-center rounded-xl text-xs font-medium transition-colors",
+        "group relative flex items-center justify-center text-xs font-medium transition-colors",
         presentation === "rail"
-          ? "mb-2 flex-col gap-1"
-          : "min-w-0",
-        selected
-          ? "bg-sidebar-accent text-sidebar-accent-foreground"
-          : "text-sidebar-foreground/70 active:bg-sidebar-accent/70",
+          ? "mb-2 min-h-12 flex-col gap-1 rounded-xl"
+          : "min-h-0 min-w-0",
+        presentation === "rail"
+          ? selected
+            ? "bg-sidebar-accent text-sidebar-accent-foreground"
+            : "text-sidebar-foreground/70 active:bg-sidebar-accent/70"
+          : selected
+            ? "text-foreground"
+            : "text-muted-foreground",
       )}
     >
-      <Icon size={21} strokeWidth={selected ? 2 : 1.7} aria-hidden="true" />
+      <span class={cn(
+        "grid place-items-center transition-colors",
+        presentation === "top" && "h-8 w-8 rounded-full group-active:bg-accent/70",
+      )}>
+        <Icon size={presentation === "top" ? 19 : 21} strokeWidth={selected ? 2 : 1.7} aria-hidden="true" />
+      </span>
+      {#if presentation === "top" && selected}
+        <span data-mobile-navigation-indicator class="absolute bottom-0 h-0.5 w-5 rounded-full bg-foreground/75" aria-hidden="true"></span>
+      {/if}
       {#if presentation === "rail"}
         <span>{t(`titleBar.tab.${destination.view}`)}</span>
       {/if}
