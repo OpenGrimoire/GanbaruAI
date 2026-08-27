@@ -85,7 +85,6 @@
     calendarSwipeAxis,
     calendarSwipeDirection,
     calendarSwipeNavigation,
-    calendarSwipePreviewOffset,
     type CalendarSwipeAxis,
   } from "./calendar-mobile-gestures";
 
@@ -668,11 +667,7 @@
     });
   }
 
-  let mobileSwipeOffset = $state(0);
-  let mobileSwipeAnimating = $state(false);
   let mobileSwipeSuppressClick = false;
-  let mobileSwipeResetTimer = 0;
-  let mobileSwipeAnimationFrame = 0;
   let mobileSwipeState = $state<{
     pointerId: number;
     startX: number;
@@ -690,63 +685,20 @@
     window.removeEventListener("pointercancel", handleMobileSwipeCancel);
   }
 
-  function finishMobileSwipeAnimation(): void {
-    if (mobileSwipeResetTimer) window.clearTimeout(mobileSwipeResetTimer);
-    mobileSwipeResetTimer = window.setTimeout(() => {
-      mobileSwipeAnimating = false;
-      mobileSwipeResetTimer = 0;
-    }, 180);
-  }
-
-  function prefersReducedMotion(): boolean {
-    return window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-  }
-
-  function resetMobileSwipe(animate: boolean): void {
+  function resetMobileSwipe(): void {
     removeMobileSwipeListeners();
-    if (mobileSwipeAnimationFrame) {
-      window.cancelAnimationFrame(mobileSwipeAnimationFrame);
-      mobileSwipeAnimationFrame = 0;
-    }
     mobileSwipeState = null;
-    mobileSwipeAnimating = animate && mobileSwipeOffset !== 0 && !prefersReducedMotion();
-    mobileSwipeOffset = 0;
-    if (mobileSwipeAnimating) finishMobileSwipeAnimation();
   }
 
   function completeMobileSwipeNavigation(direction: "back" | "forward"): void {
     removeMobileSwipeListeners();
     mobileSwipeState = null;
-    if (prefersReducedMotion()) {
-      mobileSwipeOffset = 0;
-      mobileSwipeAnimating = false;
-      navigate(direction, "touch");
-      return;
-    }
-
-    if (mobileSwipeResetTimer) {
-      window.clearTimeout(mobileSwipeResetTimer);
-      mobileSwipeResetTimer = 0;
-    }
-    const viewportWidth = viewportController.viewWrapper?.clientWidth ?? window.innerWidth;
-    const entryOffset = direction === "forward" ? viewportWidth : -viewportWidth;
-    mobileSwipeAnimating = false;
-    mobileSwipeOffset = entryOffset;
     navigate(direction, "touch");
-    void tick().then(() => {
-      if (mobileSwipeOffset !== entryOffset || mobileSwipeAnimating) return;
-      mobileSwipeAnimationFrame = window.requestAnimationFrame(() => {
-        mobileSwipeAnimationFrame = 0;
-        mobileSwipeAnimating = true;
-        mobileSwipeOffset = 0;
-        finishMobileSwipeAnimation();
-      });
-    });
   }
 
   function handleMobileSwipeStart(event: PointerEvent): void {
     if (!mobileLayout || event.pointerType !== "touch" || !event.isPrimary || event.button !== 0
-      || session.state.mode !== "closed" || confirm.action || mobileSwipeAnimating) return;
+      || session.state.mode !== "closed" || confirm.action) return;
     mobileSwipeState = {
       pointerId: event.pointerId,
       startX: event.clientX,
@@ -774,13 +726,12 @@
       const axis = calendarSwipeAxis(deltaX, deltaY);
       if (axis === null) return;
       if (axis === "vertical") {
-        resetMobileSwipe(false);
+        resetMobileSwipe();
         return;
       }
       state.axis = axis;
     }
     event.preventDefault();
-    mobileSwipeOffset = calendarSwipePreviewOffset(deltaX);
   }
 
   function finishMobileSwipe(state: NonNullable<typeof mobileSwipeState>): void {
@@ -793,7 +744,7 @@
       : null;
     if (state.axis === "horizontal") mobileSwipeSuppressClick = true;
     if (direction) completeMobileSwipeNavigation(direction);
-    else resetMobileSwipe(true);
+    else resetMobileSwipe();
   }
 
   function handleMobileSwipeEnd(event: PointerEvent): void {
@@ -806,13 +757,13 @@
     const state = mobileSwipeState;
     if (!state || state.pointerId !== event.pointerId) return;
     if (state.axis !== "horizontal") {
-      resetMobileSwipe(true);
+      resetMobileSwipe();
       return;
     }
     const direction = calendarSwipeDirection(state.lastX - state.startX);
     mobileSwipeSuppressClick = true;
     if (direction) completeMobileSwipeNavigation(direction);
-    else resetMobileSwipe(true);
+    else resetMobileSwipe();
   }
 
   function handleMobileSwipeClick(event: MouseEvent): void {
@@ -827,7 +778,7 @@
   }
 
   function handleMobileTouchEditStart(): void {
-    resetMobileSwipe(true);
+    resetMobileSwipe();
   }
 
   function handleMobileTouchEditEnd(): void {
@@ -835,9 +786,7 @@
   }
 
   onDestroy(() => {
-    resetMobileSwipe(false);
-    if (mobileSwipeResetTimer) window.clearTimeout(mobileSwipeResetTimer);
-    if (mobileSwipeAnimationFrame) window.cancelAnimationFrame(mobileSwipeAnimationFrame);
+    resetMobileSwipe();
     toasts.destroy();
   });
 
@@ -1267,10 +1216,7 @@
     onclickcapture={handleMobileSwipeClick}
     oncontextmenu={handleMobileContextMenu}
   >
-    <div
-      class="h-full min-h-0"
-      style="transform: translate3d({mobileSwipeOffset}px, 0, 0); transition: {mobileSwipeAnimating ? 'transform 180ms cubic-bezier(0.2, 0, 0, 1)' : 'none'}; will-change: {mobileSwipeState?.axis === 'horizontal' ? 'transform' : 'auto'};"
-    >
+    <div class="h-full min-h-0">
     {#if viewMode === "week" || viewMode === "workweek"}
       <WeekView
         {anchorDate}

@@ -1,6 +1,5 @@
 export const CALENDAR_TOUCH_LONG_PRESS_MS = 450;
 export const CALENDAR_TOUCH_SLOP_PX = 10;
-export const CALENDAR_SWIPE_MAX_PREVIEW_PX = 72;
 
 export type CalendarSwipeAxis = "horizontal" | "vertical" | null;
 
@@ -17,13 +16,6 @@ export function calendarTouchMovedBeyondSlop(deltaX: number, deltaY: number): bo
 export function calendarSwipeAxis(deltaX: number, deltaY: number): CalendarSwipeAxis {
   if (!calendarTouchMovedBeyondSlop(deltaX, deltaY)) return null;
   return Math.abs(deltaX) > Math.abs(deltaY) * 1.15 ? "horizontal" : "vertical";
-}
-
-export function calendarSwipePreviewOffset(deltaX: number): number {
-  const direction = Math.sign(deltaX);
-  const distance = Math.abs(deltaX);
-  const resisted = CALENDAR_SWIPE_MAX_PREVIEW_PX * (1 - Math.exp(-distance / CALENDAR_SWIPE_MAX_PREVIEW_PX));
-  return direction * resisted;
 }
 
 export function calendarSwipeDirection(deltaX: number): "back" | "forward" | null {

@@ -1,12 +1,10 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   CALENDAR_TOUCH_LONG_PRESS_MS,
-  CALENDAR_SWIPE_MAX_PREVIEW_PX,
   CalendarTouchHoldArbiter,
   calendarSwipeAxis,
   calendarSwipeDirection,
   calendarSwipeNavigation,
-  calendarSwipePreviewOffset,
   calendarTouchMovedBeyondSlop,
 } from "./calendar-mobile-gestures";
 
@@ -61,12 +59,6 @@ describe("mobile calendar gestures", () => {
     expect(calendarSwipeNavigation({ deltaX: 60, elapsedMs: 80, viewportWidth: 360 })).toBe("back");
     expect(calendarSwipeNavigation({ deltaX: -45, elapsedMs: 300, viewportWidth: 360 })).toBe("forward");
     expect(calendarSwipeNavigation({ deltaX: 30, elapsedMs: 400, viewportWidth: 360 })).toBeNull();
-  });
-
-  it("bounds the visual preview with increasing resistance", () => {
-    expect(calendarSwipePreviewOffset(0)).toBe(0);
-    expect(calendarSwipePreviewOffset(-40)).toBeLessThan(0);
-    expect(Math.abs(calendarSwipePreviewOffset(1000))).toBeLessThanOrEqual(CALENDAR_SWIPE_MAX_PREVIEW_PX);
   });
 
   it("activates a stationary hold and owns later touch movement", () => {
