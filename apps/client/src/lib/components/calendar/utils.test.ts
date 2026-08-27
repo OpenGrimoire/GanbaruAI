@@ -4,6 +4,7 @@ import {
   formatCalendarDate,
   formatCalendarDateWithSeconds,
   formatDatePart,
+  formatMonthYear,
   startOfWeek,
   getWeekDays,
   getWorkCycleDays,
@@ -86,6 +87,14 @@ describe("formatCalendarDate", () => {
   it("zero-pads single digit values", () => {
     const d = new Date(2026, 0, 5, 3, 7);
     expect(formatCalendarDate(d)).toBe("2026-01-05 03:07");
+  });
+});
+
+describe("formatMonthYear", () => {
+  it("supports full and abbreviated localized month labels while preserving the year", () => {
+    const date = new Date(2026, 8, 1);
+    expect(formatMonthYear(date, "en-US")).toBe("September 2026");
+    expect(formatMonthYear(date, "en-US", "short")).toBe("Sep 2026");
   });
 });
 

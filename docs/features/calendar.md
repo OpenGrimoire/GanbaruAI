@@ -17,6 +17,8 @@ This doc covers the user-facing calendar surface: views, the event model, intera
 
 Four views, switched from the navigation bar. The compact range controls match Projects view tabs: selected ranges use the foreground color, unselected ranges use the muted foreground, and selection does not add a persistent background. Both selectors use the same 24px control height, horizontal padding, and 12px medium-weight labels at the default font scale.
 
+The mobile range control always preserves the complete numeric year. Its previous arrow, intrinsic month-year label, and next arrow stay adjacent, so shorter labels do not reserve an artificial fixed-width gap. The toolbar's measured remaining capacity decides whether the label uses the locale's full or abbreviated month name, but that capacity does not become the label's visual width. The control never ellipsizes the combined label into an ambiguous month with a missing year.
+
 **Day view.** A single day column, full-height. Best for a deep look at one day's schedule, especially when running a pomodoro (the rail is most readable here). All-day events appear as chips at the top.
 
 **Work-cycle view.** An adaptive 5d/2d range. Weekday ranges show Monday through Friday. Navigating forward from a weekday range shows the weekend, Saturday and Sunday, then the next weekday range. Navigating backward follows the same cycle in reverse. It uses the same timeline, all-day band, drag behavior, and pomodoro rail as week view.

@@ -372,8 +372,9 @@ export function formatTimeRange(
 export function formatMonthYear(
   date: Date,
   locale?: string | readonly string[],
+  month: "long" | "short" = "long",
 ): string {
-  return date.toLocaleDateString(locale, { month: "long", year: "numeric" });
+  return date.toLocaleDateString(locale, { month, year: "numeric" });
 }
 
 export type DayNameFormat = "long" | "short" | "narrow" | "none";

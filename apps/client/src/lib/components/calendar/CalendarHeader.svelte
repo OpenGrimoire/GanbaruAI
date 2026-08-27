@@ -38,7 +38,10 @@
   // Mini calendar popover state
   let showMiniCalendar = $state(false);
   let showViewPicker = $state(false);
+  let toolbarElement: HTMLDivElement | undefined = $state();
   let miniCalendarButton: HTMLButtonElement | undefined = $state();
+  let monthYearMeasure: HTMLSpanElement | undefined = $state();
+  let useCompactMonthYear = $state(false);
 
   let {
     anchorDate,
@@ -126,6 +129,13 @@
   // auto-repeat keydowns bypass the gate and drain the queue for seconds
   // after the user releases the key.
   onMount(() => {
+    const monthYearObserver = typeof ResizeObserver === "undefined"
+      ? null
+      : new ResizeObserver(updateMonthYearLabel);
+    if (toolbarElement) monthYearObserver?.observe(toolbarElement);
+    if (monthYearMeasure) monthYearObserver?.observe(monthYearMeasure);
+    updateMonthYearLabel();
+
     function handleKeyDown(e: KeyboardEvent) {
       const tag = (e.target as HTMLElement)?.tagName;
       if (tag === "INPUT" || tag === "TEXTAREA" || (e.target as HTMLElement)?.isContentEditable) return;
@@ -160,12 +170,15 @@
 
     window.addEventListener("keydown", handleKeyDown);
     return () => {
+      monthYearObserver?.disconnect();
       window.removeEventListener("keydown", handleKeyDown);
     };
   });
 
   const isOnToday = $derived(isToday(anchorDate));
   const anchorDateStr = $derived(formatDatePart(anchorDate));
+  const fullMonthYear = $derived(formatMonthYear(anchorDate, locale));
+  const compactMonthYear = $derived(formatMonthYear(anchorDate, locale, "short"));
   const pickerHighlightMode = $derived(
     viewMode === "day" ? "day" : viewMode === "week" ? "week" : viewMode === "workweek" ? "workweek" : "none",
   );
@@ -175,6 +188,38 @@
     showViewPicker = false;
     showMiniCalendar = !showMiniCalendar;
   }
+
+  function updateMonthYearLabel(): void {
+    if (!mobileLayout || !toolbarElement || !miniCalendarButton || !monthYearMeasure) {
+      useCompactMonthYear = false;
+      return;
+    }
+    const toolbarStyle = window.getComputedStyle(toolbarElement);
+    const buttonStyle = window.getComputedStyle(miniCalendarButton);
+    const parsedToolbarPaddingLeft = Number.parseFloat(toolbarStyle.paddingLeft);
+    const parsedToolbarPaddingRight = Number.parseFloat(toolbarStyle.paddingRight);
+    const parsedButtonPaddingLeft = Number.parseFloat(buttonStyle.paddingLeft);
+    const parsedButtonPaddingRight = Number.parseFloat(buttonStyle.paddingRight);
+    const toolbarPadding = (Number.isFinite(parsedToolbarPaddingLeft) ? parsedToolbarPaddingLeft : 0)
+      + (Number.isFinite(parsedToolbarPaddingRight) ? parsedToolbarPaddingRight : 0);
+    const buttonPadding = (Number.isFinite(parsedButtonPaddingLeft) ? parsedButtonPaddingLeft : 0)
+      + (Number.isFinite(parsedButtonPaddingRight) ? parsedButtonPaddingRight : 0);
+    const fixedControlsWidth = Array.from(
+      toolbarElement.querySelectorAll<HTMLElement>("[data-calendar-mobile-fixed]"),
+      (element) => element.offsetWidth,
+    ).reduce((total, width) => total + width, 0);
+    const availableWidth = Math.max(
+      0,
+      toolbarElement.clientWidth - toolbarPadding - fixedControlsWidth - buttonPadding,
+    );
+    useCompactMonthYear = monthYearMeasure.scrollWidth > availableWidth + 0.5;
+  }
+
+  $effect(() => {
+    void fullMonthYear;
+    void mobileLayout;
+    void tick().then(updateMonthYearLabel);
+  });
 
   function selectView(mode: CalendarViewMode): void {
     showViewPicker = false;
@@ -216,6 +261,7 @@
 <!-- Toolbar row -->
 <!-- svelte-ignore a11y_no_static_element_interactions -->
 <div
+  bind:this={toolbarElement}
   data-calendar-edit-close-zone
   class="flex shrink-0 items-center {mobileLayout ? 'gap-0 px-1' : 'gap-1 px-3'}"
   style="height: var(--cal-header-row-h); background-color: var(--cal-header-bg); border-bottom: 1px solid var(--sidebar);"
@@ -224,6 +270,7 @@
   <div class="flex min-w-0 items-center">
     <!-- Back arrow -->
     <button
+      data-calendar-mobile-fixed={mobileLayout || undefined}
       onclick={() => onNavigate("back")}
       class="flex shrink-0 items-center justify-center rounded-md text-foreground transition-colors hover:bg-accent {mobileLayout ? 'h-12 w-10' : 'h-7 w-6'}"
       title={t("calendar.toolbar.previousTitle", shortcutTitle(["←"]))}
@@ -237,9 +284,12 @@
       <button
         bind:this={miniCalendarButton}
         onclick={handleHeaderClick}
-        class="flex items-center rounded-md px-1.5 text-identity font-medium leading-none text-foreground transition-colors {mobileLayout ? 'h-12 max-w-28 min-w-0 justify-start truncate' : 'h-7'} {showMiniCalendar ? 'bg-accent' : 'hover:bg-accent'}"
+        class="relative flex items-center rounded-md px-1.5 text-identity font-medium leading-none text-foreground transition-colors {mobileLayout ? 'h-12 min-w-0 justify-start' : 'h-7'} {showMiniCalendar ? 'bg-accent' : 'hover:bg-accent'}"
       >
-        <span class="truncate">{formatMonthYear(anchorDate, locale)}</span>
+        <span bind:this={monthYearMeasure} aria-hidden="true" class="pointer-events-none absolute invisible whitespace-nowrap">
+          {fullMonthYear}
+        </span>
+        <span class="whitespace-nowrap">{mobileLayout && useCompactMonthYear ? compactMonthYear : fullMonthYear}</span>
       </button>
 
       {#if showMiniCalendar}
@@ -264,6 +314,7 @@
 
     <!-- Forward arrow -->
     <button
+      data-calendar-mobile-fixed={mobileLayout || undefined}
       onclick={() => onNavigate("forward")}
       class="flex shrink-0 items-center justify-center rounded-md text-foreground transition-colors hover:bg-accent {mobileLayout ? 'h-12 w-10' : 'h-7 w-6'}"
       title={t("calendar.toolbar.nextTitle", shortcutTitle(["→"]))}
@@ -278,7 +329,7 @@
 
   <!-- View selector -->
   {#if mobileLayout}
-  <div class="relative shrink-0">
+  <div data-calendar-mobile-fixed class="relative shrink-0">
     <button
       type="button"
       class="flex h-12 w-12 items-center justify-center gap-0.5 rounded-md text-xs font-medium text-foreground transition-colors hover:bg-accent {showViewPicker ? 'bg-accent' : ''}"
@@ -382,6 +433,7 @@
 
   <!-- Today button -->
   <button
+    data-calendar-mobile-fixed={mobileLayout || undefined}
     onclick={() => onNavigate("today")}
     disabled={isOnToday}
     class="flex shrink-0 items-center justify-center rounded-md transition-colors {mobileLayout ? 'h-12 w-12' : 'ml-1 h-7 w-7'} {isOnToday
@@ -393,7 +445,7 @@
   </button>
 
   <!-- Calendar account picker -->
-  <div class="relative shrink-0 {mobileLayout ? '' : 'ml-1'}">
+  <div data-calendar-mobile-fixed={mobileLayout || undefined} class="relative shrink-0 {mobileLayout ? '' : 'ml-1'}">
     <button
       onclick={() => {
         showMiniCalendar = false;
