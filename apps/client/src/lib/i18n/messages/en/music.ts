@@ -2,6 +2,7 @@ export const music = {
   title: "Music",
   playlistBuilder: "Playlist builder",
   backToPlayer: "Return to music player",
+  returnToPlayerShort: "Return",
   mediaPlayer: "Media player",
   launcher: {
     playlists: "Playlists",
@@ -291,6 +292,7 @@ export const music = {
     groupAlbum: "Album",
     compactNavigation: "Builder destinations",
     openContextPanel: "Open builder panel",
+    closeContextPanel: "Close builder panel",
     playlistCount: (count: number) => `${count} ${count === 1 ? "playlist" : "playlists"}`,
     sourceCount: (count: number) => `${count} ${count === 1 ? "source" : "sources"}`,
     backToReviewFolders: "Back to review folders",

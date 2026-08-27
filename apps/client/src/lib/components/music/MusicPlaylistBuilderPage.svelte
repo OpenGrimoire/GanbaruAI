@@ -80,10 +80,12 @@
 
   let {
     onOpenPlayer,
+    presentation = "desktop",
     initialAction = null,
     onInitialActionHandled = () => undefined,
   }: {
     onOpenPlayer: () => void;
+    presentation?: "desktop" | "mobile";
     initialAction?: MusicBuilderInitialAction | null;
     onInitialActionHandled?: () => void;
   } = $props();
@@ -101,6 +103,7 @@
   const supportsItemRepair = platformHasCapability(BUILD_PLATFORM_PROFILE, "music.local-item-repair");
   const supportsRelinkPlans = platformHasCapability(BUILD_PLATFORM_PROFILE, "music.local-root-relink-plans");
   const supportsRootReselection = platformHasCapability(BUILD_PLATFORM_PROFILE, "music.local-root-reselection");
+  const mobilePresentation = $derived(presentation === "mobile");
   let root = $state<HTMLElement | null>(null);
   let width = $state(1000);
   let height = $state(680);
@@ -674,6 +677,16 @@
   <div class="builder-shell relative grid min-h-0 flex-1" class:builder-wide={layout.mode === "wide"} class:builder-medium={layout.mode === "medium"} class:builder-narrow={layout.mode === "narrow"} class:builder-contextless={firstUsePreparation || firstUseNeedsFolder}>
     {#if !firstUsePreparation && !firstUseNeedsFolder}
       <aside class:context-open={contextViewState.contextPanelOpen} class="builder-context-panel relative z-20 flex min-h-0 flex-col overflow-hidden bg-background/20">
+        {#if layout.contextPanelPresentation === "sheet"}
+          <div class="flex h-11 shrink-0 items-center px-2">
+            <button
+              type="button"
+              onclick={() => contextViewState.contextPanelOpen = false}
+              class="inline-flex h-8 items-center gap-1.5 rounded-lg px-2 text-[0.7rem] font-medium text-foreground active:bg-secondary"
+              aria-label={t("music.builder.closeContextPanel")}
+            ><ArrowLeft size={15} />{t("music.builder.back")}</button>
+          </div>
+        {/if}
         {#if destination.kind === "review"}
           {#if contextViewState.reviewPanel === "issues" && issueCount > 0}
             <MusicReviewIssuesPanel
@@ -724,12 +737,12 @@
             onSoundscapeFilter={(filter) => contextViewState.soundscapeFilter = filter}
           />
         {/if}
-        {#if layout.dockPresentation === "sidebar"}<MusicBuilderDock {destination} {reviewCount} includeSoundscapes={supportsSoundscapes} onNavigate={navigate} />{/if}
+        {#if layout.dockPresentation === "sidebar"}<MusicBuilderDock {destination} {reviewCount} showAllLabels={mobilePresentation} includeSoundscapes={supportsSoundscapes} onNavigate={navigate} />{/if}
       </aside>
     {/if}
     <main class="relative flex min-h-0 min-w-0 flex-col overflow-hidden bg-background/30">
       {#if destination.kind !== "review"}
-        <MusicBuilderToolbar status={workspaceStatus()} showPanelButton={layout.contextPanelPresentation === "sheet"} onOpenPanel={() => contextViewState.contextPanelOpen = true} onOpenPlayer={openPlayerFromBuilder}>
+        <MusicBuilderToolbar status={workspaceStatus()} showPanelButton={layout.contextPanelPresentation === "sheet"} onOpenPanel={() => contextViewState.contextPanelOpen = true} onOpenPlayer={openPlayerFromBuilder} compactPlayerLabel={mobilePresentation}>
           {#snippet actions()}
             {#if destination.kind === "playlists"}
               <button type="button" onclick={createPlaylistFromWorkspace} class="toolbar-primary"><Plus size={13} />{t("music.builder.newPlaylist")}</button>
@@ -798,7 +811,7 @@
             {/if}
           </div>
         {:else}
-          <MusicReviewWorkspace {library} {inspector} {sources} {audition} {review} {bulk} selectedItemIds={reviewTreeViewState.selectedItemIds} selectedFolderIds={reviewTreeViewState.selectedFolderIds} onClearSelection={clearReviewSelection} autoplay={reviewAutoplay} onAutoplayChange={setReviewAutoplay} onOpenPlayer={openPlayerFromBuilder} showPanelButton={layout.contextPanelPresentation === "sheet"} onOpenPanel={() => contextViewState.contextPanelOpen = true} onEditPlaylist={(playlistId) => { void openPlaylistManagementSurface(playlistId, "edit"); }} onDeletePlaylist={(playlistId) => { void openPlaylistManagementSurface(playlistId, "delete"); }} onReorderPlaylists={reorderPlaylistSummaries} issue={activeReviewIssue} repairAvailable={activeReviewIssue ? canRepairIssue(activeReviewIssue) : false} onRepairIssue={repairIssue} viewState={reviewWorkspaceViewState} />
+          <MusicReviewWorkspace {library} {inspector} {sources} {audition} {review} {bulk} selectedItemIds={reviewTreeViewState.selectedItemIds} selectedFolderIds={reviewTreeViewState.selectedFolderIds} onClearSelection={clearReviewSelection} autoplay={reviewAutoplay} onAutoplayChange={setReviewAutoplay} onOpenPlayer={openPlayerFromBuilder} compactPlayerLabel={mobilePresentation} showPanelButton={layout.contextPanelPresentation === "sheet"} onOpenPanel={() => contextViewState.contextPanelOpen = true} onEditPlaylist={(playlistId) => { void openPlaylistManagementSurface(playlistId, "edit"); }} onDeletePlaylist={(playlistId) => { void openPlaylistManagementSurface(playlistId, "delete"); }} onReorderPlaylists={reorderPlaylistSummaries} issue={activeReviewIssue} repairAvailable={activeReviewIssue ? canRepairIssue(activeReviewIssue) : false} onRepairIssue={repairIssue} viewState={reviewWorkspaceViewState} />
         {/if}
       {:else if playlistManagementOpen && (destination.kind === "playlists" || destination.kind === "playlist")}
         <div class="min-h-0 flex-1 overflow-y-auto p-3" data-music-scrollable="true"><MusicPlaylistManager playlists={library.playlistSummaries} onEdit={(playlistId) => { void openPlaylistManagementSurface(playlistId, "edit"); }} onDelete={(playlistId) => { void openPlaylistManagementSurface(playlistId, "delete"); }} onReorder={reorderPlaylistSummaries} onDone={() => playlistManagementOpen = false} /></div>
@@ -882,7 +895,7 @@
     </main>
 
     {#if layout.dockPresentation === "bottom" && !firstUsePreparation && !firstUseNeedsFolder}
-      <div class="builder-mobile-dock"><MusicBuilderDock {destination} {reviewCount} compact includeSoundscapes={supportsSoundscapes} onNavigate={navigate} /></div>
+      <div class="builder-mobile-dock"><MusicBuilderDock {destination} {reviewCount} compact showAllLabels={mobilePresentation} includeSoundscapes={supportsSoundscapes} onNavigate={navigate} /></div>
     {/if}
 
     {#if sourceSurface === "add"}
@@ -961,7 +974,7 @@
   :global(.toolbar-menu button) { display: flex; min-height: 1.9rem; width: 100%; align-items: center; border-radius: 0.45rem; padding-inline: 0.6rem; font-size: calc(0.68rem * var(--type-scale)); text-align: left; }
   :global(.toolbar-menu button:hover) { background: var(--accent); }
   :global(.toolbar-menu button:disabled) { opacity: 0.4; }
-  @container (width < 520px) { :global(.toolbar-primary), :global(.toolbar-secondary) { width: 2rem; padding-inline: 0; font-size: 0; } }
+  @container (width < 520px) { :global(.toolbar-primary), :global(.toolbar-secondary) { width: 2rem; gap: 0; padding-inline: 0; font-size: 0; } }
   @media (prefers-reduced-motion: reduce) { :global(.builder-root *) { scroll-behavior: auto; } }
   @media (prefers-reduced-motion: reduce) { .builder-narrow .builder-context-panel { transition: none; } }
 </style>

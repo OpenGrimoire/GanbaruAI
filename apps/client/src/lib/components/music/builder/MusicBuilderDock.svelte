@@ -11,12 +11,14 @@
     destination,
     reviewCount,
     compact = false,
+    showAllLabels = false,
     includeSoundscapes = true,
     onNavigate,
   }: {
     destination: MusicBuilderDestination;
     reviewCount: number;
     compact?: boolean;
+    showAllLabels?: boolean;
     includeSoundscapes?: boolean;
     onNavigate: (destination: MusicBuilderDestination) => void;
   } = $props();
@@ -51,7 +53,7 @@
   }
 </script>
 
-<nav class:compact class="builder-dock flex h-11 min-w-0 items-center justify-center gap-1 px-1.5" aria-label={t("music.builder.compactNavigation")}>
+<nav class:compact class:show-all-labels={showAllLabels} class="builder-dock flex h-11 min-w-0 items-center justify-center gap-1 px-1.5" aria-label={t("music.builder.compactNavigation")}>
   {#each items as item (item.kind)}
     {@const itemLabel = label(item.kind)}
     <button
@@ -69,7 +71,7 @@
       {:else if item.kind === "playlists"}<ListMusic size={15} />
       {:else if item.kind === "sources"}<RadioTower size={15} />
       {:else}<CloudRain size={15} />{/if}
-      {#if item.active}<span class="active-label truncate text-[0.65rem] font-medium text-foreground">{itemLabel}</span>{/if}
+      {#if item.active || showAllLabels}<span class="active-label truncate text-[0.65rem] font-medium text-foreground">{itemLabel}</span>{/if}
       {#if item.badge !== null}<span class="dock-badge absolute -right-0.5 -top-0.5 min-w-4 rounded-full bg-secondary px-1 text-center text-[0.52rem] font-semibold leading-4 tabular-nums">{item.badge > 999 ? "999+" : item.badge}</span>{/if}
     </button>
   {/each}
@@ -79,5 +81,5 @@
   .builder-dock { container-type: inline-size; border-top: 1px solid color-mix(in srgb, var(--border) 46%, transparent); }
   .dock-button.active { background: var(--secondary); color: var(--foreground); }
   .compact { border-top: 0; }
-  @container (width < 340px) { .active-label { display: none; } }
+  @container (width < 340px) { .builder-dock:not(.show-all-labels) .active-label { display: none; } }
 </style>

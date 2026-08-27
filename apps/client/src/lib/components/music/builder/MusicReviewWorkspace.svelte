@@ -56,6 +56,7 @@
     autoplay,
     onAutoplayChange,
     onOpenPlayer,
+    compactPlayerLabel = false,
     showPanelButton = false,
     onOpenPanel = () => undefined,
     onEditPlaylist,
@@ -78,6 +79,7 @@
     autoplay: boolean;
     onAutoplayChange: (value: boolean) => void;
     onOpenPlayer: () => void;
+    compactPlayerLabel?: boolean;
     showPanelButton?: boolean;
     onOpenPanel?: () => void;
     onEditPlaylist: (playlistId: string) => void;
@@ -462,23 +464,23 @@
 
 <div class="review-main flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
   <section class="review-audition min-h-0 overflow-y-auto px-4 pb-3 pt-2" data-music-scrollable="true">
-    <div class="flex items-center justify-between gap-3">
+    <div class="review-toolbar flex items-center justify-between gap-3">
       {#if showPanelButton}<button type="button" onclick={onOpenPanel} class="grid h-8 w-8 shrink-0 place-items-center rounded-lg text-foreground hover:bg-secondary" aria-label={t("music.builder.openContextPanel")} title={t("music.builder.openContextPanel")}><PanelLeft size={14} /></button>{/if}
-      <button type="button" onclick={onOpenPlayer} class="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-full bg-secondary px-2.5 text-[0.7rem]" aria-label={t("music.backToPlayer")} data-music-focus-key="builder:back-to-player"><ChevronLeft size={14} />{t("music.backToPlayer")}</button>
+      <button type="button" onclick={onOpenPlayer} class="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-full bg-secondary px-2.5 text-[0.7rem]" aria-label={t("music.backToPlayer")} data-music-focus-key="builder:back-to-player"><ChevronLeft size={14} />{compactPlayerLabel ? t("music.returnToPlayerShort") : t("music.backToPlayer")}</button>
       <p class="min-w-0 flex-1 truncate text-center text-[0.68rem] font-medium text-muted-foreground" role="status" aria-live="polite">{t("music.builder.reviewProgress", reviewedCount, library.currentWindow.totalCount)}</p>
-      <div class="flex flex-wrap items-center justify-end gap-x-3 gap-y-1">
+      <div class="review-toolbar-actions flex flex-wrap items-center justify-end gap-x-3 gap-y-1">
         {#if selectionMode}
           <span class="inline-flex h-8 items-center gap-1.5 px-2 text-[0.65rem] font-medium text-foreground" aria-live="polite"><Files size={13} />{t("music.builder.reviewSelectionTracks", selectionSummary.itemCount)}</span>
           <button
             type="button"
             onclick={() => ignoreConfirmOpen = true}
             disabled={!selectionCanIgnore || bulk.saving || preparingNext}
-            class="inline-flex h-8 items-center gap-1.5 rounded-md px-2 text-[0.65rem] text-foreground hover:bg-secondary disabled:cursor-not-allowed disabled:text-muted-foreground disabled:hover:bg-transparent"
+            class="review-toolbar-action inline-flex h-8 items-center gap-1.5 rounded-md px-2 text-[0.65rem] text-foreground hover:bg-secondary disabled:cursor-not-allowed disabled:text-muted-foreground disabled:hover:bg-transparent"
             title={selectionIgnoreDisabledReason ?? undefined}
             aria-label={selectionIgnoreDisabledReason ? `${t("music.builder.ignore")}. ${selectionIgnoreDisabledReason}` : t("music.builder.ignore")}
           ><X size={13} />{t("music.builder.ignore")}</button>
         {:else}
-          <button type="button" onclick={() => onAutoplayChange(!autoplay)} aria-pressed={autoplay} class="inline-flex h-8 items-center gap-1.5 rounded-md px-2 text-[0.65rem] text-foreground transition-colors hover:bg-secondary">
+          <button type="button" onclick={() => onAutoplayChange(!autoplay)} aria-pressed={autoplay} class="review-toolbar-action inline-flex h-8 items-center gap-1.5 rounded-md px-2 text-[0.65rem] text-foreground transition-colors hover:bg-secondary">
             {#if autoplay}
               <Play size={13} />
             {:else}
@@ -486,7 +488,7 @@
             {/if}
             {autoplay ? t("music.builder.reviewAutoplayOn") : t("music.builder.reviewAutoplayOff")}
           </button>
-          <button type="button" onclick={() => ignoreConfirmOpen = true} disabled={!detail || review.actionBusy || preparingNext} class="inline-flex h-8 items-center gap-1.5 rounded-md px-2 text-[0.65rem] text-foreground hover:bg-secondary"><X size={13} />{t("music.builder.ignore")}</button>
+          <button type="button" onclick={() => ignoreConfirmOpen = true} disabled={!detail || review.actionBusy || preparingNext} class="review-toolbar-action inline-flex h-8 items-center gap-1.5 rounded-md px-2 text-[0.65rem] text-foreground hover:bg-secondary"><X size={13} />{t("music.builder.ignore")}</button>
         {/if}
       </div>
     </div>
@@ -670,6 +672,9 @@
   .review-action:disabled:not(.review-save) { opacity: 0.4; }
   @container (width < 620px) {
     .review-main { min-height: 32rem; flex: 1 0 auto; overflow: visible; }
+    .review-toolbar { gap: 0.375rem; }
+    .review-toolbar-actions { flex-wrap: nowrap; column-gap: 0.125rem; }
+    .review-toolbar-action { gap: 0.25rem; padding-inline: 0.375rem; }
     .review-audition, .review-classify { min-height: auto; overflow: visible; }
     .review-audition { flex: 0 0 auto; padding: 0.625rem; }
     .review-classify { flex: 1 0 18rem; border-left: 0; }

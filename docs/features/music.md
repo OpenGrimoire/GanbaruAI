@@ -2,7 +2,7 @@
 
 The music player is the audio side of the work environment. Playlists are tied to session blocks and to environments, so the right audio plays automatically when a block activates. Two sources are supported: local files and YouTube. Spotify is explicitly out of scope.
 
-The main app opens Music as a modal panel from the title bar music icon. The panel appears above the active Calendar, Projects, or Notes tab and is not part of the primary tab cycle.
+The main app opens Music as a modal panel from the title bar music icon. The panel appears above the active Calendar, Projects, or Notes tab and is not part of the primary tab cycle. On mobile, Close is part of the player header rather than floating above its content, and it is absent from the builder. The builder uses a shorter `Return` label on mobile and gives full-screen context sheets an explicit Back control. Its bottom navigation keeps Review, Playlists, and Sources labeled at all times, while compact workspace actions remain visually centered after their text is hidden.
 
 Playback is owned by a persistent app-level player host, not by the Music panel. Closing the panel hides the visible media surface but keeps local and YouTube playback, playlist state, volume, rate, shuffle mode, and resume persistence alive.
 

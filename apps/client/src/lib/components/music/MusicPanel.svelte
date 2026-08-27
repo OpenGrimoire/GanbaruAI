@@ -715,20 +715,11 @@
   aria-label={t("music.title")}
   tabindex="-1"
 >
-  {#if mobilePresentation}
-    <button
-      type="button"
-      onclick={onclose}
-      class="absolute right-[calc(var(--safe-area-right)+0.25rem)] top-[calc(var(--safe-area-top)+0.25rem)] z-80 inline-flex min-h-12 min-w-12 items-center justify-center rounded-xl bg-background/80 backdrop-blur-sm active:bg-accent"
-      aria-label={t("common.close")}
-    >
-      <X size={20} strokeWidth={1.8} aria-hidden="true" />
-    </button>
-  {/if}
   {#if PlaylistBuilder}
     <div class:hidden={musicPage !== "playlist-builder"} class="h-full min-h-0" aria-hidden={musicPage !== "playlist-builder"}>
       <PlaylistBuilder
         onOpenPlayer={closePlaylistBuilder}
+        presentation={mobilePresentation ? "mobile" : "desktop"}
         initialAction={playlistBuilderInitialAction}
         onInitialActionHandled={() => { playlistBuilderInitialAction = null; }}
       />
@@ -789,10 +780,24 @@
         {/if}
       {/if}
     </div>
-    {#if player.parseError || player.playerError}
-      <div class="relative z-10 ml-auto hidden min-w-0 max-w-56 items-center gap-1.5 text-[0.733333rem] text-destructive min-[720px]:flex" role="alert">
-        <AlertCircle class="shrink-0" size={musicIconSize} strokeWidth={musicIconStrokeWidth} />
-        <span class="truncate">{player.parseError ?? player.playerError}</span>
+    {#if player.parseError || player.playerError || mobilePresentation}
+      <div class="relative z-10 ml-auto flex min-w-0 items-center gap-2">
+        {#if player.parseError || player.playerError}
+          <div class="hidden min-w-0 max-w-56 items-center gap-1.5 text-[0.733333rem] text-destructive min-[720px]:flex" role="alert">
+            <AlertCircle class="shrink-0" size={musicIconSize} strokeWidth={musicIconStrokeWidth} />
+            <span class="truncate">{player.parseError ?? player.playerError}</span>
+          </div>
+        {/if}
+        {#if mobilePresentation}
+          <button
+            type="button"
+            onclick={onclose}
+            class="grid h-8 w-8 shrink-0 place-items-center rounded-md text-foreground active:bg-accent"
+            aria-label={t("common.close")}
+          >
+            <X size={18} strokeWidth={1.8} aria-hidden="true" />
+          </button>
+        {/if}
       </div>
     {/if}
   </div>
