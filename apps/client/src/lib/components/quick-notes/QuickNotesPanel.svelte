@@ -44,9 +44,11 @@
   let {
     onclose,
     mobileLayout = false,
+    mobilePanelStyle = "",
   }: {
     onclose: () => void;
     mobileLayout?: boolean;
+    mobilePanelStyle?: string;
   } = $props();
 
   const { t } = getLocalization();
@@ -104,10 +106,10 @@
         : null);
   const childOverlayOpen = $derived(editorNote !== undefined || deleteTarget !== null || confirmEmptyTrash);
   const panelClass = $derived(mobileLayout
-    ? "fixed z-50 flex flex-col overflow-hidden text-foreground outline-none"
+    ? "fixed z-50 flex flex-col overflow-hidden rounded-xl border border-border text-foreground shadow-xl outline-none"
     : "fixed right-2 z-50 flex w-[min(760px,calc(100vw-1rem))] flex-col overflow-hidden rounded-xl text-foreground shadow-lg outline-none");
   const panelStyle = $derived(mobileLayout
-    ? "left: calc(var(--visual-viewport-offset-left) + var(--safe-area-left)); top: calc(var(--visual-viewport-offset-top) + var(--safe-area-top)); width: calc(var(--visual-viewport-width) - var(--safe-area-left) - var(--safe-area-right)); height: calc(var(--visual-viewport-height) - var(--safe-area-top) - var(--safe-area-bottom)); background-color: var(--cal-bg);"
+    ? `${mobilePanelStyle || "left:calc(var(--visual-viewport-offset-left) + var(--safe-area-left) + 0.5rem);top:calc(var(--visual-viewport-offset-top) + var(--safe-area-top) + var(--mobile-topbar-h) + 0.25rem);width:calc(var(--visual-viewport-width) - var(--safe-area-left) - var(--safe-area-right) - 1rem);height:calc(var(--visual-viewport-height) - var(--safe-area-top) - var(--safe-area-bottom) - var(--mobile-topbar-h) - 0.75rem)"};background-color:var(--cal-bg);`
     : "top: calc(var(--titlebar-h) + 4px); height: min(680px, calc(100dvh - var(--titlebar-h) - 12px)); background-color: var(--cal-bg);");
   const compactHeaderButton = $derived(mobileLayout
     ? "flex min-h-12 min-w-12 shrink-0 items-center justify-center rounded-xl text-foreground transition-colors active:bg-accent"

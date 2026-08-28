@@ -10,7 +10,10 @@
     MobileBackListenerController,
     resolveMobileBackAction,
   } from "$lib/mobile-back";
-  import { mobileNavigationPresentation } from "$lib/mobile-layout";
+  import {
+    mobileNavigationPresentation,
+    mobileTopBarPanelGeometry,
+  } from "$lib/mobile-layout";
   import {
     classifyLoadFailure,
     recoverLoadFailure,
@@ -72,6 +75,9 @@
     classify: classifyLoadFailure,
     recover: recoverLoadFailure,
   } as const;
+  const mobileMusicPlayerChromeHeight = 132;
+  const mobileMusicMediaHeightRatio = 9 / 16;
+  const mobileMusicStackedMediaShare = 0.65;
 
   let showPomodoro = $state(false);
   let showSettings = $state(false);
@@ -80,9 +86,12 @@
   let musicLoading = $state(false);
   let musicLoadError = $state<LoadFailure | null>(null);
   let musicLoadDialog = $state<HTMLDivElement | null>(null);
+  let musicPanelStyle = $state("");
+  let musicPlaylistPanelStyle = $state("");
   let quickNotesLoading = $state(false);
   let quickNotesLoadError = $state<LoadFailure | null>(null);
   let quickNotesLoadDialog = $state<HTMLDivElement | null>(null);
+  let quickNotesPanelStyle = $state("");
   let settingsLoadDialog = $state<HTMLDivElement | null>(null);
   let nestedRouteOpen = $state(false);
   let loadError = $state<LoadFailure | null>(null);
@@ -154,6 +163,72 @@
   function flushMountedNotes(): Promise<void> {
     if (!notesSurfaceMounted || !notesStore) return Promise.resolve();
     return notesStore.flushPendingWrites();
+  }
+
+  function rootPixelValue(property: string): number {
+    const value = Number.parseFloat(
+      getComputedStyle(document.documentElement).getPropertyValue(property),
+    );
+    return Number.isFinite(value) ? Math.max(0, value) : 0;
+  }
+
+  function utilityPanelStyle(
+    triggerSelector: string,
+    desiredWidth: number,
+    desiredHeight: number | ((panelWidth: number) => number),
+  ): string {
+    const trigger = document.querySelector<HTMLElement>(triggerSelector);
+    if (!trigger) return "";
+    const triggerRect = trigger.getBoundingClientRect();
+    const visualViewport = window.visualViewport;
+    const viewportOffsetLeft = visualViewport?.offsetLeft ?? 0;
+    const viewportOffsetTop = visualViewport?.offsetTop ?? 0;
+    const viewportWidth = visualViewport?.width ?? window.innerWidth;
+    const viewportHeight = visualViewport?.height ?? window.innerHeight;
+    const safeAreaLeft = rootPixelValue("--safe-area-left");
+    const safeAreaRight = rootPixelValue("--safe-area-right");
+    const safeAreaTop = rootPixelValue("--safe-area-top");
+    const safeAreaBottom = rootPixelValue("--safe-area-bottom");
+    const geometry = mobileTopBarPanelGeometry({
+      anchorLeft: triggerRect.left,
+      anchorWidth: triggerRect.width,
+      anchorBottom: triggerRect.bottom,
+      desiredWidth,
+      desiredHeight: viewportHeight,
+      viewportLeft: viewportOffsetLeft + safeAreaLeft,
+      viewportWidth: Math.max(0, viewportWidth - safeAreaLeft - safeAreaRight),
+      viewportTop: viewportOffsetTop + safeAreaTop,
+      viewportHeight: Math.max(0, viewportHeight - safeAreaTop - safeAreaBottom),
+    });
+    const fittedHeight = typeof desiredHeight === "function"
+      ? desiredHeight(geometry.width)
+      : desiredHeight;
+    return [
+      `left:${Math.round(geometry.left)}px`,
+      `top:${Math.round(geometry.top)}px`,
+      `width:${Math.round(geometry.width)}px`,
+      `height:${Math.round(Math.min(geometry.height, Math.max(0, fittedHeight)))}px`,
+    ].join(";");
+  }
+
+  function updateUtilityPanelPositions(): void {
+    quickNotesPanelStyle = utilityPanelStyle(
+      "[data-mobile-quick-notes-trigger]",
+      760,
+      680,
+    );
+    musicPanelStyle = utilityPanelStyle(
+      "[data-mobile-music-trigger]",
+      1000,
+      (panelWidth) => mobileMusicPlayerChromeHeight
+        + panelWidth * mobileMusicMediaHeightRatio,
+    );
+    musicPlaylistPanelStyle = utilityPanelStyle(
+      "[data-mobile-music-trigger]",
+      1000,
+      (panelWidth) => mobileMusicPlayerChromeHeight
+        + (panelWidth * mobileMusicMediaHeightRatio) / mobileMusicStackedMediaShare,
+    );
   }
 
   async function ensureActiveBlockScheduler(): Promise<void> {
@@ -414,6 +489,7 @@
     closePomodoro();
     closeSettings();
     closeMusic();
+    updateUtilityPanelPositions();
     showQuickNotes = true;
     removeQuickNotesBackLayer();
     removeQuickNotesBackLayer = mobileBackStack.activate({ handle: closeQuickNotes });
@@ -457,6 +533,7 @@
     closePomodoro();
     closeSettings();
     closeQuickNotes();
+    updateUtilityPanelPositions();
     showMusic = true;
     removeMusicBackLayer();
     removeMusicBackLayer = mobileBackStack.activate({ handle: closeMusic });
@@ -583,6 +660,20 @@
     if (!showMusic || MusicSurface || !musicLoadDialog) return;
     return activateModalFocus(musicLoadDialog);
   });
+
+  $effect(() => {
+    if (!showQuickNotes && !showMusic) return;
+    updateUtilityPanelPositions();
+    const visualViewport = window.visualViewport;
+    window.addEventListener("resize", updateUtilityPanelPositions);
+    visualViewport?.addEventListener("resize", updateUtilityPanelPositions);
+    visualViewport?.addEventListener("scroll", updateUtilityPanelPositions);
+    return () => {
+      window.removeEventListener("resize", updateUtilityPanelPositions);
+      visualViewport?.removeEventListener("resize", updateUtilityPanelPositions);
+      visualViewport?.removeEventListener("scroll", updateUtilityPanelPositions);
+    };
+  });
 </script>
 
 <div
@@ -673,11 +764,16 @@
 
   {#if showMusic && MusicSurface}
     <div inert={suspendDecisionOpen} aria-hidden={suspendDecisionOpen ? "true" : undefined}>
-      <MusicSurface presentation="mobile" onclose={closeMusic} />
+      <MusicSurface
+        presentation="mobile"
+        mobilePlayerPanelStyle={musicPanelStyle}
+        mobilePlaylistPanelStyle={musicPlaylistPanelStyle}
+        onclose={closeMusic}
+      />
     </div>
   {:else if showMusic}
     <div
-      class="fixed z-50 flex items-center justify-center bg-background/95"
+      class="fixed z-50 flex items-center justify-center bg-transparent"
       inert={suspendDecisionOpen}
       aria-hidden={suspendDecisionOpen ? "true" : undefined}
       style="left: var(--visual-viewport-offset-left); top: var(--visual-viewport-offset-top); width: var(--visual-viewport-width); height: var(--visual-viewport-height); padding: calc(var(--safe-area-top) + 1rem) calc(var(--safe-area-right) + 1rem) calc(var(--safe-area-bottom) + 1rem) calc(var(--safe-area-left) + 1rem);"
@@ -752,11 +848,11 @@
 
   {#if showQuickNotes && QuickNotesSurface}
     <div inert={suspendDecisionOpen} aria-hidden={suspendDecisionOpen ? "true" : undefined}>
-      <QuickNotesSurface mobileLayout onclose={closeQuickNotes} />
+      <QuickNotesSurface mobileLayout mobilePanelStyle={quickNotesPanelStyle} onclose={closeQuickNotes} />
     </div>
   {:else if showQuickNotes}
     <div
-      class="fixed z-50 flex items-center justify-center bg-background/95"
+      class="fixed z-50 flex items-center justify-center bg-transparent"
       inert={suspendDecisionOpen}
       aria-hidden={suspendDecisionOpen ? "true" : undefined}
       style="left: var(--visual-viewport-offset-left); top: var(--visual-viewport-offset-top); width: var(--visual-viewport-width); height: var(--visual-viewport-height); padding: calc(var(--safe-area-top) + 1rem) calc(var(--safe-area-right) + 1rem) calc(var(--safe-area-bottom) + 1rem) calc(var(--safe-area-left) + 1rem);"

@@ -55,6 +55,26 @@ describe("MusicPanel", () => {
     expect(onclose).toHaveBeenCalledOnce();
   });
 
+  it("uses a square playlist launcher and no close button in the mobile player", async () => {
+    vi.stubGlobal("ResizeObserver", ResizeObserverStub);
+    target = document.createElement("div");
+    document.body.append(target);
+    const { default: MusicPanel } = await import("./MusicPanel.svelte");
+
+    component = mount(MusicPanel, {
+      target,
+      props: { onclose: vi.fn(), presentation: "mobile" },
+    });
+    await tick();
+
+    const launcher = target.querySelector<HTMLElement>("[data-music-playlist-launcher]");
+    const header = target.querySelector<HTMLElement>("[data-music-player-header]");
+    expect(launcher?.classList.contains("h-9")).toBe(true);
+    expect(launcher?.classList.contains("w-9")).toBe(true);
+    expect(header?.classList.contains("py-2")).toBe(true);
+    expect(target.querySelector("button[aria-label='Close']")).toBeNull();
+  });
+
   it("does not reset persistent playback state when the panel closes", async () => {
     vi.stubGlobal("ResizeObserver", ResizeObserverStub);
     target = document.createElement("div");

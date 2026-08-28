@@ -25,10 +25,12 @@
     onOpenBuilder,
     onOpenIssues,
     onNewPlaylist,
+    mobile = false,
   }: {
     onOpenBuilder: () => void;
     onOpenIssues: () => void;
     onNewPlaylist: () => void;
+    mobile?: boolean;
   } = $props();
 
   const { t } = getLocalization();
@@ -165,7 +167,8 @@
     type="button"
     onclick={() => { void toggle(); }}
     class={cn(
-      "flex h-7 max-w-56 min-w-0 items-center gap-1.5 rounded-md bg-secondary px-2.5 text-[0.8rem] font-medium text-secondary-foreground transition-colors hover:bg-accent hover:text-accent-foreground",
+      "flex max-w-56 min-w-0 items-center gap-1.5 rounded-md bg-secondary text-[0.8rem] font-medium text-secondary-foreground transition-colors hover:bg-accent hover:text-accent-foreground",
+      mobile ? "h-9 w-9 justify-center px-0" : "h-7 px-2.5",
       open && "bg-accent text-accent-foreground",
     )}
     aria-haspopup="dialog"

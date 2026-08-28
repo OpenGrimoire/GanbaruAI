@@ -4,6 +4,7 @@
   import StickyNote from "@lucide/svelte/icons/sticky-note";
   import type { Component } from "svelte";
   import type { View } from "$lib/navigation";
+  import { mobileCenteredPanelGeometry } from "$lib/mobile-layout";
   import MobileNavigation from "$lib/components/mobile/MobileNavigation.svelte";
   import PomodoroProgressRing from "$lib/components/pomodoro/PomodoroProgressRing.svelte";
   import { getLocalization } from "$lib/i18n/translator.svelte";
@@ -77,6 +78,42 @@
   let PomodoroMenuSurface = $state<PomodoroMenuComponent | null>(null);
   let pomodoroMenuLoading = $state(false);
   let pomodoroMenuLoadError = $state<LoadFailure | null>(null);
+  let pomodoroAnchorElement = $state<HTMLDivElement | null>(null);
+  let pomodoroTriggerElement = $state<HTMLButtonElement | null>(null);
+  let pomodoroMenuStyle = $state("left:50%;width:min(16rem,calc(100vw - 1rem));transform:translateX(-50%)");
+  const pomodoroMenuDesiredWidth = 256;
+  const pomodoroMenuViewportInset = 8;
+
+  function rootPixelValue(property: string): number {
+    const value = Number.parseFloat(
+      getComputedStyle(document.documentElement).getPropertyValue(property),
+    );
+    return Number.isFinite(value) ? Math.max(0, value) : 0;
+  }
+
+  function updatePomodoroMenuPosition(): void {
+    if (!pomodoroAnchorElement || !pomodoroTriggerElement) return;
+    const triggerRect = pomodoroTriggerElement.getBoundingClientRect();
+    const anchorRect = pomodoroAnchorElement.getBoundingClientRect();
+    const visualViewport = window.visualViewport;
+    const viewportOffsetLeft = visualViewport?.offsetLeft ?? 0;
+    const viewportWidth = visualViewport?.width ?? window.innerWidth;
+    const safeAreaLeft = rootPixelValue("--safe-area-left");
+    const safeAreaRight = rootPixelValue("--safe-area-right");
+    const geometry = mobileCenteredPanelGeometry({
+      anchorLeft: triggerRect.left,
+      anchorWidth: triggerRect.width,
+      desiredWidth: pomodoroMenuDesiredWidth,
+      viewportLeft: viewportOffsetLeft + safeAreaLeft,
+      viewportWidth: Math.max(0, viewportWidth - safeAreaLeft - safeAreaRight),
+      inset: pomodoroMenuViewportInset,
+    });
+    pomodoroMenuStyle = [
+      `left:${Math.round(geometry.left - anchorRect.left)}px`,
+      `width:${Math.round(geometry.width)}px`,
+      "transform:none",
+    ].join(";");
+  }
 
   async function loadPomodoroMenu(): Promise<void> {
     if (PomodoroMenuSurface || pomodoroMenuLoading) return;
@@ -100,12 +137,29 @@
   }
 
   function togglePomodoro(): void {
-    if (!pomodoroOpen) void loadPomodoroMenu();
+    if (!pomodoroOpen) {
+      updatePomodoroMenuPosition();
+      void loadPomodoroMenu();
+    }
     onTogglePomodoro();
   }
 
   $effect(() => {
     if (pomodoroOpen) void loadPomodoroMenu();
+  });
+
+  $effect(() => {
+    if (!pomodoroOpen || !pomodoroAnchorElement || !pomodoroTriggerElement) return;
+    updatePomodoroMenuPosition();
+    const visualViewport = window.visualViewport;
+    window.addEventListener("resize", updatePomodoroMenuPosition);
+    visualViewport?.addEventListener("resize", updatePomodoroMenuPosition);
+    visualViewport?.addEventListener("scroll", updatePomodoroMenuPosition);
+    return () => {
+      window.removeEventListener("resize", updatePomodoroMenuPosition);
+      visualViewport?.removeEventListener("resize", updatePomodoroMenuPosition);
+      visualViewport?.removeEventListener("scroll", updatePomodoroMenuPosition);
+    };
   });
 </script>
 
@@ -123,8 +177,9 @@
   {#if primaryNavigationVisible}
     <MobileNavigation {current} presentation="top" {onNavigate} />
   {/if}
-  <div class={cn("relative h-full", primaryNavigationVisible ? "min-w-0" : "w-11 shrink-0")}>
+  <div bind:this={pomodoroAnchorElement} class={cn("relative h-full", primaryNavigationVisible ? "min-w-0" : "w-11 shrink-0")}>
     <button
+      bind:this={pomodoroTriggerElement}
       type="button"
       data-mobile-pomodoro-trigger
       onpointerdown={() => void loadPomodoroMenu()}
@@ -158,7 +213,8 @@
       ></button>
       <div
         role="menu"
-        class="absolute right-0 top-[calc(100%+0.25rem)] z-50 max-h-[calc(var(--visual-viewport-height)-var(--safe-area-top)-var(--mobile-topbar-h)-0.75rem)] w-64 max-w-[calc(100vw-1rem)] overflow-y-auto rounded-xl border border-border bg-popover py-1 text-popover-foreground shadow-xl"
+        class="absolute top-[calc(100%+0.25rem)] z-50 max-h-[calc(var(--visual-viewport-height)-var(--safe-area-top)-var(--mobile-topbar-h)-0.75rem)] overflow-y-auto rounded-xl border border-border bg-popover py-1 text-popover-foreground shadow-xl"
+        style={pomodoroMenuStyle}
       >
         {#if PomodoroMenuSurface}
           <PomodoroMenuSurface

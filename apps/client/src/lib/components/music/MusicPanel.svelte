@@ -12,7 +12,6 @@
   import SkipForward from "@lucide/svelte/icons/skip-forward";
   import Volume2 from "@lucide/svelte/icons/volume-2";
   import VolumeX from "@lucide/svelte/icons/volume-x";
-  import X from "@lucide/svelte/icons/x";
   import CalendarScrollbar from "$lib/components/calendar/CalendarScrollbar.svelte";
   import MusicPlaylistLauncher from "$lib/components/music/MusicPlaylistLauncher.svelte";
   import MusicCurrentItemMenu from "$lib/components/music/MusicCurrentItemMenu.svelte";
@@ -40,9 +39,13 @@
   let {
     onclose,
     presentation = "desktop",
+    mobilePlayerPanelStyle = "",
+    mobilePlaylistPanelStyle = "",
   }: {
     onclose: () => void;
     presentation?: "desktop" | "mobile";
+    mobilePlayerPanelStyle?: string;
+    mobilePlaylistPanelStyle?: string;
   } = $props();
 
   const player = getMusicPlayer();
@@ -115,7 +118,11 @@
     playlistVisible && fittedPanelHeightPx !== null ? `${fittedPanelHeightPx}px` : "680px",
   );
   const mobilePresentation = $derived(presentation === "mobile");
-  const mobilePanelStyle = "left: var(--visual-viewport-offset-left); top: var(--visual-viewport-offset-top); width: var(--visual-viewport-width); height: var(--visual-viewport-height); padding: var(--safe-area-top) var(--safe-area-right) var(--safe-area-bottom) var(--safe-area-left);";
+  const mobileBuilderPresentation = $derived(
+    mobilePresentation && musicPage === "playlist-builder",
+  );
+  const mobileBuilderPanelStyle = "left: var(--visual-viewport-offset-left); top: var(--visual-viewport-offset-top); width: var(--visual-viewport-width); height: var(--visual-viewport-height); padding: var(--safe-area-top) var(--safe-area-right) var(--safe-area-bottom) var(--safe-area-left);";
+  const mobilePlayerFallbackStyle = "left:calc(var(--visual-viewport-offset-left) + var(--safe-area-left) + 0.5rem);top:calc(var(--visual-viewport-offset-top) + var(--safe-area-top) + var(--mobile-topbar-h) + 0.25rem);width:calc(var(--visual-viewport-width) - var(--safe-area-left) - var(--safe-area-right) - 1rem);height:calc(var(--visual-viewport-height) - var(--safe-area-top) - var(--safe-area-bottom) - var(--mobile-topbar-h) - 0.75rem);";
   const desktopPanelStyle = $derived(`top: calc(var(--titlebar-h) + 4px); height: min(${panelMaximumHeight}, calc(100dvh - var(--titlebar-h) - 12px));`);
   const renderedPlaylistWindow = $derived(musicPlaylistWindow(
     player.queue.length,
@@ -690,9 +697,9 @@
 <!-- svelte-ignore a11y_click_events_have_key_events -->
 <!-- svelte-ignore a11y_no_static_element_interactions -->
 <div
-  class={cn("fixed z-40", mobilePresentation ? "bg-background" : "inset-0")}
+  class={cn("fixed z-40", mobileBuilderPresentation ? "bg-background" : !mobilePresentation && "inset-0")}
   style={mobilePresentation ? "left: var(--visual-viewport-offset-left); top: var(--visual-viewport-offset-top); width: var(--visual-viewport-width); height: var(--visual-viewport-height);" : undefined}
-  onclick={(event) => { if (!mobilePresentation && event.target === event.currentTarget) onclose(); }}
+  onclick={(event) => { if (!mobileBuilderPresentation && event.target === event.currentTarget) onclose(); }}
 ></div>
 {#if !mobilePresentation}
   <div
@@ -707,9 +714,19 @@
   bind:this={panel}
   class={cn(
     "music-panel-root fixed z-70 flex flex-col overflow-hidden outline-none",
-    mobilePresentation ? "bg-background" : "right-2 w-[min(1000px,calc(100vw-1rem))] rounded-xl",
+    mobileBuilderPresentation
+      ? "bg-background"
+      : mobilePresentation
+        ? "rounded-xl border border-border shadow-xl"
+        : "right-2 w-[min(1000px,calc(100vw-1rem))] rounded-xl",
   )}
-  style={mobilePresentation ? mobilePanelStyle : desktopPanelStyle}
+  style={mobilePresentation
+    ? mobileBuilderPresentation
+      ? mobileBuilderPanelStyle
+      : `${playlistVisible && mobilePlaylistPanelStyle
+        ? mobilePlaylistPanelStyle
+        : mobilePlayerPanelStyle || mobilePlayerFallbackStyle};background-color:var(--cal-bg);`
+    : desktopPanelStyle}
   role="dialog"
   aria-modal="true"
   aria-label={t("music.title")}
@@ -750,12 +767,21 @@
       use:releaseClickedButtonFocusAction
       onwheel={(event) => player.handleVolumeWheel(event)}
     >
-  <div bind:this={musicHeader} class="relative flex h-(--cal-header-row-h) shrink-0 items-center gap-3 px-2" style="background-color: var(--cal-bg);">
+  <div
+    bind:this={musicHeader}
+    data-music-player-header
+    class={cn(
+      "relative flex shrink-0 items-center gap-3 px-2",
+      mobilePresentation ? "py-2" : "h-(--cal-header-row-h)",
+    )}
+    style="background-color: var(--cal-bg);"
+  >
     <div class="relative z-10 flex min-w-0 shrink-0 items-center gap-2">
       <MusicPlaylistLauncher
         onOpenBuilder={() => openPlaylistBuilder()}
         onOpenIssues={() => openPlaylistBuilder({ kind: "open-issues" })}
         onNewPlaylist={() => openPlaylistBuilder("new-playlist")}
+        mobile={mobilePresentation}
       />
     </div>
     <div
@@ -780,24 +806,12 @@
         {/if}
       {/if}
     </div>
-    {#if player.parseError || player.playerError || mobilePresentation}
+    {#if player.parseError || player.playerError}
       <div class="relative z-10 ml-auto flex min-w-0 items-center gap-2">
-        {#if player.parseError || player.playerError}
-          <div class="hidden min-w-0 max-w-56 items-center gap-1.5 text-[0.733333rem] text-destructive min-[720px]:flex" role="alert">
-            <AlertCircle class="shrink-0" size={musicIconSize} strokeWidth={musicIconStrokeWidth} />
-            <span class="truncate">{player.parseError ?? player.playerError}</span>
-          </div>
-        {/if}
-        {#if mobilePresentation}
-          <button
-            type="button"
-            onclick={onclose}
-            class="grid h-8 w-8 shrink-0 place-items-center rounded-md text-foreground active:bg-accent"
-            aria-label={t("common.close")}
-          >
-            <X size={18} strokeWidth={1.8} aria-hidden="true" />
-          </button>
-        {/if}
+        <div class="hidden min-w-0 max-w-56 items-center gap-1.5 text-[0.733333rem] text-destructive min-[720px]:flex" role="alert">
+          <AlertCircle class="shrink-0" size={musicIconSize} strokeWidth={musicIconStrokeWidth} />
+          <span class="truncate">{player.parseError ?? player.playerError}</span>
+        </div>
       </div>
     {/if}
   </div>
