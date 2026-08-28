@@ -9,6 +9,11 @@ export interface CalendarSwipeCommitInput {
   viewportWidth: number;
 }
 
+export interface CalendarTouchHoldOptions {
+  immediate?: boolean;
+  onTap?: (event: PointerEvent) => void;
+}
+
 export function calendarTouchMovedBeyondSlop(deltaX: number, deltaY: number): boolean {
   return Math.hypot(deltaX, deltaY) > CALENDAR_TOUCH_SLOP_PX;
 }
@@ -41,22 +46,28 @@ export class CalendarTouchHoldArbiter {
   private timer = 0;
   private active = false;
   private activate: (() => void) | null = null;
+  private onTap: ((event: PointerEvent) => void) | null = null;
 
   get editingActive(): boolean {
     return this.active;
   }
 
-  begin(event: PointerEvent, activate: () => void, immediate = false): void {
+  begin(
+    event: PointerEvent,
+    activate: () => void,
+    options: CalendarTouchHoldOptions = {},
+  ): void {
     this.finish();
     this.pointerId = event.pointerId;
     this.startX = event.clientX;
     this.startY = event.clientY;
     this.activate = activate;
+    this.onTap = options.onTap ?? null;
     window.addEventListener("pointermove", this.handlePendingPointerMove);
     window.addEventListener("pointerup", this.handlePendingPointerEnd);
     window.addEventListener("pointercancel", this.handlePendingPointerEnd);
     window.addEventListener("touchmove", this.blockActiveTouchMove, { capture: true, passive: false });
-    if (immediate) {
+    if (options.immediate) {
       this.activateNow();
       return;
     }
@@ -69,6 +80,7 @@ export class CalendarTouchHoldArbiter {
     window.removeEventListener("touchmove", this.blockActiveTouchMove, true);
     this.pointerId = null;
     this.activate = null;
+    this.onTap = null;
     this.active = false;
   }
 
@@ -88,7 +100,10 @@ export class CalendarTouchHoldArbiter {
   };
 
   private readonly handlePendingPointerEnd = (event: PointerEvent): void => {
-    if (event.pointerId === this.pointerId) this.finish();
+    if (event.pointerId !== this.pointerId) return;
+    const onTap = event.type === "pointerup" ? this.onTap : null;
+    this.finish();
+    onTap?.(event);
   };
 
   private readonly blockActiveTouchMove = (event: TouchEvent): void => {

@@ -495,6 +495,11 @@ export function useDragController(config: DragControllerConfig) {
           return;
         }
         config.onTouchEditStart?.();
+      }, {
+        onTap: (releaseEvent) => {
+          if (!beginCreateStart(dateStr, timing, e, false)) return;
+          void handleCreateEnd(releaseEvent);
+        },
       });
       return;
     }
