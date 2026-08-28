@@ -37,12 +37,6 @@
     deliveryActionLabel = null,
     deliveryActionBusy = false,
     ondeliveryaction,
-    deliveryTestLabel = null,
-    deliveryTestBusy = false,
-    deliveryTestFeedback = null,
-    deliveryTestSettingsLabel = null,
-    ondeliverytest,
-    ondeliverytestsettings,
   }: {
     enabled: boolean;
     selected: Set<number>;
@@ -55,12 +49,6 @@
     deliveryActionLabel?: string | null;
     deliveryActionBusy?: boolean;
     ondeliveryaction?: () => void;
-    deliveryTestLabel?: string | null;
-    deliveryTestBusy?: boolean;
-    deliveryTestFeedback?: { message: string; error: boolean } | null;
-    deliveryTestSettingsLabel?: string | null;
-    ondeliverytest?: () => void;
-    ondeliverytestsettings?: () => void;
   } = $props();
 
   const localization = getLocalization();
@@ -333,35 +321,6 @@
             >
               {deliveryActionLabel}
             </button>
-          {/if}
-        </div>
-      {/if}
-      {#if deliveryTestLabel && ondeliverytest}
-        <div class="mb-1 flex flex-col items-start gap-2 rounded-md border border-border/60 bg-card/45 px-2.5 py-2 text-[0.733333rem] leading-5 text-foreground">
-          <button
-            type="button"
-            disabled={deliveryTestBusy}
-            class="min-h-8 rounded-md border border-border bg-card px-2.5 font-medium text-foreground disabled:opacity-60"
-            onclick={ondeliverytest}
-          >
-            {deliveryTestLabel}
-          </button>
-          {#if deliveryTestFeedback}
-            <span
-              role={deliveryTestFeedback.error ? "alert" : "status"}
-              class={deliveryTestFeedback.error ? "text-destructive" : "text-muted-foreground"}
-            >
-              {deliveryTestFeedback.message}
-            </span>
-            {#if deliveryTestSettingsLabel && ondeliverytestsettings}
-              <button
-                type="button"
-                class="min-h-8 rounded-md px-1 font-medium text-primary"
-                onclick={ondeliverytestsettings}
-              >
-                {deliveryTestSettingsLabel}
-              </button>
-            {/if}
           {/if}
         </div>
       {/if}

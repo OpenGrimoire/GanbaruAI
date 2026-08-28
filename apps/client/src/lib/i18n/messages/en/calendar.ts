@@ -115,12 +115,6 @@ export const calendar = {
     allowNotifications: "Allow notifications",
     openNotificationSettings: "Open notification settings",
     allowExactAlarms: "Allow exact alarms",
-    sendTest: "Send test notification",
-    testTitle: "Ganbaru AI Calendar",
-    testBody: "This is how event reminders will sound on this device.",
-    testSent:
-      "Test notification sent. If it arrived silently, check Android's sound settings.",
-    testFailed: "The test notification could not be sent.",
     openSoundSettings: "Open sound settings",
   },
   pomodoro: {
@@ -158,7 +152,7 @@ export const calendar = {
     seeList: "See list",
     seeGuestList: "See guest list",
     youWithEmail: (email: string) => `You (${email})`,
-    youLocalNoEmail: "You (Local, no email provided)",
+    youLocalNoEmail: "You (no email provided)",
     organizer: "organizer",
     statusPending: "pending",
     statusAccepted: "accepted",

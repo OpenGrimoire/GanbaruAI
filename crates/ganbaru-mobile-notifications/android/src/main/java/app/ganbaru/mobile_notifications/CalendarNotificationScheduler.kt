@@ -11,7 +11,6 @@ import android.os.Build
 import org.json.JSONObject
 
 internal const val CALENDAR_CHANNEL_ID = "calendar-events"
-private const val CALENDAR_TEST_NOTIFICATION_ID = 1_499_999_999
 private const val CALENDAR_NOTIFICATION_STORE = "GANBARU_CALENDAR_NOTIFICATION_STORE"
 private const val CALENDAR_NOTIFICATION_ACTION_STORE = "GANBARU_CALENDAR_NOTIFICATION_ACTION_STORE"
 private const val PENDING_ACTION_EVENT_ID = "eventId"
@@ -82,16 +81,6 @@ internal object CalendarNotificationScheduler {
     val delivery = deliveryFromIntent(intent) ?: return
     post(context, delivery.id, delivery.title, delivery.body, delivery.eventId)
     store(context).edit().remove(delivery.id.toString()).apply()
-  }
-
-  fun showTest(context: Context, title: String, body: String) {
-    require(title.isNotBlank() && title.length <= 160) {
-      "Calendar test notification title must contain 1 to 160 characters"
-    }
-    require(body.length <= 1_000) {
-      "Calendar test notification body must not exceed 1000 characters"
-    }
-    post(context, CALENDAR_TEST_NOTIFICATION_ID, title, body, null)
   }
 
   private fun post(

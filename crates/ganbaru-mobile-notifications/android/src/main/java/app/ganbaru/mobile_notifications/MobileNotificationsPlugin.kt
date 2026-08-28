@@ -27,12 +27,6 @@ internal class CalendarChannelArgs {
 }
 
 @InvokeArg
-internal class CalendarTestNotificationArgs {
-  lateinit var title: String
-  var body: String = ""
-}
-
-@InvokeArg
 internal class CalendarNotificationArgs {
   var id: Int = 0
   lateinit var title: String
@@ -103,17 +97,6 @@ class MobileNotificationsPlugin(private val activity: Activity) : Plugin(activit
       invoke.resolve()
     } catch (error: Exception) {
       invoke.reject(error.message ?: "Failed to create Calendar notification channel")
-    }
-  }
-
-  @Command
-  fun showCalendarTestNotification(invoke: Invoke) {
-    val args = invoke.parseArgs(CalendarTestNotificationArgs::class.java)
-    try {
-      CalendarNotificationScheduler.showTest(activity, args.title, args.body)
-      invoke.resolve()
-    } catch (error: Exception) {
-      invoke.reject(error.message ?: "Failed to show Calendar test notification")
     }
   }
 

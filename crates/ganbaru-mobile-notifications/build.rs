@@ -1,7 +1,6 @@
 fn main() {
     tauri_plugin::Builder::new(&[
         "ensureCalendarChannel",
-        "showCalendarTestNotification",
         "calendarChannelStatus",
         "scheduleCalendarNotifications",
         "pendingCalendarNotifications",

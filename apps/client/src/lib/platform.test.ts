@@ -53,6 +53,7 @@ describe("platform profiles", () => {
       "view.notes",
       "view.chat",
       "view.music",
+      "music.context-assignments",
       "music.local-root-reselection",
       "notifications.native-scheduling",
       "system.android-back",
@@ -62,7 +63,7 @@ describe("platform profiles", () => {
     expect(platformHasCapability(profile, "view.music")).toBe(true);
     expect(platformHasCapability(profile, "content.managed-image-downloads")).toBe(false);
     expect(platformHasCapability(profile, "notes.external-image-references")).toBe(false);
-    expect(platformHasCapability(profile, "music.context-assignments")).toBe(false);
+    expect(platformHasCapability(profile, "music.context-assignments")).toBe(true);
     expect(platformHasCapability(profile, "music.local-file-reveal")).toBe(false);
     expect(platformHasCapability(profile, "music.local-item-repair")).toBe(false);
     expect(platformHasCapability(profile, "music.local-root-relink-plans")).toBe(false);

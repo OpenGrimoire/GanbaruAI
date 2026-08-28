@@ -24,10 +24,8 @@
   import { BUILD_PLATFORM_PROFILE, platformHasCapability } from "$lib/platform";
   import {
     mobileCalendarNotificationStatus,
-    openMobileCalendarNotificationSettings,
     requestMobileCalendarNotificationPermission,
     resolveMobileCalendarNotificationStatus,
-    showMobileCalendarTestNotification,
     type MobileCalendarNotificationStatus,
   } from "$lib/scheduling/mobile-calendar-notifications";
   import { cn } from "$lib/utils";
@@ -316,8 +314,6 @@
   let openSection: Section | null = $state(null);
   let mobileNotificationStatus = $state<MobileCalendarNotificationStatus | null>(null);
   let mobileNotificationStatusBusy = $state(false);
-  let mobileNotificationTestBusy = $state(false);
-  let mobileNotificationTestFeedback = $state<{ message: string; error: boolean } | null>(null);
   let lastAutoOpenedMusicSession: number | null = null;
 
   $effect(() => {
@@ -438,51 +434,6 @@
       console.error("Failed to resolve Android Calendar notification access", error);
     } finally {
       mobileNotificationStatusBusy = false;
-    }
-  }
-
-  async function handleMobileNotificationTest(): Promise<void> {
-    mobileNotificationTestBusy = true;
-    mobileNotificationTestFeedback = null;
-    try {
-      let status = mobileNotificationStatus ?? await refreshMobileNotificationStatus();
-      if (status?.permission === "prompt") {
-        status = await requestMobileCalendarNotificationPermission();
-        mobileNotificationStatus = status;
-      }
-      if (status?.permission !== "granted") {
-        mobileNotificationTestFeedback = {
-          message: t("calendar.notifications.permissionRequired"),
-          error: true,
-        };
-        return;
-      }
-      await showMobileCalendarTestNotification({
-        channelName: t("calendar.notifications.androidChannelName"),
-        channelDescription: t("calendar.notifications.androidChannelDescription"),
-        title: t("calendar.notifications.testTitle"),
-        body: t("calendar.notifications.testBody"),
-      });
-      mobileNotificationTestFeedback = {
-        message: t("calendar.notifications.testSent"),
-        error: false,
-      };
-    } catch (error) {
-      console.error("Failed to show Android Calendar test notification", error);
-      mobileNotificationTestFeedback = {
-        message: t("calendar.notifications.testFailed"),
-        error: true,
-      };
-    } finally {
-      mobileNotificationTestBusy = false;
-    }
-  }
-
-  async function openMobileNotificationSoundSettings(): Promise<void> {
-    try {
-      await openMobileCalendarNotificationSettings();
-    } catch (error) {
-      console.error("Failed to open Android notification sound settings", error);
     }
   }
 
@@ -1130,18 +1081,26 @@
           onkeydown={inputKeydown}
         />
       </div>
-      <ProjectSelector
-        selectedProjectId={session.projectId}
-        disabled={controlsDisabled}
-        {mobileLayout}
-        onSelect={handleProjectSelect}
-      />
-      {#if !controlsDisabled}
-        <ColorPicker color={session.color} theme={theme.current} {mobileLayout} onselect={(color) => {
-          session.color = color;
-          session.emitChange();
-        }} />
-      {/if}
+      <div class="event-identity-controls flex items-center {mobileLayout ? 'gap-1' : 'gap-2.5'}">
+        <ProjectSelector
+          selectedProjectId={session.projectId}
+          disabled={controlsDisabled}
+          {mobileLayout}
+          onSelect={handleProjectSelect}
+        />
+        {#if !controlsDisabled}
+          <ColorPicker
+            color={session.color}
+            theme={theme.current}
+            {mobileLayout}
+            buttonClass="event-identity-trigger"
+            onselect={(color) => {
+              session.color = color;
+              session.emitChange();
+            }}
+          />
+        {/if}
+      </div>
     </div>
     <hr class="border-event-panel-divider mx-1 mt-0.5" />
 
@@ -1433,15 +1392,7 @@
         deliveryNotice={mobileNotificationDeliveryNotice}
         deliveryActionLabel={mobileNotificationDeliveryAction}
         deliveryActionBusy={mobileNotificationStatusBusy}
-        ondeliveryaction={() => { void resolveMobileNotificationDelivery(); }}
-        deliveryTestLabel={androidNotificationScheduling
-          ? t("calendar.notifications.sendTest")
-          : null}
-        deliveryTestBusy={mobileNotificationTestBusy}
-        deliveryTestFeedback={mobileNotificationTestFeedback}
-        deliveryTestSettingsLabel={t("calendar.notifications.openSoundSettings")}
-        ondeliverytest={() => { void handleMobileNotificationTest(); }}
-        ondeliverytestsettings={() => { void openMobileNotificationSoundSettings(); }} />
+        ondeliveryaction={() => { void resolveMobileNotificationDelivery(); }} />
       {/if}
 
       <!-- 4) Repeat -->
@@ -1592,6 +1543,22 @@
   .panel-root[data-mobile="true"] :global(input),
   .panel-root[data-mobile="true"] :global(select) {
     min-height: 3rem;
+  }
+
+  .panel-root[data-mobile="true"] :global([data-section="meeting"] .meeting-detail-row),
+  .panel-root[data-mobile="true"] :global([data-section="meeting"] input) {
+    min-height: 2rem;
+  }
+
+  .panel-root[data-mobile="true"] :global([data-section="meeting"] button) {
+    min-height: 0;
+  }
+
+  .panel-root[data-mobile="true"] .event-identity-controls :global(.event-identity-trigger) {
+    width: 2.5rem;
+    min-width: 2.5rem;
+    height: 2.5rem;
+    min-height: 2.5rem;
   }
 
   .panel-root[data-mobile="true"] .time-input-shell {

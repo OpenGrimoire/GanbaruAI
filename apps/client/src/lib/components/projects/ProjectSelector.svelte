@@ -184,6 +184,7 @@
     disabled={disabled}
     class={cn(
       "flex shrink-0 items-center justify-center text-event-panel-muted-text transition-colors hover:text-event-panel-input-text",
+      "event-identity-trigger",
       mobileLayout ? "min-h-12 min-w-12 rounded-xl active:bg-accent" : "size-4.5 rounded-sm",
       disabled && "cursor-not-allowed opacity-60",
     )}

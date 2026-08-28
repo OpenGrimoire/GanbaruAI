@@ -78,6 +78,7 @@ const BASE_MOBILE_CAPABILITIES = Object.freeze([
 const ANDROID_CAPABILITIES = Object.freeze([
   ...BASE_MOBILE_CAPABILITIES,
   "view.music",
+  "music.context-assignments",
   "music.local-root-reselection",
   "notifications.native-scheduling",
   "system.android-back",

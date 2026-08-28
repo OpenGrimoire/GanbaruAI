@@ -218,32 +218,6 @@ Denies the scheduleCalendarNotifications command without any pre-configured scop
 <tr>
 <td>
 
-`ganbaru-mobile-notifications:allow-showCalendarTestNotification`
-
-</td>
-<td>
-
-Enables the showCalendarTestNotification command without any pre-configured scope.
-
-</td>
-</tr>
-
-<tr>
-<td>
-
-`ganbaru-mobile-notifications:deny-showCalendarTestNotification`
-
-</td>
-<td>
-
-Denies the showCalendarTestNotification command without any pre-configured scope.
-
-</td>
-</tr>
-
-<tr>
-<td>
-
 `ganbaru-mobile-notifications:allow-takeCalendarNotificationAction`
 
 </td>

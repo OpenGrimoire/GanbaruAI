@@ -130,7 +130,6 @@ if (androidCapabilityPermissions.includes("notification:allow-create-channel")) 
 for (const expected of [
   "notification:allow-is-permission-granted",
   "notification:allow-request-permission",
-  "ganbaru-mobile-notifications:allow-showCalendarTestNotification",
   "ganbaru-mobile-notifications:allow-calendarChannelStatus",
   "ganbaru-mobile-notifications:allow-scheduleCalendarNotifications",
   "ganbaru-mobile-notifications:allow-pendingCalendarNotifications",

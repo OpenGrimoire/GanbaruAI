@@ -276,31 +276,6 @@ export async function resolveMobileCalendarNotificationStatus(
   }
 }
 
-/** Open Android's app-specific notification screen for sound and channel controls. */
-export async function openMobileCalendarNotificationSettings(): Promise<void> {
-  await invoke("mobile_notification_open_settings");
-}
-
-/** Post a real Calendar notification so the user can verify device delivery behavior. */
-export async function showMobileCalendarTestNotification(options: {
-  channelName: string;
-  channelDescription: string;
-  title: string;
-  body: string;
-}): Promise<void> {
-  await invoke("mobile_notification_ensure_calendar_channel", {
-    name: options.channelName,
-    description: options.channelDescription,
-  });
-  await invoke(
-    "plugin:ganbaru-mobile-notifications|showCalendarTestNotification",
-    {
-      title: options.title,
-      body: options.body,
-    },
-  );
-}
-
 /** Extract a bounded Calendar event ID from an untrusted native action response. */
 export function calendarEventIdFromNativeAction(payload: unknown): string | null {
   if (!isRecord(payload)) return null;

@@ -391,18 +391,6 @@
           "markdownDescription": "Denies the scheduleCalendarNotifications command without any pre-configured scope."
         },
         {
-          "description": "Enables the showCalendarTestNotification command without any pre-configured scope.",
-          "type": "string",
-          "const": "allow-showCalendarTestNotification",
-          "markdownDescription": "Enables the showCalendarTestNotification command without any pre-configured scope."
-        },
-        {
-          "description": "Denies the showCalendarTestNotification command without any pre-configured scope.",
-          "type": "string",
-          "const": "deny-showCalendarTestNotification",
-          "markdownDescription": "Denies the showCalendarTestNotification command without any pre-configured scope."
-        },
-        {
           "description": "Enables the takeCalendarNotificationAction command without any pre-configured scope.",
           "type": "string",
           "const": "allow-takeCalendarNotificationAction",
