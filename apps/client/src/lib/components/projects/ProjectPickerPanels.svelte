@@ -866,7 +866,7 @@
               {t("calendar.eventPanel.noProjectsFound")}
             </div>
           {:else}
-            <div class={mobileLayout ? "grid" : "grid pl-1"}>
+            <div class={mobileLayout ? "grid px-1" : "grid pl-1"}>
               {#each visibleGroups as group (group.id)}
                 <div class={mobileLayout ? "px-1" : "pl-1 pr-1"}>
                   <button
@@ -875,8 +875,8 @@
                     class={cn(
                       "grid w-full items-center gap-2 rounded-md text-left transition-colors",
                       mobileLayout
-                        ? "min-h-12 grid-cols-[1.5rem_minmax(0,1fr)_1.5rem] px-3"
-                        : "min-h-8 grid-cols-[1.25rem_minmax(0,1fr)_1rem] px-2",
+                        ? "min-h-12 grid-cols-[1.125rem_minmax(0,1fr)_1.5rem] px-3"
+                        : "min-h-8 grid-cols-[0.8125rem_minmax(0,1fr)_1rem] px-2",
                       activeGroupId === group.id
                         ? "bg-accent text-accent-foreground"
                         : "text-popover-foreground hover:bg-accent hover:text-accent-foreground",
@@ -890,7 +890,7 @@
                     onclick={(event) => showProjectSubpanel(group, event.currentTarget)}
                   >
                     <ProjectIcon name={group.icon} size={iconSize} strokeWidth={iconStrokeWidth} emojiScale={emojiScale} class="shrink-0" />
-                    <span class={cn("truncate font-medium", mobileLayout ? "text-sm" : "text-[0.8rem]")}>{group.name}</span>
+                    <span class={cn("truncate", mobileLayout ? "text-sm" : "text-[0.8rem]")}>{group.name}</span>
                     <ChevronRight size={mobileLayout ? 18 : 13} strokeWidth={iconStrokeWidth} class="justify-self-end text-popover-foreground/60" />
                   </button>
                 </div>
