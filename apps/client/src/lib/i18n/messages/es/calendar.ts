@@ -96,6 +96,24 @@ export const calendar = {
     before: "antes",
     custom: "Personalizada",
     removeCustom: "Eliminar notificación personalizada",
+    androidChannelName: "Eventos del calendario",
+    androidChannelDescription: "Recordatorios de próximos eventos del calendario de Ganbaru AI",
+    permissionRequired:
+      "Las notificaciones de Android están desactivadas. Permítelas para recibir recordatorios cuando Ganbaru AI esté cerrado.",
+    exactAlarmRequired:
+      "Las alarmas exactas de Android están desactivadas. Los recordatorios pueden llegar tarde hasta que permitas el acceso a Alarmas y recordatorios.",
+    channelRestricted:
+      "Android silenció o desactivó el canal de recordatorios del calendario. Actualiza sus ajustes de sonido para recibir recordatorios audibles.",
+    allowNotifications: "Permitir notificaciones",
+    openNotificationSettings: "Abrir ajustes de notificaciones",
+    allowExactAlarms: "Permitir alarmas exactas",
+    sendTest: "Enviar notificación de prueba",
+    testTitle: "Calendario de Ganbaru AI",
+    testBody: "Así sonarán los recordatorios de eventos en este dispositivo.",
+    testSent:
+      "Notificación de prueba enviada. Si llegó sin sonido, revisa los ajustes de sonido de Android.",
+    testFailed: "No se pudo enviar la notificación de prueba.",
+    openSoundSettings: "Abrir ajustes de sonido",
   },
   pomodoro: {
     title: "Pomodoro",

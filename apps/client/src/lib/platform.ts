@@ -79,6 +79,7 @@ const ANDROID_CAPABILITIES = Object.freeze([
   ...BASE_MOBILE_CAPABILITIES,
   "view.music",
   "music.local-root-reselection",
+  "notifications.native-scheduling",
   "system.android-back",
 ] satisfies PlatformCapability[]);
 

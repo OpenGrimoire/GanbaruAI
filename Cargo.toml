@@ -9,6 +9,7 @@ members = [
   "crates/ganbaru-db",
   "crates/ganbaru-mobile-documents",
   "crates/ganbaru-mobile-media",
+  "crates/ganbaru-mobile-notifications",
   "crates/ganbaru-native-messaging",
   "crates/ganbaru-notes",
   "crates/ganbaru-working-folders",
@@ -25,6 +26,7 @@ chrono = { version = "0.4", default-features = false, features = ["std", "serde"
 flate2 = "1.1.9"
 ganbaru-mobile-documents = { path = "crates/ganbaru-mobile-documents" }
 ganbaru-mobile-media = { path = "crates/ganbaru-mobile-media" }
+ganbaru-mobile-notifications = { path = "crates/ganbaru-mobile-notifications" }
 gtk = "0.18"
 keyring = "4.1.5"
 libc = "0.2"
@@ -85,6 +87,7 @@ tauri-build = { version = "~2.6.1", features = [] }
 tauri-plugin-dialog = "2"
 tauri-plugin-fs = "2"
 tauri-plugin-opener = "2.5.4"
+tauri-plugin-notification = "2.3.3"
 tauri-plugin-single-instance = "2.4.2"
 tauri-plugin-updater = "2.10.1"
 tokio = { version = "1.48", default-features = false, features = ["io-util", "net", "process", "rt", "sync", "time"] }

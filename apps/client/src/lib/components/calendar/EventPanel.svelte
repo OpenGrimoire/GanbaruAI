@@ -22,6 +22,14 @@
   import { getViewport } from "$lib/stores/viewport.svelte";
   import { getLocalization } from "$lib/i18n/translator.svelte";
   import { BUILD_PLATFORM_PROFILE, platformHasCapability } from "$lib/platform";
+  import {
+    mobileCalendarNotificationStatus,
+    openMobileCalendarNotificationSettings,
+    requestMobileCalendarNotificationPermission,
+    resolveMobileCalendarNotificationStatus,
+    showMobileCalendarTestNotification,
+    type MobileCalendarNotificationStatus,
+  } from "$lib/scheduling/mobile-calendar-notifications";
   import { cn } from "$lib/utils";
   import { formatShortcut, hasOnlyShortcutModifier, hasShortcutModifier } from "$lib/keyboard-shortcuts";
   import { moveRovingIndex } from "./event-panel-utils";
@@ -71,6 +79,7 @@
     BUILD_PLATFORM_PROFILE,
     "notifications.native-scheduling",
   );
+  const androidNotificationScheduling = BUILD_PLATFORM_PROFILE.platform === "android";
   const nativeIdleDetectionAvailable = platformHasCapability(
     BUILD_PLATFORM_PROFILE,
     "pomodoro.native-idle-detection",
@@ -305,6 +314,10 @@
   // ─── Tab system ─────────────────────────────────────────────────
   type Section = "meeting" | "pomodoro" | "notifications" | "repeat" | "music";
   let openSection: Section | null = $state(null);
+  let mobileNotificationStatus = $state<MobileCalendarNotificationStatus | null>(null);
+  let mobileNotificationStatusBusy = $state(false);
+  let mobileNotificationTestBusy = $state(false);
+  let mobileNotificationTestFeedback = $state<{ message: string; error: boolean } | null>(null);
   let lastAutoOpenedMusicSession: number | null = null;
 
   $effect(() => {
@@ -382,6 +395,139 @@
     }
     session.emitChange();
   }
+
+  async function refreshMobileNotificationStatus(): Promise<MobileCalendarNotificationStatus | null> {
+    if (!androidNotificationScheduling) return null;
+    try {
+      const status = await mobileCalendarNotificationStatus();
+      mobileNotificationStatus = status;
+      return status;
+    } catch (error) {
+      console.error("Failed to read Android Calendar notification status", error);
+      return null;
+    }
+  }
+
+  async function handleNotificationToggle(): Promise<void> {
+    const enabling = !session.notifEnabled;
+    handleToggle("notifications");
+    if (!enabling || !androidNotificationScheduling) return;
+    const status = mobileNotificationStatus ?? await refreshMobileNotificationStatus();
+    if (status?.permission !== "prompt") return;
+    mobileNotificationStatusBusy = true;
+    try {
+      mobileNotificationStatus = await requestMobileCalendarNotificationPermission();
+    } catch (error) {
+      console.error("Failed to request Android Calendar notification permission", error);
+    } finally {
+      mobileNotificationStatusBusy = false;
+    }
+  }
+
+  async function resolveMobileNotificationDelivery(): Promise<void> {
+    const status = mobileNotificationStatus ?? await refreshMobileNotificationStatus();
+    if (!status) return;
+    mobileNotificationStatusBusy = true;
+    try {
+      if (status.permission === "prompt") {
+        mobileNotificationStatus = await requestMobileCalendarNotificationPermission();
+      } else {
+        await resolveMobileCalendarNotificationStatus(status);
+      }
+    } catch (error) {
+      console.error("Failed to resolve Android Calendar notification access", error);
+    } finally {
+      mobileNotificationStatusBusy = false;
+    }
+  }
+
+  async function handleMobileNotificationTest(): Promise<void> {
+    mobileNotificationTestBusy = true;
+    mobileNotificationTestFeedback = null;
+    try {
+      let status = mobileNotificationStatus ?? await refreshMobileNotificationStatus();
+      if (status?.permission === "prompt") {
+        status = await requestMobileCalendarNotificationPermission();
+        mobileNotificationStatus = status;
+      }
+      if (status?.permission !== "granted") {
+        mobileNotificationTestFeedback = {
+          message: t("calendar.notifications.permissionRequired"),
+          error: true,
+        };
+        return;
+      }
+      await showMobileCalendarTestNotification({
+        channelName: t("calendar.notifications.androidChannelName"),
+        channelDescription: t("calendar.notifications.androidChannelDescription"),
+        title: t("calendar.notifications.testTitle"),
+        body: t("calendar.notifications.testBody"),
+      });
+      mobileNotificationTestFeedback = {
+        message: t("calendar.notifications.testSent"),
+        error: false,
+      };
+    } catch (error) {
+      console.error("Failed to show Android Calendar test notification", error);
+      mobileNotificationTestFeedback = {
+        message: t("calendar.notifications.testFailed"),
+        error: true,
+      };
+    } finally {
+      mobileNotificationTestBusy = false;
+    }
+  }
+
+  async function openMobileNotificationSoundSettings(): Promise<void> {
+    try {
+      await openMobileCalendarNotificationSettings();
+    } catch (error) {
+      console.error("Failed to open Android notification sound settings", error);
+    }
+  }
+
+  const mobileNotificationDeliveryNotice = $derived.by(() => {
+    if (!androidNotificationScheduling || !mobileNotificationStatus) return null;
+    if (mobileNotificationStatus.permission !== "granted") {
+      return t("calendar.notifications.permissionRequired");
+    }
+    if (
+      mobileNotificationStatus.channel.exists
+      && (
+        !mobileNotificationStatus.channel.enabled
+        || !mobileNotificationStatus.channel.soundConfigured
+      )
+    ) {
+      return t("calendar.notifications.channelRestricted");
+    }
+    if (
+      mobileNotificationStatus.exactAlarm.required
+      && !mobileNotificationStatus.exactAlarm.granted
+    ) {
+      return t("calendar.notifications.exactAlarmRequired");
+    }
+    return null;
+  });
+
+  const mobileNotificationDeliveryAction = $derived.by(() => {
+    if (!mobileNotificationStatus) return null;
+    if (mobileNotificationStatus.permission === "prompt") {
+      return t("calendar.notifications.allowNotifications");
+    }
+    if (mobileNotificationStatus.permission === "denied") {
+      return t("calendar.notifications.openNotificationSettings");
+    }
+    if (
+      mobileNotificationStatus.channel.exists
+      && (
+        !mobileNotificationStatus.channel.enabled
+        || !mobileNotificationStatus.channel.soundConfigured
+      )
+    ) {
+      return t("calendar.notifications.openSoundSettings");
+    }
+    return t("calendar.notifications.allowExactAlarms");
+  });
 
   function canExpandSection(s: Section): boolean {
     return !controlsDisabled
@@ -849,12 +995,20 @@
     });
 
     function handleKeydown(e: KeyboardEvent) { actions.handleKeydown(e); }
+    function refreshNotificationAccess(): void {
+      if (document.visibilityState === "visible") void refreshMobileNotificationStatus();
+    }
     window.addEventListener("keydown", handleKeydown);
+    window.addEventListener("focus", refreshNotificationAccess);
+    document.addEventListener("visibilitychange", refreshNotificationAccess);
+    void refreshMobileNotificationStatus();
     return () => {
       musicLoadGeneration += 1;
       musicSnapshotGeneration += 1;
       musicOverrideGeneration += 1;
       window.removeEventListener("keydown", handleKeydown);
+      window.removeEventListener("focus", refreshNotificationAccess);
+      document.removeEventListener("visibilitychange", refreshNotificationAccess);
     };
   });
 </script>
@@ -1273,9 +1427,21 @@
         bind:selected={session.notifSelected}
         bind:customNotifs={session.customNotifs}
         expanded={openSection === "notifications"}
-        ontoggle={() => handleToggle("notifications")}
+        ontoggle={() => { void handleNotificationToggle(); }}
         onexpand={() => handleExpand("notifications")}
-        onchange={() => session.emitChange()} />
+        onchange={() => session.emitChange()}
+        deliveryNotice={mobileNotificationDeliveryNotice}
+        deliveryActionLabel={mobileNotificationDeliveryAction}
+        deliveryActionBusy={mobileNotificationStatusBusy}
+        ondeliveryaction={() => { void resolveMobileNotificationDelivery(); }}
+        deliveryTestLabel={androidNotificationScheduling
+          ? t("calendar.notifications.sendTest")
+          : null}
+        deliveryTestBusy={mobileNotificationTestBusy}
+        deliveryTestFeedback={mobileNotificationTestFeedback}
+        deliveryTestSettingsLabel={t("calendar.notifications.openSoundSettings")}
+        ondeliverytest={() => { void handleMobileNotificationTest(); }}
+        ondeliverytestsettings={() => { void openMobileNotificationSoundSettings(); }} />
       {/if}
 
       <!-- 4) Repeat -->

@@ -104,6 +104,24 @@ export const calendar = {
     before: "before",
     custom: "Custom",
     removeCustom: "Remove custom notification",
+    androidChannelName: "Calendar events",
+    androidChannelDescription: "Reminders for upcoming Ganbaru AI calendar events",
+    permissionRequired:
+      "Android notifications are off. Allow them to receive event reminders when Ganbaru AI is closed.",
+    exactAlarmRequired:
+      "Android exact alarms are off. Reminders can arrive late until Alarms and reminders access is allowed.",
+    channelRestricted:
+      "Android has muted or disabled the Calendar reminder channel. Update its sound settings to receive audible reminders.",
+    allowNotifications: "Allow notifications",
+    openNotificationSettings: "Open notification settings",
+    allowExactAlarms: "Allow exact alarms",
+    sendTest: "Send test notification",
+    testTitle: "Ganbaru AI Calendar",
+    testBody: "This is how event reminders will sound on this device.",
+    testSent:
+      "Test notification sent. If it arrived silently, check Android's sound settings.",
+    testFailed: "The test notification could not be sent.",
+    openSoundSettings: "Open sound settings",
   },
   pomodoro: {
     title: "Pomodoro",

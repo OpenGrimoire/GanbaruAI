@@ -82,12 +82,14 @@ The broad root scripts intentionally optimize for bounded peak resource use rath
 
 1. Rust formatting and Clippy with one Cargo build job.
 2. Rust workspace tests with one Cargo build job and one runtime test thread.
-3. Svelte Check with a 1,536 MiB Node old-space limit, followed by TypeScript checking.
+3. Svelte Check with a 1,792 MiB Node old-space limit, followed by TypeScript checking.
 4. Four sequential Vitest shards, each with one worker and benchmark-harness tests excluded.
 5. Tailwind diagnostics through Turbo.
 6. A production build and bundle-contract checks through Turbo.
 
 Rust work runs first because compiler and linker peaks are the least predictable. Rust and frontend tools must not overlap. Do not start another Cargo, Vitest, Svelte Check, Turbo, or broad validation command while a root `check`, `test`, `validate`, or `validate:full` command is active.
+
+The Svelte Check limit was rebaselined from 1,536 MiB on 2026-08-27 after the complete source graph consistently exhausted that heap before producing diagnostics. A direct 1,792 MiB run completed in 58.23 seconds with 1,919,420 KiB peak resident memory and no swap, while a 2,048 MiB comparison completed in 54.35 seconds with 2,014,436 KiB peak resident memory. The lower passing limit remains the repository default to preserve bounded validation on resource-constrained machines.
 
 One Cargo build job prevents multiple large compiler or linker processes from competing for memory. One Rust test thread also serializes data-sensitive integration behavior. Sequential Vitest shards release transformed module graphs between groups while preserving the normal frontend suite.
 

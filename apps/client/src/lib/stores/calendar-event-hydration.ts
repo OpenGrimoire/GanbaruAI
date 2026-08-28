@@ -66,6 +66,11 @@ export interface CalendarPomodoroSchedulerRows {
   overrides: DbOverride[];
 }
 
+export interface CalendarNotificationSchedulerRows {
+  events: DbCalendarEvent[];
+  overrides: DbOverride[];
+}
+
 export interface CalendarPanelEventRows {
   event: DbFullEvent | null;
   attendees: DbAttendee[];

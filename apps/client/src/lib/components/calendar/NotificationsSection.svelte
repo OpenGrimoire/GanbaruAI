@@ -33,6 +33,16 @@
     ontoggle,
     onexpand,
     onchange,
+    deliveryNotice = null,
+    deliveryActionLabel = null,
+    deliveryActionBusy = false,
+    ondeliveryaction,
+    deliveryTestLabel = null,
+    deliveryTestBusy = false,
+    deliveryTestFeedback = null,
+    deliveryTestSettingsLabel = null,
+    ondeliverytest,
+    ondeliverytestsettings,
   }: {
     enabled: boolean;
     selected: Set<number>;
@@ -41,6 +51,16 @@
     ontoggle: () => void;
     onexpand: () => void;
     onchange: () => void;
+    deliveryNotice?: string | null;
+    deliveryActionLabel?: string | null;
+    deliveryActionBusy?: boolean;
+    ondeliveryaction?: () => void;
+    deliveryTestLabel?: string | null;
+    deliveryTestBusy?: boolean;
+    deliveryTestFeedback?: { message: string; error: boolean } | null;
+    deliveryTestSettingsLabel?: string | null;
+    ondeliverytest?: () => void;
+    ondeliverytestsettings?: () => void;
   } = $props();
 
   const localization = getLocalization();
@@ -301,6 +321,50 @@
   </div>
   {#if expanded}
     <div transition:slide={{ duration: 180, easing: cubicOut }} data-section="notifications" class="flex flex-col gap-1.5 p-2.5" style="background-color: var(--panel-bg);">
+      {#if deliveryNotice}
+        <div class="mb-1 flex flex-col gap-2 rounded-md border border-warning/35 bg-warning/8 px-2.5 py-2 text-[0.733333rem] leading-5 text-foreground">
+          <span>{deliveryNotice}</span>
+          {#if deliveryActionLabel && ondeliveryaction}
+            <button
+              type="button"
+              disabled={deliveryActionBusy}
+              class="min-h-8 self-start rounded-md border border-border bg-card px-2.5 text-[0.733333rem] font-medium text-foreground disabled:opacity-60"
+              onclick={ondeliveryaction}
+            >
+              {deliveryActionLabel}
+            </button>
+          {/if}
+        </div>
+      {/if}
+      {#if deliveryTestLabel && ondeliverytest}
+        <div class="mb-1 flex flex-col items-start gap-2 rounded-md border border-border/60 bg-card/45 px-2.5 py-2 text-[0.733333rem] leading-5 text-foreground">
+          <button
+            type="button"
+            disabled={deliveryTestBusy}
+            class="min-h-8 rounded-md border border-border bg-card px-2.5 font-medium text-foreground disabled:opacity-60"
+            onclick={ondeliverytest}
+          >
+            {deliveryTestLabel}
+          </button>
+          {#if deliveryTestFeedback}
+            <span
+              role={deliveryTestFeedback.error ? "alert" : "status"}
+              class={deliveryTestFeedback.error ? "text-destructive" : "text-muted-foreground"}
+            >
+              {deliveryTestFeedback.message}
+            </span>
+            {#if deliveryTestSettingsLabel && ondeliverytestsettings}
+              <button
+                type="button"
+                class="min-h-8 rounded-md px-1 font-medium text-primary"
+                onclick={ondeliverytestsettings}
+              >
+                {deliveryTestSettingsLabel}
+              </button>
+            {/if}
+          {/if}
+        </div>
+      {/if}
       <div class="flex flex-col gap-0.5">
         {#each NOTIF_PRESETS as opt, index}
           <button

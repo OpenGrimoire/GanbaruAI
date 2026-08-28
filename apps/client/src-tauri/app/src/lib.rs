@@ -28,6 +28,8 @@ mod media_player;
 #[cfg(target_os = "android")]
 #[path = "media_player_mobile.rs"]
 mod media_player;
+#[cfg(any(test, target_os = "android", target_os = "ios"))]
+mod mobile_notification_capabilities;
 #[cfg(not(target_os = "ios"))]
 mod music;
 mod music_context;
@@ -82,6 +84,7 @@ mod composition_tests {
             "vault::vault_use_default_folder",
             "vault::vault_pick_open",
             "calendar_reads::calendar_load_window",
+            "calendar_reads::calendar_load_notification_scheduler_window",
             "projects::workspace::projects_load_workspace",
             "notes::notes_load_workspace_shell",
             "pomodoro::pomodoro_start_run",
@@ -120,7 +123,7 @@ mod composition_tests {
             "chat::interaction_commands::",
             "chat::preview::",
             "doomscrolling::",
-            "notification::",
+            "notification::show_event_notification",
             "soundscape::",
             "tray::",
             "updates::",

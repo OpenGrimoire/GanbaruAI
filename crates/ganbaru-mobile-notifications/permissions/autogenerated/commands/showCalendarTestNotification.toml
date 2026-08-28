@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-showCalendarTestNotification"
+description = "Enables the showCalendarTestNotification command without any pre-configured scope."
+commands.allow = ["showCalendarTestNotification"]
+
+[[permission]]
+identifier = "deny-showCalendarTestNotification"
+description = "Denies the showCalendarTestNotification command without any pre-configured scope."
+commands.deny = ["showCalendarTestNotification"]

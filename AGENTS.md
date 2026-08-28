@@ -142,6 +142,7 @@ apps/
 crates/
   ganbaru-mobile-documents/: Android MediaStore export and bounded document-picker transfer plugin
   ganbaru-mobile-media/: Android Media3 playback and selected music document-tree plugin
+  ganbaru-mobile-notifications/: Android Calendar notification scheduling, channel, tap, exact-alarm, and settings adapter
   ganbaru-working-folders/: Tauri-free working-folder IDs, repository kinds, timestamps, bindings, and device-state operations
   ganbaru-db/: Tauri-free SQLite pool registry, connection configuration, migrations, row macro, and schema tests
   ganbaru-chat-contracts/: stable provider-neutral Chat IDs, commands, events, DTOs, errors, and Serde contracts

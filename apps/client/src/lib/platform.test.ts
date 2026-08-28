@@ -54,6 +54,7 @@ describe("platform profiles", () => {
       "view.chat",
       "view.music",
       "music.local-root-reselection",
+      "notifications.native-scheduling",
       "system.android-back",
     ]);
     expect(platformHasCapability(profile, "view.chat")).toBe(true);
@@ -67,7 +68,7 @@ describe("platform profiles", () => {
     expect(platformHasCapability(profile, "music.local-root-relink-plans")).toBe(false);
     expect(platformHasCapability(profile, "music.local-root-reselection")).toBe(true);
     expect(platformHasCapability(profile, "music.soundscapes")).toBe(false);
-    expect(platformHasCapability(profile, "notifications.native-scheduling")).toBe(false);
+    expect(platformHasCapability(profile, "notifications.native-scheduling")).toBe(true);
     expect(platformHasCapability(profile, "pomodoro.native-idle-detection")).toBe(false);
     expect(platformHasCapability(profile, "projects.working-folders")).toBe(false);
     expect(platformHasCapability(profile, "storage.native-file-picker")).toBe(false);

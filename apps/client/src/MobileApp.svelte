@@ -48,6 +48,10 @@
     dispose(): void;
     isEnabled(): boolean;
   }
+  interface CalendarNotificationScheduler {
+    reconcile(): Promise<void>;
+    takeAction(): Promise<string | null>;
+  }
 
   const nav = getNavigation();
   const viewport = getViewport();
@@ -57,7 +61,8 @@
   const pomodoro = getPomodoro();
   const mobileBackStack = getMobileBackStack();
   getZoom().reapply();
-  const { t } = getLocalization();
+  const localization = getLocalization();
+  const { t } = localization;
   const androidSystemBackAvailable = platformHasCapability(
     BUILD_PLATFORM_PROFILE,
     "system.android-back",
@@ -107,6 +112,9 @@
   let activeBlockScheduler = $state.raw<PomodoroCalendarScheduler | null>(null);
   let activeBlockSchedulerLoad: Promise<void> | null = null;
   let activeBlockSchedulerDisposed = false;
+  let calendarNotificationScheduler = $state.raw<CalendarNotificationScheduler | null>(null);
+  let calendarNotificationSchedulerLoad: Promise<void> | null = null;
+  let calendarNotificationSchedulerDisposed = false;
 
   const navigationPresentation = $derived(
     mobileNavigationPresentation(viewport.layoutWidth),
@@ -170,6 +178,27 @@
     return activeBlockSchedulerLoad;
   }
 
+  async function ensureCalendarNotificationScheduler(): Promise<void> {
+    if (calendarNotificationScheduler || calendarNotificationSchedulerDisposed) return;
+    if (calendarNotificationSchedulerLoad) return calendarNotificationSchedulerLoad;
+    calendarNotificationSchedulerLoad = (async () => {
+      const module = await import("$lib/scheduling/mobile-calendar-notifications");
+      if (calendarNotificationSchedulerDisposed) return;
+      calendarNotificationScheduler = new module.MobileCalendarNotificationScheduler(
+        t,
+        () => localization.locale,
+      );
+      await calendarNotificationScheduler.reconcile();
+      const eventId = await calendarNotificationScheduler.takeAction();
+      if (eventId) navigate("calendar");
+    })().catch((error: unknown) => {
+      console.error("Failed to initialize Android Calendar notifications", error);
+    }).finally(() => {
+      calendarNotificationSchedulerLoad = null;
+    });
+    return calendarNotificationSchedulerLoad;
+  }
+
   async function loadSurface(view: View): Promise<void> {
     const generation = ++surfaceLoadGeneration;
     loadError = null;
@@ -224,6 +253,7 @@
       ]);
       await ensureActiveBlockScheduler();
       backendReady = true;
+      void ensureCalendarNotificationScheduler();
       await loadSurface(nav.current);
     } catch (error) {
       loadError = classifyLoadFailure(error);
@@ -467,7 +497,12 @@
       }, 0);
     };
     const resumePomodoroScheduler = (): void => {
-      if (document.visibilityState === "visible") activeBlockScheduler?.resume();
+      if (document.visibilityState !== "visible") return;
+      activeBlockScheduler?.resume();
+      void calendarNotificationScheduler?.reconcile();
+      void calendarNotificationScheduler?.takeAction().then((eventId) => {
+        if (eventId) navigate("calendar");
+      });
     };
     syncNestedRoute();
     window.addEventListener("hashchange", syncNestedRoute);
@@ -494,11 +529,19 @@
       activeBlockSchedulerDisposed = true;
       activeBlockScheduler?.dispose();
       activeBlockScheduler = null;
+      calendarNotificationSchedulerDisposed = true;
+      calendarNotificationScheduler = null;
     };
   });
 
   $effect(() => {
     void backListenerController.setEnabled(shouldInterceptSystemBack);
+  });
+
+  $effect(() => {
+    const _calendarVersion = calendar.indexVersion;
+    if (!backendReady || !calendar.loaded) return;
+    void calendarNotificationScheduler?.reconcile();
   });
 
   $effect(() => {

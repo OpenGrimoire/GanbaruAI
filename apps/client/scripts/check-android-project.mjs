@@ -29,6 +29,17 @@ async function readAndroidBytes(relativePath) {
   }
 }
 
+/** Read one client source file outside the generated Android project. */
+async function readClientFile(relativePath) {
+  const filePath = path.join(clientDir, relativePath);
+  try {
+    return await readFile(filePath, "utf8");
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    throw new Error(`read client ${relativePath}: ${message}`);
+  }
+}
+
 /** Require a literal generated-project contract. */
 function requireText(source, expected, label, failures) {
   if (!source.includes(expected)) failures.push(`${label} must contain ${JSON.stringify(expected)}`);
@@ -58,6 +69,11 @@ const [
   backupRules,
   extractionRules,
   launcherIcon,
+  notificationIcon,
+  androidConfigSource,
+  androidCapability,
+  mobileNotificationManifest,
+  mobileNotificationPluginRoot,
 ] =
   await Promise.all([
     readAndroidFile("build.gradle.kts"),
@@ -73,9 +89,70 @@ const [
     readAndroidFile("app/src/main/res/xml/backup_rules.xml"),
     readAndroidFile("app/src/main/res/xml/data_extraction_rules.xml"),
     readAndroidBytes("app/src/main/res/mipmap-xxxhdpi/ic_launcher.png"),
+    readAndroidFile("app/src/main/res/drawable/ic_notification_calendar.xml"),
+    readClientFile("src-tauri/tauri.android.conf.json"),
+    readClientFile("src-tauri/capabilities/android.json"),
+    readClientFile(
+      "../../crates/ganbaru-mobile-notifications/android/src/main/AndroidManifest.xml",
+    ),
+    readClientFile("../../crates/ganbaru-mobile-notifications/src/lib.rs"),
   ]);
 
 const failures = [];
+const androidConfig = JSON.parse(androidConfigSource);
+const androidCapabilityConfig = JSON.parse(androidCapability);
+const androidCapabilityPermissions = androidCapabilityConfig.permissions.filter(
+  (permission) => typeof permission === "string",
+);
+
+if (androidConfig.plugins?.notification !== undefined) {
+  failures.push(
+    "Android Tauri config must not configure the notification plugin because its Rust setup expects unit configuration",
+  );
+}
+if (androidCapabilityPermissions.includes("notification:allow-create-channel")) {
+  failures.push("Android capability must keep Calendar channel creation behind the native adapter");
+}
+for (const expected of [
+  "notification:allow-is-permission-granted",
+  "notification:allow-request-permission",
+  "ganbaru-mobile-notifications:allow-showCalendarTestNotification",
+  "ganbaru-mobile-notifications:allow-calendarChannelStatus",
+  "ganbaru-mobile-notifications:allow-scheduleCalendarNotifications",
+  "ganbaru-mobile-notifications:allow-pendingCalendarNotifications",
+  "ganbaru-mobile-notifications:allow-cancelCalendarNotifications",
+  "ganbaru-mobile-notifications:allow-takeCalendarNotificationAction",
+]) {
+  if (!androidCapabilityPermissions.includes(expected)) {
+    failures.push(`Android capability must include ${JSON.stringify(expected)}`);
+  }
+}
+for (const expected of [
+  'const PLUGIN_NAME: &str = "ganbaru-mobile-notifications";',
+  "tauri::plugin::Builder::new(PLUGIN_NAME)",
+]) {
+  requireText(
+    mobileNotificationPluginRoot,
+    expected,
+    "mobile notification runtime plugin identifier",
+    failures,
+  );
+}
+for (const expected of [
+  "android.permission.SCHEDULE_EXACT_ALARM",
+  "android.permission.RECEIVE_BOOT_COMPLETED",
+  "android.intent.action.BOOT_COMPLETED",
+  "android.intent.action.MY_PACKAGE_REPLACED",
+  'android:exported="false"',
+]) {
+  requireText(mobileNotificationManifest, expected, "mobile notification manifest", failures);
+}
+rejectText(
+  mobileNotificationManifest,
+  'android:exported="true"',
+  "mobile notification manifest",
+  failures,
+);
 
 requireText(rootBuild, 'classpath("com.android.tools.build:gradle:8.11.0")', "root build", failures);
 requireText(
@@ -132,6 +209,13 @@ const launcherIconSha256 = createHash("sha256").update(launcherIcon).digest("hex
 if (launcherIconSha256 !== "158362b7787a594e4bb007281d89bd9f0575e5c583ddbfa9c9398621f4828055") {
   failures.push("xxxhdpi launcher icon must be regenerated from the Ganbaru AI icon manifest");
 }
+
+requireText(
+  notificationIcon,
+  'android:pathData="M19,4h-1V2h-2v2H8V2H6v2H5',
+  "Calendar notification icon",
+  failures,
+);
 
 for (const expected of [
   "enableEdgeToEdge()",

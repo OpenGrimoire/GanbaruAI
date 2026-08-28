@@ -55,7 +55,7 @@
       "maxSourceModules": 252
     }
   ],
-  "maxTotalSourceModules": 943,
+  "maxTotalSourceModules": 945,
   "requiredMobileModules": [
     "src/main.ts",
     "src/main-mobile.ts",
@@ -78,6 +78,7 @@
     "src/lib/components/pomodoro/PomodoroMenuContent.svelte",
     "src/lib/components/pomodoro/PomodoroProgressRing.svelte",
     "src/lib/stores/pomodoro-calendar-scheduler.ts",
+    "src/lib/scheduling/mobile-calendar-notifications.ts",
     "src/lib/components/settings/SettingsModal.svelte",
     "src/lib/components/settings/SettingsSectionRenderer.mobile.svelte",
     "src/lib/components/settings/mobile/MobileSettingsStatus.svelte",

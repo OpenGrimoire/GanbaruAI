@@ -2,8 +2,8 @@
 
 use crate::{
     calendar_events, calendar_import, calendar_reads, calendars, chat, db_path, media_player,
-    music, notes, pomodoro, profile_images, project_icons, projects, quick_notes, recurrence,
-    themes, vault,
+    mobile_notification_capabilities, music, notes, pomodoro, profile_images, project_icons,
+    projects, quick_notes, recurrence, themes, vault,
 };
 
 /// Run the mobile application without desktop-only processes or lifecycle hooks.
@@ -13,8 +13,10 @@ pub fn run(context: tauri::Context<tauri::Wry>) {
     let builder = tauri::Builder::default().plugin(tauri_plugin_opener::init());
     #[cfg(target_os = "android")]
     let builder = builder
+        .plugin(tauri_plugin_notification::init())
         .plugin(ganbaru_mobile_documents::init())
-        .plugin(ganbaru_mobile_media::init());
+        .plugin(ganbaru_mobile_media::init())
+        .plugin(ganbaru_mobile_notifications::init());
     #[cfg(target_os = "ios")]
     let builder = builder
         .plugin(tauri_plugin_dialog::init())
@@ -138,6 +140,11 @@ pub fn run(context: tauri::Context<tauri::Wry>) {
             music::library::commands::music_library_upsert_source_collection,
             calendar_reads::calendar_load_window,
             calendar_reads::calendar_load_pomodoro_scheduler_window,
+            calendar_reads::calendar_load_notification_scheduler_window,
+            mobile_notification_capabilities::mobile_notification_ensure_calendar_channel,
+            mobile_notification_capabilities::mobile_notification_exact_alarm_status,
+            mobile_notification_capabilities::mobile_notification_open_exact_alarm_settings,
+            mobile_notification_capabilities::mobile_notification_open_settings,
             calendar_reads::calendar_load_panel_event,
             calendar_reads::calendar_load_full_event,
             calendar_reads::calendar_list_event_ids_for_calendar,
