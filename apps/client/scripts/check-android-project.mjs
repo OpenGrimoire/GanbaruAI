@@ -69,7 +69,8 @@ const [
   backupRules,
   extractionRules,
   launcherIcon,
-  notificationIcon,
+  calendarNotificationIcon,
+  pomodoroNotificationIcon,
   androidConfigSource,
   androidCapability,
   mobileNotificationManifest,
@@ -95,6 +96,9 @@ const [
     readAndroidFile("app/src/main/res/xml/data_extraction_rules.xml"),
     readAndroidBytes("app/src/main/res/mipmap-xxxhdpi/ic_launcher.png"),
     readAndroidFile("app/src/main/res/drawable/ic_notification_calendar.xml"),
+    readClientFile(
+      "../../crates/ganbaru-mobile-notifications/android/src/main/res/drawable/ic_notification_focus.xml",
+    ),
     readClientFile("src-tauri/tauri.android.conf.json"),
     readClientFile("src-tauri/capabilities/android.json"),
     readClientFile(
@@ -135,6 +139,9 @@ for (const expected of [
   "ganbaru-mobile-notifications:allow-pendingCalendarNotifications",
   "ganbaru-mobile-notifications:allow-cancelCalendarNotifications",
   "ganbaru-mobile-notifications:allow-takeCalendarNotificationAction",
+  "ganbaru-mobile-notifications:allow-updatePomodoroNotification",
+  "ganbaru-mobile-notifications:allow-pomodoroNotificationState",
+  "ganbaru-mobile-notifications:allow-cancelPomodoroNotification",
 ]) {
   if (!androidCapabilityPermissions.includes(expected)) {
     failures.push(`Android capability must include ${JSON.stringify(expected)}`);
@@ -156,6 +163,7 @@ for (const expected of [
   "android.permission.RECEIVE_BOOT_COMPLETED",
   "android.intent.action.BOOT_COMPLETED",
   "android.intent.action.MY_PACKAGE_REPLACED",
+  ".PomodoroNotificationReceiver",
   'android:exported="false"',
 ]) {
   requireText(mobileNotificationManifest, expected, "mobile notification manifest", failures);
@@ -253,9 +261,15 @@ if (launcherIconSha256 !== "158362b7787a594e4bb007281d89bd9f0575e5c583ddbfa9c939
 }
 
 requireText(
-  notificationIcon,
+  calendarNotificationIcon,
   'android:pathData="M19,4h-1V2h-2v2H8V2H6v2H5',
   "Calendar notification icon",
+  failures,
+);
+requireText(
+  pomodoroNotificationIcon,
+  'android:pathData="M12,2A10,10 0,1 0,22 12A10,10 0,0 0,12 2',
+  "Pomodoro notification icon",
   failures,
 );
 

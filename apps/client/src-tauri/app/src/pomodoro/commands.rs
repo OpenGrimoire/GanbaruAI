@@ -366,7 +366,8 @@ pub(super) async fn pomodoro_recover_mobile_run<R: Runtime>(
     app: AppHandle<R>,
     db_url: String,
     now_at: String,
+    native_projection: Option<PomodoroNativeProjectionWrite>,
 ) -> Result<PomodoroMobileRecoveryRead, String> {
     let pool = connect_sqlite(app, db_url).await?;
-    super::recovery::recover_mobile_run_from_pool(&pool, &now_at).await
+    super::recovery::recover_mobile_run_from_pool(&pool, &now_at, native_projection.as_ref()).await
 }

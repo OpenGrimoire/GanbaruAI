@@ -32,3 +32,17 @@ export const pomodoroOverlay = {
   extendBreakHint: (shortcut: string) => `Press ${shortcut} to extend the break`,
   endBreakHint: (shortcut: string) => `Press ${shortcut} to end your break now`,
 } as const;
+
+export const pomodoroNotification = {
+  channelName: "Focus sessions",
+  channelDescription: "Persistent progress for active focus sessions",
+  alertsChannelName: "Focus alerts",
+  alertsChannelDescription: "Alerts when focus and break phases end",
+  focusTitle: "Focus",
+  shortBreakTitle: "Short break",
+  longBreakTitle: "Long break",
+  pausedText: "Paused",
+  focusCompleteTitle: "Focus complete",
+  breakCompleteTitle: "Break complete",
+  sessionCompleteText: "Session complete",
+} as const;

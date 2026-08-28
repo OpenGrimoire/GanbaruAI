@@ -48,6 +48,8 @@ import {
   applyRecoveredMobileRun,
   type PomodoroMobileRecoveryResult,
 } from "./pomodoro-mobile-recovery";
+import { getLocalization } from "$lib/i18n/translator.svelte";
+import { buildMobilePomodoroNotificationState } from "./pomodoro-mobile-notification";
 import { isAdaptiveCountConfig } from "./pomodoro-adaptive-decisions";
 import { BUILD_PLATFORM_PROFILE, platformHasCapability } from "$lib/platform";
 import {
@@ -67,6 +69,7 @@ const desktopPomodoroEffectsAvailable = platformHasCapability(
   BUILD_PLATFORM_PROFILE,
   "runtime.desktop-pomodoro-effects",
 );
+const localization = getLocalization();
 
 const DEFAULT_FOCUS_SECONDS = focusDurationMinutesAtPosition(DEFAULT_CONFIG, 1) * TIME_MULTIPLIER;
 
@@ -85,6 +88,7 @@ let notificationShown = false;
 let focusExtensionUsed = false;
 let phaseEndTime: number | null = null;
 let activeBlockId = $state<string | null>(null);
+let activeBlockTitle = $state<string | null>(null);
 let activeRunId = $state<string | null>(null);
 let activeBlockEndMs = $state<number | null>(null);
 let dismissedBlockId = $state<string | null>(null);
@@ -147,6 +151,8 @@ const runtime: PomodoroRuntime = {
   set phaseEndTime(value) { phaseEndTime = value; },
   get activeBlockId() { return activeBlockId; },
   set activeBlockId(value) { activeBlockId = value; },
+  get activeBlockTitle() { return activeBlockTitle; },
+  set activeBlockTitle(value) { activeBlockTitle = value; },
   get activeRunId() { return activeRunId; },
   set activeRunId(value) { activeRunId = value; },
   get activeBlockEndMs() { return activeBlockEndMs; },
@@ -338,6 +344,33 @@ const effects = createPomodoroEffects({
   canAddFocusTime: () => canExtendFocusTime(),
   pausedFocusPulseActive,
   desktopIntegrationsAvailable: () => desktopPomodoroEffectsAvailable,
+  mobileNotificationState: () => buildMobilePomodoroNotificationState({
+    activeRunId,
+    activeBlockId,
+    activeBlockTitle,
+    activeBlockEndMs,
+    phaseEndTime,
+    remainingSeconds,
+    totalSeconds: phaseTotalSeconds,
+    isRunning,
+    skipNextBreak,
+    config,
+    segments,
+    currentSegmentIndex,
+    copy: {
+      channelName: localization.t("pomodoroNotification.channelName"),
+      channelDescription: localization.t("pomodoroNotification.channelDescription"),
+      alertsChannelName: localization.t("pomodoroNotification.alertsChannelName"),
+      alertsChannelDescription: localization.t("pomodoroNotification.alertsChannelDescription"),
+      focusTitle: localization.t("pomodoroNotification.focusTitle"),
+      shortBreakTitle: localization.t("pomodoroNotification.shortBreakTitle"),
+      longBreakTitle: localization.t("pomodoroNotification.longBreakTitle"),
+      pausedText: localization.t("pomodoroNotification.pausedText"),
+      focusCompleteTitle: localization.t("pomodoroNotification.focusCompleteTitle"),
+      breakCompleteTitle: localization.t("pomodoroNotification.breakCompleteTitle"),
+      sessionCompleteText: localization.t("pomodoroNotification.sessionCompleteText"),
+    },
+  }),
   notificationShown: () => notificationShown,
   setNotificationShown: (value) => {
     notificationShown = value;
@@ -383,6 +416,12 @@ const segmentController = createPomodoroSegmentController({
   },
   set activeBlockId(value) {
     activeBlockId = value;
+  },
+  get activeBlockTitle() {
+    return activeBlockTitle;
+  },
+  set activeBlockTitle(value) {
+    activeBlockTitle = value;
   },
   get activeRunId() {
     return activeRunId;
@@ -481,6 +520,12 @@ const idleController = createPomodoroIdleController({
   },
   set activeBlockId(value) {
     activeBlockId = value;
+  },
+  get activeBlockTitle() {
+    return activeBlockTitle;
+  },
+  set activeBlockTitle(value) {
+    activeBlockTitle = value;
   },
   get dismissedBlockId() {
     return dismissedBlockId;
@@ -1136,6 +1181,7 @@ export function getPomodoro() {
     async startFromBlock(
       blockId: string,
       blockConfig: PomodoroConfig,
+      eventTitle?: string | null,
       eventEnd?: string,
       eventDate?: string,
       blockIdleTimeoutMinutes?: number | null,
@@ -1146,6 +1192,7 @@ export function getPomodoro() {
         kind: "start-from-block",
         blockId,
         blockConfig,
+        eventTitle,
         eventEnd,
         eventDate,
         blockIdleTimeoutMinutes,
@@ -1155,6 +1202,7 @@ export function getPomodoro() {
       await startFromBlockInternal(
         blockId,
         blockConfig,
+        eventTitle,
         eventEnd,
         eventDate,
         blockIdleTimeoutMinutes,

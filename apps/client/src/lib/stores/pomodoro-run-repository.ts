@@ -240,8 +240,18 @@ export function createPomodoroRunRepository(
     },
 
     async recoverMobileRun() {
-      const response: unknown = await invoke("pomodoro_recover_mobile_run", {
+      const nativeState = await invoke<unknown>(
+        "plugin:ganbaru-mobile-notifications|pomodoroNotificationState",
+      ).catch(() => null);
+      const nativeProjection = typeof nativeState === "object"
+        && nativeState !== null
+        && "active" in nativeState
+        && nativeState.active === true
+        ? nativeState
+        : null;
+      const response = await invoke<unknown>("pomodoro_recover_mobile_run", {
         dbUrl: dbUrl(),
+        nativeProjection,
       });
       const result = parsePomodoroMobileRecoveryResult(response);
       if (result.kind === "closed") dependencies.completeWrite();

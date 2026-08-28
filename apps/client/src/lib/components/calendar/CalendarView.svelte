@@ -1141,6 +1141,7 @@
     await pomodoro.startFromBlock(
       activeId,
       config,
+      event.title,
       event.end,
       event.start.split(" ")[0],
       config.idleTimeoutMinutes,

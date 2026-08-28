@@ -33,6 +33,7 @@ export type PomodoroMobileRecoveryResult =
 export interface PomodoroRecoveredMobileRun {
   runId: string;
   blockId: string;
+  eventTitle: string | null;
   eventDate: string;
   plannedEnd: string;
   startedAt: string;
@@ -256,6 +257,7 @@ function parseRecoveredRun(value: unknown): PomodoroRecoveredMobileRun | null {
   if (
     !isNonEmptyString(value.runId)
     || !isNonEmptyString(value.blockId)
+    || (value.eventTitle !== null && typeof value.eventTitle !== "string")
     || !isNonEmptyString(value.eventDate)
     || !isTimestamp(value.plannedEnd)
     || !isTimestamp(value.startedAt)
@@ -307,6 +309,7 @@ function parseRecoveredRun(value: unknown): PomodoroRecoveredMobileRun | null {
   return {
     runId: value.runId,
     blockId: value.blockId,
+    eventTitle: value.eventTitle,
     eventDate: value.eventDate,
     plannedEnd: value.plannedEnd,
     startedAt: value.startedAt,
@@ -393,6 +396,7 @@ export function applyRecoveredMobileRun(
     ? nowMs + recovered.remainingSeconds * 1_000
     : null;
   runtime.activeBlockId = recovered.blockId;
+  runtime.activeBlockTitle = recovered.eventTitle;
   runtime.activeRunId = recovered.runId;
   runtime.activeBlockEndMs = blockEndMs;
   runtime.dismissedBlockId = null;

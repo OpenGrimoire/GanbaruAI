@@ -19,6 +19,7 @@ interface PomodoroCommandContext {
   startFromBlock(
     blockId: string,
     blockConfig: PomodoroConfig,
+    eventTitle?: string | null,
     eventEnd?: string,
     eventDate?: string,
     blockIdleTimeoutMinutes?: number | null,
@@ -83,6 +84,7 @@ export function createPomodoroCommandController(
         void context.startFromBlock(
           command.blockId,
           command.blockConfig,
+          command.eventTitle,
           command.eventEnd,
           command.eventDate,
           command.blockIdleTimeoutMinutes,

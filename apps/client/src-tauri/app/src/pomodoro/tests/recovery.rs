@@ -169,16 +169,20 @@ fn mobile_recovery_resumes_a_valid_running_phase_from_persisted_work_time() {
             .unwrap();
         tx.commit().await.unwrap();
 
-        let result =
-            super::super::recovery::recover_mobile_run_from_pool(&pool, "2026-05-29T10:10:00Z")
-                .await
-                .unwrap();
+        let result = super::super::recovery::recover_mobile_run_from_pool(
+            &pool,
+            "2026-05-29T10:10:00Z",
+            None,
+        )
+        .await
+        .unwrap();
         let PomodoroMobileRecoveryRead::Resumed { run } = result else {
             panic!("expected resumable mobile pomodoro run");
         };
 
         assert_eq!(run.run_id, "run-1");
         assert_eq!(run.block_id, "event-1");
+        assert_eq!(run.event_title.as_deref(), Some("Focus block"));
         assert_eq!(run.segment.id, "segment-1");
         assert_eq!(run.phase_elapsed_seconds, 600);
         assert_eq!(run.phase_work_duration_seconds, 2_400);
@@ -231,10 +235,13 @@ fn mobile_recovery_preserves_a_paused_phase_without_counting_time_away() {
             .unwrap();
         tx.commit().await.unwrap();
 
-        let result =
-            super::super::recovery::recover_mobile_run_from_pool(&pool, "2026-05-29T10:20:00Z")
-                .await
-                .unwrap();
+        let result = super::super::recovery::recover_mobile_run_from_pool(
+            &pool,
+            "2026-05-29T10:20:00Z",
+            None,
+        )
+        .await
+        .unwrap();
         let PomodoroMobileRecoveryRead::Resumed { run } = result else {
             panic!("expected paused mobile pomodoro run");
         };
@@ -273,10 +280,13 @@ fn mobile_recovery_closes_an_expired_phase_at_its_proven_deadline() {
             .unwrap();
         tx.commit().await.unwrap();
 
-        let result =
-            super::super::recovery::recover_mobile_run_from_pool(&pool, "2026-05-29T10:45:00Z")
-                .await
-                .unwrap();
+        let result = super::super::recovery::recover_mobile_run_from_pool(
+            &pool,
+            "2026-05-29T10:45:00Z",
+            None,
+        )
+        .await
+        .unwrap();
         let PomodoroMobileRecoveryRead::Closed {
             reason,
             closed_run_ids,
@@ -304,6 +314,100 @@ fn mobile_recovery_closes_an_expired_phase_at_its_proven_deadline() {
             "2026-05-29T10:40:00.000Z"
         );
         assert_eq!(row.get::<String, _>("segment_end_reason"), "crash_recovery");
+    });
+}
+
+#[test]
+fn mobile_recovery_replays_native_boundaries_after_the_app_process_stops() {
+    tauri::async_runtime::block_on(async {
+        let pool = migrated_pool_with_event().await;
+        let mut tx = pool.begin().await.unwrap();
+        insert_run_tx(
+            &mut tx,
+            &run_write(PomodoroRunRhythm::Count {
+                focus_duration_minutes: 40,
+                short_break_minutes: 5,
+                long_break_minutes: 10,
+                long_break_after_focus_count: 4,
+            }),
+            &initial_segment(),
+        )
+        .await
+        .unwrap();
+        tx.commit().await.unwrap();
+
+        let epoch = |value: &str| {
+            chrono::DateTime::parse_from_rfc3339(value)
+                .unwrap()
+                .timestamp_millis()
+        };
+        let projection = PomodoroNativeProjectionWrite {
+            run_id: "run-1".to_string(),
+            event_id: "event-1".to_string(),
+            event_date: "2026-05-29".to_string(),
+            event_ends_at_epoch_ms: epoch("2026-05-29T11:00:00Z"),
+            generated_at_epoch_ms: epoch("2026-05-29T10:10:00Z"),
+            is_running: true,
+            remaining_seconds: 1_800,
+            total_seconds: 2_400,
+            phases: vec![
+                PomodoroNativeProjectionPhaseWrite {
+                    id: "segment-1".to_string(),
+                    phase: "focus".to_string(),
+                    rhythm_position: 1,
+                    starts_at_epoch_ms: epoch("2026-05-29T10:00:00Z"),
+                    ends_at_epoch_ms: epoch("2026-05-29T10:40:00Z"),
+                },
+                PomodoroNativeProjectionPhaseWrite {
+                    id: "segment-2".to_string(),
+                    phase: "short_break".to_string(),
+                    rhythm_position: 1,
+                    starts_at_epoch_ms: epoch("2026-05-29T10:40:00Z"),
+                    ends_at_epoch_ms: epoch("2026-05-29T10:45:00Z"),
+                },
+                PomodoroNativeProjectionPhaseWrite {
+                    id: "segment-3".to_string(),
+                    phase: "focus".to_string(),
+                    rhythm_position: 2,
+                    starts_at_epoch_ms: epoch("2026-05-29T10:45:00Z"),
+                    ends_at_epoch_ms: epoch("2026-05-29T11:00:00Z"),
+                },
+            ],
+        };
+
+        let result = super::super::recovery::recover_mobile_run_from_pool(
+            &pool,
+            "2026-05-29T10:47:00Z",
+            Some(&projection),
+        )
+        .await
+        .unwrap();
+        let PomodoroMobileRecoveryRead::Resumed { run } = result else {
+            panic!("expected native projection recovery to resume");
+        };
+
+        assert_eq!(run.segment.id, "segment-3");
+        assert_eq!(run.segment.phase, "focus");
+        assert_eq!(run.segment.rhythm_position, 2);
+        assert_eq!(run.phase_elapsed_seconds, 120);
+        assert_eq!(run.remaining_seconds, 780);
+        assert_eq!(run.completed_focus_count, 1);
+
+        let rows = sqlx::query(
+            "SELECT id, phase, status, end_reason
+             FROM pomodoro_segments
+             WHERE run_id = 'run-1'
+             ORDER BY actual_start, id",
+        )
+        .fetch_all(&pool)
+        .await
+        .unwrap();
+        assert_eq!(rows.len(), 3);
+        assert_eq!(rows[0].get::<String, _>("status"), "completed");
+        assert_eq!(rows[1].get::<String, _>("phase"), "short_break");
+        assert_eq!(rows[1].get::<String, _>("status"), "completed");
+        assert_eq!(rows[2].get::<String, _>("status"), "active");
+        assert_eq!(rows[2].get::<Option<String>, _>("end_reason"), None);
     });
 }
 
@@ -339,10 +443,13 @@ fn mobile_recovery_closes_a_paused_run_when_its_event_window_expired() {
             .unwrap();
         tx.commit().await.unwrap();
 
-        let result =
-            super::super::recovery::recover_mobile_run_from_pool(&pool, "2026-05-29T11:05:00Z")
-                .await
-                .unwrap();
+        let result = super::super::recovery::recover_mobile_run_from_pool(
+            &pool,
+            "2026-05-29T11:05:00Z",
+            None,
+        )
+        .await
+        .unwrap();
         let PomodoroMobileRecoveryRead::Closed { reason, .. } = result else {
             panic!("expected expired event closure");
         };
@@ -394,10 +501,13 @@ fn mobile_recovery_closes_all_runs_when_the_single_run_invariant_is_broken() {
             .unwrap();
         tx.commit().await.unwrap();
 
-        let result =
-            super::super::recovery::recover_mobile_run_from_pool(&pool, "2026-05-29T10:10:00Z")
-                .await
-                .unwrap();
+        let result = super::super::recovery::recover_mobile_run_from_pool(
+            &pool,
+            "2026-05-29T10:10:00Z",
+            None,
+        )
+        .await
+        .unwrap();
         let PomodoroMobileRecoveryRead::Closed {
             reason,
             closed_run_ids,
@@ -444,10 +554,13 @@ fn mobile_recovery_closes_a_rhythm_snapshot_the_frontend_cannot_restore() {
         .unwrap();
         tx.commit().await.unwrap();
 
-        let result =
-            super::super::recovery::recover_mobile_run_from_pool(&pool, "2026-05-29T10:10:00Z")
-                .await
-                .unwrap();
+        let result = super::super::recovery::recover_mobile_run_from_pool(
+            &pool,
+            "2026-05-29T10:10:00Z",
+            None,
+        )
+        .await
+        .unwrap();
         let PomodoroMobileRecoveryRead::Closed { reason, .. } = result else {
             panic!("expected invalid rhythm closure");
         };

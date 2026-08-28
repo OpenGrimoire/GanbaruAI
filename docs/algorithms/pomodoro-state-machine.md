@@ -200,13 +200,15 @@ Android cold startup performs one typed reconciliation transaction before Calend
 1. No open run returns `none` without changing history.
 2. Multiple open runs violate the single-open-run invariant. Recovery closes all of them as interrupted with reason `multiple_open_runs`.
 3. One open run is resumable only when its run window, live event reference, rhythm snapshot, settings, timestamps, single active segment, and pause chronology are all valid. Invalid state closes as interrupted with reason `invalid_state`.
-4. If the calendar event window has expired, recovery closes the run at its persisted event deadline as completed with reason `run_window_expired`.
-5. If a valid active phase still has work and event time remaining, recovery returns `resumed`. Running elapsed time is derived from the active segment's actual start minus closed pauses. An open pause remains paused and time away does not count. Visible remaining time is capped by both the phase and event deadlines.
-6. If the active phase expired while no native boundary adapter was available, recovery closes the run as interrupted at the proven phase deadline with reason `phase_expired`. It does not invent unobserved phase transitions. Once native notification or alarm boundaries are implemented, reconciliation may deterministically apply recorded boundary deliveries and advance the plan.
+4. A matching Android projection is accepted only when its bounded run, event, event date, event deadline, generated timestamp, unique segment identifiers, rhythm positions, phases, durations, and contiguous boundaries validate against the open SQLite run. The first projected phase must match the single active segment and its proven deadline. Invalid projection data is ignored.
+5. If a valid native projection proves that one or more boundaries elapsed, recovery completes and inserts those segments in the same transaction, records phase completion and start events, then rechecks the resulting single active segment. Replaying the same startup cannot duplicate those writes because the original active segment no longer matches the projection's first phase.
+6. If the calendar event window has expired, recovery closes the run at its persisted event deadline as completed with reason `run_window_expired`. A valid native projection is replayed first so completed background phases remain in history.
+7. If a valid active phase still has work and event time remaining, recovery returns `resumed`. Running elapsed time is derived from the active segment's actual start minus closed pauses. An open pause remains paused and time away does not count. Visible remaining time is capped by both the phase and event deadlines.
+8. If the active phase expired without a valid matching native projection, recovery closes the run as interrupted at the proven phase deadline with reason `phase_expired`. It does not invent unobserved phase transitions.
 
 The transaction either returns a validated in-memory snapshot or closes unsafe persisted state. Closure updates the run, active segment, pauses, and audit event together. Repeating recovery sees no open rows after a closure, while a resumed row remains open and can be reconstructed again after another process eviction.
 
-This policy resumes an existing open row in place. It never closes and then reopens history. It preserves a still-valid Android timer without claiming that focus continued across an expired phase or malformed state.
+This policy resumes an existing open row in place. It never closes and then reopens history. It preserves a valid Android timer across Activity and process removal without claiming that focus continued across an expired phase, malformed state, or mismatched native projection.
 
 ### External tools and recovery
 

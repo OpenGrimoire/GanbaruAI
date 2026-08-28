@@ -47,6 +47,7 @@ describe("Pomodoro calendar scheduler", () => {
       expect(startFromBlock).toHaveBeenCalledWith(
         event.id,
         event.pomodoroConfig,
+        event.title,
         event.end,
         "2026-08-26",
         event.pomodoroConfig?.idleTimeoutMinutes,

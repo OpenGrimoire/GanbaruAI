@@ -8,6 +8,9 @@
             android:name=".CalendarNotificationReceiver"
             android:exported="false" />
         <receiver
+            android:name=".PomodoroNotificationReceiver"
+            android:exported="false" />
+        <receiver
             android:name=".CalendarNotificationRestoreReceiver"
             android:directBootAware="false"
             android:exported="false">

@@ -56,6 +56,7 @@ interface PomodoroSegmentControllerContext {
   config: PomodoroConfig;
   isRunning: boolean;
   activeBlockId: string | null;
+  activeBlockTitle: string | null;
   activeRunId: string | null;
   activeBlockEndMs: number | null;
   idleTimeoutMs: number | null;
@@ -325,7 +326,7 @@ export function createPomodoroSegmentController(
       idleTimeoutMinutes: context.idleTimeoutMs === null
         ? null
         : Math.round(context.idleTimeoutMs / 60000),
-      eventTitleSnapshot: null,
+      eventTitleSnapshot: context.activeBlockTitle,
       inheritedFocusMinutes,
       inheritedRhythmPosition,
       inheritedFromRunId,

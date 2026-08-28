@@ -31,6 +31,7 @@ interface PomodoroCalendarRuntime {
   startFromBlock(
     blockId: string,
     config: PomodoroConfig,
+    eventTitle: string | null,
     eventEnd: string,
     eventDate: string,
     idleTimeoutMinutes: number | null,
@@ -137,6 +138,7 @@ export function createPomodoroCalendarScheduler(
       await options.pomodoro.startFromBlock(
         activeBlock.id,
         config,
+        activeBlock.title,
         activeBlock.end,
         activeBlock.start.split(" ")[0],
         config.idleTimeoutMinutes,

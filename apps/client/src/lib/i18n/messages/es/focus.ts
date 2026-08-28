@@ -1,4 +1,8 @@
-import type { focusDialog as enFocusDialog, pomodoroOverlay as enPomodoroOverlay } from "../en/focus";
+import type {
+  focusDialog as enFocusDialog,
+  pomodoroNotification as enPomodoroNotification,
+  pomodoroOverlay as enPomodoroOverlay,
+} from "../en/focus";
 import type { MessageShape } from "../types";
 
 export const focusDialog = {
@@ -35,3 +39,17 @@ export const pomodoroOverlay = {
   extendBreakHint: (shortcut: string) => `Pulsa ${shortcut} para extender el descanso`,
   endBreakHint: (shortcut: string) => `Pulsa ${shortcut} para terminar tu descanso ahora`,
 } as const satisfies MessageShape<typeof enPomodoroOverlay>;
+
+export const pomodoroNotification = {
+  channelName: "Sesiones de enfoque",
+  channelDescription: "Progreso persistente de las sesiones de enfoque activas",
+  alertsChannelName: "Alertas de enfoque",
+  alertsChannelDescription: "Alertas cuando terminan las fases de enfoque y descanso",
+  focusTitle: "Enfoque",
+  shortBreakTitle: "Descanso corto",
+  longBreakTitle: "Descanso largo",
+  pausedText: "En pausa",
+  focusCompleteTitle: "Enfoque completado",
+  breakCompleteTitle: "Descanso completado",
+  sessionCompleteText: "Sesión completada",
+} as const satisfies MessageShape<typeof enPomodoroNotification>;

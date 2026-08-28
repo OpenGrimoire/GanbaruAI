@@ -131,6 +131,10 @@ The blocker state follows the active Pomodoro phase:
 
 The extension should receive explicit state updates from the app. It should not infer Pomodoro phase from wall-clock time alone.
 
+Android enforcement must not depend on the Activity, WebView, or a JavaScript heartbeat remaining alive. When mobile enforcement is implemented, the authorized native subsystem receives the same bounded persisted Pomodoro phase projection used by Android timer alarms and evaluates scheduled boundaries itself. Reboot and package replacement restore only still-valid rules. Cold app startup reconciles native delivery state back into SQLite. Force stop remains an operating-system override: Android intentionally suppresses the app's alarms, receivers, and services until the user opens the app again, and Ganbaru AI must not claim otherwise.
+
+The timer projection alone grants no blocking authority. Mobile usage awareness still requires deliberate Usage Access. Domain filtering still requires an explicitly disclosed local VPN, and any stronger device-owner path requires its own enrollment and policy design. The mobile subsystem must fail open when its permission or validated rule snapshot is unavailable, while reporting that protection is inactive the next time the app is visible.
+
 ## Rule model
 
 A blocker ruleset belongs to a work environment. A calendar event can use the environment as-is or carry per-event overrides. Overrides are evaluated only for that event and do not mutate the environment template.

@@ -10,6 +10,7 @@ function recoveredRun(overrides: Partial<PomodoroRecoveredMobileRun> = {}) {
   const run: PomodoroRecoveredMobileRun = {
     runId: "run-1",
     blockId: "event-1::2026-05-29",
+    eventTitle: "Write project brief",
     eventDate: "2026-05-29",
     plannedEnd: "2026-05-29T11:00:00.000Z",
     startedAt: "2026-05-29T10:00:00.000Z",
@@ -125,6 +126,7 @@ describe("mobile pomodoro recovery", () => {
 
     expect(runtime.activeRunId).toBe("run-1");
     expect(runtime.activeBlockId).toBe("event-1::2026-05-29");
+    expect(runtime.activeBlockTitle).toBe("Write project brief");
     expect(runtime.activeBlockEndMs).toBe(Date.parse(run.plannedEnd));
     expect(runtime.phase).toBe("focus");
     expect(runtime.remainingSeconds).toBe(1_800);

@@ -30,6 +30,7 @@ interface PomodoroIdleContext {
   phaseEndTime: number | null;
   activeBlockEndMs: number | null;
   activeBlockId: string | null;
+  activeBlockTitle: string | null;
   dismissedBlockId: string | null;
   activeRunId: string | null;
   config: PomodoroConfig;
@@ -396,6 +397,7 @@ export function createPomodoroIdleController(
       context.phaseEndTime = null;
       context.dismissedBlockId = context.activeBlockId;
       context.activeBlockId = null;
+      context.activeBlockTitle = null;
       context.activeBlockEndMs = null;
       context.lastTickMs = null;
       context.phase = "focus";

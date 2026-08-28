@@ -319,6 +319,18 @@
           "markdownDescription": "Denies the cancelCalendarNotifications command without any pre-configured scope."
         },
         {
+          "description": "Enables the cancelPomodoroNotification command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-cancelPomodoroNotification",
+          "markdownDescription": "Enables the cancelPomodoroNotification command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the cancelPomodoroNotification command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-cancelPomodoroNotification",
+          "markdownDescription": "Denies the cancelPomodoroNotification command without any pre-configured scope."
+        },
+        {
           "description": "Enables the ensureCalendarChannel command without any pre-configured scope.",
           "type": "string",
           "const": "allow-ensureCalendarChannel",
@@ -379,6 +391,18 @@
           "markdownDescription": "Denies the pendingCalendarNotifications command without any pre-configured scope."
         },
         {
+          "description": "Enables the pomodoroNotificationState command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-pomodoroNotificationState",
+          "markdownDescription": "Enables the pomodoroNotificationState command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the pomodoroNotificationState command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-pomodoroNotificationState",
+          "markdownDescription": "Denies the pomodoroNotificationState command without any pre-configured scope."
+        },
+        {
           "description": "Enables the scheduleCalendarNotifications command without any pre-configured scope.",
           "type": "string",
           "const": "allow-scheduleCalendarNotifications",
@@ -401,6 +425,18 @@
           "type": "string",
           "const": "deny-takeCalendarNotificationAction",
           "markdownDescription": "Denies the takeCalendarNotificationAction command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the updatePomodoroNotification command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-updatePomodoroNotification",
+          "markdownDescription": "Enables the updatePomodoroNotification command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the updatePomodoroNotification command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-updatePomodoroNotification",
+          "markdownDescription": "Denies the updatePomodoroNotification command without any pre-configured scope."
         }
       ]
     }

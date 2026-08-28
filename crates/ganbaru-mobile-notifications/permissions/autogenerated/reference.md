@@ -62,6 +62,32 @@ Denies the cancelCalendarNotifications command without any pre-configured scope.
 <tr>
 <td>
 
+`ganbaru-mobile-notifications:allow-cancelPomodoroNotification`
+
+</td>
+<td>
+
+Enables the cancelPomodoroNotification command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`ganbaru-mobile-notifications:deny-cancelPomodoroNotification`
+
+</td>
+<td>
+
+Denies the cancelPomodoroNotification command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
 `ganbaru-mobile-notifications:allow-ensureCalendarChannel`
 
 </td>
@@ -192,6 +218,32 @@ Denies the pendingCalendarNotifications command without any pre-configured scope
 <tr>
 <td>
 
+`ganbaru-mobile-notifications:allow-pomodoroNotificationState`
+
+</td>
+<td>
+
+Enables the pomodoroNotificationState command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`ganbaru-mobile-notifications:deny-pomodoroNotificationState`
+
+</td>
+<td>
+
+Denies the pomodoroNotificationState command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
 `ganbaru-mobile-notifications:allow-scheduleCalendarNotifications`
 
 </td>
@@ -237,6 +289,32 @@ Enables the takeCalendarNotificationAction command without any pre-configured sc
 <td>
 
 Denies the takeCalendarNotificationAction command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`ganbaru-mobile-notifications:allow-updatePomodoroNotification`
+
+</td>
+<td>
+
+Enables the updatePomodoroNotification command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`ganbaru-mobile-notifications:deny-updatePomodoroNotification`
+
+</td>
+<td>
+
+Denies the updatePomodoroNotification command without any pre-configured scope.
 
 </td>
 </tr>

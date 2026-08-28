@@ -13,6 +13,9 @@
     "ganbaru-mobile-notifications:allow-pendingCalendarNotifications",
     "ganbaru-mobile-notifications:allow-cancelCalendarNotifications",
     "ganbaru-mobile-notifications:allow-takeCalendarNotificationAction",
+    "ganbaru-mobile-notifications:allow-updatePomodoroNotification",
+    "ganbaru-mobile-notifications:allow-cancelPomodoroNotification",
+    "ganbaru-mobile-notifications:allow-pomodoroNotificationState",
     {
       "identifier": "opener:allow-open-url",
       "allow": [

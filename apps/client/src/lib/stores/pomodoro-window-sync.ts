@@ -20,6 +20,7 @@ export interface PomodoroWindowSnapshot {
   config: PomodoroConfig;
   completedPomodoros: number;
   activeBlockId: string | null;
+  activeBlockTitle: string | null;
   activeRunId: string | null;
   activeBlockEndMs: number | null;
   dismissedBlockId: string | null;
@@ -49,6 +50,7 @@ export type PomodoroWindowCommand =
   | {
       kind: "start-from-block";
       blockId: string;
+      eventTitle?: string | null;
       blockConfig: PomodoroConfig;
       eventEnd?: string;
       eventDate?: string;
@@ -190,6 +192,7 @@ export function isPomodoroWindowSnapshot(value: unknown): value is PomodoroWindo
     isPomodoroConfig(value.config) &&
     isNonNegativeNumber(value.completedPomodoros) &&
     isNullableString(value.activeBlockId) &&
+    isNullableString(value.activeBlockTitle) &&
     isNullableString(value.activeRunId) &&
     isNullableNumber(value.activeBlockEndMs) &&
     isNullableString(value.dismissedBlockId) &&
@@ -231,6 +234,7 @@ export function isPomodoroWindowCommand(value: unknown): value is PomodoroWindow
     case "start-from-block":
       return (
         typeof value.blockId === "string" &&
+        (value.eventTitle === undefined || isNullableString(value.eventTitle)) &&
         isPomodoroConfig(value.blockConfig) &&
         (value.eventEnd === undefined || typeof value.eventEnd === "string") &&
         (value.eventDate === undefined || typeof value.eventDate === "string") &&

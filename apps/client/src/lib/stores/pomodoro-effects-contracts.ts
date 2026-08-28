@@ -1,4 +1,5 @@
 import type { PomodoroPhase } from "@ganbaru-ai/shared-types";
+import type { MobilePomodoroNotificationState } from "./pomodoro-mobile-notification";
 
 export interface PomodoroTrayUpdateOptions {
   publishSnapshot?: boolean;
@@ -16,6 +17,7 @@ export interface PomodoroEffectsContext {
   canAddFocusTime(): boolean;
   pausedFocusPulseActive(): boolean;
   desktopIntegrationsAvailable(): boolean;
+  mobileNotificationState(): MobilePomodoroNotificationState | null;
   notificationShown(): boolean;
   setNotificationShown(value: boolean): void;
   publishWindowSnapshot(): void;

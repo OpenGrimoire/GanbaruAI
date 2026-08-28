@@ -83,11 +83,13 @@ describe("Pomodoro active block controller", () => {
     await createPomodoroActiveBlockController(context).startFromBlock(
       "block-1",
       DEFAULT_CONFIG,
+      "Write project brief",
       "2026-07-12 00:30:00",
       "2026-07-12",
     );
 
     expect(runtime.activeBlockId).toBe("block-1");
+    expect(runtime.activeBlockTitle).toBe("Write project brief");
     expect(runtime.isRunning).toBe(true);
     expect(runtime.phaseEndTime).toBe(1_000 + runtime.remainingSeconds * 1_000);
     expect(context.startVisualTick).toHaveBeenCalledOnce();

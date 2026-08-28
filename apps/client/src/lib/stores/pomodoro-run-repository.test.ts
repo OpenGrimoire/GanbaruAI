@@ -26,10 +26,37 @@ describe("Pomodoro run repository mobile recovery", () => {
 
     await expect(repository.recoverMobileRun())
       .resolves.toEqual({ kind: "none" });
-    expect(invokeMock).toHaveBeenCalledWith("pomodoro_recover_mobile_run", {
+    expect(invokeMock).toHaveBeenNthCalledWith(
+      1,
+      "plugin:ganbaru-mobile-notifications|pomodoroNotificationState",
+    );
+    expect(invokeMock).toHaveBeenNthCalledWith(2, "pomodoro_recover_mobile_run", {
       dbUrl: "sqlite:ganbaru-ai.sqlite",
+      nativeProjection: null,
     });
     expect(completeWrite).not.toHaveBeenCalled();
+  });
+
+  it("forwards an active native projection to transactional recovery", async () => {
+    const nativeProjection = {
+      active: true,
+      runId: "run-1",
+      phases: [],
+    };
+    invokeMock
+      .mockResolvedValueOnce(nativeProjection)
+      .mockResolvedValueOnce({ kind: "none" });
+    const repository = createPomodoroRunRepository({
+      endReasonForSegment: () => null,
+      completeWrite: vi.fn(),
+    });
+
+    await expect(repository.recoverMobileRun())
+      .resolves.toEqual({ kind: "none" });
+    expect(invokeMock).toHaveBeenNthCalledWith(2, "pomodoro_recover_mobile_run", {
+      dbUrl: "sqlite:ganbaru-ai.sqlite",
+      nativeProjection,
+    });
   });
 
   it("bumps persisted segment readers after recovery closes a run", async () => {

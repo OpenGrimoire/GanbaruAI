@@ -349,6 +349,7 @@ pub enum PomodoroMobileRecoveryRead {
 pub struct PomodoroRecoveredRunRead {
     run_id: String,
     block_id: String,
+    event_title: Option<String>,
     event_date: String,
     planned_end: String,
     started_at: String,
@@ -383,6 +384,32 @@ pub struct PomodoroRecoveredSegmentRead {
     actual_end: Option<String>,
     status: String,
     pause_log: Vec<PomodoroPauseWrite>,
+}
+
+#[derive(Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+#[cfg(any(test, target_os = "android", target_os = "ios"))]
+pub struct PomodoroNativeProjectionWrite {
+    run_id: String,
+    event_id: String,
+    event_date: String,
+    event_ends_at_epoch_ms: i64,
+    generated_at_epoch_ms: i64,
+    is_running: bool,
+    remaining_seconds: i64,
+    total_seconds: i64,
+    phases: Vec<PomodoroNativeProjectionPhaseWrite>,
+}
+
+#[derive(Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+#[cfg(any(test, target_os = "android", target_os = "ios"))]
+pub struct PomodoroNativeProjectionPhaseWrite {
+    id: String,
+    phase: String,
+    rhythm_position: i64,
+    starts_at_epoch_ms: i64,
+    ends_at_epoch_ms: i64,
 }
 
 #[derive(Serialize)]
@@ -687,8 +714,9 @@ pub async fn pomodoro_recover_open_runs<R: Runtime>(
 pub async fn pomodoro_recover_mobile_run<R: Runtime>(
     app: AppHandle<R>,
     db_url: String,
+    native_projection: Option<PomodoroNativeProjectionWrite>,
 ) -> Result<PomodoroMobileRecoveryRead, String> {
     let now: chrono::DateTime<chrono::Utc> = std::time::SystemTime::now().into();
     let now_at = now.to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
-    commands::pomodoro_recover_mobile_run(app, db_url, now_at).await
+    commands::pomodoro_recover_mobile_run(app, db_url, now_at, native_projection).await
 }

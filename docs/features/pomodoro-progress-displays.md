@@ -1,6 +1,6 @@
 # Pomodoro progress displays
 
-The pomodoro system surfaces progress in three places: a small ring in the desktop title bar or mobile top bar, a ring in the system tray, and a vertical timeline rail in the calendar day, work-cycle, and week views. They serve different purposes (always-visible, OS-level, and in-context) and follow different rendering rules, but they share one principle: each shows only what the user needs to make a decision in the next minute, not the full history of the session.
+The pomodoro system surfaces progress in four places: a small ring in the desktop title bar or mobile top bar, a ring in the desktop system tray, an ongoing Android notification, and a vertical timeline rail in the calendar day, work-cycle, and week views. They serve different purposes and follow different rendering rules, but they share one principle: each shows only what the user needs to make a decision in the next minute, not the full history of the session.
 
 This doc covers what each surface shows, when each is visible, and why the design favors near-future information over comprehensive readouts.
 
@@ -46,6 +46,19 @@ What it does not show:
 The tray ring is the most ambient surface: it sits in the user's peripheral vision constantly. The pixel-level rendering (RGBA, not SVG) is necessary because tray icons on most platforms accept raster images more reliably than vector ones. Normal progress redraws only when the quantized ring state changes. Manual pause uses a small slow frame cycle, fine-grained enough to feel alive without turning the tray into a high-frame-rate animation surface.
 
 When clicked, the tray icon opens or focuses the main window. The tray menu offers session controls without needing the main window: `Pause focus` or `Resume focus`, enabled only during an active focus phase, `Extend focus 3 minutes` once per focus period when the event window has room, `Go to break now` during focus, and `Start focus now` during breaks. Those Pomodoro actions stay visible but disabled when unavailable, matching the Music controls. The tray music status shows only the active media title when one is loaded, without redundant status or category prefixes. Shuffle remains controlled from the Music panel rather than from the tray menu.
+
+## Android ongoing notification
+
+Android shows one ongoing notification for every active focus or break phase, including a manually paused phase. It uses the platform notification template so it remains legible across Android versions and manufacturer skins.
+
+What it shows:
+
+- The calendar event name as the main title when one exists, otherwise the current phase as Focus, Short break, or Long break.
+- A system-owned countdown to the next phase boundary while the timer is running.
+- A horizontal progress indicator using the same elapsed-to-total ratio as the app ring. The frontend refreshes it only at bounded percentage steps. Android resets it at a native phase boundary, while the system countdown remains the precise background display.
+- A static Paused secondary label and the last bounded progress value during a manual pause. Running sessions have no redundant secondary phase label.
+
+The active notification uses a silent, low-importance channel and resists Clear all. Phase completions use a separate alert channel so sound and vibration remain under Android's notification settings. Tapping either notification opens the app, but a boundary never starts the Activity by itself. Android 14 and newer allow users to dismiss most ongoing notifications with an individual swipe, so timer correctness and alarm delivery never depend on the notification remaining visible.
 
 ## Vertical timeline rail (calendar day and multi-day views)
 
@@ -126,6 +139,7 @@ Within day, work-cycle, and week views, the rail is shown for any day that has a
 |---------|-----------|-------------|
 | App chrome ring | Desktop or mobile app window is open and a focus phase is active, including manual pause while the event window is still active | Break phase, no active session, or event deadline passed |
 | Tray ring | A focus phase is active, including manual pause while the event window is still active, regardless of window state | Break phase, no active session, or event deadline passed |
+| Android notification | An Android focus or break phase is active, including manual pause | No active session or event deadline passed |
 | Rail | Day view, work-cycle view, or week view, day has at least one pomodoro event | Month view, days with no pomodoro events |
 
 The tray ring and app chrome ring are deliberately the same shape and the same metric (focus countdown). The user does not have to learn two visualizations; they learn one and read it from whichever surface is convenient.

@@ -76,6 +76,7 @@ export interface PomodoroActiveBlockController {
   startFromBlock(
     blockId: string,
     blockConfig: PomodoroConfig,
+    eventTitle?: string | null,
     eventEnd?: string,
     eventDate?: string,
     blockIdleTimeoutMinutes?: number | null,
@@ -156,12 +157,17 @@ export function createPomodoroActiveBlockController(
   async function startFromBlock(
     blockId: string,
     blockConfig: PomodoroConfig,
+    eventTitle?: string | null,
     eventEnd?: string,
     eventDate?: string,
     blockIdleTimeoutMinutes?: number | null,
     syncIdleTimeoutOnExistingBlock = true,
     adaptivePlannedBlocks: readonly PomodoroAdaptivePlannedBlockWrite[] = [],
   ): Promise<void> {
+    if (eventTitle !== undefined) {
+      const normalizedTitle = eventTitle?.trim() ?? "";
+      runtime.activeBlockTitle = normalizedTitle.length > 0 ? normalizedTitle : null;
+    }
     const newConfig = clonePomodoroConfig(blockConfig);
     const idleMinutes = blockIdleTimeoutMinutes ?? newConfig.idleTimeoutMinutes;
     const newIdleMs = idleMinutes !== null && idleMinutes > 0

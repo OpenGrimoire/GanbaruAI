@@ -17,6 +17,7 @@ import app.tauri.annotation.Command
 import app.tauri.annotation.InvokeArg
 import app.tauri.annotation.TauriPlugin
 import app.tauri.plugin.Invoke
+import app.tauri.plugin.JSArray
 import app.tauri.plugin.JSObject
 import app.tauri.plugin.Plugin
 
@@ -43,6 +44,47 @@ internal class CalendarNotificationBatchArgs {
 @InvokeArg
 internal class CalendarNotificationCancelArgs {
   var ids: List<Int> = listOf()
+}
+
+internal class PomodoroNotificationPhaseArgs {
+  lateinit var id: String
+  lateinit var phase: String
+  var rhythmPosition: Int = 0
+  var startsAtEpochMs: Long = 0
+  var endsAtEpochMs: Long = 0
+}
+
+internal class PomodoroNotificationCopyArgs {
+  lateinit var channelName: String
+  lateinit var channelDescription: String
+  lateinit var alertsChannelName: String
+  lateinit var alertsChannelDescription: String
+  lateinit var focusTitle: String
+  lateinit var shortBreakTitle: String
+  lateinit var longBreakTitle: String
+  lateinit var pausedText: String
+  lateinit var focusCompleteTitle: String
+  lateinit var breakCompleteTitle: String
+  lateinit var sessionCompleteText: String
+}
+
+internal class PomodoroNotificationStateArgs {
+  lateinit var runId: String
+  lateinit var eventId: String
+  var eventTitle: String? = null
+  lateinit var eventDate: String
+  var eventEndsAtEpochMs: Long = 0
+  var generatedAtEpochMs: Long = 0
+  var isRunning: Boolean = false
+  var remainingSeconds: Int = 0
+  var totalSeconds: Int = 0
+  var phases: List<PomodoroNotificationPhaseArgs> = listOf()
+  lateinit var copy: PomodoroNotificationCopyArgs
+}
+
+@InvokeArg
+internal class PomodoroNotificationUpdateArgs {
+  lateinit var state: PomodoroNotificationStateArgs
 }
 
 internal object ExactAlarmCapability {
@@ -156,6 +198,57 @@ class MobileNotificationsPlugin(private val activity: Activity) : Plugin(activit
   }
 
   @Command
+  fun updatePomodoroNotification(invoke: Invoke) {
+    val args = invoke.parseArgs(PomodoroNotificationUpdateArgs::class.java)
+    try {
+      val projection = args.state.toProjection()
+      ensurePomodoroChannels(projection.copy)
+      PomodoroNotificationScheduler.update(activity, projection)
+      invoke.resolve()
+    } catch (error: Exception) {
+      invoke.reject(error.message ?: "Failed to update Pomodoro notification")
+    }
+  }
+
+  @Command
+  fun cancelPomodoroNotification(invoke: Invoke) {
+    PomodoroNotificationScheduler.cancel(activity)
+    invoke.resolve()
+  }
+
+  @Command
+  fun pomodoroNotificationState(invoke: Invoke) {
+    val projection = PomodoroNotificationScheduler.current(activity)
+    if (projection == null) {
+      invoke.resolveObject(JSObject().apply { put("active", false) })
+      return
+    }
+    invoke.resolveObject(JSObject().apply {
+      put("active", true)
+      put("runId", projection.runId)
+      put("eventId", projection.eventId)
+      put("eventTitle", projection.eventTitle)
+      put("eventDate", projection.eventDate)
+      put("eventEndsAtEpochMs", projection.eventEndsAtEpochMs)
+      put("generatedAtEpochMs", projection.generatedAtEpochMs)
+      put("isRunning", projection.isRunning)
+      put("remainingSeconds", projection.remainingSeconds)
+      put("totalSeconds", projection.totalSeconds)
+      put("phases", JSArray().apply {
+        projection.phases.forEach { phase ->
+          put(JSObject().apply {
+            put("id", phase.id)
+            put("phase", phase.phase)
+            put("rhythmPosition", phase.rhythmPosition)
+            put("startsAtEpochMs", phase.startsAtEpochMs)
+            put("endsAtEpochMs", phase.endsAtEpochMs)
+          })
+        }
+      })
+    })
+  }
+
+  @Command
   fun takeCalendarNotificationAction(invoke: Invoke) {
     invoke.resolveObject(JSObject().apply {
       put("eventId", CalendarNotificationScheduler.takeAction(activity))
@@ -230,4 +323,76 @@ class MobileNotificationsPlugin(private val activity: Activity) : Plugin(activit
       }
     }
   }
+
+  private fun ensurePomodoroChannels(copy: PomodoroNotificationCopy) {
+    val manager = activity.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+    manager.createNotificationChannel(
+      NotificationChannel(
+        POMODORO_CHANNEL_ID,
+        copy.channelName,
+        NotificationManager.IMPORTANCE_LOW,
+      ).apply {
+        description = copy.channelDescription
+        lockscreenVisibility = Notification.VISIBILITY_PRIVATE
+        setSound(null, null)
+        enableVibration(false)
+        enableLights(false)
+        setShowBadge(false)
+      },
+    )
+    manager.createNotificationChannel(
+      NotificationChannel(
+        POMODORO_ALERTS_CHANNEL_ID,
+        copy.alertsChannelName,
+        NotificationManager.IMPORTANCE_HIGH,
+      ).apply {
+        description = copy.alertsChannelDescription
+        lockscreenVisibility = Notification.VISIBILITY_PRIVATE
+        enableLights(true)
+        enableVibration(true)
+        setSound(
+          RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION),
+          AudioAttributes.Builder()
+            .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+            .setUsage(AudioAttributes.USAGE_NOTIFICATION_EVENT)
+            .build(),
+        )
+      },
+    )
+  }
 }
+
+private fun PomodoroNotificationStateArgs.toProjection(): PomodoroNotificationProjection =
+  PomodoroNotificationProjection(
+    runId = runId,
+    eventId = eventId,
+    eventTitle = eventTitle?.trim()?.takeIf(String::isNotEmpty),
+    eventDate = eventDate,
+    eventEndsAtEpochMs = eventEndsAtEpochMs,
+    generatedAtEpochMs = generatedAtEpochMs,
+    isRunning = isRunning,
+    remainingSeconds = remainingSeconds,
+    totalSeconds = totalSeconds,
+    phases = phases.map { phase ->
+      PomodoroNotificationPhase(
+        id = phase.id,
+        phase = phase.phase,
+        rhythmPosition = phase.rhythmPosition,
+        startsAtEpochMs = phase.startsAtEpochMs,
+        endsAtEpochMs = phase.endsAtEpochMs,
+      )
+    },
+    copy = PomodoroNotificationCopy(
+      channelName = copy.channelName,
+      channelDescription = copy.channelDescription,
+      alertsChannelName = copy.alertsChannelName,
+      alertsChannelDescription = copy.alertsChannelDescription,
+      focusTitle = copy.focusTitle,
+      shortBreakTitle = copy.shortBreakTitle,
+      longBreakTitle = copy.longBreakTitle,
+      pausedText = copy.pausedText,
+      focusCompleteTitle = copy.focusCompleteTitle,
+      breakCompleteTitle = copy.breakCompleteTitle,
+      sessionCompleteText = copy.sessionCompleteText,
+    ),
+  )
