@@ -194,6 +194,7 @@ pub(crate) fn validate_local_root_create(root: &MusicLocalRootCreate) -> MusicLi
     validate_timestamp(root.created_at, "createdAt")
 }
 
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 pub(crate) fn validate_item_repair_apply(request: &MusicItemRepairApply) -> MusicLibraryResult<()> {
     validate_id(&request.item_id, "itemId")?;
     validate_id(&request.root_id, "rootId")?;

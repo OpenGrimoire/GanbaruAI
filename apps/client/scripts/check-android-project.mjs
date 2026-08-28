@@ -74,6 +74,11 @@ const [
   androidCapability,
   mobileNotificationManifest,
   mobileNotificationPluginRoot,
+  rustBuildTask,
+  rustPlugin,
+  mobileDocumentsBuild,
+  mobileMediaBuild,
+  mobileNotificationsBuild,
 ] =
   await Promise.all([
     readAndroidFile("build.gradle.kts"),
@@ -96,6 +101,15 @@ const [
       "../../crates/ganbaru-mobile-notifications/android/src/main/AndroidManifest.xml",
     ),
     readClientFile("../../crates/ganbaru-mobile-notifications/src/lib.rs"),
+    readAndroidFile(
+      "buildSrc/src/main/java/org/opengrimoire/ganbaruai/kotlin/BuildTask.kt",
+    ),
+    readAndroidFile(
+      "buildSrc/src/main/java/org/opengrimoire/ganbaruai/kotlin/RustPlugin.kt",
+    ),
+    readClientFile("../../crates/ganbaru-mobile-documents/android/build.gradle.kts"),
+    readClientFile("../../crates/ganbaru-mobile-media/android/build.gradle.kts"),
+    readClientFile("../../crates/ganbaru-mobile-notifications/android/build.gradle.kts"),
   ]);
 
 const failures = [];
@@ -163,6 +177,35 @@ requireText(
 );
 requireText(wrapper, "gradle-8.14.3-bin.zip", "Gradle wrapper", failures);
 
+for (const expected of [
+  "abstract val execOperations: ExecOperations",
+  "var projectDir: String? = null",
+  "execOperations.exec {",
+  "workingDir(File(projectDir, rootDirRel))",
+]) {
+  requireText(rustBuildTask, expected, "Android Rust build task", failures);
+}
+for (const forbidden of ["project.exec {", "project.logger", "project.projectDir"]) {
+  rejectText(rustBuildTask, forbidden, "Android Rust build task", failures);
+}
+requireText(
+  rustPlugin,
+  "projectDir = project.projectDir.path",
+  "Android Rust Gradle plugin",
+  failures,
+);
+
+for (const [source, label] of [
+  [appBuild, "Android app Kotlin compiler"],
+  [mobileDocumentsBuild, "mobile documents Kotlin compiler"],
+  [mobileMediaBuild, "mobile media Kotlin compiler"],
+  [mobileNotificationsBuild, "mobile notifications Kotlin compiler"],
+]) {
+  requireText(source, "import org.jetbrains.kotlin.gradle.dsl.JvmTarget", label, failures);
+  requireText(source, "jvmTarget = JvmTarget.JVM_17", label, failures);
+  rejectText(source, "kotlinOptions", label, failures);
+}
+
 for (const [expected, label] of [
   ['buildToolsVersion = "35.0.0"', "SDK Build Tools"],
   ["compileSdk = 36", "compile SDK"],
@@ -175,7 +218,7 @@ for (const [expected, label] of [
   ['manifestPlaceholders["usesCleartextTraffic"] = "false"', "production cleartext policy"],
   ["sourceCompatibility = JavaVersion.VERSION_17", "Java source compatibility"],
   ["targetCompatibility = JavaVersion.VERSION_17", "Java target compatibility"],
-  ['jvmTarget = "17"', "Kotlin JVM target"],
+  ["jvmTarget = JvmTarget.JVM_17", "Kotlin JVM target"],
 ]) {
   requireText(appBuild, expected, label, failures);
 }
