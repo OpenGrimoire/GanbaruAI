@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { tick } from "svelte";
+  import { tick, untrack } from "svelte";
   import ChevronLeft from "@lucide/svelte/icons/chevron-left";
   import ChevronRight from "@lucide/svelte/icons/chevron-right";
   import Eye from "@lucide/svelte/icons/eye";
@@ -81,6 +81,8 @@
     projectChildContainsTarget = undefined,
     pointerAimingAtProjectChild = undefined,
     mobileLayout = false,
+    initialMobileGroupId = null,
+    onProjectDrilldown = undefined,
     onClose = undefined,
   }: {
     selectedProjectId?: string | null;
@@ -115,6 +117,8 @@
     projectChildContainsTarget?: (target: EventTarget | null) => boolean;
     pointerAimingAtProjectChild?: (point: MenuAimPoint) => boolean;
     mobileLayout?: boolean;
+    initialMobileGroupId?: string | null;
+    onProjectDrilldown?: (project: Project) => MaybePromise<void>;
     onClose?: () => void;
   } = $props();
 
@@ -138,7 +142,7 @@
   let createProjectGroupId = $state<string | null>(null);
   let projectDraftByGroup = $state<Record<string, string>>({});
   let projectTemplateDraftByGroup = $state<Record<string, ProjectTemplateId>>({});
-  let activeGroupId = $state<string | null>(null);
+  let activeGroupId = $state<string | null>(untrack(() => mobileLayout ? initialMobileGroupId : null));
   let activeGroupAnchorElement = $state<HTMLElement | null>(null);
   let panelRootElement = $state<HTMLDivElement | null>(null);
   let panelHeaderElement = $state<HTMLDivElement | undefined>();
@@ -195,6 +199,9 @@
     createGroupOpen,
     createProjectGroupId,
   }));
+  const projectRowsHaveChildren = $derived(
+    showProjectChildren || (mobileLayout && onProjectDrilldown !== undefined),
+  );
 
   function projectsInGroup(group: ProjectGroup): Project[] {
     const groupProjects = showInactiveProjects
@@ -501,7 +508,12 @@
     onProjectPreviewClose?.();
   }
 
-  async function selectProject(project: Project): Promise<void> {
+  async function activateProject(project: Project): Promise<void> {
+    if (mobileLayout && onProjectDrilldown) {
+      await onProjectDrilldown(project);
+      projectSearch = "";
+      return;
+    }
     await onProjectSelected(project);
     projectSearch = "";
   }
@@ -845,7 +857,7 @@
                         project.status === "active" ? "text-popover-foreground" : "text-popover-foreground/60",
                       )}
                       aria-label={t("projects.actions.selectProject", project.name, resultGroup.group.name)}
-                      onclick={() => { void selectProject(project); }}
+                      onclick={() => { void activateProject(project); }}
                     >
                       <ProjectIcon name={project.icon} size={iconSize} strokeWidth={iconStrokeWidth} emojiScale={emojiScale} class="shrink-0" />
                       <span class="min-w-0 flex-1 truncate">{project.name}</span>
@@ -853,6 +865,9 @@
                         <span class={cn("shrink-0 rounded border px-1.5 py-0.5 text-[0.666667rem]", projectLifecycleBadgeClass(project.status))}>
                           {projectLifecycleLabel(project.status, t)}
                         </span>
+                      {/if}
+                      {#if projectRowsHaveChildren}
+                        <ChevronRight size={mobileLayout ? 18 : 13} strokeWidth={iconStrokeWidth} class="shrink-0 text-popover-foreground/60" />
                       {/if}
                     </button>
                   {/each}
@@ -914,7 +929,7 @@
                   class={cn(
                     "w-full items-center gap-2 rounded-md text-left transition-colors hover:bg-accent hover:text-accent-foreground",
                     mobileLayout ? "min-h-12 px-3 text-sm active:bg-accent" : "min-h-8 px-2 text-[0.8rem]",
-                    showProjectChildren
+                    projectRowsHaveChildren
                       ? mobileLayout
                         ? "grid grid-cols-[1.5rem_minmax(0,1fr)_auto]"
                         : "grid grid-cols-[1rem_minmax(0,1fr)_auto]"
@@ -927,18 +942,18 @@
                   onpointermove={(event) => handleProjectPointerMove(project, event)}
                   onpointerleave={handleProjectPointerLeave}
                   onfocus={(event) => previewProject(project, event.currentTarget)}
-                  onclick={() => { void selectProject(project); }}
+                  onclick={() => { void activateProject(project); }}
                 >
                   <ProjectIcon name={project.icon} size={iconSize} strokeWidth={iconStrokeWidth} emojiScale={emojiScale} class="shrink-0" />
                   <span class="min-w-0 flex-1 truncate">{project.name}</span>
-                  {#if showProjectChildren || (showLifecycleBadges && project.status !== "active")}
+                  {#if projectRowsHaveChildren || (showLifecycleBadges && project.status !== "active")}
                     <span class="flex min-w-0 items-center justify-end gap-1">
                       {#if showLifecycleBadges && project.status !== "active"}
                         <span class={cn("shrink-0 rounded border px-1.5 py-0.5 text-[0.666667rem]", projectLifecycleBadgeClass(project.status))}>
                           {projectLifecycleLabel(project.status, t)}
                         </span>
                       {/if}
-                      {#if showProjectChildren}<ChevronRight size={mobileLayout ? 18 : 13} strokeWidth={iconStrokeWidth} class="shrink-0 text-popover-foreground/60" />{/if}
+                      {#if projectRowsHaveChildren}<ChevronRight size={mobileLayout ? 18 : 13} strokeWidth={iconStrokeWidth} class="shrink-0 text-popover-foreground/60" />{/if}
                     </span>
                   {/if}
                 </button>
@@ -1147,7 +1162,7 @@
                   onpointermove={(event) => handleProjectPointerMove(project, event)}
                   onpointerleave={handleProjectPointerLeave}
                   onfocus={(event) => previewProject(project, event.currentTarget)}
-                  onclick={() => { void selectProject(project); }}
+                  onclick={() => { void activateProject(project); }}
                 >
                   <ProjectIcon name={project.icon} size={iconSize} strokeWidth={iconStrokeWidth} emojiScale={emojiScale} class="shrink-0" />
                   <span class="min-w-0 flex-1 truncate">{project.name}</span>

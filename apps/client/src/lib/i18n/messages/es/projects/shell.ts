@@ -41,6 +41,7 @@ export const shell = {
     open: "Abrir proyectos",
     pickerLabel: "Selector de proyectos",
     backToGroups: "Volver a los grupos de proyectos",
+    backToProjects: "Volver a los proyectos",
     closePicker: "Cerrar selector de proyectos",
     clearSearch: "Limpiar búsqueda de proyectos",
     searchPlaceholder: "Buscar proyectos...",

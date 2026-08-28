@@ -51,6 +51,7 @@ export const chat = {
   channels: {
     explorerLabel: "Project channels",
     search: "Search channels",
+    clearSearch: "Clear channel search",
     noResults: "No channels match your search.",
     empty: "No channels in this project.",
     navigatorLabel: "Channel navigator",

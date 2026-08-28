@@ -438,7 +438,8 @@
             {selectedProjectId}
             selectedGroupId={selectedGroup.id}
             {showInactiveProjects}
-            panelMode={projectNavigatorMode}
+            panelMode="groups"
+            initialMobileGroupId={projectNavigatorMode === "projects" ? selectedGroup.id : null}
             onShowInactiveProjectsChange={onShowInactiveProjectsChange}
             onProjectSelected={() => {
               closeProjectNavigator();

@@ -1,5 +1,5 @@
 <script lang="ts">
-  import type { Snippet } from "svelte";
+  import { setContext, type Snippet } from "svelte";
   import { activateModalFocus } from "$lib/modal-focus";
   import { getMobileBackStack } from "$lib/stores/mobile-back-stack.svelte";
   import { portal } from "$lib/utils/portal";
@@ -17,6 +17,10 @@
   } = $props();
 
   const mobileBackStack = getMobileBackStack();
+  setContext(
+    "ganbaru-mobile-nested-back",
+    (handle: () => void) => mobileBackStack.activate({ handle }),
+  );
   let dialog = $state<HTMLDivElement | null>(null);
 
   $effect(() => mobileBackStack.activate({ handle: onClose }));

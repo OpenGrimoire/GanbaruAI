@@ -38,6 +38,7 @@ export const shell = {
     open: "Open projects",
     pickerLabel: "Project selector",
     backToGroups: "Back to project groups",
+    backToProjects: "Back to projects",
     closePicker: "Close project selector",
     clearSearch: "Clear project search",
     searchPlaceholder: "Search projects...",

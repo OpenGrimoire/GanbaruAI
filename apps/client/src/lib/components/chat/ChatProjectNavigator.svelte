@@ -35,6 +35,10 @@
     onProjectSelected,
     onChannelSelected,
     onCreateChannel,
+    mobileLayout = false,
+    initialMobileGroupId = null,
+    onMobileProjectOpened = undefined,
+    onClose = undefined,
   }: {
     selectedProjectId: string | null;
     selectedGroupId?: string | null;
@@ -46,6 +50,10 @@
     onProjectSelected: () => MaybePromise<void>;
     onChannelSelected: () => MaybePromise<void>;
     onCreateChannel: (projectId: string) => MaybePromise<void>;
+    mobileLayout?: boolean;
+    initialMobileGroupId?: string | null;
+    onMobileProjectOpened?: (projectId: string) => MaybePromise<void>;
+    onClose?: () => void;
   } = $props();
 
   const chat = getChat();
@@ -164,6 +172,13 @@
     await onProjectSelected();
   }
 
+  async function openMobileProject(project: Project): Promise<void> {
+    await projects.selectProject(project.id);
+    await chat.syncProjectSelection(project.id);
+    closeChannelPanel();
+    await onMobileProjectOpened?.(project.id);
+  }
+
   async function selectChannel(channel: ChatChannelRead): Promise<void> {
     await chat.selectChannel(channel.id);
     closeChannelPanel();
@@ -201,7 +216,7 @@
 <ProjectPickerPanels
   {selectedProjectId}
   {selectedGroupId}
-  mode={panelMode}
+  mode={mobileLayout ? "groups" : panelMode}
   {iconStrokeWidth}
   {panelMaxHeight}
   mainVisibleRows={null}
@@ -220,9 +235,13 @@
   onProjectPreviewClose={closeChannelPanel}
   projectChildContainsTarget={channelBoundaryContains}
   pointerAimingAtProjectChild={pointerAimingAtChannelPanel}
+  {mobileLayout}
+  {initialMobileGroupId}
+  onProjectDrilldown={mobileLayout ? openMobileProject : undefined}
+  {onClose}
 />
 
-{#if activeProjectId && activeProjectAnchorElement && activeProjectPanelElement}
+{#if !mobileLayout && activeProjectId && activeProjectAnchorElement && activeProjectPanelElement}
   <!-- svelte-ignore a11y_no_static_element_interactions -->
   <div
     bind:this={channelPanelBridgeElement}

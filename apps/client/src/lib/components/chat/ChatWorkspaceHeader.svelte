@@ -14,10 +14,10 @@
   import { projectNavigatorPanelGeometry, type ProjectNavigatorPanelMode } from "$lib/projects/project-toolbar";
   import { getChat } from "$lib/stores/chat.svelte";
   import { getProjects } from "$lib/stores/projects.svelte";
-  import { getMobileBackStack } from "$lib/stores/mobile-back-stack.svelte";
   import { getViewport } from "$lib/stores/viewport.svelte";
   import { cn } from "$lib/utils";
   import ProjectIcon from "$lib/components/projects/ProjectIcon.svelte";
+  import ProjectPickerMobileDialog from "$lib/components/projects/ProjectPickerMobileDialog.svelte";
   import WorkspaceBreadcrumbTerminalIcon from "$lib/components/WorkspaceBreadcrumbTerminalIcon.svelte";
   import ChatChannelPickerPanel from "./ChatChannelPickerPanel.svelte";
   import ChatChannelRoster from "./ChatChannelRoster.svelte";
@@ -44,7 +44,6 @@
 
   const chat = getChat();
   const projects = getProjects();
-  const mobileBackStack = getMobileBackStack();
   const viewport = getViewport();
   const { t } = getLocalization();
   const identityIconSize = COMPACT_IDENTITY_ICON_SIZE;
@@ -82,6 +81,11 @@
   }
 
   function refreshNavigatorGeometry(): void {
+    if (mobilePresentation) {
+      navigatorPanelStyle = "";
+      navigatorPanelMaxHeight = 0;
+      return;
+    }
     if (!navigatorOpen || !navigatorAnchorElement) return;
     const anchor = navigatorAnchorElement.getBoundingClientRect();
     const rect = headerElement?.closest(".chat-workspace")?.getBoundingClientRect();
@@ -113,6 +117,7 @@
   }
 
   function handleWindowPointerDown(event: PointerEvent): void {
+    if (mobilePresentation) return;
     const target = event.target;
     if (!(target instanceof Node)) return;
     if (navigatorOpen && !identityElement?.contains(target) && !navigatorPanelElement?.contains(target)) navigatorOpen = false;
@@ -150,14 +155,6 @@
     requestAnimationFrame(refreshNavigatorGeometry);
   });
 
-  $effect(() => {
-    if (!mobilePresentation || !navigatorOpen) return;
-    return mobileBackStack.activate({
-      handle: () => {
-        navigatorOpen = false;
-      },
-    });
-  });
 </script>
 
 <svelte:window onpointerdown={handleWindowPointerDown} />
@@ -185,31 +182,70 @@
       {/if}
     </div>
     {#if navigatorOpen}
-      <div bind:this={navigatorPanelElement} class="fixed z-80" style={navigatorPanelStyle} role="dialog" tabindex="-1" aria-label={navigatorMode === "channels" ? t("chat.channels.navigatorLabel") : t("projects.navigator.pickerLabel")}>
-        {#if navigatorMode === "channels"}
-          <ChatChannelPickerPanel
-            channels={selectedProjectChannels}
-            selectedChannelId={selectedChannel?.id ?? null}
-            frameStyle={`width:100%;height:${channelNavigatorPanelHeight}px;max-height:${channelNavigatorPanelHeight}px`}
-            iconStrokeWidth={identityIconStrokeWidth}
-            onChannelSelected={(channel) => selectChannel(channel.id)}
-            onCreateChannel={createChannel}
-          />
-        {:else}
-          <ChatProjectNavigator
-            selectedProjectId={projects.selectedProjectId}
-            selectedGroupId={selectedGroup?.id ?? null}
-            iconStrokeWidth={identityIconStrokeWidth}
-            {showInactiveProjects}
-            panelMode={navigatorMode}
-            panelMaxHeight={navigatorPanelMaxHeight}
-            onShowInactiveProjectsChange={(value) => { showInactiveProjects = value; }}
-            onProjectSelected={selectProject}
-            onChannelSelected={() => { navigatorOpen = false; }}
-            onCreateChannel={() => { createChannel(); }}
-          />
-        {/if}
-      </div>
+      {#if mobilePresentation}
+        <ProjectPickerMobileDialog
+          label={navigatorMode === "channels" ? t("chat.channels.navigatorLabel") : t("projects.navigator.pickerLabel")}
+          closeLabel={t("common.close")}
+          onClose={() => { navigatorOpen = false; }}
+        >
+          {#if navigatorMode === "channels"}
+            <ChatChannelPickerPanel
+              channels={selectedProjectChannels}
+              selectedChannelId={selectedChannel?.id ?? null}
+              frameStyle="height:100%;max-height:100%"
+              iconStrokeWidth={identityIconStrokeWidth}
+              onChannelSelected={(channel) => selectChannel(channel.id)}
+              onCreateChannel={createChannel}
+              mobileLayout={mobilePresentation}
+              title={selectedProject?.name}
+              onBack={() => { navigatorMode = "projects"; }}
+              onClose={() => { navigatorOpen = false; }}
+            />
+          {:else}
+            <ChatProjectNavigator
+              selectedProjectId={projects.selectedProjectId}
+              selectedGroupId={selectedGroup?.id ?? null}
+              iconStrokeWidth={identityIconStrokeWidth}
+              {showInactiveProjects}
+              panelMode="groups"
+              onShowInactiveProjectsChange={(value) => { showInactiveProjects = value; }}
+              onProjectSelected={selectProject}
+              onChannelSelected={() => { navigatorOpen = false; }}
+              onCreateChannel={() => { createChannel(); }}
+              mobileLayout={mobilePresentation}
+              initialMobileGroupId={navigatorMode === "projects" ? selectedGroup?.id ?? null : null}
+              onMobileProjectOpened={() => { navigatorMode = "channels"; }}
+              onClose={() => { navigatorOpen = false; }}
+            />
+          {/if}
+        </ProjectPickerMobileDialog>
+      {:else}
+        <div bind:this={navigatorPanelElement} class="fixed z-80" style={navigatorPanelStyle} role="dialog" tabindex="-1" aria-label={navigatorMode === "channels" ? t("chat.channels.navigatorLabel") : t("projects.navigator.pickerLabel")}>
+          {#if navigatorMode === "channels"}
+            <ChatChannelPickerPanel
+              channels={selectedProjectChannels}
+              selectedChannelId={selectedChannel?.id ?? null}
+              frameStyle={`width:100%;height:${channelNavigatorPanelHeight}px;max-height:${channelNavigatorPanelHeight}px`}
+              iconStrokeWidth={identityIconStrokeWidth}
+              onChannelSelected={(channel) => selectChannel(channel.id)}
+              onCreateChannel={createChannel}
+            />
+          {:else}
+            <ChatProjectNavigator
+              selectedProjectId={projects.selectedProjectId}
+              selectedGroupId={selectedGroup?.id ?? null}
+              iconStrokeWidth={identityIconStrokeWidth}
+              {showInactiveProjects}
+              panelMode={navigatorMode}
+              panelMaxHeight={navigatorPanelMaxHeight}
+              onShowInactiveProjectsChange={(value) => { showInactiveProjects = value; }}
+              onProjectSelected={selectProject}
+              onChannelSelected={() => { navigatorOpen = false; }}
+              onCreateChannel={() => { createChannel(); }}
+            />
+          {/if}
+        </div>
+      {/if}
     {/if}
   </div>
   {#if !mobilePresentation}<div class="flex-1"></div>{/if}

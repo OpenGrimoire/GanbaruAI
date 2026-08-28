@@ -3,6 +3,12 @@
   import Settings2 from "@lucide/svelte/icons/settings-2";
   import { getLocalization } from "$lib/i18n/translator.svelte";
   import {
+    beginLazyComponentLoad,
+    rejectLazyComponentLoad,
+    resolveLazyComponentLoad,
+    type LazyComponentLoadState,
+  } from "$lib/lazy-component-loader";
+  import {
     COMPACT_IDENTITY_EMOJI_SCALE,
     COMPACT_IDENTITY_ICON_SIZE,
     COMPACT_IDENTITY_ICON_STROKE_WIDTH,
@@ -30,11 +36,16 @@
   } from "$lib/projects/project-toolbar";
   import type { Project, ProjectGroup } from "$lib/projects/types";
   import { getNotes } from "$lib/stores/notes.svelte";
+  import { getProjects } from "$lib/stores/projects.svelte";
   import { getViewport } from "$lib/stores/viewport.svelte";
-  import { getMobileBackStack } from "$lib/stores/mobile-back-stack.svelte";
   import { cn } from "$lib/utils";
   import ProjectIcon from "$lib/components/projects/ProjectIcon.svelte";
   import WorkspaceBreadcrumbTerminalIcon from "$lib/components/WorkspaceBreadcrumbTerminalIcon.svelte";
+  import {
+    loadNotesOptionalComponent,
+    retryNotesOptionalComponent,
+    type LoadedNotesOptionalComponent,
+  } from "./notes-component-registry";
   import NotesHierarchyPickerPanel from "./NotesHierarchyPickerPanel.svelte";
   import NotesPageIcon from "./NotesPageIcon.svelte";
   import NotesProjectNavigator from "./NotesProjectNavigator.svelte";
@@ -72,8 +83,8 @@
   } = $props();
 
   const notes = getNotes();
+  const projects = getProjects();
   const viewport = getViewport();
-  const mobileBackStack = getMobileBackStack();
   const { t } = getLocalization();
   const identityIconSize = COMPACT_IDENTITY_ICON_SIZE;
   const identityIconStrokeWidth = COMPACT_IDENTITY_ICON_STROKE_WIDTH;
@@ -84,6 +95,11 @@
   let navigatorOpen = $state(false);
   let navigatorMode = $state<NotesNavigatorMode>("groups");
   let notesNavigatorParent = $state<NotesHierarchyParent>({ kind: "root" });
+  let notesNavigatorTitle = $state("");
+  let notesNavigatorAncestors = $state<Array<{
+    parent: NotesHierarchyParent;
+    title: string;
+  }>>([]);
   let notesNavigatorSourceKey = $state("root");
   let notesHeaderElement = $state<HTMLDivElement | null>(null);
   let notesIdentityElement = $state<HTMLDivElement | null>(null);
@@ -94,6 +110,10 @@
   let navigatorPanelElement = $state<HTMLDivElement | null>(null);
   let navigatorPanelStyle = $state("");
   let navigatorPanelMaxHeight = $state(0);
+  let mobileProjectPickerLoadState = $state<LazyComponentLoadState<
+    "mobile-project-picker",
+    LoadedNotesOptionalComponent
+  > | null>(null);
   interface NavigatorBounds {
     left: number;
     right: number;
@@ -190,6 +210,11 @@
   }
 
   function refreshNavigatorPanelGeometry(): void {
+    if (mobileLayout) {
+      navigatorPanelStyle = "";
+      navigatorPanelMaxHeight = 0;
+      return;
+    }
     if (!navigatorOpen || !navigatorAnchorElement) return;
     const rect = navigatorAnchorElement.getBoundingClientRect();
     const bounds = navigatorBounds();
@@ -224,6 +249,7 @@
     navigatorMode = mode;
     navigatorAnchorElement = anchor;
     navigatorOpen = true;
+    if (mobileLayout) requestMobileProjectPicker();
     refreshNavigatorPanelGeometry();
     requestAnimationFrame(refreshNavigatorPanelGeometry);
   }
@@ -233,8 +259,33 @@
     anchor: EventTarget | null,
   ): void {
     notesNavigatorParent = notesHierarchyNodeParent(node);
+    const nodeIndex = selectedPagePath.findIndex((candidate) => candidate.key === node.key);
+    const precedingNodes = nodeIndex < 0 ? [] : selectedPagePath.slice(0, nodeIndex);
+    notesNavigatorTitle = precedingNodes.length > 0
+      ? hierarchyNodeTitle(precedingNodes[precedingNodes.length - 1])
+      : selectedProject?.name ?? t("notes.noteNavigatorLabel");
+    notesNavigatorAncestors = precedingNodes.length === 0
+      ? []
+      : [
+          {
+            parent: { kind: "root" },
+            title: selectedProject?.name ?? t("notes.noteNavigatorLabel"),
+          },
+          ...precedingNodes.slice(0, -1).map((ancestor) => ({
+            parent: ancestor.kind === "folder"
+              ? { kind: "folder" as const, id: ancestor.folder.id }
+              : { kind: "page" as const, id: ancestor.page.id },
+            title: hierarchyNodeTitle(ancestor),
+          })),
+        ];
     notesNavigatorSourceKey = node.key;
     openNavigator("notes", anchor instanceof HTMLButtonElement ? anchor : null);
+  }
+
+  function hierarchyNodeTitle(node: NotesHierarchyNode): string {
+    return node.kind === "folder"
+      ? node.folder.name
+      : notesPageTitle(node.page, t("notes.untitled"));
   }
 
   function toggleHierarchyNavigator(
@@ -257,6 +308,10 @@
   }
 
   function handleProjectTriggerClick(): void {
+    if (mobileLayout) {
+      toggleNavigator("projects");
+      return;
+    }
     if (selectedPageTitle) {
       navigatorOpen = false;
       onShowHome();
@@ -266,6 +321,7 @@
   }
 
   function handleWindowPointerDown(event: PointerEvent): void {
+    if (mobileLayout) return;
     const target = event.target;
     if (!(target instanceof Node)) return;
     if (
@@ -286,14 +342,48 @@
     });
   }
 
-  $effect(() => {
-    if (!mobileLayout || !navigatorOpen) return;
-    return mobileBackStack.activate({
-      handle: () => {
-        navigatorOpen = false;
-      },
+  async function openMobileProject(project: Project): Promise<void> {
+    await projects.selectProject(project.id);
+    onProjectSelected();
+    notesNavigatorParent = { kind: "root" };
+    notesNavigatorTitle = project.name;
+    notesNavigatorAncestors = [];
+    navigatorMode = "notes";
+  }
+
+  function requestMobileProjectPicker(): void {
+    if (
+      mobileProjectPickerLoadState?.status === "loading"
+      || mobileProjectPickerLoadState?.status === "ready"
+    ) return;
+    const shouldRetry = mobileProjectPickerLoadState?.status === "failed";
+    const loadingState = beginLazyComponentLoad(
+      mobileProjectPickerLoadState,
+      "mobile-project-picker",
+    );
+    mobileProjectPickerLoadState = loadingState;
+    const request = shouldRetry
+      ? retryNotesOptionalComponent("mobile-project-picker")
+      : loadNotesOptionalComponent("mobile-project-picker");
+    void request.then((component) => {
+      if (!mobileProjectPickerLoadState) return;
+      mobileProjectPickerLoadState = resolveLazyComponentLoad(
+        mobileProjectPickerLoadState,
+        "mobile-project-picker",
+        loadingState.requestId,
+        component,
+      );
+    }).catch((error: unknown) => {
+      if (!mobileProjectPickerLoadState) return;
+      mobileProjectPickerLoadState = rejectLazyComponentLoad(
+        mobileProjectPickerLoadState,
+        "mobile-project-picker",
+        loadingState.requestId,
+        error,
+      );
+      console.error("load Notes mobile project picker failed", error);
     });
-  });
+  }
 
   $effect(() => {
     if (!navigatorOpen) return;
@@ -502,43 +592,86 @@
       {/if}
     </div>
     {#if navigatorOpen}
-      <div
-        bind:this={navigatorPanelElement}
-        class="fixed z-80"
-        style={navigatorPanelStyle}
-        role="dialog"
-        tabindex="-1"
-        aria-label={navigatorMode === "notes" ? t("notes.noteNavigatorLabel") : t("projects.navigator.pickerLabel")}
-      >
-        {#if navigatorMode === "notes"}
-          <NotesHierarchyPickerPanel
-            projectId={selectedProjectId}
-            parent={notesNavigatorParent}
-            frameStyle={`width: 100%; height: ${notesNavigatorPanelHeight}px; max-height: ${notesNavigatorPanelHeight}px;`}
-            className="relative"
-            zIndexClass=""
-            onPageSelected={() => {
-              navigatorOpen = false;
-            }}
-          />
-        {:else}
-          <NotesProjectNavigator
-            {selectedProjectId}
-            selectedGroupId={selectedGroup?.id ?? null}
-            {showInactiveProjects}
-            panelMode={navigatorMode}
-            panelMaxHeight={navigatorPanelMaxHeight}
-            onShowInactiveProjectsChange={onShowInactiveProjectsChange}
-            onProjectSelected={() => {
-              navigatorOpen = false;
-              onProjectSelected();
-            }}
-            onPageSelected={() => {
-              navigatorOpen = false;
-            }}
-          />
+      {#if mobileLayout}
+        {#if mobileProjectPickerLoadState?.status === "ready" && mobileProjectPickerLoadState.component.kind === "mobile-project-picker"}
+          {@const ProjectPickerMobileDialog = mobileProjectPickerLoadState.component.dialog}
+          {@const ProjectPickerPanels = mobileProjectPickerLoadState.component.panels}
+          <ProjectPickerMobileDialog
+            label={navigatorMode === "notes" ? t("notes.noteNavigatorLabel") : t("projects.navigator.pickerLabel")}
+            closeLabel={t("common.close")}
+            onClose={() => { navigatorOpen = false; }}
+          >
+            {#if navigatorMode === "notes"}
+              <NotesHierarchyPickerPanel
+                projectId={selectedProjectId}
+                parent={notesNavigatorParent}
+                frameStyle="height:100%;max-height:100%"
+                className="relative"
+                zIndexClass=""
+                mobileLayout
+                title={notesNavigatorTitle || selectedProject?.name}
+                initialMobileAncestors={notesNavigatorAncestors}
+                onBack={() => { navigatorMode = "projects"; }}
+                onClose={() => { navigatorOpen = false; }}
+                onPageSelected={() => { navigatorOpen = false; }}
+              />
+            {:else}
+              <ProjectPickerPanels
+                {selectedProjectId}
+                selectedGroupId={selectedGroup?.id ?? null}
+                mode="groups"
+                {showInactiveProjects}
+                showInactiveToggle
+                showLifecycleBadges
+                {onShowInactiveProjectsChange}
+                onProjectSelected={openMobileProject}
+                onProjectDrilldown={openMobileProject}
+                mobileLayout
+                initialMobileGroupId={navigatorMode === "projects" ? selectedGroup?.id ?? null : null}
+                onClose={() => { navigatorOpen = false; }}
+              />
+            {/if}
+          </ProjectPickerMobileDialog>
         {/if}
-      </div>
+      {:else}
+        <div
+          bind:this={navigatorPanelElement}
+          class="fixed z-80"
+          style={navigatorPanelStyle}
+          role="dialog"
+          tabindex="-1"
+          aria-label={navigatorMode === "notes" ? t("notes.noteNavigatorLabel") : t("projects.navigator.pickerLabel")}
+        >
+          {#if navigatorMode === "notes"}
+            <NotesHierarchyPickerPanel
+              projectId={selectedProjectId}
+              parent={notesNavigatorParent}
+              frameStyle={`width: 100%; height: ${notesNavigatorPanelHeight}px; max-height: ${notesNavigatorPanelHeight}px;`}
+              className="relative"
+              zIndexClass=""
+              onPageSelected={() => {
+                navigatorOpen = false;
+              }}
+            />
+          {:else}
+            <NotesProjectNavigator
+              {selectedProjectId}
+              selectedGroupId={selectedGroup?.id ?? null}
+              {showInactiveProjects}
+              panelMode={navigatorMode}
+              panelMaxHeight={navigatorPanelMaxHeight}
+              onShowInactiveProjectsChange={onShowInactiveProjectsChange}
+              onProjectSelected={() => {
+                navigatorOpen = false;
+                onProjectSelected();
+              }}
+              onPageSelected={() => {
+                navigatorOpen = false;
+              }}
+            />
+          {/if}
+        </div>
+      {/if}
     {/if}
   </div>
   {#if !mobileLayout}<div class="flex-1"></div>{/if}
