@@ -2,6 +2,7 @@
   import AppearanceSection from "./AppearanceSection.svelte";
   import ProfileSection from "./ProfileSection.svelte";
   import CalendarsSection from "./CalendarsSection.svelte";
+  import ProjectsSection from "./ProjectsSection.svelte";
   import NotesSection from "./NotesSection.svelte";
   import AboutSection from "./AboutSection.svelte";
   import FocusSection from "./FocusSection.svelte";
@@ -18,20 +19,16 @@
 {:else if activeSection === "profile"}
   <ProfileSection />
 {:else if activeSection === "calendars"}
-  <CalendarsSection fileTransfersAvailable={false} />
+  <CalendarsSection fileTransfersAvailable={__GANBARU_AI_BUILD_PLATFORM__ === "android"} />
 {:else if activeSection === "projects"}
-  <MobileSettingsStatus
-    heading={t("mobile.settings.projectsHeading")}
-    description={t("mobile.settings.projectsDescription")}
-  />
+  <ProjectsSection />
 {:else if activeSection === "notes"}
   <NotesSection transfersAvailable={false} notificationsAvailable={false} />
 {:else if activeSection === "chat"}
-  <MobileSettingsStatus
-    heading={t("mobile.settings.chatHeading")}
-    description={t("mobile.settings.chatDescription")}
-    detail={t("mobile.settings.chatDetail")}
-  />
+  {#await import("./mobile/MobileChatSection.svelte") then module}
+    {@const MobileChatSection = module.default}
+    <MobileChatSection />
+  {/await}
 {:else if activeSection === "focus"}
   <FocusSection>
     {#snippet backgroundExecutionSettings()}
@@ -42,26 +39,25 @@
     {/snippet}
   </FocusSection>
 {:else if activeSection === "music"}
-  <MobileSettingsStatus
-    heading={t("mobile.settings.musicHeading")}
-    description={t("mobile.settings.musicDescription")}
-  />
+  {#await import("./MusicSection.svelte") then module}
+    {@const MusicSettings = module.default}
+    <MusicSettings />
+  {/await}
 {:else if activeSection === "doomscrolling"}
   <MobileSettingsStatus
     heading={t("mobile.settings.doomscrollingHeading")}
     description={t("mobile.settings.doomscrollingDescription")}
   />
 {:else if activeSection === "data"}
-  <MobileSettingsStatus
-    heading={t("mobile.privateDataHeading")}
-    description={t("mobile.privateDataDescription")}
-    detail={t("mobile.settings.dataDetail")}
-  />
+  {#await import("./mobile/MobileDataSection.svelte") then module}
+    {@const MobileDataSection = module.default}
+    <MobileDataSection />
+  {/await}
 {:else if activeSection === "updates"}
-  <MobileSettingsStatus
-    heading={t("mobile.settings.updatesHeading")}
-    description={t("mobile.settings.updatesDescription")}
-  />
+  {#await import("./mobile/MobileUpdatesSection.svelte") then module}
+    {@const MobileUpdatesSection = module.default}
+    <MobileUpdatesSection />
+  {/await}
 {:else if activeSection === "about"}
   <AboutSection />
 {/if}

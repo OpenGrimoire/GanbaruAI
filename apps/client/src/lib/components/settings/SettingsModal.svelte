@@ -467,7 +467,7 @@
               onclick={() => selectSection(section.id)}
               class="flex min-h-14 w-full items-center gap-3 rounded-xl px-3 text-left text-[0.95rem] font-medium active:bg-accent"
             >
-              <span class="flex size-9 shrink-0 items-center justify-center rounded-lg bg-accent/70 text-accent-foreground">
+              <span class="flex size-9 shrink-0 items-center justify-center">
                 <Icon size={19} strokeWidth={1.75} aria-hidden="true" />
               </span>
               <span class="min-w-0 flex-1">{t(section.labelKey)}</span>

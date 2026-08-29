@@ -888,8 +888,7 @@ const ICS_ZIP_MAX_TOTAL_BYTES: u64 = 250 * 1024 * 1024;
 
 /// Plain `.ics` imports share the zip per-entry cap so the import flow has
 /// one clear maximum payload size regardless of container.
-#[cfg(not(any(target_os = "android", target_os = "ios")))]
-const ICS_PLAIN_MAX_BYTES: u64 = ICS_ZIP_MAX_ENTRY_BYTES;
+const ICS_PLAIN_MAX_BYTES: u64 = 25 * 1024 * 1024;
 
 /// Theme JSON is small configuration data. One MiB leaves room for custom
 /// comments and future tokens while rejecting accidental large-file picks.
@@ -935,7 +934,6 @@ impl ThemeJsonWriteOutcome {
     }
 }
 
-#[cfg(not(any(target_os = "android", target_os = "ios")))]
 #[derive(Debug, serde::Serialize)]
 pub struct IcsZipEntry {
     /// File-name-only basename (no directory components) so an entry path
@@ -1127,6 +1125,67 @@ pub async fn vault_pick_and_write_ics_export(
     require_extension(&path, &["ics"], "ICS export")?;
     write_text_file_atomically(&path, &contents)?;
     Ok(true)
+}
+
+/// Ask Android to select and read one bounded iCalendar document.
+#[cfg(target_os = "android")]
+#[tauri::command]
+pub async fn vault_pick_and_read_ics_import(
+    app: tauri::AppHandle,
+) -> Result<Option<Vec<IcsZipEntry>>, String> {
+    app.mobile_documents()
+        .pick_utf8_document_matching(
+            ICS_PLAIN_MAX_BYTES,
+            &["ics"],
+            &["text/calendar", "application/ics", "text/plain"],
+            "calendar",
+        )
+        .map(|selected| {
+            selected.map(|contents| {
+                vec![IcsZipEntry {
+                    name: "calendar.ics".to_string(),
+                    contents,
+                }]
+            })
+        })
+}
+
+/// Save an iCalendar export to Android's public Downloads collection.
+#[cfg(target_os = "android")]
+#[tauri::command]
+pub async fn vault_pick_and_write_ics_export(
+    app: tauri::AppHandle,
+    default_name: String,
+    contents: String,
+) -> Result<bool, String> {
+    let default_name = default_file_name(&default_name, "calendar", "ics");
+    app.mobile_documents().save_utf8_download_with_type(
+        &default_name,
+        &contents,
+        ICS_PLAIN_MAX_BYTES,
+        &["ics"],
+        "text/calendar",
+        "calendar",
+    )?;
+    Ok(true)
+}
+
+#[cfg(target_os = "ios")]
+#[tauri::command]
+pub async fn vault_pick_and_read_ics_import(
+    _app: tauri::AppHandle,
+) -> Result<Option<Vec<IcsZipEntry>>, String> {
+    Err("calendar document import is not available on iOS yet".to_string())
+}
+
+#[cfg(target_os = "ios")]
+#[tauri::command]
+pub async fn vault_pick_and_write_ics_export(
+    _app: tauri::AppHandle,
+    _default_name: String,
+    _contents: String,
+) -> Result<bool, String> {
+    Err("calendar document export is not available on iOS yet".to_string())
 }
 
 /// Open a native file picker and read a theme `.json` file with a small cap.

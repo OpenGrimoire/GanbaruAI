@@ -193,12 +193,12 @@
     </div>
   </section>
 
-  <div class="h-px shrink-0 scale-y-50 bg-border" aria-hidden="true"></div>
+  {#if notificationsAvailable}
+    <div class="h-px shrink-0 scale-y-50 bg-border" aria-hidden="true"></div>
 
-  <section class="flex flex-col gap-4">
-    <h2 class="px-1 text-[0.866667rem] font-semibold text-foreground">{t("settings.notesNotifications.heading")}</h2>
+    <section class="flex flex-col gap-4">
+      <h2 class="px-1 text-[0.866667rem] font-semibold text-foreground">{t("settings.notesNotifications.heading")}</h2>
 
-    {#if notificationsAvailable}
       <div class="flex flex-col gap-3">
         <ToggleSetting
           label={t("settings.notesNotifications.enable")}
@@ -235,16 +235,12 @@
           onChange={preferences.setNotesNotificationIncludeContent}
         />
       </div>
-    {:else}
-      <div class="rounded-xl border border-border bg-card p-3 text-sm leading-6 text-muted-foreground">
-        {t("mobile.settings.notesNotificationsUnavailable")}
-      </div>
-    {/if}
-  </section>
-
-  <div class="h-px shrink-0 scale-y-50 bg-border" aria-hidden="true"></div>
+    </section>
+  {/if}
 
   {#if transfersAvailable}
+    <div class="h-px shrink-0 scale-y-50 bg-border" aria-hidden="true"></div>
+
     <section class="flex flex-col gap-4">
       <div class="min-w-0 px-1">
         <h2 class="text-[0.866667rem] font-semibold text-foreground">{t("settings.notesTransfers.importHeading")}</h2>
@@ -297,10 +293,6 @@
           </div>
         {/each}
       </div>
-    </section>
-  {:else}
-    <section class="rounded-xl border border-border bg-card p-3 text-sm leading-6 text-muted-foreground">
-      {t("mobile.settings.notesTransfersUnavailable")}
     </section>
   {/if}
 </div>

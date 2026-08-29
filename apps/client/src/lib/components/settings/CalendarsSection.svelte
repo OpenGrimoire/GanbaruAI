@@ -275,12 +275,6 @@
     </div>
   </header>
 
-  {#if !fileTransfersAvailable}
-    <div class="mx-1 rounded-xl border border-border bg-card p-3 text-sm leading-6 text-muted-foreground">
-      {t("mobile.settings.calendarTransfersUnavailable")}
-    </div>
-  {/if}
-
   {#if importWarnings.length > 0}
     <section
       class="mx-1 rounded-md border border-border bg-muted/20 px-3 py-2 text-[0.766667rem] text-foreground"
