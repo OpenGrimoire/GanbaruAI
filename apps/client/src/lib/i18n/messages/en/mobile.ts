@@ -6,11 +6,23 @@ export const mobile = {
   privateDataHeading: "Private mobile storage",
   privateDataDescription:
     "Ganbaru AI keeps the live mobile database in the app's private storage. Theme imports use Android's document picker and exports go to Downloads. Backup and remaining file transfers will use similarly scoped system boundaries.",
-  pomodoroForegroundOnly:
-    "Background timer alerts are not available in this Android foundation yet. Keep Ganbaru AI open while using Pomodoro.",
   pomodoroInactiveDescription:
     "Pomodoro starts automatically when a Pomodoro-enabled calendar block begins.",
   pomodoroOpenCalendar: "Open calendar",
+  focusOnboarding: {
+    title: "Keep Focus running",
+    description:
+      "Review these Android settings so scheduled Focus events can start while Ganbaru AI is closed.",
+    notifications: "Notifications",
+    notificationsDescription: "Show ongoing Focus progress and phase alerts",
+    exactAlarm: "Alarms and reminders",
+    exactAlarmDescription: "Start scheduled Focus events at the correct time",
+    backgroundRestricted: "Android currently restricts Ganbaru AI in the background",
+    review: "Review",
+    continue: "Continue",
+    continueIn: (seconds: number) => `Continue in ${seconds}s`,
+    statusError: "Some Android access status could not be read. You can still review each setting.",
+  },
   settings: {
     categoriesLabel: "Settings categories",
     backToCategories: "Back to settings categories",
@@ -39,8 +51,5 @@ export const mobile = {
       "Notes file import and export need the Android document picker. Notes preferences and version-history retention remain available.",
     notesNotificationsUnavailable:
       "Notes notification delivery needs the native Android notification adapter. These controls will appear when delivery can work reliably.",
-    focusHeading: "Foreground Pomodoro is available",
-    focusNativeFeaturesUnavailable:
-      "Idle detection and background boundary notifications need native Android adapters. Foreground Pomodoro recovery remains available.",
   },
 } as const;

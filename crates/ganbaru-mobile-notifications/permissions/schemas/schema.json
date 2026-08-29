@@ -295,6 +295,18 @@
       "type": "string",
       "oneOf": [
         {
+          "description": "Enables the backgroundExecutionStatus command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-backgroundExecutionStatus",
+          "markdownDescription": "Enables the backgroundExecutionStatus command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the backgroundExecutionStatus command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-backgroundExecutionStatus",
+          "markdownDescription": "Denies the backgroundExecutionStatus command without any pre-configured scope."
+        },
+        {
           "description": "Enables the calendarChannelStatus command without any pre-configured scope.",
           "type": "string",
           "const": "allow-calendarChannelStatus",
@@ -355,6 +367,18 @@
           "markdownDescription": "Denies the exactAlarmStatus command without any pre-configured scope."
         },
         {
+          "description": "Enables the openBackgroundExecutionSettings command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-openBackgroundExecutionSettings",
+          "markdownDescription": "Enables the openBackgroundExecutionSettings command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the openBackgroundExecutionSettings command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-openBackgroundExecutionSettings",
+          "markdownDescription": "Denies the openBackgroundExecutionSettings command without any pre-configured scope."
+        },
+        {
           "description": "Enables the openExactAlarmSettings command without any pre-configured scope.",
           "type": "string",
           "const": "allow-openExactAlarmSettings",
@@ -401,6 +425,18 @@
           "type": "string",
           "const": "deny-pomodoroNotificationState",
           "markdownDescription": "Denies the pomodoroNotificationState command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the reconcilePomodoroSchedule command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-reconcilePomodoroSchedule",
+          "markdownDescription": "Enables the reconcilePomodoroSchedule command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the reconcilePomodoroSchedule command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-reconcilePomodoroSchedule",
+          "markdownDescription": "Denies the reconcilePomodoroSchedule command without any pre-configured scope."
         },
         {
           "description": "Enables the scheduleCalendarNotifications command without any pre-configured scope.",

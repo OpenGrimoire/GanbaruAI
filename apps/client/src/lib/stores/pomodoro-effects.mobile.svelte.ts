@@ -24,9 +24,11 @@ export function createPomodoroEffects(context: PomodoroEffectsContext): Pomodoro
     return JSON.stringify({
       runId: state.runId,
       eventId: state.eventId,
+      eventTitle: state.eventTitle,
       eventEndsAtEpochMs: state.eventEndsAtEpochMs,
       isRunning: state.isRunning,
       totalSeconds: state.totalSeconds,
+      configJson: state.configJson,
       progress,
       phases: state.phases,
       copy: state.copy,

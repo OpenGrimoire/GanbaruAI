@@ -65,6 +65,18 @@ async function mountMobileVaultSetup(initialError: string | null) {
   });
 }
 
+async function mountMobileFocusOnboarding() {
+  const { default: MobileFocusOnboarding } = await import(
+    "$lib/components/mobile/MobileFocusOnboarding.svelte"
+  );
+  return mount(MobileFocusOnboarding, {
+    target: document.getElementById("app")!,
+    props: {
+      onComplete: () => window.location.reload(),
+    },
+  });
+}
+
 const appPromise = (async () => {
   const preVaultPreference = readPreVaultLanguagePreference(safeStorage());
   await getLocalization().setLanguagePreference(
@@ -79,6 +91,12 @@ const appPromise = (async () => {
     await initializeLocalizationFromConfig();
     await applyPreVaultLanguagePreference();
     await hydrateUserThemes();
+    const { mobileFocusOnboardingCompleted } = await import(
+      "$lib/scheduling/mobile-background-execution"
+    );
+    if (!mobileFocusOnboardingCompleted(safeStorage())) {
+      return mountMobileFocusOnboarding();
+    }
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     return mountMobileVaultError(message);

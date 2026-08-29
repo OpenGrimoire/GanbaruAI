@@ -55,6 +55,9 @@
     reconcile(): Promise<void>;
     takeAction(): Promise<string | null>;
   }
+  interface PomodoroScheduleScheduler {
+    reconcile(): Promise<void>;
+  }
 
   const nav = getNavigation();
   const viewport = getViewport();
@@ -124,6 +127,7 @@
   let calendarNotificationScheduler = $state.raw<CalendarNotificationScheduler | null>(null);
   let calendarNotificationSchedulerLoad: Promise<void> | null = null;
   let calendarNotificationSchedulerDisposed = false;
+  let pomodoroScheduleScheduler = $state.raw<PomodoroScheduleScheduler | null>(null);
 
   const navigationPresentation = $derived(
     mobileNavigationPresentation(viewport.layoutWidth),
@@ -257,13 +261,20 @@
     if (calendarNotificationScheduler || calendarNotificationSchedulerDisposed) return;
     if (calendarNotificationSchedulerLoad) return calendarNotificationSchedulerLoad;
     calendarNotificationSchedulerLoad = (async () => {
-      const module = await import("$lib/scheduling/mobile-calendar-notifications");
+      const [module, pomodoroScheduleModule] = await Promise.all([
+        import("$lib/scheduling/mobile-calendar-notifications"),
+        import("$lib/scheduling/mobile-pomodoro-schedule"),
+      ]);
       if (calendarNotificationSchedulerDisposed) return;
       calendarNotificationScheduler = new module.MobileCalendarNotificationScheduler(
         t,
         () => localization.locale,
       );
-      await calendarNotificationScheduler.reconcile();
+      pomodoroScheduleScheduler = new pomodoroScheduleModule.MobilePomodoroScheduleScheduler(t);
+      await Promise.all([
+        calendarNotificationScheduler.reconcile(),
+        pomodoroScheduleScheduler.reconcile(),
+      ]);
       const eventId = await calendarNotificationScheduler.takeAction();
       if (eventId) navigate("calendar");
     })().catch((error: unknown) => {
@@ -577,6 +588,7 @@
       if (document.visibilityState !== "visible") return;
       activeBlockScheduler?.resume();
       void calendarNotificationScheduler?.reconcile();
+      void pomodoroScheduleScheduler?.reconcile();
       void calendarNotificationScheduler?.takeAction().then((eventId) => {
         if (eventId) navigate("calendar");
       });
@@ -608,6 +620,7 @@
       activeBlockScheduler = null;
       calendarNotificationSchedulerDisposed = true;
       calendarNotificationScheduler = null;
+      pomodoroScheduleScheduler = null;
     };
   });
 
@@ -619,6 +632,7 @@
     const _calendarVersion = calendar.indexVersion;
     if (!backendReady || !calendar.loaded) return;
     void calendarNotificationScheduler?.reconcile();
+    void pomodoroScheduleScheduler?.reconcile();
   });
 
   $effect(() => {

@@ -9,11 +9,23 @@ export const mobile = {
   privateDataHeading: "Almacenamiento móvil privado",
   privateDataDescription:
     "Ganbaru AI guarda la base de datos móvil activa en el almacenamiento privado de la app. Las importaciones de temas usan el selector de documentos de Android y las exportaciones van a Descargas. Las copias de seguridad y transferencias restantes usarán límites del sistema con un alcance similar.",
-  pomodoroForegroundOnly:
-    "Las alertas del temporizador en segundo plano aún no están disponibles en esta base para Android. Mantén Ganbaru AI abierto mientras usas Pomodoro.",
   pomodoroInactiveDescription:
     "Pomodoro comienza automáticamente cuando inicia un bloque de calendario con Pomodoro habilitado.",
   pomodoroOpenCalendar: "Abrir calendario",
+  focusOnboarding: {
+    title: "Mantén Enfoque en funcionamiento",
+    description:
+      "Revisa estos ajustes de Android para iniciar eventos de Enfoque programados con Ganbaru AI cerrado.",
+    notifications: "Notificaciones",
+    notificationsDescription: "Muestra el progreso de Enfoque y las alertas de fase",
+    exactAlarm: "Alarmas y recordatorios",
+    exactAlarmDescription: "Inicia los eventos de Enfoque programados a la hora correcta",
+    backgroundRestricted: "Android actualmente restringe Ganbaru AI en segundo plano",
+    review: "Revisar",
+    continue: "Continuar",
+    continueIn: (seconds: number) => `Continuar en ${seconds} s`,
+    statusError: "No se pudo consultar parte del acceso de Android. Aún puedes revisar cada ajuste.",
+  },
   settings: {
     categoriesLabel: "Categorías de ajustes",
     backToCategories: "Volver a las categorías de ajustes",
@@ -42,8 +54,5 @@ export const mobile = {
       "La importación y exportación de archivos de notas necesitan el selector de documentos de Android. Las preferencias y retención del historial siguen disponibles.",
     notesNotificationsUnavailable:
       "La entrega de notificaciones de notas necesita el adaptador nativo de Android. Estos controles aparecerán cuando la entrega pueda funcionar de forma confiable.",
-    focusHeading: "Pomodoro está disponible en primer plano",
-    focusNativeFeaturesUnavailable:
-      "La detección de inactividad y las notificaciones de límites en segundo plano necesitan adaptadores nativos de Android. La recuperación de Pomodoro en primer plano sigue disponible.",
   },
 } as const satisfies MessageShape<typeof enMobile>;

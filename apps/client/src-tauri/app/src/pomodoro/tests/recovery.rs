@@ -344,12 +344,14 @@ fn mobile_recovery_replays_native_boundaries_after_the_app_process_stops() {
         let projection = PomodoroNativeProjectionWrite {
             run_id: "run-1".to_string(),
             event_id: "event-1".to_string(),
+            event_title: Some("Planning".to_string()),
             event_date: "2026-05-29".to_string(),
             event_ends_at_epoch_ms: epoch("2026-05-29T11:00:00Z"),
             generated_at_epoch_ms: epoch("2026-05-29T10:10:00Z"),
             is_running: true,
             remaining_seconds: 1_800,
             total_seconds: 2_400,
+            config_json: Some(r#"{"rhythm":{"kind":"count","focusDurationMinutes":40,"shortBreakMinutes":5,"longBreakMinutes":10,"longBreakAfterFocusCount":4},"rhythmSource":"preset","presetKey":"adaptive","idleTimeoutMinutes":null}"#.to_string()),
             phases: vec![
                 PomodoroNativeProjectionPhaseWrite {
                     id: "segment-1".to_string(),
@@ -408,6 +410,76 @@ fn mobile_recovery_replays_native_boundaries_after_the_app_process_stops() {
         assert_eq!(rows[1].get::<String, _>("status"), "completed");
         assert_eq!(rows[2].get::<String, _>("status"), "active");
         assert_eq!(rows[2].get::<Option<String>, _>("end_reason"), None);
+    });
+}
+
+#[test]
+fn mobile_recovery_materializes_a_native_calendar_activation() {
+    tauri::async_runtime::block_on(async {
+        let pool = migrated_pool_with_event().await;
+        let epoch = |value: &str| {
+            chrono::DateTime::parse_from_rfc3339(value)
+                .unwrap()
+                .timestamp_millis()
+        };
+        let projection = PomodoroNativeProjectionWrite {
+            run_id: "scheduled-a1b2c3d4".to_string(),
+            event_id: "event-1".to_string(),
+            event_title: Some("Planning".to_string()),
+            event_date: "2026-05-29".to_string(),
+            event_ends_at_epoch_ms: epoch("2026-05-29T11:00:00Z"),
+            generated_at_epoch_ms: epoch("2026-05-28T20:00:00Z"),
+            is_running: true,
+            remaining_seconds: 2_400,
+            total_seconds: 2_400,
+            config_json: Some(r#"{"rhythm":{"kind":"count","focusDurationMinutes":40,"shortBreakMinutes":5,"longBreakMinutes":10,"longBreakAfterFocusCount":4},"rhythmSource":"preset","presetKey":"adaptive","idleTimeoutMinutes":null}"#.to_string()),
+            phases: vec![
+                PomodoroNativeProjectionPhaseWrite {
+                    id: "scheduled-a1b2c3d4-1".to_string(),
+                    phase: "focus".to_string(),
+                    rhythm_position: 1,
+                    starts_at_epoch_ms: epoch("2026-05-29T10:00:00Z"),
+                    ends_at_epoch_ms: epoch("2026-05-29T10:40:00Z"),
+                },
+                PomodoroNativeProjectionPhaseWrite {
+                    id: "scheduled-a1b2c3d4-2".to_string(),
+                    phase: "short_break".to_string(),
+                    rhythm_position: 1,
+                    starts_at_epoch_ms: epoch("2026-05-29T10:40:00Z"),
+                    ends_at_epoch_ms: epoch("2026-05-29T10:45:00Z"),
+                },
+                PomodoroNativeProjectionPhaseWrite {
+                    id: "scheduled-a1b2c3d4-3".to_string(),
+                    phase: "focus".to_string(),
+                    rhythm_position: 2,
+                    starts_at_epoch_ms: epoch("2026-05-29T10:45:00Z"),
+                    ends_at_epoch_ms: epoch("2026-05-29T11:00:00Z"),
+                },
+            ],
+        };
+
+        let result = super::super::recovery::recover_mobile_run_from_pool(
+            &pool,
+            "2026-05-29T10:47:00Z",
+            Some(&projection),
+        )
+        .await
+        .unwrap();
+        let PomodoroMobileRecoveryRead::Resumed { run } = result else {
+            panic!("expected scheduled native activation recovery to resume");
+        };
+
+        assert_eq!(run.run_id, "scheduled-a1b2c3d4");
+        assert_eq!(run.started_at, "2026-05-29T10:00:00.000Z");
+        assert_eq!(run.segment.id, "scheduled-a1b2c3d4-3");
+        assert_eq!(run.phase_elapsed_seconds, 120);
+        let start_trigger: String = sqlx::query_scalar(
+            "SELECT start_trigger FROM pomodoro_runs WHERE id = 'scheduled-a1b2c3d4'",
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(start_trigger, "block_auto");
     });
 }
 

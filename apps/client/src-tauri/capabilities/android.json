@@ -16,6 +16,7 @@
     "ganbaru-mobile-notifications:allow-updatePomodoroNotification",
     "ganbaru-mobile-notifications:allow-cancelPomodoroNotification",
     "ganbaru-mobile-notifications:allow-pomodoroNotificationState",
+    "ganbaru-mobile-notifications:allow-reconcilePomodoroSchedule",
     {
       "identifier": "opener:allow-open-url",
       "allow": [

@@ -24,6 +24,16 @@ pub struct ExactAlarmStatus {
     pub granted: bool,
 }
 
+/// Android and OEM background-execution state that the app can observe.
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BackgroundExecutionStatus {
+    pub manufacturer: String,
+    pub autostart_settings_available: bool,
+    pub background_restricted: bool,
+    pub battery_optimization_exempt: bool,
+}
+
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 struct CalendarChannelRequest<'a> {
@@ -55,6 +65,25 @@ impl<R: Runtime> MobileNotifications<R> {
         self.0
             .run_mobile_plugin("exactAlarmStatus", ())
             .map_err(|error| format!("read exact-alarm status: {error}"))
+    }
+
+    /// Read the observable Android background-execution state.
+    pub fn background_execution_status(&self) -> Result<BackgroundExecutionStatus, String> {
+        self.0
+            .run_mobile_plugin("backgroundExecutionStatus", ())
+            .map_err(|error| format!("read background-execution status: {error}"))
+    }
+
+    /// Open an Android or OEM background-execution settings screen.
+    pub fn open_background_execution_settings(&self, destination: &str) -> Result<(), String> {
+        #[derive(Serialize)]
+        struct Request<'a> {
+            destination: &'a str,
+        }
+
+        self.0
+            .run_mobile_plugin("openBackgroundExecutionSettings", Request { destination })
+            .map_err(|error| format!("open background-execution settings: {error}"))
     }
 
     /// Open Android's app-specific Alarms and reminders access screen.

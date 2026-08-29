@@ -4,7 +4,9 @@
 mod mobile;
 
 #[cfg(target_os = "android")]
-pub use mobile::{ExactAlarmStatus, MobileNotifications, MobileNotificationsExt};
+pub use mobile::{
+    BackgroundExecutionStatus, ExactAlarmStatus, MobileNotifications, MobileNotificationsExt,
+};
 
 #[cfg(target_os = "android")]
 use tauri::Manager;

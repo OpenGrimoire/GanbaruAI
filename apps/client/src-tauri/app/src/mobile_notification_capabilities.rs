@@ -9,6 +9,66 @@ pub struct MobileExactAlarmStatus {
     granted: bool,
 }
 
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MobileBackgroundExecutionStatus {
+    manufacturer: String,
+    autostart_settings_available: bool,
+    background_restricted: bool,
+    battery_optimization_exempt: bool,
+}
+
+/// Report Android background-execution state that can be observed without privileged APIs.
+#[tauri::command]
+pub fn mobile_notification_background_execution_status<R: Runtime>(
+    app: AppHandle<R>,
+) -> Result<MobileBackgroundExecutionStatus, String> {
+    #[cfg(target_os = "android")]
+    {
+        use ganbaru_mobile_notifications::MobileNotificationsExt;
+
+        let status = app.mobile_notifications().background_execution_status()?;
+        return Ok(MobileBackgroundExecutionStatus {
+            manufacturer: status.manufacturer,
+            autostart_settings_available: status.autostart_settings_available,
+            background_restricted: status.background_restricted,
+            battery_optimization_exempt: status.battery_optimization_exempt,
+        });
+    }
+
+    #[cfg(not(target_os = "android"))]
+    {
+        let _ = app;
+        Err("background-execution status is only available on Android".to_string())
+    }
+}
+
+/// Open Android's app-specific background-execution settings.
+#[tauri::command]
+pub fn mobile_notification_open_background_execution_settings<R: Runtime>(
+    app: AppHandle<R>,
+    destination: String,
+) -> Result<(), String> {
+    if !matches!(destination.as_str(), "autostart" | "battery") {
+        return Err("background settings destination must be autostart or battery".to_string());
+    }
+
+    #[cfg(target_os = "android")]
+    {
+        use ganbaru_mobile_notifications::MobileNotificationsExt;
+
+        return app
+            .mobile_notifications()
+            .open_background_execution_settings(&destination);
+    }
+
+    #[cfg(not(target_os = "android"))]
+    {
+        let _ = (app, destination);
+        Err("background-execution settings are only available on Android".to_string())
+    }
+}
+
 /// Ensure Android's Calendar reminder channel follows the device notification sound.
 #[tauri::command]
 pub fn mobile_notification_ensure_calendar_channel<R: Runtime>(

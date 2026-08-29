@@ -392,13 +392,26 @@ pub struct PomodoroRecoveredSegmentRead {
 pub struct PomodoroNativeProjectionWrite {
     run_id: String,
     event_id: String,
+    event_title: Option<String>,
     event_date: String,
     event_ends_at_epoch_ms: i64,
     generated_at_epoch_ms: i64,
     is_running: bool,
     remaining_seconds: i64,
     total_seconds: i64,
+    #[serde(default)]
+    config_json: Option<String>,
     phases: Vec<PomodoroNativeProjectionPhaseWrite>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+#[cfg(any(test, target_os = "android", target_os = "ios"))]
+struct PomodoroNativeConfigWrite {
+    rhythm: PomodoroRunRhythm,
+    rhythm_source: String,
+    preset_key: Option<String>,
+    idle_timeout_minutes: Option<i64>,
 }
 
 #[derive(Clone, Deserialize)]

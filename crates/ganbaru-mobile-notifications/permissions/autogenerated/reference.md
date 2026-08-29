@@ -10,6 +10,32 @@
 <tr>
 <td>
 
+`ganbaru-mobile-notifications:allow-backgroundExecutionStatus`
+
+</td>
+<td>
+
+Enables the backgroundExecutionStatus command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`ganbaru-mobile-notifications:deny-backgroundExecutionStatus`
+
+</td>
+<td>
+
+Denies the backgroundExecutionStatus command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
 `ganbaru-mobile-notifications:allow-calendarChannelStatus`
 
 </td>
@@ -140,6 +166,32 @@ Denies the exactAlarmStatus command without any pre-configured scope.
 <tr>
 <td>
 
+`ganbaru-mobile-notifications:allow-openBackgroundExecutionSettings`
+
+</td>
+<td>
+
+Enables the openBackgroundExecutionSettings command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`ganbaru-mobile-notifications:deny-openBackgroundExecutionSettings`
+
+</td>
+<td>
+
+Denies the openBackgroundExecutionSettings command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
 `ganbaru-mobile-notifications:allow-openExactAlarmSettings`
 
 </td>
@@ -237,6 +289,32 @@ Enables the pomodoroNotificationState command without any pre-configured scope.
 <td>
 
 Denies the pomodoroNotificationState command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`ganbaru-mobile-notifications:allow-reconcilePomodoroSchedule`
+
+</td>
+<td>
+
+Enables the reconcilePomodoroSchedule command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`ganbaru-mobile-notifications:deny-reconcilePomodoroSchedule`
+
+</td>
+<td>
+
+Denies the reconcilePomodoroSchedule command without any pre-configured scope.
 
 </td>
 </tr>

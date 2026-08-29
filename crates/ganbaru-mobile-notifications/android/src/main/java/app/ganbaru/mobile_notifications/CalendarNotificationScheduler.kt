@@ -75,6 +75,7 @@ internal object CalendarNotificationScheduler {
       }
     }
     editor.apply()
+    PomodoroActivationScheduler.restore(context)
     PomodoroNotificationScheduler.restore(context)
   }
 

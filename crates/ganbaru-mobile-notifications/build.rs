@@ -9,7 +9,10 @@ fn main() {
         "updatePomodoroNotification",
         "cancelPomodoroNotification",
         "pomodoroNotificationState",
+        "reconcilePomodoroSchedule",
         "exactAlarmStatus",
+        "backgroundExecutionStatus",
+        "openBackgroundExecutionSettings",
         "openExactAlarmSettings",
         "openNotificationSettings",
     ])

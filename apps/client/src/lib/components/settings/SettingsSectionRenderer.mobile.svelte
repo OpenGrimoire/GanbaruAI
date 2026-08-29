@@ -4,6 +4,7 @@
   import CalendarsSection from "./CalendarsSection.svelte";
   import NotesSection from "./NotesSection.svelte";
   import AboutSection from "./AboutSection.svelte";
+  import FocusSection from "./FocusSection.svelte";
   import MobileSettingsStatus from "./mobile/MobileSettingsStatus.svelte";
   import { getLocalization } from "$lib/i18n/translator.svelte";
   import type { SettingsSectionRendererProps } from "./settings-section-renderer-contract";
@@ -32,10 +33,14 @@
     detail={t("mobile.settings.chatDetail")}
   />
 {:else if activeSection === "focus"}
-  <MobileSettingsStatus
-    heading={t("mobile.settings.focusHeading")}
-    description={t("mobile.settings.focusNativeFeaturesUnavailable")}
-  />
+  <FocusSection>
+    {#snippet backgroundExecutionSettings()}
+      {#await import("./AndroidBackgroundExecutionSettings.svelte") then module}
+        {@const AndroidBackgroundExecutionSettings = module.default}
+        <AndroidBackgroundExecutionSettings />
+      {/await}
+    {/snippet}
+  </FocusSection>
 {:else if activeSection === "music"}
   <MobileSettingsStatus
     heading={t("mobile.settings.musicHeading")}

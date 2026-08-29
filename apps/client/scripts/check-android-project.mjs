@@ -141,6 +141,7 @@ for (const expected of [
   "ganbaru-mobile-notifications:allow-takeCalendarNotificationAction",
   "ganbaru-mobile-notifications:allow-updatePomodoroNotification",
   "ganbaru-mobile-notifications:allow-pomodoroNotificationState",
+  "ganbaru-mobile-notifications:allow-reconcilePomodoroSchedule",
   "ganbaru-mobile-notifications:allow-cancelPomodoroNotification",
 ]) {
   if (!androidCapabilityPermissions.includes(expected)) {
@@ -161,9 +162,16 @@ for (const expected of [
 for (const expected of [
   "android.permission.SCHEDULE_EXACT_ALARM",
   "android.permission.RECEIVE_BOOT_COMPLETED",
+  "android.permission.FOREGROUND_SERVICE",
+  "android.permission.FOREGROUND_SERVICE_SPECIAL_USE",
   "android.intent.action.BOOT_COMPLETED",
   "android.intent.action.MY_PACKAGE_REPLACED",
   ".PomodoroNotificationReceiver",
+  ".PomodoroActivationReceiver",
+  ".PomodoroNotificationService",
+  'android:foregroundServiceType="specialUse"',
+  'android:stopWithTask="false"',
+  "android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE",
   'android:exported="false"',
 ]) {
   requireText(mobileNotificationManifest, expected, "mobile notification manifest", failures);

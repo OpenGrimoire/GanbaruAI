@@ -40,6 +40,7 @@ export interface MobilePomodoroNotificationState {
   isRunning: boolean;
   remainingSeconds: number;
   totalSeconds: number;
+  configJson: string;
   phases: MobilePomodoroNotificationPhase[];
   copy: MobilePomodoroNotificationCopy;
 }
@@ -69,7 +70,12 @@ function timestamp(value: string): number | null {
 function notificationEventTitle(value: string | null): string | null {
   const trimmed = value?.trim() ?? "";
   if (trimmed.length === 0) return null;
-  return Array.from(trimmed).slice(0, MAX_NATIVE_EVENT_TITLE_LENGTH).join("");
+  let result = "";
+  for (const character of trimmed) {
+    if (result.length + character.length > MAX_NATIVE_EVENT_TITLE_LENGTH) break;
+    result += character;
+  }
+  return result;
 }
 
 /** Build the bounded native phase projection used by Android alarms and cold recovery. */
@@ -110,6 +116,7 @@ export function buildMobilePomodoroNotificationState(
       isRunning: false,
       remainingSeconds: input.remainingSeconds,
       totalSeconds: input.totalSeconds,
+      configJson: JSON.stringify(input.config),
       phases: [{
         id: current.id,
         phase: current.phase,
@@ -169,6 +176,7 @@ export function buildMobilePomodoroNotificationState(
     isRunning: true,
     remainingSeconds: input.remainingSeconds,
     totalSeconds: input.totalSeconds,
+    configJson: JSON.stringify(input.config),
     phases,
     copy: input.copy,
   };

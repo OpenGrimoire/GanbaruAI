@@ -1,16 +1,19 @@
 package app.ganbaru.mobile_notifications
 
 import android.app.Activity
+import android.app.ActivityManager
 import android.app.AlarmManager
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
+import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.media.AudioAttributes
 import android.media.RingtoneManager
 import android.net.Uri
 import android.os.Build
+import android.os.PowerManager
 import android.provider.Settings
 import android.webkit.WebView
 import app.tauri.annotation.Command
@@ -78,6 +81,7 @@ internal class PomodoroNotificationStateArgs {
   var isRunning: Boolean = false
   var remainingSeconds: Int = 0
   var totalSeconds: Int = 0
+  lateinit var configJson: String
   var phases: List<PomodoroNotificationPhaseArgs> = listOf()
   lateinit var copy: PomodoroNotificationCopyArgs
 }
@@ -87,11 +91,21 @@ internal class PomodoroNotificationUpdateArgs {
   lateinit var state: PomodoroNotificationStateArgs
 }
 
+@InvokeArg
+internal class PomodoroScheduleReconcileArgs {
+  var schedule: List<PomodoroNotificationStateArgs> = listOf()
+}
+
 internal object ExactAlarmCapability {
   fun isRequired(apiLevel: Int): Boolean = apiLevel >= Build.VERSION_CODES.S
 
   fun isGranted(apiLevel: Int, alarmManager: AlarmManager): Boolean =
     !isRequired(apiLevel) || alarmManager.canScheduleExactAlarms()
+}
+
+@InvokeArg
+internal class BackgroundExecutionSettingsArgs {
+  lateinit var destination: String
 }
 
 @TauriPlugin
@@ -234,6 +248,7 @@ class MobileNotificationsPlugin(private val activity: Activity) : Plugin(activit
       put("isRunning", projection.isRunning)
       put("remainingSeconds", projection.remainingSeconds)
       put("totalSeconds", projection.totalSeconds)
+      put("configJson", projection.configJson)
       put("phases", JSArray().apply {
         projection.phases.forEach { phase ->
           put(JSObject().apply {
@@ -246,6 +261,19 @@ class MobileNotificationsPlugin(private val activity: Activity) : Plugin(activit
         }
       })
     })
+  }
+
+  @Command
+  fun reconcilePomodoroSchedule(invoke: Invoke) {
+    val args = invoke.parseArgs(PomodoroScheduleReconcileArgs::class.java)
+    try {
+      val schedule = args.schedule.map(PomodoroNotificationStateArgs::toProjection)
+      schedule.firstOrNull()?.let { ensurePomodoroChannels(it.copy) }
+      PomodoroActivationScheduler.reconcile(activity, schedule)
+      invoke.resolve()
+    } catch (error: Exception) {
+      invoke.reject(error.message ?: "Failed to reconcile Pomodoro activation schedule")
+    }
   }
 
   @Command
@@ -264,6 +292,55 @@ class MobileNotificationsPlugin(private val activity: Activity) : Plugin(activit
       put("required", ExactAlarmCapability.isRequired(apiLevel))
       put("granted", ExactAlarmCapability.isGranted(apiLevel, alarmManager))
     })
+  }
+
+  @Command
+  fun backgroundExecutionStatus(invoke: Invoke) {
+    val powerManager = activity.getSystemService(Context.POWER_SERVICE) as PowerManager
+    val backgroundRestricted = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+      val activityManager = activity.getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager
+      activityManager.isBackgroundRestricted
+    } else {
+      false
+    }
+    invoke.resolve(JSObject().apply {
+      put("manufacturer", Build.MANUFACTURER.trim().take(80))
+      put(
+        "autostartSettingsAvailable",
+        backgroundSettingsIntents(BackgroundSettingsDestination.AUTOSTART).any(::isResolvable),
+      )
+      put("backgroundRestricted", backgroundRestricted)
+      put(
+        "batteryOptimizationExempt",
+        powerManager.isIgnoringBatteryOptimizations(activity.packageName),
+      )
+    })
+  }
+
+  @Command
+  fun openBackgroundExecutionSettings(invoke: Invoke) {
+    val args = invoke.parseArgs(BackgroundExecutionSettingsArgs::class.java)
+    val destination = when (args.destination) {
+      "autostart" -> BackgroundSettingsDestination.AUTOSTART
+      "battery" -> BackgroundSettingsDestination.BATTERY
+      else -> {
+        invoke.reject("Unknown background execution settings destination")
+        return
+      }
+    }
+    val fallbackIntents = when (destination) {
+      BackgroundSettingsDestination.AUTOSTART -> listOf(applicationDetailsIntent())
+      BackgroundSettingsDestination.BATTERY -> listOf(
+        Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS),
+        applicationDetailsIntent(),
+      )
+    }
+    val error = startFirstAvailable(backgroundSettingsIntents(destination) + fallbackIntents)
+    if (error == null) {
+      invoke.resolve()
+    } else {
+      invoke.reject(error.message ?: "Failed to open Android settings")
+    }
   }
 
   @Command
@@ -360,6 +437,54 @@ class MobileNotificationsPlugin(private val activity: Activity) : Plugin(activit
       },
     )
   }
+
+  private fun backgroundSettingsIntents(
+    destination: BackgroundSettingsDestination,
+  ): List<Intent> = BackgroundExecutionSettingsRegistry.candidates(
+    destination = destination,
+    manufacturer = Build.MANUFACTURER,
+    brand = Build.BRAND,
+  ).map(::backgroundSettingsIntent)
+
+  private fun backgroundSettingsIntent(spec: BackgroundSettingsIntentSpec): Intent = when (spec) {
+    is BackgroundSettingsIntentSpec.Component -> Intent().apply {
+      component = ComponentName(spec.packageName, spec.className)
+      spec.dataUri?.let { data = Uri.parse(it) }
+      if (spec.includeApplicationExtras) {
+        putExtra("package_name", activity.packageName)
+        putExtra(
+          "package_label",
+          activity.applicationInfo.loadLabel(activity.packageManager).toString(),
+        )
+      }
+    }
+    is BackgroundSettingsIntentSpec.Action -> Intent(spec.action).apply {
+      spec.packageName?.let(::setPackage)
+      spec.integerExtras.forEach { (key, value) -> putExtra(key, value) }
+    }
+  }
+
+  private fun startFirstAvailable(intents: List<Intent>): Exception? {
+    var lastError: Exception? = null
+    for (intent in intents) {
+      if (!isResolvable(intent)) continue
+      try {
+        activity.startActivity(intent)
+        return null
+      } catch (error: Exception) {
+        lastError = error
+      }
+    }
+    return lastError ?: IllegalStateException("No compatible Android settings screen is available")
+  }
+
+  private fun isResolvable(intent: Intent): Boolean =
+    intent.resolveActivity(activity.packageManager) != null
+
+  private fun applicationDetailsIntent(): Intent = Intent(
+    Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+    Uri.parse("package:${activity.packageName}"),
+  )
 }
 
 private fun PomodoroNotificationStateArgs.toProjection(): PomodoroNotificationProjection =
@@ -373,6 +498,7 @@ private fun PomodoroNotificationStateArgs.toProjection(): PomodoroNotificationPr
     isRunning = isRunning,
     remainingSeconds = remainingSeconds,
     totalSeconds = totalSeconds,
+    configJson = configJson,
     phases = phases.map { phase ->
       PomodoroNotificationPhase(
         id = phase.id,

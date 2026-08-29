@@ -16,6 +16,12 @@ export const focusAndShortcuts = {
     idlePauseDefault: "Idle pause by default",
     idlePauseDefaultDescription: "Turns on Pause on inactivity for new Pomodoro events",
     notificationHeading: "Notification",
+    androidBackgroundUnavailable: "Android background settings are temporarily unavailable.",
+    androidAutostart: "Background autostart",
+    androidAutostartDescription:
+      "Allow scheduled Focus events to start while Ganbaru AI is closed",
+    androidBattery: "Battery saver restrictions",
+    androidBatteryDescription: "Choose No restrictions for Ganbaru AI",
     pausedFocusWarning: "Paused focus warning",
     pausedFocusWarningDescription: "Remind you to resume paused focus sessions",
     breakScreenHeading: "Break screen",

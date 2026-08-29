@@ -1,4 +1,5 @@
 <script lang="ts">
+  import type { Snippet } from "svelte";
   import ConfirmDialog from "$lib/components/ui/ConfirmDialog.svelte";
   import {
     DEFAULT_FOCUS_IDLE_THRESHOLD_MINUTES,
@@ -18,6 +19,8 @@
   import { getLocalization } from "$lib/i18n/translator.svelte";
   import CustomSelect from "./CustomSelect.svelte";
   import ToggleSetting from "./ToggleSetting.svelte";
+
+  let { backgroundExecutionSettings }: { backgroundExecutionSettings?: Snippet } = $props();
 
   const preferences = getPreferences();
   const pomodoro = getPomodoro();
@@ -209,6 +212,7 @@
         canReset={preferences.focusPauseNotificationIntervalMinutes !== DEFAULT_FOCUS_PAUSE_NOTIFICATION_INTERVAL_MINUTES}
         onReset={() => preferences.resetFocusPauseNotificationIntervalMinutes()}
       />
+      {@render backgroundExecutionSettings?.()}
     </div>
   </section>
 
@@ -217,46 +221,46 @@
   <section class="flex flex-col gap-4">
     <h2 class="px-1 text-[0.866667rem] font-semibold text-foreground">{t("settings.focus.breakScreenHeading")}</h2>
     <div class="flex flex-col gap-3">
-      <CustomSelect
-        label={t("settings.focus.endBreakEarly")}
-        description={t("settings.focus.endBreakEarlyDescription")}
-        value={preferences.focusBreakEndEscPresses === null
-          ? DISABLED_SELECT_VALUE
-          : String(preferences.focusBreakEndEscPresses)}
-        options={breakEndEscPressOptions}
-        onChange={handleBreakEndEscPressChange}
-        canReset={preferences.focusBreakEndEscPresses !== DEFAULT_FOCUS_BREAK_END_ESC_PRESSES}
-        onReset={() => preferences.resetFocusBreakEndEscPresses()}
-      />
-      <CustomSelect
-        label={t("settings.focus.extendBreak")}
-        description={t("settings.focus.extendBreakDescription")}
-        value={preferences.focusBreakExtensionLimit === null
-          ? DISABLED_SELECT_VALUE
-          : String(preferences.focusBreakExtensionLimit)}
-        options={breakExtensionLimitOptions}
-        onChange={handleBreakExtensionLimitChange}
-        canReset={preferences.focusBreakExtensionLimit !== DEFAULT_FOCUS_BREAK_EXTENSION_LIMIT}
-        onReset={() => preferences.resetFocusBreakExtensionLimit()}
-      />
-      <CustomSelect
-        label={t("settings.focus.repeatAfterBreakEnds")}
-        description={t("settings.focus.repeatAfterBreakEndsDescription")}
-        value={String(preferences.focusBreakFinishedRepeatSeconds)}
-        options={breakFinishedRepeatOptions}
-        onChange={handleBreakFinishedRepeatChange}
-        canReset={preferences.focusBreakFinishedRepeatSeconds !== DEFAULT_FOCUS_BREAK_FINISHED_REPEAT_SECONDS}
-        onReset={() => preferences.resetFocusBreakFinishedRepeatSeconds()}
-      />
-      <CustomSelect
-        label={t("settings.focus.warningBeforeBreakEnds")}
-        description={t("settings.focus.warningBeforeBreakEndsDescription")}
-        value={String(preferences.focusBreakEndWarningSeconds)}
-        options={breakEndWarningOptions}
-        onChange={handleBreakEndWarningChange}
-        canReset={preferences.focusBreakEndWarningSeconds !== DEFAULT_FOCUS_BREAK_END_WARNING_SECONDS}
-        onReset={() => preferences.resetFocusBreakEndWarningSeconds()}
-      />
+        <CustomSelect
+          label={t("settings.focus.endBreakEarly")}
+          description={t("settings.focus.endBreakEarlyDescription")}
+          value={preferences.focusBreakEndEscPresses === null
+            ? DISABLED_SELECT_VALUE
+            : String(preferences.focusBreakEndEscPresses)}
+          options={breakEndEscPressOptions}
+          onChange={handleBreakEndEscPressChange}
+          canReset={preferences.focusBreakEndEscPresses !== DEFAULT_FOCUS_BREAK_END_ESC_PRESSES}
+          onReset={() => preferences.resetFocusBreakEndEscPresses()}
+        />
+        <CustomSelect
+          label={t("settings.focus.extendBreak")}
+          description={t("settings.focus.extendBreakDescription")}
+          value={preferences.focusBreakExtensionLimit === null
+            ? DISABLED_SELECT_VALUE
+            : String(preferences.focusBreakExtensionLimit)}
+          options={breakExtensionLimitOptions}
+          onChange={handleBreakExtensionLimitChange}
+          canReset={preferences.focusBreakExtensionLimit !== DEFAULT_FOCUS_BREAK_EXTENSION_LIMIT}
+          onReset={() => preferences.resetFocusBreakExtensionLimit()}
+        />
+        <CustomSelect
+          label={t("settings.focus.repeatAfterBreakEnds")}
+          description={t("settings.focus.repeatAfterBreakEndsDescription")}
+          value={String(preferences.focusBreakFinishedRepeatSeconds)}
+          options={breakFinishedRepeatOptions}
+          onChange={handleBreakFinishedRepeatChange}
+          canReset={preferences.focusBreakFinishedRepeatSeconds !== DEFAULT_FOCUS_BREAK_FINISHED_REPEAT_SECONDS}
+          onReset={() => preferences.resetFocusBreakFinishedRepeatSeconds()}
+        />
+        <CustomSelect
+          label={t("settings.focus.warningBeforeBreakEnds")}
+          description={t("settings.focus.warningBeforeBreakEndsDescription")}
+          value={String(preferences.focusBreakEndWarningSeconds)}
+          options={breakEndWarningOptions}
+          onChange={handleBreakEndWarningChange}
+          canReset={preferences.focusBreakEndWarningSeconds !== DEFAULT_FOCUS_BREAK_END_WARNING_SECONDS}
+          onReset={() => preferences.resetFocusBreakEndWarningSeconds()}
+        />
     </div>
   </section>
 </div>

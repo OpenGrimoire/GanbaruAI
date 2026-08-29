@@ -3,11 +3,13 @@ use std::collections::HashSet;
 use chrono::{DateTime, Duration, SecondsFormat, TimeZone, Utc};
 use sqlx::{Row, Sqlite, SqlitePool, Transaction};
 
-use super::writes::close_run_tx;
+use super::validation::{validate_run_write, validate_segment_write};
+use super::writes::{close_run_tx, insert_run_tx};
 use super::{
-    PomodoroMobileRecoveryRead, PomodoroNativeProjectionPhaseWrite, PomodoroNativeProjectionWrite,
-    PomodoroPauseWrite, PomodoroRecoveredRunRead, PomodoroRecoveredSegmentRead, PomodoroRunClosure,
-    PomodoroRunRhythm, PomodoroRunSequenceStep,
+    PomodoroMobileRecoveryRead, PomodoroNativeConfigWrite, PomodoroNativeProjectionPhaseWrite,
+    PomodoroNativeProjectionWrite, PomodoroPauseWrite, PomodoroRecoveredRunRead,
+    PomodoroRecoveredSegmentRead, PomodoroRunClosure, PomodoroRunRhythm, PomodoroRunSequenceStep,
+    PomodoroRunWrite, PomodoroSegmentWrite,
 };
 
 const RECOVERY_REASON_MULTIPLE_OPEN_RUNS: &str = "multiple_open_runs";
@@ -63,7 +65,15 @@ pub(super) async fn recover_mobile_run_from_pool(
         .begin()
         .await
         .map_err(|error| format!("begin mobile pomodoro recovery: {error}"))?;
-    let open_runs = load_open_runs(&mut tx).await?;
+    let mut open_runs = load_open_runs(&mut tx).await?;
+
+    if open_runs.is_empty() {
+        if let Some(projection) = native_projection {
+            if materialize_scheduled_native_run(&mut tx, now, projection).await? {
+                open_runs = load_open_runs(&mut tx).await?;
+            }
+        }
+    }
 
     if open_runs.is_empty() {
         tx.commit()
@@ -119,6 +129,143 @@ pub(super) async fn recover_mobile_run_from_pool(
         }
         CandidateDecision::Recheck => unreachable!("recheck decisions are consumed above"),
     }
+}
+
+async fn materialize_scheduled_native_run(
+    tx: &mut Transaction<'_, Sqlite>,
+    now: DateTime<Utc>,
+    projection: &PomodoroNativeProjectionWrite,
+) -> Result<bool, String> {
+    if !projection.is_running || !projection.run_id.starts_with("scheduled-") {
+        return Ok(false);
+    }
+    let Some(config_json) = projection.config_json.as_deref() else {
+        return Ok(false);
+    };
+    let Ok(config) = serde_json::from_str::<PomodoroNativeConfigWrite>(config_json) else {
+        return Ok(false);
+    };
+    let Some((started_at, planned_end)) =
+        validate_scheduled_projection_plan(projection, &config.rhythm, now)
+    else {
+        return Ok(false);
+    };
+    let canonical_event_id = projection
+        .event_id
+        .split_once("::")
+        .map_or(projection.event_id.as_str(), |(parent, _)| parent);
+    let event_exists =
+        sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM calendar_events WHERE id = ?")
+            .bind(canonical_event_id)
+            .fetch_one(&mut **tx)
+            .await
+            .map_err(|error| format!("check scheduled Pomodoro event: {error}"))?
+            == 1;
+    if !event_exists {
+        return Ok(false);
+    }
+
+    let first = &projection.phases[0];
+    let first_end = canonical_timestamp(epoch_millis(first.ends_at_epoch_ms).unwrap());
+    let started_at = canonical_timestamp(started_at);
+    let planned_end = canonical_timestamp(planned_end);
+    let run = PomodoroRunWrite {
+        id: projection.run_id.clone(),
+        event_id: projection.event_id.clone(),
+        event_date: projection.event_date.clone(),
+        planned_start: started_at.clone(),
+        planned_end,
+        started_at: started_at.clone(),
+        rhythm: config.rhythm,
+        rhythm_source: config.rhythm_source,
+        preset_key: config.preset_key,
+        idle_timeout_minutes: config.idle_timeout_minutes,
+        event_title_snapshot: projection.event_title.clone(),
+        inherited_focus_minutes: 0,
+        inherited_rhythm_position: 1,
+        inherited_from_run_id: None,
+        start_trigger: "block_auto".to_string(),
+        adaptive_snapshot: None,
+    };
+    let segment = PomodoroSegmentWrite {
+        id: first.id.clone(),
+        event_id: projection.event_id.clone(),
+        event_date: projection.event_date.clone(),
+        run_id: projection.run_id.clone(),
+        rhythm_position: first.rhythm_position,
+        phase: first.phase.clone(),
+        planned_start: started_at.clone(),
+        planned_end: first_end,
+        actual_start: Some(started_at),
+        actual_end: None,
+        pauses: Vec::new(),
+        status: "active".to_string(),
+        end_reason: None,
+    };
+    if validate_run_write(&run).is_err() || validate_segment_write(&segment).is_err() {
+        return Ok(false);
+    }
+    insert_run_tx(tx, &run, &segment).await?;
+    Ok(true)
+}
+
+fn validate_scheduled_projection_plan(
+    projection: &PomodoroNativeProjectionWrite,
+    rhythm: &PomodoroRunRhythm,
+    now: DateTime<Utc>,
+) -> Option<(DateTime<Utc>, DateTime<Utc>)> {
+    if projection.event_id.trim().is_empty()
+        || projection.event_id.len() > 256
+        || projection.event_date.len() != 10
+        || projection.phases.is_empty()
+        || projection.phases.len() > 128
+        || projection.total_seconds <= 0
+        || projection.remaining_seconds < 0
+        || projection.remaining_seconds > projection.total_seconds
+    {
+        return None;
+    }
+    if projection
+        .event_title
+        .as_ref()
+        .is_some_and(|title| title.trim().is_empty() || title.len() > 160)
+    {
+        return None;
+    }
+    let event_end = epoch_millis(projection.event_ends_at_epoch_ms)?;
+    let generated_at = epoch_millis(projection.generated_at_epoch_ms)?;
+    let first_start = epoch_millis(projection.phases.first()?.starts_at_epoch_ms)?;
+    if generated_at > now || first_start > now || now >= event_end {
+        return None;
+    }
+    let mut identifiers = HashSet::with_capacity(projection.phases.len());
+    let mut previous: Option<&PomodoroNativeProjectionPhaseWrite> = None;
+    for phase in &projection.phases {
+        let starts_at = epoch_millis(phase.starts_at_epoch_ms)?;
+        let ends_at = epoch_millis(phase.ends_at_epoch_ms)?;
+        let duration = rhythm_phase_duration(rhythm, phase)?;
+        if phase.id.trim().is_empty()
+            || phase.id.len() > 128
+            || !identifiers.insert(phase.id.as_str())
+            || starts_at >= ends_at
+            || ends_at != (starts_at + duration).min(event_end)
+            || !rhythm_phase_is_valid(rhythm, phase.rhythm_position, &phase.phase)
+        {
+            return None;
+        }
+        if let Some(previous) = previous {
+            if previous.ends_at_epoch_ms != phase.starts_at_epoch_ms
+                || !valid_native_phase_transition(rhythm, previous, phase)
+            {
+                return None;
+            }
+        }
+        previous = Some(phase);
+    }
+    if epoch_millis(projection.phases.last()?.ends_at_epoch_ms)? != event_end {
+        return None;
+    }
+    Some((first_start, event_end))
 }
 
 async fn load_open_runs(tx: &mut Transaction<'_, Sqlite>) -> Result<Vec<OpenRunRow>, String> {
@@ -594,7 +741,7 @@ async fn reconcile_native_projection(
     let Some(generated_at) = epoch_millis(projection.generated_at_epoch_ms) else {
         return Ok(false);
     };
-    if projected_event_end != planned_end || generated_at < actual_start || generated_at > now {
+    if projected_event_end != planned_end || generated_at > now {
         return Ok(false);
     }
 

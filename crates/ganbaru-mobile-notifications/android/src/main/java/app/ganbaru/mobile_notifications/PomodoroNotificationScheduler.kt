@@ -4,10 +4,13 @@ import android.app.AlarmManager
 import android.app.Notification
 import android.app.NotificationManager
 import android.app.PendingIntent
+import android.app.Service
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import android.content.pm.ServiceInfo
 import android.os.Build
+import android.os.IBinder
 import org.json.JSONArray
 import org.json.JSONObject
 
@@ -22,6 +25,10 @@ private const val EXTRA_RUN_ID = "ganbaruPomodoroRunId"
 private const val EXTRA_PHASE_ID = "ganbaruPomodoroPhaseId"
 private const val EXTRA_BOUNDARY_EPOCH_MS = "ganbaruPomodoroBoundaryEpochMs"
 private const val MAX_PHASES = 128
+private const val ACTION_SYNCHRONIZE =
+  "app.ganbaru.mobile_notifications.action.SYNCHRONIZE_POMODORO"
+private const val ACTION_DELIVER_BOUNDARY =
+  "app.ganbaru.mobile_notifications.action.DELIVER_POMODORO_BOUNDARY"
 
 internal data class PomodoroNotificationPhase(
   val id: String,
@@ -55,6 +62,7 @@ internal data class PomodoroNotificationProjection(
   val isRunning: Boolean,
   val remainingSeconds: Int,
   val totalSeconds: Int,
+  val configJson: String?,
   val phases: List<PomodoroNotificationPhase>,
   val copy: PomodoroNotificationCopy,
 )
@@ -63,7 +71,7 @@ internal object PomodoroNotificationScheduler {
   fun update(context: Context, projection: PomodoroNotificationProjection) {
     validate(projection)
     save(context, projection)
-    synchronize(context, projection, alertBoundary = false)
+    PomodoroNotificationService.synchronize(context)
   }
 
   fun current(context: Context): PomodoroNotificationProjection? {
@@ -72,49 +80,63 @@ internal object PomodoroNotificationScheduler {
   }
 
   fun cancel(context: Context) {
+    PomodoroActivationScheduler.dismissCurrent(context)
     alarmManager(context).cancel(boundaryIntent(context, null, null))
     store(context).edit().remove(POMODORO_NOTIFICATION_KEY).apply()
+    context.stopService(Intent(context, PomodoroNotificationService::class.java))
     notificationManager(context).cancel(POMODORO_NOTIFICATION_ID)
     notificationManager(context).cancel(POMODORO_ALERT_NOTIFICATION_ID)
   }
 
   fun restore(context: Context) {
     val projection = current(context) ?: return
-    synchronize(context, projection, alertBoundary = false)
+    if (projection.eventEndsAtEpochMs <= System.currentTimeMillis()) return
+    PomodoroNotificationService.synchronize(context)
   }
 
-  fun deliverBoundary(context: Context, intent: Intent) {
-    val projection = current(context) ?: return
-    val runId = intent.getStringExtra(EXTRA_RUN_ID) ?: return
-    val phaseId = intent.getStringExtra(EXTRA_PHASE_ID) ?: return
+  internal fun clearCurrent(context: Context) {
+    store(context).edit().remove(POMODORO_NOTIFICATION_KEY).apply()
+  }
+
+  fun deliverBoundary(
+    service: PomodoroNotificationService,
+    intent: Intent,
+  ): Boolean {
+    val context: Context = service
+    val projection = current(context) ?: return false
+    val runId = intent.getStringExtra(EXTRA_RUN_ID) ?: return false
+    val phaseId = intent.getStringExtra(EXTRA_PHASE_ID) ?: return false
     val boundary = intent.getLongExtra(EXTRA_BOUNDARY_EPOCH_MS, 0L)
     val matchingPhase = projection.phases.firstOrNull {
       it.id == phaseId && it.endsAtEpochMs == boundary
-    } ?: return
-    if (projection.runId != runId || boundary <= 0L) return
+    } ?: return false
+    if (projection.runId != runId || boundary <= 0L) return false
     if (System.currentTimeMillis() < matchingPhase.endsAtEpochMs) {
-      scheduleBoundary(context, projection, matchingPhase)
-      return
+      synchronize(service, projection, alertBoundary = false)
+      return true
     }
-    synchronize(context, projection, alertBoundary = true, completedPhase = matchingPhase)
+    synchronize(service, projection, alertBoundary = true, completedPhase = matchingPhase)
+    return true
   }
 
-  private fun synchronize(
-    context: Context,
+  fun synchronize(
+    service: PomodoroNotificationService,
     projection: PomodoroNotificationProjection,
     alertBoundary: Boolean,
     completedPhase: PomodoroNotificationPhase? = null,
   ) {
+    val context: Context = service
     val now = System.currentTimeMillis()
     if (projection.eventEndsAtEpochMs <= now) {
       alarmManager(context).cancel(boundaryIntent(context, null, null))
-      notificationManager(context).cancel(POMODORO_NOTIFICATION_ID)
       if (alertBoundary) postBoundaryAlert(context, projection, completedPhase, null)
+      clearCurrent(context)
+      if (PomodoroActivationScheduler.activateEligible(context) == null) service.finishSession()
       return
     }
 
     if (!projection.isRunning) {
-      postOngoing(context, projection, projection.phases.first(), now)
+      postOngoing(service, projection, projection.phases.first(), now)
       scheduleBoundary(context, projection, projection.phases.first())
       return
     }
@@ -123,19 +145,20 @@ internal object PomodoroNotificationScheduler {
     if (alertBoundary) postBoundaryAlert(context, projection, completedPhase, activePhase)
     if (activePhase == null) {
       alarmManager(context).cancel(boundaryIntent(context, null, null))
-      notificationManager(context).cancel(POMODORO_NOTIFICATION_ID)
+      service.finishSession()
       return
     }
-    postOngoing(context, projection, activePhase, now)
+    postOngoing(service, projection, activePhase, now)
     scheduleBoundary(context, projection, activePhase)
   }
 
   private fun postOngoing(
-    context: Context,
+    service: PomodoroNotificationService,
     projection: PomodoroNotificationProjection,
     phase: PomodoroNotificationPhase,
     now: Long,
   ) {
+    val context: Context = service
     val isPublishedPhase = phase.id == projection.phases.first().id
     val phaseDurationSeconds = if (isPublishedPhase) {
       projection.totalSeconds
@@ -173,7 +196,7 @@ internal object PomodoroNotificationScheduler {
     val notification = builder.build().apply {
       flags = flags or Notification.FLAG_NO_CLEAR or Notification.FLAG_ONGOING_EVENT
     }
-    notificationManager(context).notify(POMODORO_NOTIFICATION_ID, notification)
+    service.publish(notification)
   }
 
   private fun postBoundaryAlert(
@@ -237,7 +260,7 @@ internal object PomodoroNotificationScheduler {
     )
   }
 
-  private fun validate(projection: PomodoroNotificationProjection) {
+  internal fun validate(projection: PomodoroNotificationProjection) {
     require(projection.runId.isNotBlank() && projection.runId.length <= 128) {
       "Pomodoro run ID must contain 1 to 128 characters"
     }
@@ -257,6 +280,7 @@ internal object PomodoroNotificationScheduler {
     require(projection.remainingSeconds in 0..projection.totalSeconds && projection.totalSeconds > 0) {
       "Pomodoro remaining and total seconds are invalid"
     }
+    projection.configJson?.let(::validateConfig)
     require(projection.phases.isNotEmpty() && projection.phases.size <= MAX_PHASES) {
       "Pomodoro phase projection must contain 1 to $MAX_PHASES phases"
     }
@@ -314,17 +338,48 @@ internal object PomodoroNotificationScheduler {
     }
   }
 
+  private fun validateConfig(encoded: String) {
+    require(encoded.length in 2..4_096) { "Pomodoro config must be bounded" }
+    val config = JSONObject(encoded)
+    val source = config.getString("rhythmSource")
+    require(source == "preset" || source == "custom") { "Pomodoro rhythm source is invalid" }
+    val idle = config.opt("idleTimeoutMinutes")
+    require(idle == null || idle == JSONObject.NULL || (idle is Number && idle.toInt() > 0)) {
+      "Pomodoro idle timeout is invalid"
+    }
+    val rhythm = config.getJSONObject("rhythm")
+    when (rhythm.getString("kind")) {
+      "count" -> {
+        require(rhythm.getInt("focusDurationMinutes") in 1..120)
+        require(rhythm.getInt("shortBreakMinutes") in 1..30)
+        require(rhythm.getInt("longBreakMinutes") in 1..60)
+        require(rhythm.getInt("longBreakAfterFocusCount") in 1..12)
+      }
+      "sequence" -> {
+        val steps = rhythm.getJSONArray("steps")
+        require(steps.length() in 1..12)
+        for (index in 0 until steps.length()) {
+          val step = steps.getJSONObject(index)
+          require(step.getInt("focusDurationMinutes") in 1..120)
+          require(step.getString("breakPhase") in setOf("short_break", "long_break"))
+          require(step.getInt("breakDurationMinutes") in 1..60)
+        }
+      }
+      else -> error("Pomodoro rhythm kind is invalid")
+    }
+  }
+
   private fun phaseTitle(copy: PomodoroNotificationCopy, phase: String): String = when (phase) {
     "focus" -> copy.focusTitle
     "short_break" -> copy.shortBreakTitle
     else -> copy.longBreakTitle
   }
 
-  private fun save(context: Context, projection: PomodoroNotificationProjection) {
+  internal fun save(context: Context, projection: PomodoroNotificationProjection) {
     store(context).edit().putString(POMODORO_NOTIFICATION_KEY, encode(projection)).apply()
   }
 
-  private fun encode(projection: PomodoroNotificationProjection): String = JSONObject()
+  internal fun encode(projection: PomodoroNotificationProjection): String = JSONObject()
     .put("runId", projection.runId)
     .put("eventId", projection.eventId)
     .put("eventTitle", projection.eventTitle ?: JSONObject.NULL)
@@ -334,6 +389,7 @@ internal object PomodoroNotificationScheduler {
     .put("isRunning", projection.isRunning)
     .put("remainingSeconds", projection.remainingSeconds)
     .put("totalSeconds", projection.totalSeconds)
+    .put("configJson", projection.configJson ?: JSONObject.NULL)
     .put("phases", JSONArray().apply {
       projection.phases.forEach { phase ->
         put(JSONObject()
@@ -358,7 +414,7 @@ internal object PomodoroNotificationScheduler {
       .put("sessionCompleteText", projection.copy.sessionCompleteText))
     .toString()
 
-  private fun decode(encoded: String): PomodoroNotificationProjection? = try {
+  internal fun decode(encoded: String): PomodoroNotificationProjection? = try {
     val value = JSONObject(encoded)
     val phasesJson = value.getJSONArray("phases")
     val phases = (0 until phasesJson.length()).map { index ->
@@ -383,6 +439,8 @@ internal object PomodoroNotificationScheduler {
       isRunning = value.getBoolean("isRunning"),
       remainingSeconds = value.getInt("remainingSeconds"),
       totalSeconds = value.getInt("totalSeconds"),
+      configJson = if (value.isNull("configJson")) null else value.optString("configJson")
+        .takeIf(String::isNotBlank),
       phases = phases,
       copy = PomodoroNotificationCopy(
         channelName = copy.getString("channelName"),
@@ -433,6 +491,67 @@ internal object PomodoroNotificationScheduler {
 
 class PomodoroNotificationReceiver : BroadcastReceiver() {
   override fun onReceive(context: Context, intent: Intent) {
-    PomodoroNotificationScheduler.deliverBoundary(context, intent)
+    PomodoroNotificationService.deliverBoundary(context, intent)
+  }
+}
+
+class PomodoroNotificationService : Service() {
+  override fun onBind(intent: Intent?): IBinder? = null
+
+  override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+    val projection = PomodoroNotificationScheduler.current(this)
+    if (projection == null || projection.eventEndsAtEpochMs <= System.currentTimeMillis()) {
+      finishSession()
+      return START_NOT_STICKY
+    }
+    if (intent?.action == ACTION_DELIVER_BOUNDARY) {
+      if (!PomodoroNotificationScheduler.deliverBoundary(this, intent)) {
+        PomodoroNotificationScheduler.synchronize(this, projection, alertBoundary = false)
+      }
+    } else {
+      PomodoroNotificationScheduler.synchronize(this, projection, alertBoundary = false)
+    }
+    return START_STICKY
+  }
+
+  internal fun publish(notification: Notification) {
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+      startForeground(
+        POMODORO_NOTIFICATION_ID,
+        notification,
+        ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE,
+      )
+    } else {
+      startForeground(POMODORO_NOTIFICATION_ID, notification)
+    }
+  }
+
+  internal fun finishSession() {
+    stopForeground(STOP_FOREGROUND_REMOVE)
+    stopSelf()
+  }
+
+  companion object {
+    fun synchronize(context: Context) {
+      start(context, Intent(context, PomodoroNotificationService::class.java).apply {
+        action = ACTION_SYNCHRONIZE
+      })
+    }
+
+    fun deliverBoundary(context: Context, boundaryIntent: Intent) {
+      start(context, Intent(context, PomodoroNotificationService::class.java).apply {
+        action = ACTION_DELIVER_BOUNDARY
+        putExtra(EXTRA_RUN_ID, boundaryIntent.getStringExtra(EXTRA_RUN_ID))
+        putExtra(EXTRA_PHASE_ID, boundaryIntent.getStringExtra(EXTRA_PHASE_ID))
+        putExtra(
+          EXTRA_BOUNDARY_EPOCH_MS,
+          boundaryIntent.getLongExtra(EXTRA_BOUNDARY_EPOCH_MS, 0L),
+        )
+      })
+    }
+
+    private fun start(context: Context, intent: Intent) {
+      context.startForegroundService(intent)
+    }
   }
 }
