@@ -175,6 +175,19 @@ export const general = {
       "Pauses music while focus is paused, then resumes when focus continues",
   },
   data: {
+    backupHeading: "Backups",
+    backupNow: "Back up data",
+    backupNowDescription:
+      "Save a complete, unencrypted copy to Downloads that remains after uninstalling",
+    backupAction: "Back up",
+    backupSaved: (fileName: string) => `Saved ${fileName} to Downloads`,
+    restoreBackup: "Restore backup",
+    restoreBackupDescription: "Replace this device's data with a Ganbaru AI backup",
+    restoreAction: "Restore",
+    restoreConfirmTitle: "Restore this backup?",
+    restoreConfirmMessage:
+      "Your current data on this device will be replaced. Create a current backup first if you may need it.",
+    restoreConfirmAction: "Choose backup",
     folderHeading: "Folder",
     loadingFolder: "Loading folder...",
     noActiveFolder: "No active folder",

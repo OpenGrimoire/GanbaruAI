@@ -31,6 +31,22 @@ struct PickUtf8DocumentResponse {
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
+struct PickDocumentToPathRequest<'a> {
+    destination_path: &'a str,
+    max_bytes: u64,
+    accepted_extensions: Vec<String>,
+    mime_types: Vec<String>,
+    document_kind: &'a str,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct PickDocumentToPathResponse {
+    display_name: Option<String>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
 struct SaveUtf8DownloadRequest<'a> {
     file_name: &'a str,
     contents: &'a str,
@@ -44,6 +60,17 @@ struct SaveUtf8DownloadRequest<'a> {
 #[serde(rename_all = "camelCase")]
 struct SaveUtf8DownloadResponse {
     display_name: String,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct SaveFileDownloadRequest<'a> {
+    source_path: &'a str,
+    file_name: &'a str,
+    max_bytes: u64,
+    accepted_extensions: Vec<String>,
+    mime_type: &'a str,
+    document_kind: &'a str,
 }
 
 #[derive(Serialize)]
@@ -125,6 +152,36 @@ impl<R: Runtime> MobileDocuments<R> {
             .map_err(|error| format!("pick {document_kind} document: {error}"))
     }
 
+    /// Stream one bounded Android document into an unused app-private file.
+    pub fn pick_document_to_path(
+        &self,
+        destination_path: &str,
+        max_bytes: u64,
+        accepted_extensions: &[&str],
+        mime_types: &[&str],
+        document_kind: &str,
+    ) -> Result<Option<String>, String> {
+        self.0
+            .run_mobile_plugin::<PickDocumentToPathResponse>(
+                "pickDocumentToPath",
+                PickDocumentToPathRequest {
+                    destination_path,
+                    max_bytes,
+                    accepted_extensions: accepted_extensions
+                        .iter()
+                        .map(|value| (*value).to_string())
+                        .collect(),
+                    mime_types: mime_types
+                        .iter()
+                        .map(|value| (*value).to_string())
+                        .collect(),
+                    document_kind,
+                },
+            )
+            .map(|response| response.display_name)
+            .map_err(|error| format!("pick {document_kind} document: {error}"))
+    }
+
     /// Save bounded UTF-8 text into Android's public Downloads collection.
     pub fn save_utf8_download(
         &self,
@@ -158,6 +215,35 @@ impl<R: Runtime> MobileDocuments<R> {
                 SaveUtf8DownloadRequest {
                     file_name,
                     contents,
+                    max_bytes,
+                    accepted_extensions: accepted_extensions
+                        .iter()
+                        .map(|value| (*value).to_string())
+                        .collect(),
+                    mime_type,
+                    document_kind,
+                },
+            )
+            .map(|response| response.display_name)
+            .map_err(|error| format!("save {document_kind} download: {error}"))
+    }
+
+    /// Stream one bounded app-private file into Android's public Downloads collection.
+    pub fn save_file_download(
+        &self,
+        source_path: &str,
+        file_name: &str,
+        max_bytes: u64,
+        accepted_extensions: &[&str],
+        mime_type: &str,
+        document_kind: &str,
+    ) -> Result<String, String> {
+        self.0
+            .run_mobile_plugin::<SaveUtf8DownloadResponse>(
+                "saveFileDownload",
+                SaveFileDownloadRequest {
+                    source_path,
+                    file_name,
                     max_bytes,
                     accepted_extensions: accepted_extensions
                         .iter()

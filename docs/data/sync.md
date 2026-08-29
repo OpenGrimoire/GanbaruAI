@@ -93,7 +93,7 @@ Ganbaru AI provides a server image, documented Compose configuration, guided set
 
 ## Backups
 
-Sync is not a backup. Backups go to a user-specified path outside the Ganbaru AI folder on a schedule the user controls. Sync keeps authorized devices converged; backups recover data after loss, corruption, accidental deletion, or a bad synchronized operation.
+Sync is not a backup. Backups live outside the Ganbaru AI folder. Android currently provides an explicit portable backup in shared Downloads and transactional restore during first use or from Data settings. Scheduled backups will use a user-controlled destination and require encryption before automatic or cloud placement. Sync keeps authorized devices converged; backups recover data after loss, corruption, accidental deletion, or a bad synchronized operation.
 
 ## Deferred implementation details
 

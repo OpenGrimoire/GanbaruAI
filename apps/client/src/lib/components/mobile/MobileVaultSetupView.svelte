@@ -1,6 +1,6 @@
 <script lang="ts">
-  import Folder from "@lucide/svelte/icons/folder";
   import FolderInput from "@lucide/svelte/icons/folder-input";
+  import ArchiveRestore from "@lucide/svelte/icons/archive-restore";
   import LoaderCircle from "@lucide/svelte/icons/loader-circle";
   import { onMount } from "svelte";
   import VaultSetupContent from "$lib/components/vault/VaultSetupContent.svelte";
@@ -9,6 +9,7 @@
     formatDataFolderError,
     getDefaultDataFolderLocation,
     importDataFolder,
+    restoreVaultBackup,
     useDefaultDataFolder,
     type DataFolderDefaultLocation,
     type DataFolderErrorAction,
@@ -26,9 +27,11 @@
   type SetupError = { raw: unknown; action: DataFolderErrorAction };
 
   const { t } = getLocalization();
-  const fallbackDefaultPath = import.meta.env.DEV ? "Ganbaru AI Dev" : "Ganbaru AI";
+  const fallbackDefaultPath = import.meta.env.DEV
+    ? "Android app storage/Ganbaru AI Dev"
+    : "Android app storage/Ganbaru AI";
   let defaultLocation = $state<DataFolderDefaultLocation | null>(null);
-  let busy = $state<"default" | "import" | null>(null);
+  let busy = $state<"default" | "restore" | "import" | null>(null);
   let setupError = $state<SetupError | null>(null);
   const error = $derived(
     setupError ? formatDataFolderError(setupError.raw, setupError.action, t) : null,
@@ -47,12 +50,16 @@
     }
   }
 
-  async function chooseDataFolder(mode: "default" | "import"): Promise<void> {
+  async function chooseDataFolder(mode: "default" | "restore" | "import"): Promise<void> {
     if (busy) return;
     busy = mode;
     setupError = null;
     try {
-      const info = mode === "default" ? await useDefaultDataFolder() : await importDataFolder();
+      const info = mode === "default"
+        ? await useDefaultDataFolder()
+        : mode === "restore"
+          ? await restoreVaultBackup()
+          : await importDataFolder();
       if (info) onReady(info);
     } catch (cause) {
       setupError = { raw: cause, action: mode };
@@ -72,10 +79,22 @@
     >
       {#if busy === "default"}
         <LoaderCircle size={16} strokeWidth={2} class="animate-spin" aria-hidden="true" />
-      {:else}
-        <Folder size={16} strokeWidth={1.8} aria-hidden="true" />
       {/if}
-      <span>{t("vaultSetup.useDefaultFolder")}</span>
+      <span>{t("mobile.vaultSetup.startFromZero")}</span>
+    </button>
+
+    <button
+      type="button"
+      onclick={() => void chooseDataFolder("restore")}
+      disabled={busy !== null}
+      class="flex min-h-11 w-full items-center justify-center gap-2 rounded-md border border-border bg-background px-3 py-2 text-sm font-medium text-foreground transition-colors active:bg-accent disabled:cursor-not-allowed disabled:opacity-60"
+    >
+      {#if busy === "restore"}
+        <LoaderCircle size={16} strokeWidth={2} class="animate-spin" aria-hidden="true" />
+      {:else}
+        <ArchiveRestore size={16} strokeWidth={1.8} aria-hidden="true" />
+      {/if}
+      <span>{t("mobile.vaultSetup.restoreBackupFile")}</span>
     </button>
 
     <button
@@ -89,7 +108,7 @@
       {:else}
         <FolderInput size={16} strokeWidth={1.8} aria-hidden="true" />
       {/if}
-      <span>{t("vaultSetup.importFolder")}</span>
+      <span>{t("mobile.vaultSetup.importExistingFolder")}</span>
     </button>
   </div>
 {/snippet}
@@ -99,11 +118,13 @@
   style="padding-left: var(--safe-area-left); padding-right: var(--safe-area-right);"
 >
   <VaultSetupContent
-    intro={t("vaultSetup.intro")}
+    title={t("mobile.vaultSetup.title")}
+    intro={t("mobile.vaultSetup.intro")}
     developmentWarning={defaultLocation?.developmentBuild
       ? t("vaultSetup.developmentBuildWarning", defaultLocation.folderName)
       : null}
     location={defaultLocation?.path ?? fallbackDefaultPath}
+    locationLabel={t("mobile.vaultSetup.dataLocation")}
     actions={setupActions}
     {error}
   />

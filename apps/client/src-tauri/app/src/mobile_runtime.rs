@@ -36,6 +36,8 @@ pub fn run(context: tauri::Context<tauri::Wry>) {
             vault::vault_patch_config,
             vault::vault_pick_and_read_theme_json,
             vault::vault_pick_and_write_theme_json,
+            vault::backup::vault_backup_to_downloads,
+            vault::backup::vault_pick_and_restore_backup,
             chat::settings_commands::chat_read_settings,
             chat::settings_commands::chat_discover_default_providers,
             chat::settings_commands::chat_update_behavior,
@@ -397,6 +399,8 @@ pub fn run(context: tauri::Context<tauri::Wry>) {
             themes::theme_reset_to_seed,
         ])
         .setup(|app| {
+            #[cfg(target_os = "android")]
+            vault::backup::recover_interrupted_restore_for_app(app.handle())?;
             music::setup_youtube_host(app.handle())?;
             Ok(())
         })

@@ -84,6 +84,37 @@ class MobileDocumentsPluginTest {
   }
 
   @Test
+  fun validatesPrivateStreamingTransferPaths() {
+    val dataRoot = Files.createTempDirectory("ganbaru-mobile-transfer-data").toFile()
+    val outsideRoot = Files.createTempDirectory("ganbaru-mobile-transfer-outside").toFile()
+    try {
+      val transferRoot = dataRoot.resolve("cache/transfers")
+      transferRoot.mkdirs()
+      val destination = transferRoot.resolve("restore.ganbaru-backup")
+      assertEquals(
+        destination.canonicalFile,
+        PrivateTransferPaths.unusedDestination(dataRoot, destination.path),
+      )
+      assertThrows(IllegalArgumentException::class.java) {
+        PrivateTransferPaths.unusedDestination(dataRoot, outsideRoot.resolve("restore").path)
+      }
+
+      val source = transferRoot.resolve("backup.ganbaru-backup")
+      source.writeBytes(byteArrayOf(1, 2, 3))
+      assertEquals(
+        source.canonicalFile,
+        PrivateTransferPaths.readableSource(dataRoot, source.path),
+      )
+      assertThrows(IllegalArgumentException::class.java) {
+        PrivateTransferPaths.readableSource(dataRoot, outsideRoot.resolve("backup").path)
+      }
+    } finally {
+      dataRoot.deleteRecursively()
+      outsideRoot.deleteRecursively()
+    }
+  }
+
+  @Test
   fun enforcesVaultTreeCopyBudgets() {
     val entries = VaultTreeCopyBudget(VaultTreeCopyLimits(maxFiles = 2, maxBytes = 4, maxDepth = 1))
     entries.enter(0)

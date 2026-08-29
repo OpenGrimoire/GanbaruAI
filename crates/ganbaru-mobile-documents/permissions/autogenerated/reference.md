@@ -10,6 +10,32 @@
 <tr>
 <td>
 
+`ganbaru-mobile-documents:allow-pickDocumentToPath`
+
+</td>
+<td>
+
+Enables the pickDocumentToPath command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`ganbaru-mobile-documents:deny-pickDocumentToPath`
+
+</td>
+<td>
+
+Denies the pickDocumentToPath command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
 `ganbaru-mobile-documents:allow-pickUtf8Document`
 
 </td>
@@ -55,6 +81,32 @@ Enables the pickVaultTreeToPath command without any pre-configured scope.
 <td>
 
 Denies the pickVaultTreeToPath command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`ganbaru-mobile-documents:allow-saveFileDownload`
+
+</td>
+<td>
+
+Enables the saveFileDownload command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`ganbaru-mobile-documents:deny-saveFileDownload`
+
+</td>
+<td>
+
+Denies the saveFileDownload command without any pre-configured scope.
 
 </td>
 </tr>

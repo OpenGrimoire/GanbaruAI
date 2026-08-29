@@ -26,6 +26,8 @@ use tauri_plugin_fs::{FsExt, OpenOptions};
 static APP_STATE_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 static CONFIG_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
+pub(crate) mod backup;
+
 pub const APP_SQLITE_FILE: &str = "ganbaru-ai.sqlite";
 const PRODUCTION_DATA_FOLDER_NAME: &str = "Ganbaru AI";
 const DEVELOPMENT_DATA_FOLDER_NAME: &str = "Ganbaru AI Dev";

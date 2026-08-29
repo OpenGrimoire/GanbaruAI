@@ -295,6 +295,18 @@
       "type": "string",
       "oneOf": [
         {
+          "description": "Enables the pickDocumentToPath command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-pickDocumentToPath",
+          "markdownDescription": "Enables the pickDocumentToPath command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the pickDocumentToPath command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-pickDocumentToPath",
+          "markdownDescription": "Denies the pickDocumentToPath command without any pre-configured scope."
+        },
+        {
           "description": "Enables the pickUtf8Document command without any pre-configured scope.",
           "type": "string",
           "const": "allow-pickUtf8Document",
@@ -317,6 +329,18 @@
           "type": "string",
           "const": "deny-pickVaultTreeToPath",
           "markdownDescription": "Denies the pickVaultTreeToPath command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the saveFileDownload command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-saveFileDownload",
+          "markdownDescription": "Enables the saveFileDownload command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the saveFileDownload command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-saveFileDownload",
+          "markdownDescription": "Denies the saveFileDownload command without any pre-configured scope."
         },
         {
           "description": "Enables the saveUtf8Download command without any pre-configured scope.",

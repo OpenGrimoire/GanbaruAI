@@ -26,6 +26,18 @@ import java.nio.ByteBuffer
 import java.nio.charset.CodingErrorAction
 
 private const val DEFAULT_JSON_MIME_TYPE = "application/json"
+private const val EXTERNAL_STORAGE_DOCUMENTS_AUTHORITY = "com.android.externalstorage.documents"
+private const val PRIMARY_STORAGE_ROOT_DOCUMENT_ID = "primary:"
+
+private fun primaryStorageRootUri(): Uri = DocumentsContract.buildDocumentUri(
+  EXTERNAL_STORAGE_DOCUMENTS_AUTHORITY,
+  PRIMARY_STORAGE_ROOT_DOCUMENT_ID,
+)
+
+private fun downloadsDirectoryUri(): Uri = DocumentsContract.buildDocumentUri(
+  EXTERNAL_STORAGE_DOCUMENTS_AUTHORITY,
+  "$PRIMARY_STORAGE_ROOT_DOCUMENT_ID${Environment.DIRECTORY_DOWNLOADS}",
+)
 
 @InvokeArg
 internal class PickUtf8DocumentArgs {
@@ -42,6 +54,25 @@ internal class SaveUtf8DownloadArgs {
   var maxBytes: Long = 0
   var acceptedExtensions: List<String> = emptyList()
   var mimeType: String = DEFAULT_JSON_MIME_TYPE
+  var documentKind: String = "document"
+}
+
+@InvokeArg
+internal class PickDocumentToPathArgs {
+  lateinit var destinationPath: String
+  var maxBytes: Long = 0
+  var acceptedExtensions: List<String> = emptyList()
+  var mimeTypes: List<String> = emptyList()
+  var documentKind: String = "document"
+}
+
+@InvokeArg
+internal class SaveFileDownloadArgs {
+  lateinit var sourcePath: String
+  lateinit var fileName: String
+  var maxBytes: Long = 0
+  var acceptedExtensions: List<String> = emptyList()
+  var mimeType: String = "application/octet-stream"
   var documentKind: String = "document"
 }
 
@@ -100,6 +131,31 @@ internal object VaultTreePaths {
   }
 }
 
+internal object PrivateTransferPaths {
+  fun unusedDestination(dataRoot: File, requestedPath: String): File {
+    require(requestedPath.isNotBlank()) { "Import destination is required" }
+    val canonicalRoot = dataRoot.canonicalFile
+    val destination = File(requestedPath).canonicalFile
+    require(destination.path.startsWith(canonicalRoot.path + File.separator)) {
+      "Import destination must be inside app-private storage"
+    }
+    require(!destination.exists()) { "Import destination already exists" }
+    require(destination.parentFile?.isDirectory == true) { "Import destination parent is unavailable" }
+    return destination
+  }
+
+  fun readableSource(dataRoot: File, requestedPath: String): File {
+    require(requestedPath.isNotBlank()) { "Export source is required" }
+    val canonicalRoot = dataRoot.canonicalFile
+    val source = File(requestedPath).canonicalFile
+    require(source.path.startsWith(canonicalRoot.path + File.separator)) {
+      "Export source must be inside app-private storage"
+    }
+    require(source.isFile) { "Export source is unavailable" }
+    return source
+  }
+}
+
 private data class DocumentEntry(
   val documentId: String,
   val displayName: String,
@@ -110,6 +166,13 @@ private data class DocumentEntry(
 private data class PendingVaultTreeCopy(
   val destination: File,
   val limits: VaultTreeCopyLimits,
+)
+
+private data class PendingDocumentCopy(
+  val destination: File,
+  val maxBytes: Long,
+  val acceptedExtensions: List<String>,
+  val documentKind: String,
 )
 
 internal object DocumentTextCodec {
@@ -155,6 +218,7 @@ class MobileDocumentsPlugin(private val activity: Activity) : Plugin(activity) {
   private var pendingReadExtensions: List<String> = emptyList()
   private var pendingReadDocumentKind = "document"
   private var pendingVaultTreeCopy: PendingVaultTreeCopy? = null
+  private var pendingDocumentCopy: PendingDocumentCopy? = null
 
   @Command
   fun pickVaultTreeToPath(invoke: Invoke) {
@@ -174,6 +238,7 @@ class MobileDocumentsPlugin(private val activity: Activity) : Plugin(activity) {
       )
       val pickerIntent = Intent(Intent.ACTION_OPEN_DOCUMENT_TREE).apply {
         addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        putExtra(DocumentsContract.EXTRA_INITIAL_URI, primaryStorageRootUri())
       }
       startActivityForResult(invoke, pickerIntent, "pickVaultTreeToPathResult")
     } catch (error: Exception) {
@@ -425,6 +490,75 @@ class MobileDocumentsPlugin(private val activity: Activity) : Plugin(activity) {
   }
 
   @Command
+  fun pickDocumentToPath(invoke: Invoke) {
+    try {
+      require(pendingDocumentCopy == null) { "A document import is already active" }
+      val args = invoke.parseArgs(PickDocumentToPathArgs::class.java)
+      require(args.maxBytes > 0) { "Document size limit must be positive" }
+      require(args.acceptedExtensions.isNotEmpty()) { "At least one document extension is required" }
+      require(args.mimeTypes.isNotEmpty()) { "At least one document MIME type is required" }
+      require(args.documentKind.isNotBlank()) { "Document kind is required" }
+      val destination = PrivateTransferPaths.unusedDestination(
+        File(activity.applicationInfo.dataDir),
+        args.destinationPath,
+      )
+      pendingDocumentCopy = PendingDocumentCopy(
+        destination,
+        args.maxBytes,
+        args.acceptedExtensions,
+        args.documentKind.trim(),
+      )
+      val pickerIntent = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
+        addCategory(Intent.CATEGORY_OPENABLE)
+        type = if (args.mimeTypes.size == 1) args.mimeTypes.single() else "*/*"
+        if (args.mimeTypes.size > 1) putExtra(Intent.EXTRA_MIME_TYPES, args.mimeTypes.toTypedArray())
+        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        putExtra(DocumentsContract.EXTRA_INITIAL_URI, downloadsDirectoryUri())
+      }
+      startActivityForResult(invoke, pickerIntent, "pickDocumentToPathResult")
+    } catch (error: Exception) {
+      pendingDocumentCopy = null
+      invoke.reject(error.message ?: "Failed to open document picker")
+    }
+  }
+
+  @ActivityCallback
+  fun pickDocumentToPathResult(invoke: Invoke, result: ActivityResult) {
+    val pending = pendingDocumentCopy
+    pendingDocumentCopy = null
+    if (result.resultCode == Activity.RESULT_CANCELED) {
+      invoke.resolve(JSObject().apply { put("displayName", null) })
+      return
+    }
+    if (result.resultCode != Activity.RESULT_OK || pending == null) {
+      invoke.reject("Failed to select document")
+      return
+    }
+    val uri = result.data?.data
+    if (uri == null) {
+      invoke.reject("The selected document is unavailable")
+      return
+    }
+
+    Thread {
+      try {
+        val displayName = resolveOpenableDisplayName(uri)
+          ?: throw IllegalArgumentException("The selected document has no file name")
+        require(DocumentTextCodec.hasAllowedExtension(displayName, pending.acceptedExtensions)) {
+          "Select a supported ${pending.documentKind} file"
+        }
+        val source = activity.contentResolver.openInputStream(uri)
+          ?: throw IllegalStateException("The selected document could not be opened")
+        copyBounded(source, pending.destination, pending.maxBytes)
+        invoke.resolve(JSObject().apply { put("displayName", displayName) })
+      } catch (error: Exception) {
+        pending.destination.delete()
+        invoke.reject(error.message ?: "Failed to import selected document")
+      }
+    }.start()
+  }
+
+  @Command
   fun saveUtf8Download(invoke: Invoke) {
     val args = try {
       invoke.parseArgs(SaveUtf8DownloadArgs::class.java)
@@ -482,6 +616,103 @@ class MobileDocumentsPlugin(private val activity: Activity) : Plugin(activity) {
         invoke.reject(error.message ?: "Failed to save download")
       }
     }.start()
+  }
+
+  @Command
+  fun saveFileDownload(invoke: Invoke) {
+    val args = try {
+      invoke.parseArgs(SaveFileDownloadArgs::class.java)
+    } catch (error: Exception) {
+      invoke.reject(error.message ?: "Invalid download request")
+      return
+    }
+
+    Thread {
+      var uri: Uri? = null
+      try {
+        val source = PrivateTransferPaths.readableSource(
+          File(activity.applicationInfo.dataDir),
+          args.sourcePath,
+        )
+        validateDownloadRequest(
+          args.fileName,
+          args.maxBytes,
+          args.acceptedExtensions,
+          args.mimeType,
+          args.documentKind,
+        )
+        require(source.length() <= args.maxBytes) { "${args.documentKind} export exceeds the size limit" }
+        val createdUri = createPendingDownload(args.fileName, args.mimeType)
+        uri = createdUri
+        source.inputStream().use { input ->
+          activity.contentResolver.openOutputStream(createdUri, "w").use { output ->
+            requireNotNull(output) { "Android could not open the download" }
+            input.copyTo(output)
+            output.flush()
+          }
+        }
+        publishDownload(createdUri)
+        val displayName = resolveDisplayName(createdUri) ?: args.fileName
+        invoke.resolve(JSObject().apply { put("displayName", displayName) })
+      } catch (error: Exception) {
+        uri?.let { activity.contentResolver.delete(it, null, null) }
+        invoke.reject(error.message ?: "Failed to save download")
+      }
+    }.start()
+  }
+
+  private fun copyBounded(input: InputStream, destination: File, maxBytes: Long) {
+    input.use { source ->
+      FileOutputStream(destination).use { target ->
+        val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
+        var total = 0L
+        while (true) {
+          val count = source.read(buffer)
+          if (count < 0) break
+          total += count
+          require(total <= maxBytes) { "Selected document exceeds the size limit" }
+          target.write(buffer, 0, count)
+        }
+        target.flush()
+        target.fd.sync()
+      }
+    }
+  }
+
+  private fun validateDownloadRequest(
+    fileName: String,
+    maxBytes: Long,
+    acceptedExtensions: List<String>,
+    mimeType: String,
+    documentKind: String,
+  ) {
+    require(maxBytes > 0) { "Document size limit must be positive" }
+    require(fileName.isNotBlank()) { "Download file name is required" }
+    require(fileName.length <= 255) { "Download file name is too long" }
+    require('/' !in fileName && '\\' !in fileName) { "Download file name must not contain path separators" }
+    require(acceptedExtensions.isNotEmpty()) { "At least one download extension is required" }
+    require(DocumentTextCodec.hasAllowedExtension(fileName, acceptedExtensions)) {
+      "$documentKind download uses an unsupported extension"
+    }
+    require(mimeType.isNotBlank() && '/' in mimeType) { "Download MIME type is invalid" }
+  }
+
+  private fun createPendingDownload(fileName: String, mimeType: String): Uri {
+    val pendingValues = ContentValues().apply {
+      put(MediaStore.MediaColumns.DISPLAY_NAME, fileName)
+      put(MediaStore.MediaColumns.MIME_TYPE, mimeType)
+      put(MediaStore.MediaColumns.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS)
+      put(MediaStore.MediaColumns.IS_PENDING, 1)
+    }
+    return activity.contentResolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, pendingValues)
+      ?: throw IllegalStateException("Android could not create the download")
+  }
+
+  private fun publishDownload(uri: Uri) {
+    val published = ContentValues().apply { put(MediaStore.MediaColumns.IS_PENDING, 0) }
+    check(activity.contentResolver.update(uri, published, null, null) == 1) {
+      "Android could not publish the download"
+    }
   }
 
   private fun resolveDisplayName(uri: Uri): String? {

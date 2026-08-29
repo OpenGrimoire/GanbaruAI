@@ -6,6 +6,15 @@ export const mobile = {
   pomodoroInactiveDescription:
     "Pomodoro starts automatically when a Pomodoro-enabled calendar block begins.",
   pomodoroOpenCalendar: "Open calendar",
+  vaultSetup: {
+    title: "Set up your data",
+    intro:
+      "Start with new data, restore a .ganbaru-backup file, or import an existing Ganbaru AI folder.",
+    dataLocation: "Data location",
+    startFromZero: "Start from zero",
+    restoreBackupFile: "Restore backup file",
+    importExistingFolder: "Import existing folder",
+  },
   focusOnboarding: {
     title: "Keep Focus running",
     description:

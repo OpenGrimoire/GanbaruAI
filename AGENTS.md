@@ -109,7 +109,7 @@ apps/
       app/: ganbaru-tauri-app ordinary Rust library
         src/: Tauri commands, managed state, setup and exit hooks, and platform integrations
           desktop_runtime.rs, mobile_runtime.rs: platform-specific Tauri composition roots
-          db.rs, db_path.rs, vault.rs: active-folder authorization and SQLite adapter boundary
+          db.rs, db_path.rs, vault.rs, vault/: active-folder authorization, SQLite adapter boundary, and portable Android backup and restore
           calendar_events/, calendar_import/, calendar_reads/: split calendar persistence, import, and query services
           calendar_description.rs, calendar_import.rs, calendar_reads.rs, calendars.rs, recurrence.rs: calendar command roots and shared logic
           chat.rs, chat/: desktop Tauri Chat adapters, application command flows, and platform integrations
