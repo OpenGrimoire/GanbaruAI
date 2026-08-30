@@ -21,6 +21,7 @@
   import { getCalendarZoom } from "$lib/stores/calendarZoom.svelte";
   import { getPomodoro } from "$lib/stores/pomodoro.svelte";
   import { getLocalization } from "$lib/i18n/translator.svelte";
+  import { formatNumber } from "$lib/i18n/formatters";
   import { onMount } from "svelte";
   import type { Theme } from "$lib/stores/themes";
 
@@ -93,6 +94,7 @@
   const calZoom = getCalendarZoom();
   const timelineWheelScroll = createTimelineWheelScroll(() => scrollContainer);
   const localization = getLocalization();
+  const { t } = localization;
   const locale = $derived(localization.locale);
 
   function renderedHourHeight(): number {
@@ -478,7 +480,7 @@
             style="height: {ALL_DAY_ROW_H}px;"
             onclick={(e) => { e.stopPropagation(); allDayExpanded = true; }}
           >
-            +{allDayEvents.length - ALL_DAY_MAX_VISIBLE} more
+            {t("calendar.moreEvents", formatNumber(locale, allDayEvents.length - ALL_DAY_MAX_VISIBLE))}
           </button>
         {/if}
       </div>

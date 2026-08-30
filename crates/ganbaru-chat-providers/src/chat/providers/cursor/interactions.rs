@@ -51,7 +51,6 @@ pub struct ParsedPermission {
     pub provider_request_id: ProviderRequestId,
     pub request: RequestOpenedEvent,
     pub options: Vec<AcpPermissionOption>,
-    pub tool_kind: String,
     pub safely_in_workspace_edit: bool,
 }
 
@@ -112,7 +111,6 @@ pub fn parse_permission(params: &Value, workspace: &Path) -> ChatResult<ParsedPe
         safely_in_workspace_edit: tool_kind == "edit"
             && tool_paths_are_in_workspace(tool, workspace),
         options,
-        tool_kind,
     })
 }
 

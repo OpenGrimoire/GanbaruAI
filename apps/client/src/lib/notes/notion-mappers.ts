@@ -41,7 +41,6 @@ import {
   parseNotesPageTemplate,
   parseNotesPaginatedBlockList,
   parseNotesSearchResult,
-  parseNotesSidebarPageList,
   parseNotesSuggestion,
   parseNotesUnresolvedLink,
 } from "./block-validation";
@@ -88,7 +87,6 @@ import type {
   NotesPageTemplate,
   NotesPaginatedBlockList,
   NotesSearchResult,
-  NotesSidebarPageList,
   NotesSuggestion,
   NotesUnresolvedLink,
 } from "./types";
@@ -188,11 +186,6 @@ export function mapNotesAgentBridgeExportSaveDto(
 /** Validate and map an unknown markdown export DTO from the Tauri boundary. */
 export function mapNotesMarkdownExportDto(value: unknown): NotesMarkdownExportResult {
   return parseNotesMarkdownExportResult(value);
-}
-
-/** Validate and map an unknown sidebar page-list DTO from the Tauri boundary. */
-export function mapNotesSidebarPageListDto(value: unknown): NotesSidebarPageList {
-  return parseNotesSidebarPageList(value);
 }
 
 /** Validate and map an unknown page breadcrumb item DTO from the Tauri boundary. */

@@ -27,10 +27,6 @@ pub struct CursorProviderSettings {
 }
 
 impl CursorProviderSettings {
-    pub fn parse(configuration: &ProviderInstanceConfig) -> ChatResult<Self> {
-        Self::parse_for(configuration, "Cursor")
-    }
-
     pub fn parse_for(
         configuration: &ProviderInstanceConfig,
         provider_name: &str,
@@ -481,10 +477,6 @@ pub fn resume_cursor(session_id: &str) -> VersionedJson {
     }
 }
 
-pub fn cursor_capability_kinds() -> Vec<ProviderCapability> {
-    acp_capability_kinds(super::driver::AcpProviderFlavor::Cursor)
-}
-
 pub fn acp_capability_kinds(_flavor: super::driver::AcpProviderFlavor) -> Vec<ProviderCapability> {
     [
         Some(ProviderCapability::NativeResume),
@@ -502,13 +494,6 @@ pub fn acp_capability_kinds(_flavor: super::driver::AcpProviderFlavor) -> Vec<Pr
     .into_iter()
     .flatten()
     .collect()
-}
-
-pub fn negotiated_capabilities(
-    initialize: &AcpInitializeResponse,
-    setup: &AcpSessionSetup,
-) -> ProviderCapabilities {
-    negotiated_capabilities_for(super::driver::AcpProviderFlavor::Cursor, initialize, setup)
 }
 
 pub fn negotiated_capabilities_for(

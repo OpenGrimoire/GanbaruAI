@@ -1,0 +1,516 @@
+import { invoke } from "@tauri-apps/api/core";
+import { ensureDbUrl } from "$lib/api/db";
+import {
+  mapNotesCreatedDatabaseDto,
+  mapNotesDataSourceDto,
+  mapNotesDataSourceBoardViewDto,
+  mapNotesDataSourceCalendarViewDto,
+  mapNotesDataSourceCsvExportDto,
+  mapNotesDataSourceCsvExportSaveDto,
+  mapNotesDataSourceCsvImportDto,
+  mapNotesDataSourceGalleryViewDto,
+  mapNotesDataSourceListViewDto,
+  mapNotesDataSourceSchemaDto,
+  mapNotesDataSourceTableViewDto,
+  mapNotesDataSourceTemplateDto,
+  mapNotesDataSourceTimelineViewDto,
+  mapNotesLoadedPageDto,
+  mapNotesPageDto,
+} from "$lib/notes/notion-mappers";
+import type {
+  NotesCreatedDatabase,
+  NotesDatabaseCreateRequest,
+  NotesDataSourceBoardRowMove,
+  NotesDataSourceBoardView,
+  NotesDataSourceBoardViewUpdate,
+  NotesDataSourceButtonClickRequest,
+  NotesDataSourceCalendarView,
+  NotesDataSourceCalendarViewUpdate,
+  NotesDataSourceCsvExportRequest,
+  NotesDataSourceCsvExportResult,
+  NotesDataSourceCsvExportSaveResult,
+  NotesDataSourceCsvImportRequest,
+  NotesDataSourceCsvImportResult,
+  NotesDataSourceGalleryView,
+  NotesDataSourceGalleryViewUpdate,
+  NotesDataSourceListView,
+  NotesDataSourceListViewUpdate,
+  NotesDatabaseViewScope,
+  NotesDataSource,
+  NotesDataSourceRowPageCreateRequest,
+  NotesDataSourceRowPropertyUpdate,
+  NotesDataSourceSchema,
+  NotesDataSourceSchemaUpdate,
+  NotesDataSourceTableView,
+  NotesDataSourceTableViewUpdate,
+  NotesDataSourceViewWindowRequest,
+  NotesDataSourceTemplate,
+  NotesDataSourceTemplateApplyRequest,
+  NotesDataSourceTemplateCreateFromRowRequest,
+  NotesDataSourceTemplateDuplicateRequest,
+  NotesDataSourceTemplateUpdateRequest,
+  NotesDataSourceTimelineView,
+  NotesDataSourceTimelineViewUpdate,
+  NotesLinkedDatabaseCreateRequest,
+  NotesLoadedPage,
+  NotesPage,
+} from "$lib/notes/types";
+import { invokeNotesMutation } from "./mutation";
+
+function databaseViewScopeArgs(scope?: NotesDatabaseViewScope | null): {
+  databaseId: string | null;
+  viewId: string | null;
+} {
+  return {
+    databaseId: scope?.databaseId ?? null,
+    viewId: scope?.viewId ?? null,
+  };
+}
+
+function schemaViewScopeArgs(scope?: NotesDatabaseViewScope | null): { viewId: string | null } {
+  return { viewId: scope?.viewId ?? null };
+}
+
+export async function createNotesDatabase(
+  request: NotesDatabaseCreateRequest,
+): Promise<NotesCreatedDatabase> {
+  const dbUrl = await ensureDbUrl();
+  return mapNotesCreatedDatabaseDto(
+    await invokeNotesMutation("notes_create_database", { dbUrl, request }),
+  );
+}
+
+export async function createNotesLinkedDatabaseView(
+  request: NotesLinkedDatabaseCreateRequest,
+): Promise<NotesCreatedDatabase> {
+  const dbUrl = await ensureDbUrl();
+  return mapNotesCreatedDatabaseDto(
+    await invokeNotesMutation("notes_create_linked_database_view", { dbUrl, request }),
+  );
+}
+
+export async function getNotesDataSourceSchema(
+  dataSourceId: string,
+  scope?: NotesDatabaseViewScope | null,
+): Promise<NotesDataSourceSchema> {
+  const dbUrl = await ensureDbUrl();
+  return mapNotesDataSourceSchemaDto(
+    await invoke<unknown>("notes_get_data_source_schema", {
+      dbUrl,
+      dataSourceId,
+      ...schemaViewScopeArgs(scope),
+    }),
+  );
+}
+
+export async function updateNotesDataSourceSchema(
+  dataSourceId: string,
+  update: NotesDataSourceSchemaUpdate,
+  scope?: NotesDatabaseViewScope | null,
+): Promise<NotesDataSourceSchema> {
+  const dbUrl = await ensureDbUrl();
+  return mapNotesDataSourceSchemaDto(
+    await invokeNotesMutation("notes_update_data_source_schema", {
+      dbUrl,
+      dataSourceId,
+      update,
+      ...schemaViewScopeArgs(scope),
+    }),
+  );
+}
+
+export async function listNotesDataSources(): Promise<NotesDataSource[]> {
+  const dbUrl = await ensureDbUrl();
+  const rows = await invoke<unknown>("notes_list_data_sources", { dbUrl });
+  if (!Array.isArray(rows)) {
+    throw new Error("notes_list_data_sources returned a non-array payload");
+  }
+  return rows.map(mapNotesDataSourceDto);
+}
+
+export async function listNotesDataSourceRowPages(
+  dataSourceId: string,
+): Promise<NotesPage[]> {
+  const dbUrl = await ensureDbUrl();
+  const rows = await invoke<unknown>("notes_list_data_source_row_pages", { dbUrl, dataSourceId });
+  if (!Array.isArray(rows)) {
+    throw new Error("notes_list_data_source_row_pages returned a non-array payload");
+  }
+  return rows.map(mapNotesPageDto);
+}
+
+export async function createNotesDataSourceRowPage(
+  dataSourceId: string,
+  request: NotesDataSourceRowPageCreateRequest,
+): Promise<NotesLoadedPage> {
+  const dbUrl = await ensureDbUrl();
+  return mapNotesLoadedPageDto(
+    await invokeNotesMutation("notes_create_data_source_row_page", {
+      dbUrl,
+      dataSourceId,
+      request,
+    }),
+  );
+}
+
+export async function importNotesDataSourceCsv(
+  dataSourceId: string,
+  request: NotesDataSourceCsvImportRequest,
+): Promise<NotesDataSourceCsvImportResult> {
+  const dbUrl = await ensureDbUrl();
+  return mapNotesDataSourceCsvImportDto(
+    await invokeNotesMutation(
+      "notes_import_data_source_csv",
+      { dbUrl, dataSourceId, request },
+      request.dry_run === false,
+    ),
+  );
+}
+
+export async function exportNotesDataSourceCsv(
+  dataSourceId: string,
+  request: NotesDataSourceCsvExportRequest,
+): Promise<NotesDataSourceCsvExportResult> {
+  const dbUrl = await ensureDbUrl();
+  return mapNotesDataSourceCsvExportDto(
+    await invoke<unknown>("notes_export_data_source_csv", { dbUrl, dataSourceId, request }),
+  );
+}
+
+export async function saveNotesDataSourceCsv(
+  dataSourceId: string,
+  request: NotesDataSourceCsvExportRequest,
+): Promise<NotesDataSourceCsvExportSaveResult> {
+  const dbUrl = await ensureDbUrl();
+  return mapNotesDataSourceCsvExportSaveDto(
+    await invoke<unknown>("notes_pick_and_write_data_source_csv", { dbUrl, dataSourceId, request }),
+  );
+}
+
+export async function listNotesDataSourceTemplates(
+  dataSourceId: string,
+): Promise<NotesDataSourceTemplate[]> {
+  const dbUrl = await ensureDbUrl();
+  const rows = await invoke<unknown>("notes_list_data_source_templates", { dbUrl, dataSourceId });
+  if (!Array.isArray(rows)) {
+    throw new Error("notes_list_data_source_templates returned a non-array payload");
+  }
+  return rows.map(mapNotesDataSourceTemplateDto);
+}
+
+export async function createNotesDataSourceTemplateFromRow(
+  dataSourceId: string,
+  request: NotesDataSourceTemplateCreateFromRowRequest,
+): Promise<NotesDataSourceTemplate> {
+  const dbUrl = await ensureDbUrl();
+  return mapNotesDataSourceTemplateDto(
+    await invokeNotesMutation("notes_create_data_source_template_from_row", {
+      dbUrl,
+      dataSourceId,
+      request,
+    }),
+  );
+}
+
+export async function applyNotesDataSourceTemplate(
+  dataSourceId: string,
+  templateId: string,
+  request: NotesDataSourceTemplateApplyRequest,
+): Promise<NotesLoadedPage> {
+  const dbUrl = await ensureDbUrl();
+  return mapNotesLoadedPageDto(
+    await invokeNotesMutation("notes_apply_data_source_template", {
+      dbUrl,
+      dataSourceId,
+      templateId,
+      request,
+    }),
+  );
+}
+
+export async function updateNotesDataSourceTemplate(
+  dataSourceId: string,
+  templateId: string,
+  update: NotesDataSourceTemplateUpdateRequest,
+): Promise<NotesDataSourceTemplate> {
+  const dbUrl = await ensureDbUrl();
+  return mapNotesDataSourceTemplateDto(
+    await invokeNotesMutation("notes_update_data_source_template", {
+      dbUrl,
+      dataSourceId,
+      templateId,
+      update,
+    }),
+  );
+}
+
+export async function duplicateNotesDataSourceTemplate(
+  dataSourceId: string,
+  templateId: string,
+  request: NotesDataSourceTemplateDuplicateRequest,
+): Promise<NotesDataSourceTemplate> {
+  const dbUrl = await ensureDbUrl();
+  return mapNotesDataSourceTemplateDto(
+    await invokeNotesMutation("notes_duplicate_data_source_template", {
+      dbUrl,
+      dataSourceId,
+      templateId,
+      request,
+    }),
+  );
+}
+
+export async function deleteNotesDataSourceTemplate(
+  dataSourceId: string,
+  templateId: string,
+): Promise<string> {
+  const dbUrl = await ensureDbUrl();
+  const deletedTemplateId = await invokeNotesMutation("notes_delete_data_source_template", {
+    dbUrl,
+    dataSourceId,
+    templateId,
+  });
+  if (typeof deletedTemplateId !== "string") {
+    throw new Error("notes_delete_data_source_template returned an invalid template id");
+  }
+  return deletedTemplateId;
+}
+
+export async function getNotesDataSourceTableView(
+  dataSourceId: string,
+  scope?: NotesDatabaseViewScope | null,
+  window?: NotesDataSourceViewWindowRequest,
+): Promise<NotesDataSourceTableView> {
+  const dbUrl = await ensureDbUrl();
+  return mapNotesDataSourceTableViewDto(
+    await invoke<unknown>("notes_get_data_source_table_view", {
+      dbUrl,
+      dataSourceId,
+      ...databaseViewScopeArgs(scope),
+      window: window ?? null,
+    }),
+  );
+}
+
+export async function updateNotesDataSourceTableView(
+  dataSourceId: string,
+  update: NotesDataSourceTableViewUpdate,
+  scope?: NotesDatabaseViewScope | null,
+): Promise<NotesDataSourceTableView> {
+  const dbUrl = await ensureDbUrl();
+  return mapNotesDataSourceTableViewDto(
+    await invokeNotesMutation("notes_update_data_source_table_view", {
+      dbUrl,
+      dataSourceId,
+      update,
+      ...databaseViewScopeArgs(scope),
+    }),
+  );
+}
+export async function getNotesDataSourceBoardView(
+  dataSourceId: string,
+  scope?: NotesDatabaseViewScope | null,
+  window?: NotesDataSourceViewWindowRequest,
+): Promise<NotesDataSourceBoardView> {
+  const dbUrl = await ensureDbUrl();
+  return mapNotesDataSourceBoardViewDto(
+    await invoke<unknown>("notes_get_data_source_board_view", {
+      dbUrl,
+      dataSourceId,
+      ...databaseViewScopeArgs(scope),
+      window: window ?? null,
+    }),
+  );
+}
+
+export async function updateNotesDataSourceBoardView(
+  dataSourceId: string,
+  update: NotesDataSourceBoardViewUpdate,
+  scope?: NotesDatabaseViewScope | null,
+): Promise<NotesDataSourceBoardView> {
+  const dbUrl = await ensureDbUrl();
+  return mapNotesDataSourceBoardViewDto(
+    await invokeNotesMutation("notes_update_data_source_board_view", {
+      dbUrl,
+      dataSourceId,
+      update,
+      ...databaseViewScopeArgs(scope),
+    }),
+  );
+}
+
+export async function moveNotesDataSourceBoardRow(
+  dataSourceId: string,
+  request: NotesDataSourceBoardRowMove,
+  scope?: NotesDatabaseViewScope | null,
+): Promise<NotesDataSourceBoardView> {
+  const dbUrl = await ensureDbUrl();
+  return mapNotesDataSourceBoardViewDto(
+    await invokeNotesMutation("notes_move_data_source_board_row", {
+      dbUrl,
+      dataSourceId,
+      request,
+      ...databaseViewScopeArgs(scope),
+    }),
+  );
+}
+
+export async function getNotesDataSourceGalleryView(
+  dataSourceId: string,
+  scope?: NotesDatabaseViewScope | null,
+  window?: NotesDataSourceViewWindowRequest,
+): Promise<NotesDataSourceGalleryView> {
+  const dbUrl = await ensureDbUrl();
+  return mapNotesDataSourceGalleryViewDto(
+    await invoke<unknown>("notes_get_data_source_gallery_view", {
+      dbUrl,
+      dataSourceId,
+      ...databaseViewScopeArgs(scope),
+      window: window ?? null,
+    }),
+  );
+}
+
+export async function updateNotesDataSourceGalleryView(
+  dataSourceId: string,
+  update: NotesDataSourceGalleryViewUpdate,
+  scope?: NotesDatabaseViewScope | null,
+): Promise<NotesDataSourceGalleryView> {
+  const dbUrl = await ensureDbUrl();
+  return mapNotesDataSourceGalleryViewDto(
+    await invokeNotesMutation("notes_update_data_source_gallery_view", {
+      dbUrl,
+      dataSourceId,
+      update,
+      ...databaseViewScopeArgs(scope),
+    }),
+  );
+}
+
+export async function updateNotesDataSourceRowProperty(
+  dataSourceId: string,
+  pageId: string,
+  update: NotesDataSourceRowPropertyUpdate,
+): Promise<NotesPage> {
+  const dbUrl = await ensureDbUrl();
+  return mapNotesPageDto(
+    await invokeNotesMutation("notes_update_data_source_row_property", {
+      dbUrl,
+      dataSourceId,
+      pageId,
+      update,
+    }),
+  );
+}
+
+export async function clickNotesDataSourceButton(
+  dataSourceId: string,
+  pageId: string,
+  request: NotesDataSourceButtonClickRequest,
+): Promise<NotesPage> {
+  const dbUrl = await ensureDbUrl();
+  return mapNotesPageDto(
+    await invokeNotesMutation("notes_click_data_source_button", {
+      dbUrl,
+      dataSourceId,
+      pageId,
+      request,
+    }),
+  );
+}
+
+export async function getNotesDataSourceListView(
+  dataSourceId: string,
+  scope?: NotesDatabaseViewScope | null,
+  window?: NotesDataSourceViewWindowRequest,
+): Promise<NotesDataSourceListView> {
+  const dbUrl = await ensureDbUrl();
+  return mapNotesDataSourceListViewDto(
+    await invoke<unknown>("notes_get_data_source_list_view", {
+      dbUrl,
+      dataSourceId,
+      ...databaseViewScopeArgs(scope),
+      window: window ?? null,
+    }),
+  );
+}
+
+export async function updateNotesDataSourceListView(
+  dataSourceId: string,
+  update: NotesDataSourceListViewUpdate,
+  scope?: NotesDatabaseViewScope | null,
+): Promise<NotesDataSourceListView> {
+  const dbUrl = await ensureDbUrl();
+  return mapNotesDataSourceListViewDto(
+    await invokeNotesMutation("notes_update_data_source_list_view", {
+      dbUrl,
+      dataSourceId,
+      update,
+      ...databaseViewScopeArgs(scope),
+    }),
+  );
+}
+
+export async function getNotesDataSourceCalendarView(
+  dataSourceId: string,
+  scope?: NotesDatabaseViewScope | null,
+  window?: NotesDataSourceViewWindowRequest,
+): Promise<NotesDataSourceCalendarView> {
+  const dbUrl = await ensureDbUrl();
+  return mapNotesDataSourceCalendarViewDto(
+    await invoke<unknown>("notes_get_data_source_calendar_view", {
+      dbUrl,
+      dataSourceId,
+      ...databaseViewScopeArgs(scope),
+      window: window ?? null,
+    }),
+  );
+}
+
+export async function updateNotesDataSourceCalendarView(
+  dataSourceId: string,
+  update: NotesDataSourceCalendarViewUpdate,
+  scope?: NotesDatabaseViewScope | null,
+): Promise<NotesDataSourceCalendarView> {
+  const dbUrl = await ensureDbUrl();
+  return mapNotesDataSourceCalendarViewDto(
+    await invokeNotesMutation("notes_update_data_source_calendar_view", {
+      dbUrl,
+      dataSourceId,
+      update,
+      ...databaseViewScopeArgs(scope),
+    }),
+  );
+}
+
+export async function getNotesDataSourceTimelineView(
+  dataSourceId: string,
+  scope?: NotesDatabaseViewScope | null,
+  window?: NotesDataSourceViewWindowRequest,
+): Promise<NotesDataSourceTimelineView> {
+  const dbUrl = await ensureDbUrl();
+  return mapNotesDataSourceTimelineViewDto(
+    await invoke<unknown>("notes_get_data_source_timeline_view", {
+      dbUrl,
+      dataSourceId,
+      ...databaseViewScopeArgs(scope),
+      window: window ?? null,
+    }),
+  );
+}
+
+export async function updateNotesDataSourceTimelineView(
+  dataSourceId: string,
+  update: NotesDataSourceTimelineViewUpdate,
+  scope?: NotesDatabaseViewScope | null,
+): Promise<NotesDataSourceTimelineView> {
+  const dbUrl = await ensureDbUrl();
+  return mapNotesDataSourceTimelineViewDto(
+    await invokeNotesMutation("notes_update_data_source_timeline_view", {
+      dbUrl,
+      dataSourceId,
+      update,
+      ...databaseViewScopeArgs(scope),
+    }),
+  );
+}

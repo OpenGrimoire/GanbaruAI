@@ -492,12 +492,21 @@
       (firstControl ?? panel)?.focus();
     });
     let stopSync: (() => void) | null = null;
+    let disposed = false;
     void listenForQuickNotesChanges(() => {
+      if (disposed) return;
       animateLayout = true;
       void loadTags();
       void load();
-    }).then((unlisten) => { stopSync = unlisten; });
+    }).then((unlisten) => {
+      if (disposed) {
+        unlisten();
+        return;
+      }
+      stopSync = unlisten;
+    });
     return () => {
+      disposed = true;
       window.removeEventListener("keydown", handlePanelKeydown, true);
       stopSync?.();
       if (searchTimer) clearTimeout(searchTimer);

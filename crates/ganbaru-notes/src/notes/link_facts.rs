@@ -530,13 +530,11 @@ async fn source_fingerprint(pool: &SqlitePool) -> Result<SourceFingerprint, Stri
     .fetch_all(pool)
     .await
     .map_err(|e| format!("compute notes link facts fingerprint: {e}"))?;
-    let mut source_rows = 0;
     let mut value = String::new();
     for row in rows {
         let source: String = row.get("source");
         let count: i64 = row.get("source_count");
         let marker: String = row.get("source_marker");
-        source_rows += count;
         value.push_str(&source);
         value.push(':');
         value.push_str(&count.to_string());
@@ -544,7 +542,7 @@ async fn source_fingerprint(pool: &SqlitePool) -> Result<SourceFingerprint, Stri
         value.push_str(&marker);
         value.push(';');
     }
-    Ok(SourceFingerprint { value, source_rows })
+    Ok(SourceFingerprint { value })
 }
 
 fn page_media_external_url(value: &Value) -> Option<&str> {
@@ -894,8 +892,6 @@ impl TargetCatalog {
 
 struct SourceFingerprint {
     value: String,
-    #[allow(dead_code)]
-    source_rows: i64,
 }
 
 #[derive(FromRow)]

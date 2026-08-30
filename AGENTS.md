@@ -70,6 +70,7 @@ apps/
           vault/: data folder setup and active-folder UI
         api/: typed wrappers around Tauri commands and asset URL handling
           chat.ts, chat-coordination.ts, chat-session.ts, chat-settings.ts, chat-workspace.ts, chat-workspace-observer.ts: split Chat command clients by backend domain
+          notes.ts, notes/: stable Notes API facade and split workspace, knowledge, collaboration, template/history, transfer, database, content, and working-Markdown command clients
         benchmark/: benchmark runner, samplers, output, scenarios
         calendar/: shared calendar logic and iCalendar parser/serializer
         chat/: local coding-agent contracts, runtime validation, workspace controller, inspector and terminal models, and API boundaries

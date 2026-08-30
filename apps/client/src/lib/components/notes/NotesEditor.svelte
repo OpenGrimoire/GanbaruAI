@@ -1150,12 +1150,15 @@
                 uploadAdapter={notesIconUploadAdapter}
                 onChange={updatePageIconFromPicker}
               >
-                {#snippet trigger({ open, toggle })}
+                {#snippet trigger({ open, toggle, panelId })}
                   <button
                     bind:this={actionIconPickerTrigger}
                     class={`inline-flex max-w-full items-center gap-1.5 rounded-md px-1.5 py-1 text-[0.8rem] text-muted-foreground hover:bg-accent hover:text-foreground ${open ? "bg-accent text-foreground" : ""}`}
                     type="button"
                     aria-label={page.icon ? t("notes.changePageIcon") : t("notes.addPageIcon")}
+                    aria-haspopup="dialog"
+                    aria-expanded={open}
+                    aria-controls={panelId}
                     data-notes-icon-picker-open={open ? "true" : undefined}
                     onclick={() => prepareIconPicker(toggle)}
                   >
@@ -1225,12 +1228,15 @@
                   uploadAdapter={notesIconUploadAdapter}
                   onChange={updatePageIconFromPicker}
                 >
-                  {#snippet trigger({ open, toggle })}
+                  {#snippet trigger({ open, toggle, panelId })}
                     <button
                       bind:this={pageIconPickerTrigger}
                       class={`flex size-16 items-center justify-center rounded-md text-foreground hover:bg-accent ${open ? "bg-accent" : ""}`}
                       type="button"
                       aria-label={t("notes.changePageIcon")}
+                      aria-haspopup="dialog"
+                      aria-expanded={open}
+                      aria-controls={panelId}
                       data-app-tooltip={t("notes.changePageIcon")}
                       onclick={() => prepareIconPicker(toggle)}
                     >

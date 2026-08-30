@@ -1,7 +1,7 @@
 //! Bounded newline-delimited JSON-RPC transport for ACP version 1.
 
 use crate::chat::models::{ChatError, ChatErrorCode, ChatResult};
-use crate::chat::process::{BoundedDiagnostic, ProviderProcessHandle};
+use crate::chat::process::ProviderProcessHandle;
 use crate::chat::providers::DriverOperationContext;
 use serde_json::{json, Value};
 use std::collections::HashMap;
@@ -355,13 +355,6 @@ impl AcpRpcConnection {
                 false,
             )
         })
-    }
-
-    pub fn diagnostic(&self) -> ChatResult<Option<BoundedDiagnostic>> {
-        self.process
-            .as_ref()
-            .map(ProviderProcessHandle::diagnostic)
-            .transpose()
     }
 
     pub async fn stop(

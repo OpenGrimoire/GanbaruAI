@@ -1,7 +1,7 @@
-use super::data_source_board::{
-    board_schema, canonical_filter, canonical_sorts, generated_uuid_tx,
-    load_active_data_source_and_database_tx, normalized_row_for_schema, parse_json, stored_filters,
-    stored_sorts, BoardProperty,
+use super::data_source_views::{
+    canonical_filter, canonical_sorts, generated_uuid_tx, load_active_data_source_and_database_tx,
+    normalized_row_for_schema, parse_json, stored_filters, stored_sorts,
+    view_schema as board_schema, ViewProperty as BoardProperty,
 };
 use super::models::{
     NoteDataSourceRow, NoteDataSourceRowWindow, NoteDataSourceTimelineConfigurationUpdate,
@@ -88,14 +88,14 @@ pub async fn update_data_source_timeline_view(
     )
     .await?;
     let (data_source, _database) =
-        load_active_data_source_and_database_tx(&mut tx, data_source_id).await?;
+        load_active_data_source_and_database_tx(&mut tx, data_source_id, "board").await?;
     let schema = board_schema(&parse_json(
         &data_source.properties,
         "data source properties",
     )?)?;
     let property_ids: HashSet<String> = schema.iter().map(|property| property.id.clone()).collect();
-    let filter = canonical_filter(&update.filter, &property_ids)?;
-    let sorts = canonical_sorts(&update.sorts, &property_ids)?;
+    let filter = canonical_filter(&update.filter, &property_ids, "board")?;
+    let sorts = canonical_sorts(&update.sorts, &property_ids, "board")?;
     let configuration = canonical_timeline_configuration(&update.configuration, &schema)?;
     let view =
         ensure_timeline_view_row_tx(&mut tx, &data_source, database_id, view_id, &schema).await?;
@@ -136,13 +136,13 @@ async fn load_timeline_view_tx(
     window_request: &NoteDataSourceViewWindowRequest,
 ) -> Result<NoteDataSourceTimelineViewDto, String> {
     let (data_source, database) =
-        load_active_data_source_and_database_tx(tx, data_source_id).await?;
+        load_active_data_source_and_database_tx(tx, data_source_id, "board").await?;
     let schema_properties = parse_json(&data_source.properties, "data source properties")?;
     let schema = board_schema(&schema_properties)?;
     let view = ensure_timeline_view_row_tx(tx, &data_source, database_id, view_id, &schema).await?;
     let configuration = timeline_configuration(view.configuration.as_deref(), &schema)?;
-    let filters = stored_filters(view.filter.as_deref())?;
-    let sorts = stored_sorts(&view.sorts)?;
+    let filters = stored_filters(view.filter.as_deref(), "database board filter", "board")?;
+    let sorts = stored_sorts(&view.sorts, "database board sorts", "board")?;
     let window_schema = data_source_window::table_properties_from_board(&schema);
     let mut effective_window = window_request.clone();
     effective_window
@@ -217,7 +217,12 @@ async fn ensure_timeline_view_row_tx(
         return Ok(view);
     }
     let database_id = data_source_views::scoped_database_id(data_source, database_id);
-    let id = generated_uuid_tx(tx).await?;
+    let id = generated_uuid_tx(
+        tx,
+        "generate timeline view id",
+        "generated_timeline_view_id",
+    )
+    .await?;
     let sort_order = data_source_views::next_view_sort_order_tx(tx, database_id).await?;
     let (range_start, range_end) = current_month_range_tx(tx).await?;
     sqlx::query(

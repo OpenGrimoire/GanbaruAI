@@ -102,7 +102,7 @@ describe("notes column helpers", () => {
   });
 
   it("preserves column payload shape when writing a width ratio", () => {
-    const update = notesColumnWithWidthRatio(columnBlock("left"), 0.4);
+    const update = notesColumnWithWidthRatio(0.4);
 
     expect(update).toEqual({
       type: "column",

@@ -5,7 +5,6 @@ import android.app.PendingIntent
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
-import android.os.Build
 
 private const val ACTIVATION_STORE = "GANBARU_POMODORO_ACTIVATION_STORE"
 private const val DISMISSED_ACTIVATIONS_KEY = "dismissedActivationIds"
@@ -132,11 +131,7 @@ internal object PomodoroActivationScheduler {
     if (deadline <= System.currentTimeMillis()) return
     val manager = context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
     val intent = pendingIntent(context, projection.runId)
-    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && !manager.canScheduleExactAlarms()) {
-      manager.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, deadline, intent)
-    } else {
-      manager.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, deadline, intent)
-    }
+    manager.scheduleRtcWakeupAllowingIdle(deadline, intent)
   }
 
   private fun cancelAlarm(context: Context, activationId: String) {

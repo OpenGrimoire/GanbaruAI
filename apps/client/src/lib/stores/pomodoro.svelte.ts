@@ -1,13 +1,9 @@
 import type { PomodoroPhase } from "@ganbaru-ai/shared-types";
-import type {
-  PersistedSegment,
-  SegmentPhase,
-} from "$lib/components/calendar/types";
+import type { PersistedSegment } from "$lib/components/calendar/types";
 import {
   clonePomodoroConfig,
   focusDurationMinutesAtPosition,
   normalizeRhythmPosition,
-  phaseDurationMinutesAtPosition,
   rhythmPositionCount,
 } from "$lib/pomodoro/rhythm";
 import {
@@ -190,11 +186,9 @@ const doomscrollingController = createPomodoroDoomscrollingController(
 );
 const {
   actualPhaseElapsedSeconds,
-  phaseWorkRemainingSeconds,
   setPhaseRemainingSeconds,
   setVisibleRemainingForPause,
   refreshCurrentPhaseLimit,
-  recordRunningPhaseProgress,
   refreshPausedOpportunityRemaining,
   activeBlockDeadlineReached,
   resetPhaseProgress,
@@ -900,20 +894,12 @@ function resetFocusNotificationState(): void {
   extensionController.resetFocusNotificationState();
 }
 
-function isBreakPhase(value: PomodoroPhase | SegmentPhase): value is "short_break" | "long_break" {
-  return extensionController.isBreakPhase(value);
-}
-
 function canExtendFocusTime(addSeconds: number = FOCUS_EXTENSION_SECONDS): boolean {
   return extensionController.canExtendFocusTime(addSeconds);
 }
 
 function canPauseResumeSession(nowMs: number = Date.now()): boolean {
   return clockController.canPauseResume(nowMs);
-}
-
-function canExtendBreakTime(addSeconds: number = BREAK_EXTENSION_SECONDS): boolean {
-  return extensionController.canExtendBreakTime(addSeconds);
 }
 
 function addFocusTimeInternal(seconds: number = FOCUS_EXTENSION_SECONDS): void {

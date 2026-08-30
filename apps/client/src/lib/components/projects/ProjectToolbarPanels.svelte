@@ -196,7 +196,6 @@
     if (currentPanel === "settings") return 680;
     if (currentPanel === "customize") return 360;
     if (currentPanel === "group") return 240;
-    if (currentPanel === "sort") return 440;
     return 440;
   }
 

@@ -874,7 +874,8 @@
         bind:this={mediaSurface}
         class="music-media-surface relative cursor-default overflow-hidden"
         role="button"
-        tabindex="-1"
+        tabindex={player.currentSource ? 0 : -1}
+        aria-disabled={!player.currentSource}
         aria-label={player.isPlaying ? t("music.pause") : t("music.play")}
         data-app-tooltip-disabled="true"
         onclick={handleMediaSurfaceClick}
@@ -986,7 +987,6 @@
             class="music-seek-slider min-w-0 flex-1 disabled:opacity-50"
             style={`--music-seek-progress: ${seekSliderProgress};`}
             aria-label={t("music.seek")}
-            tabindex="-1"
             oninput={(event) => { void player.seekToMs(Number(event.currentTarget.value)); }}
             onpointerup={releaseRangeFocus}
             onpointercancel={releaseRangeFocus}
@@ -1077,7 +1077,6 @@
               style={`--music-volume-progress: ${volumeSliderProgress};`}
               aria-label={t("music.volume")}
               data-app-tooltip={t("music.volumeTooltip")}
-              tabindex="-1"
               oninput={(event) => { setVolumeFromControl(Number(event.currentTarget.value)); }}
               onpointerup={releaseRangeFocus}
               onpointercancel={releaseRangeFocus}
@@ -1151,7 +1150,6 @@
                     class="music-volume-slider music-volume-slider-vertical"
                     style={`--music-volume-progress: ${volumeSliderProgress};`}
                     aria-label={t("music.volume")}
-                    tabindex="-1"
                     oninput={(event) => { setVolumeFromControl(Number(event.currentTarget.value)); }}
                     onpointerup={releaseRangeFocus}
                     onpointercancel={releaseRangeFocus}
@@ -1254,10 +1252,6 @@
   .music-media-surface {
     aspect-ratio: 16 / 9;
     width: min(100%, calc(100cqh * 16 / 9));
-  }
-
-  .music-source-field {
-    width: clamp(5rem, 20vw, 12rem);
   }
 
   .music-compact-volume-control {

@@ -33,8 +33,12 @@ pub async fn export_csv(
         .begin()
         .await
         .map_err(|e| format!("begin notes CSV export: {e}"))?;
-    let (data_source, database) =
-        data_source_table::load_active_data_source_and_database_tx(&mut tx, data_source_id).await?;
+    let (data_source, database) = data_source_views::load_active_data_source_and_database_tx(
+        &mut tx,
+        data_source_id,
+        "table",
+    )
+    .await?;
     let view =
         data_source_table::ensure_table_view_row_tx(&mut tx, &data_source, database_id, view_id)
             .await?;
@@ -51,8 +55,9 @@ pub async fn export_csv(
     data_source_formulas::hydrate_formulas(&schema_properties, &mut rows)?;
     data_source_buttons::hydrate_buttons(&schema_properties, &mut rows)?;
 
-    let filters = data_source_table::stored_filters(view.filter.as_deref())?;
-    let sorts = data_source_table::stored_sorts(&view.sorts)?;
+    let filters =
+        data_source_views::stored_filters(view.filter.as_deref(), "database view filter", "table")?;
+    let sorts = data_source_views::stored_sorts(&view.sorts, "database view sorts", "table")?;
     if scope == CsvExportScope::View {
         rows.retain(|row| data_source_table::row_matches_filters(row, &schema, &filters));
     }

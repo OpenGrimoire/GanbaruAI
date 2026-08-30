@@ -195,6 +195,7 @@
   let teammateAccess = $state<ChatTeammateAccessRead | null>(null);
   let assignmentTargets = $state<ChatAssignmentTargetRead[]>([]);
   let assignmentPreviewLoading = $state(false);
+  let assignmentPreviewRequest = 0;
   let navigationChannels = $state<ChatChannelRead[]>([]);
   let navigationChannelsLoaded = false;
 
@@ -292,8 +293,10 @@
     const channelId = chat.selectedChannel?.id ?? null;
     const replyThreadId = destinationReplyThreadId(destination);
     if (!teammateId || !channelId) {
+      assignmentPreviewRequest += 1;
       teammateAccess = null;
       assignmentTargets = [];
+      assignmentPreviewLoading = false;
       executionTarget = null;
       return;
     }
@@ -734,13 +737,19 @@
     channelId: string,
     replyThreadId: string | null,
   ): Promise<void> {
+    const requestId = ++assignmentPreviewRequest;
     assignmentPreviewLoading = true;
     try {
       const [access, targets] = await Promise.all([
         chatApi.readChatTeammateAccess(teammateId),
         chatApi.listChatAssignmentTargets({ teammateId, channelId, replyThreadId }),
       ]);
-      if (mentionedTeammateId !== teammateId || chat.selectedChannel?.id !== channelId) return;
+      if (
+        requestId !== assignmentPreviewRequest
+        || mentionedTeammateId !== teammateId
+        || chat.selectedChannel?.id !== channelId
+        || destinationReplyThreadId(destination) !== replyThreadId
+      ) return;
       teammateAccess = access;
       assignmentTargets = targets;
       if (executionTarget && !targets.some((target) => sameExecutionTarget(target.executionTarget, executionTarget))) {
@@ -748,12 +757,17 @@
         persist();
       }
     } catch (cause: unknown) {
-      if (mentionedTeammateId === teammateId) {
+      if (
+        requestId === assignmentPreviewRequest
+        && mentionedTeammateId === teammateId
+        && chat.selectedChannel?.id === channelId
+        && destinationReplyThreadId(destination) === replyThreadId
+      ) {
         assignmentTargets = [];
         error = cause instanceof Error ? cause.message : String(cause);
       }
     } finally {
-      if (mentionedTeammateId === teammateId) assignmentPreviewLoading = false;
+      if (requestId === assignmentPreviewRequest) assignmentPreviewLoading = false;
     }
   }
 
@@ -1322,7 +1336,7 @@
               {#each group.entries as entry (entry.candidate.key)}
                 {@const candidate = entry.candidate}
                 {@const index = entry.index}
-                <button id={`chat-reference-${index}`} data-reference-index={index} type="button" role="option" aria-selected={pickerIndex === index} disabled={candidateIsDisabled(candidate)} class:active={pickerIndex === index} onpointerenter={() => { if (!candidateIsDisabled(candidate)) pickerIndex = index; }} onpointerdown={(event) => event.preventDefault()} onclick={() => void chooseReferenceCandidate(candidate)}>
+                <button id={`chat-reference-${index}`} data-reference-index={index} type="button" role="option" tabindex="-1" aria-selected={pickerIndex === index} disabled={candidateIsDisabled(candidate)} class:active={pickerIndex === index} onpointerenter={() => { if (!candidateIsDisabled(candidate)) pickerIndex = index; }} onpointerdown={(event) => event.preventDefault()} onclick={() => void chooseReferenceCandidate(candidate)}>
                   <span class="candidate-icon">
                     {#if candidate.kind === "participant"}<ChatParticipantAvatar participant={candidate.participant} teammate={candidate.teammate ?? undefined} size={28} />
                     {:else if candidate.kind === "channel"}<Hash size={15} />

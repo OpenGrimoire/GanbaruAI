@@ -244,11 +244,7 @@ internal object PomodoroNotificationScheduler {
     val deadline = if (projection.isRunning) phase.endsAtEpochMs else projection.eventEndsAtEpochMs
     val intent = boundaryIntent(context, projection, phase, deadline)
     val manager = alarmManager(context)
-    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && !manager.canScheduleExactAlarms()) {
-      manager.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, deadline, intent)
-    } else {
-      manager.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, deadline, intent)
-    }
+    manager.scheduleRtcWakeupAllowingIdle(deadline, intent)
   }
 
   private fun boundaryIntent(

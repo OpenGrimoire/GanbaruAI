@@ -13,14 +13,11 @@
   } from "$lib/projects/project-display";
   import {
     projectSettingsPriorityColorDraftValue,
-    projectSettingsPriorityDraftDirty,
     projectSettingsPriorityNameDraftValue,
     projectSettingsStatusCategoryDraftValue,
     projectSettingsStatusColorDraftValue,
-    projectSettingsStatusDraftDirty,
     projectSettingsStatusNameDraftValue,
     projectSettingsTagColorDraftValue,
-    projectSettingsTagDraftDirty,
     projectSettingsTagNameDraftValue,
     projectSettingsTagNameExists,
     type ProjectSettingsPriorityDraftState,
@@ -430,18 +427,14 @@
     return projectSettingsTagColorDraftValue(tag, tagDraftState());
   }
 
-  function tagDraftDirty(tag: ProjectTag): boolean {
-    return projectSettingsTagDraftDirty(tag, tagDraftState());
-  }
-
   const nextUnusedStatusColor = createProjectSettingsColorAllocator({
     entries: () => statuses, color: statusColorDraftValue, fallback: NEW_STATUS_FIRST_COLOR,
   });
   const nextUnusedPriorityColor = createProjectSettingsColorAllocator({
-    entries: () => priorities, color: priorityColorDraftValue, fallback: NEW_STATUS_FIRST_COLOR,
+    entries: () => priorities, color: priorityColorDraftValue, fallback: NEW_PRIORITY_FIRST_COLOR,
   });
   const nextUnusedTagColor = createProjectSettingsColorAllocator({
-    entries: () => projectTags, color: tagColorDraftValue, fallback: NEW_STATUS_FIRST_COLOR,
+    entries: () => projectTags, color: tagColorDraftValue, fallback: NEW_TAG_FIRST_COLOR,
   });
 
   function tagNameExists(name: string, ignoredTagId?: string): boolean {
@@ -457,10 +450,6 @@
   const clearTagDrag = tagReorder.clear;
   const clearCustomFieldDrag = customFieldReorder.clear;
   const clearCustomFieldOptionDrag = customFieldOptionReorder.clear;
-
-  function statusDraftDirty(status: ProjectStatus): boolean {
-    return projectSettingsStatusDraftDirty(status, statusDraftState());
-  }
 
   function statusNameDraftValue(status: ProjectStatus): string {
     return projectSettingsStatusNameDraftValue(status, statusDraftState());
@@ -521,20 +510,19 @@
       await projects.removeStatus(status.id);
       const remainingNames = { ...sessionState.statusNameDrafts };
       const remainingCategories = { ...sessionState.statusCategoryDrafts };
+      const remainingColors = { ...sessionState.statusColorDrafts };
       delete remainingNames[status.id];
       delete remainingCategories[status.id];
+      delete remainingColors[status.id];
       sessionState.statusNameDrafts = remainingNames;
       sessionState.statusCategoryDrafts = remainingCategories;
+      sessionState.statusColorDrafts = remainingColors;
     } catch (error) {
       sessionState.projectSettingsError = t(
         "projects.settings.statusDeleteFailed",
         error instanceof Error ? error.message : String(error),
       );
     }
-  }
-
-  function priorityDraftDirty(priority: ProjectPriorityConfig): boolean {
-    return projectSettingsPriorityDraftDirty(priority, priorityDraftState());
   }
 
   function priorityNameDraftValue(priority: ProjectPriorityConfig): string {
@@ -617,7 +605,7 @@
       await projects.addPriority(selectedProjectId, name, createdColor);
       sessionState.newPriorityName = "";
       sessionState.newPriorityColor = nextUnusedPriorityColor(
-        nextProjectSettingsPaletteColor(createdColor, NEW_STATUS_FIRST_COLOR),
+        nextProjectSettingsPaletteColor(createdColor, NEW_PRIORITY_FIRST_COLOR),
         createdColor,
       );
       await scrollToNewPriorityRow();
@@ -684,7 +672,7 @@
       await projects.addTag(selectedProjectId, name, createdColor);
       sessionState.newTagName = "";
       sessionState.newTagColor = nextUnusedTagColor(
-        nextProjectSettingsPaletteColor(createdColor, NEW_STATUS_FIRST_COLOR),
+        nextProjectSettingsPaletteColor(createdColor, NEW_TAG_FIRST_COLOR),
         createdColor,
       );
       await scrollToNewTagRow();

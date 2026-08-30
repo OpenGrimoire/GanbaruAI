@@ -31,7 +31,6 @@ import {
   type PomodoroStartTrigger,
 } from "./pomodoro-backend-writes";
 import { decideRunStartAdaptiveForState, isAdaptiveCountConfig } from "./pomodoro-adaptive-decisions";
-import { TIME_MULTIPLIER } from "./pomodoro-machine";
 import type { PomodoroRunRepository } from "./pomodoro-run-repository";
 import {
   normalizePauseForSegment,

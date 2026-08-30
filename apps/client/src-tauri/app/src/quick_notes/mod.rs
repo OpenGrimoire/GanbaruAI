@@ -6,13 +6,17 @@ use tauri::{AppHandle, Runtime};
 
 use crate::db_path::connect_sqlite;
 
+mod tags;
+
+#[cfg(test)]
+use tags::delete_tag_from_pool;
+pub use tags::{QuickNoteTagRead, QuickNoteTagWrite};
+
 const DEFAULT_PAGE_SIZE: i64 = 60;
 const MAX_PAGE_SIZE: i64 = 60;
 const MAX_TITLE_CHARS: usize = 200;
 const MAX_BODY_CHARS: usize = 65_536;
 const MAX_RUNS: usize = 4_096;
-const MAX_TAGS: usize = 9;
-const MAX_TAG_NAME_CHARS: usize = 40;
 const PREVIEW_CHARS: usize = 4_096;
 const TRASH_RETENTION_DAYS: i64 = 7;
 
@@ -117,7 +121,6 @@ struct QuickNoteRow {
 #[derive(Clone, Debug, FromRow)]
 struct QuickNoteTextRunRow {
     note_id: String,
-    sort_order: i64,
     content: String,
     bold: i64,
     italic: i64,
@@ -149,23 +152,6 @@ pub struct QuickNotesWindow {
     next_cursor: Option<String>,
 }
 
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct QuickNoteTagWrite {
-    id: String,
-    name: String,
-}
-
-#[derive(Clone, Debug, FromRow, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct QuickNoteTagRead {
-    id: String,
-    name: String,
-    sort_order: i64,
-    created_at: String,
-    updated_at: String,
-}
-
 fn validate_id(id: &str) -> Result<(), String> {
     if id.trim().is_empty() || id.len() > 128 {
         return Err("quick note id must be between 1 and 128 bytes".to_string());
@@ -185,17 +171,6 @@ fn validate_optional_tag_id(tag_id: Option<&str>) -> Result<(), String> {
         validate_id(id)?;
     }
     Ok(())
-}
-
-fn validate_tag_name(name: &str) -> Result<&str, String> {
-    let trimmed = name.trim();
-    let count = trimmed.chars().count();
-    if count == 0 || count > MAX_TAG_NAME_CHARS {
-        return Err(format!(
-            "quick note tag name must be between 1 and {MAX_TAG_NAME_CHARS} characters"
-        ));
-    }
-    Ok(trimmed)
 }
 
 fn normalized_runs(runs: &[QuickNoteTextRun]) -> Result<Vec<QuickNoteTextRun>, String> {
@@ -287,7 +262,7 @@ async fn load_run_rows(
         return Ok(Vec::new());
     }
     let mut query = QueryBuilder::<Sqlite>::new(
-        "SELECT note_id, sort_order, content, bold, italic, underline
+        "SELECT note_id, content, bold, italic, underline
          FROM quick_note_text_runs WHERE note_id IN (",
     );
     {
@@ -307,7 +282,6 @@ async fn load_run_rows(
 fn read_runs(rows: Vec<QuickNoteTextRunRow>) -> HashMap<String, Vec<QuickNoteTextRun>> {
     let mut by_note: HashMap<String, Vec<QuickNoteTextRun>> = HashMap::new();
     for row in rows {
-        let _ = row.sort_order;
         by_note
             .entry(row.note_id)
             .or_default()
@@ -974,14 +948,7 @@ pub async fn quick_note_tags_list<R: Runtime>(
     app: AppHandle<R>,
     db_url: String,
 ) -> Result<Vec<QuickNoteTagRead>, String> {
-    let pool = connect_sqlite(app, db_url).await?;
-    sqlx::query_as::<_, QuickNoteTagRead>(
-        "SELECT id, name, sort_order, created_at, updated_at
-         FROM quick_note_tags ORDER BY sort_order, id",
-    )
-    .fetch_all(&pool)
-    .await
-    .map_err(|error| format!("list quick note tags: {error}"))
+    tags::list(app, db_url).await
 }
 
 #[tauri::command]
@@ -990,41 +957,7 @@ pub async fn quick_note_tags_create<R: Runtime>(
     db_url: String,
     tag: QuickNoteTagWrite,
 ) -> Result<QuickNoteTagRead, String> {
-    validate_id(&tag.id)?;
-    let name = validate_tag_name(&tag.name)?;
-    let pool = connect_sqlite(app, db_url).await?;
-    let mut tx = pool
-        .begin()
-        .await
-        .map_err(|error| format!("begin quick note tag create: {error}"))?;
-    let orders =
-        sqlx::query_scalar::<_, i64>("SELECT sort_order FROM quick_note_tags ORDER BY sort_order")
-            .fetch_all(&mut *tx)
-            .await
-            .map_err(|error| format!("load quick note tag order: {error}"))?;
-    if orders.len() >= MAX_TAGS {
-        return Err(format!("quick notes cannot have more than {MAX_TAGS} tags"));
-    }
-    let sort_order = (0..MAX_TAGS as i64)
-        .find(|candidate| !orders.contains(candidate))
-        .ok_or_else(|| "quick note tag order is full".to_string())?;
-    sqlx::query("INSERT INTO quick_note_tags (id, name, sort_order) VALUES (?, ?, ?)")
-        .bind(&tag.id)
-        .bind(name)
-        .bind(sort_order)
-        .execute(&mut *tx)
-        .await
-        .map_err(|error| format!("create quick note tag: {error}"))?;
-    tx.commit()
-        .await
-        .map_err(|error| format!("commit quick note tag create: {error}"))?;
-    sqlx::query_as::<_, QuickNoteTagRead>(
-        "SELECT id, name, sort_order, created_at, updated_at FROM quick_note_tags WHERE id = ?",
-    )
-    .bind(tag.id)
-    .fetch_one(&pool)
-    .await
-    .map_err(|error| format!("load created quick note tag: {error}"))
+    tags::create(app, db_url, tag).await
 }
 
 #[tauri::command]
@@ -1033,38 +966,7 @@ pub async fn quick_note_tags_delete<R: Runtime>(
     db_url: String,
     id: String,
 ) -> Result<(), String> {
-    validate_id(&id)?;
-    let pool = connect_sqlite(app, db_url).await?;
-    delete_tag_from_pool(&pool, &id).await
-}
-
-async fn delete_tag_from_pool(pool: &SqlitePool, id: &str) -> Result<(), String> {
-    let mut tx = pool
-        .begin()
-        .await
-        .map_err(|error| format!("begin quick note tag delete: {error}"))?;
-    sqlx::query(
-        "UPDATE quick_notes
-         SET tag_id = NULL,
-             revision = revision + 1,
-             updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
-         WHERE tag_id = ?",
-    )
-    .bind(id)
-    .execute(&mut *tx)
-    .await
-    .map_err(|error| format!("clear deleted quick note tag: {error}"))?;
-    let result = sqlx::query("DELETE FROM quick_note_tags WHERE id = ?")
-        .bind(id)
-        .execute(&mut *tx)
-        .await
-        .map_err(|error| format!("delete quick note tag: {error}"))?;
-    if result.rows_affected() != 1 {
-        return Err("quick note tag not found".to_string());
-    }
-    tx.commit()
-        .await
-        .map_err(|error| format!("commit quick note tag delete: {error}"))
+    tags::delete(app, db_url, id).await
 }
 
 #[cfg(test)]

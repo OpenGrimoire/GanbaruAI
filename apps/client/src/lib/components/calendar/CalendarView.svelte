@@ -1315,12 +1315,6 @@
   {/if}
 
   <!-- Floating event panel -->
-  {#if session.state.mode === "create" || session.state.mode === "edit"}
-    <!-- svelte-ignore a11y_click_events_have_key_events -->
-    <!-- svelte-ignore a11y_no_static_element_interactions -->
-    <!-- Invisible backdrop: pointer-events pass through, clicks on empty space close panel -->
-    <div class="fixed inset-0 z-40 pointer-events-none"></div>
-  {/if}
   {#if panelLifecycle.component && panelRender}
     {@const Panel = panelLifecycle.component}
     {@const render = panelRender}

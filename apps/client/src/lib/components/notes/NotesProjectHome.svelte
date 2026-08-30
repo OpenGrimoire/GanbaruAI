@@ -897,6 +897,7 @@
     <div
       class="notes-project-explorer-collapsed-rail absolute inset-y-0 left-0 z-10 w-11"
       aria-hidden={!explorerCollapsed}
+      inert={!explorerCollapsed}
     >
       <div class="flex h-(--cal-header-row-h) items-center justify-center">
         <button
@@ -922,7 +923,6 @@
   >
     <div class="flex h-(--cal-header-row-h) shrink-0 items-center justify-start gap-0.5 px-2">
       <button
-        bind:this={collapseExplorerButtonElement}
         type="button"
         class="flex {mobileLayout ? 'size-12' : 'size-7'} shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground disabled:pointer-events-none disabled:opacity-45"
         aria-label={t("notes.newPage")}
@@ -1099,6 +1099,7 @@
     </button>
     {#if !mobileLayout}
       <button
+        bind:this={collapseExplorerButtonElement}
         type="button"
         class="flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
         aria-label={t("notes.collapseExplorerSidebar")}

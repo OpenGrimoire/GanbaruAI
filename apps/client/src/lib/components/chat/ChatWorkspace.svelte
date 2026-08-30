@@ -79,7 +79,6 @@
   let globalActionsElement: HTMLDivElement | undefined = $state();
   let mobileRailToggleElement: HTMLButtonElement | undefined = $state();
   let railShell: HTMLDivElement | undefined = $state();
-  let inspectorShell: HTMLElement | undefined = $state();
   let composerDockElement: HTMLDivElement | undefined = $state();
   let composerDockHeight = $state(0);
   let commandMenuOpen = $state(false);
@@ -966,7 +965,7 @@
   </aside>
 
   <div class="chat-panel-separator chat-inspector-separator" class:hidden={!chat.inspectorOpen || layout.inspectorPresentation !== "column"} class:active={resizingInspector}><input type="range" min={MIN_INSPECTOR_WIDTH} max={inspectorResizeMaximum()} step="any" value={displayedInspectorWidth} aria-label={t("chat.resizeInspector")} onpointerdown={beginInspectorResize} onkeydown={resizeInspectorFromKey} ondblclick={(event) => { event.preventDefault(); fitInspectorToAvailableSpace(); }} /><span class="chat-panel-separator-line" aria-hidden="true"></span></div>
-  <aside bind:this={inspectorShell} class="chat-inspector-shell" class:open={chat.inspectorOpen} class:resizing={resizingInspector} class:snap-transition={snapTransitioning.inspector} data-presentation={layout.inspectorPresentation} inert={!chat.inspectorOpen} role={layout.inspectorPresentation === "sheet" && chat.inspectorOpen ? "dialog" : undefined} aria-modal={layout.inspectorPresentation === "sheet" && chat.inspectorOpen ? "true" : undefined} aria-label={t("chat.openInspector")} onkeydown={(event) => { if (layout.inspectorPresentation === "sheet") handleSheetKeydown(event, () => { chat.inspectorOpen = false; }); }}>
+  <aside class="chat-inspector-shell" class:open={chat.inspectorOpen} class:resizing={resizingInspector} class:snap-transition={snapTransitioning.inspector} data-presentation={layout.inspectorPresentation} inert={!chat.inspectorOpen} role={layout.inspectorPresentation === "sheet" && chat.inspectorOpen ? "dialog" : undefined} aria-modal={layout.inspectorPresentation === "sheet" && chat.inspectorOpen ? "true" : undefined} aria-label={t("chat.openInspector")} onkeydown={(event) => { if (layout.inspectorPresentation === "sheet") handleSheetKeydown(event, () => { chat.inspectorOpen = false; }); }}>
     <div class="chat-inspector-content-shell">
       {#if WorkspacePanel}<WorkspacePanel placement="inspector" visible={chat.inspectorOpen} onClose={() => { chat.inspectorOpen = false; }} />{/if}
     </div>

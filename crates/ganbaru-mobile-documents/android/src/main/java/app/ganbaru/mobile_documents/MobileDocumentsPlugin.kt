@@ -176,9 +176,6 @@ private data class PendingDocumentCopy(
 )
 
 internal object DocumentTextCodec {
-  fun isJsonFileName(fileName: String): Boolean =
-    fileName.endsWith(".json", ignoreCase = true)
-
   fun hasAllowedExtension(fileName: String, acceptedExtensions: List<String>): Boolean {
     val extension = fileName.substringAfterLast('.', missingDelimiterValue = "").lowercase()
     return extension.isNotEmpty() && acceptedExtensions.any { allowed ->
@@ -573,27 +570,13 @@ class MobileDocumentsPlugin(private val activity: Activity) : Plugin(activity) {
         val bytes = args.contents.toByteArray(Charsets.UTF_8)
         require(args.maxBytes > 0) { "Document size limit must be positive" }
         require(bytes.size.toLong() <= args.maxBytes) { "${args.documentKind} export exceeds the size limit" }
-        require(args.fileName.isNotBlank()) { "Download file name is required" }
-        require(args.fileName.length <= 255) { "Download file name is too long" }
-        require('/' !in args.fileName && '\\' !in args.fileName) {
-          "Download file name must not contain path separators"
-        }
-        require(args.acceptedExtensions.isNotEmpty()) { "At least one download extension is required" }
-        require(DocumentTextCodec.hasAllowedExtension(args.fileName, args.acceptedExtensions)) {
-          "${args.documentKind} download uses an unsupported extension"
-        }
-        require(args.mimeType.isNotBlank() && '/' in args.mimeType) { "Download MIME type is invalid" }
-
-        val pendingValues = ContentValues().apply {
-          put(MediaStore.MediaColumns.DISPLAY_NAME, args.fileName)
-          put(MediaStore.MediaColumns.MIME_TYPE, args.mimeType)
-          put(MediaStore.MediaColumns.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS)
-          put(MediaStore.MediaColumns.IS_PENDING, 1)
-        }
-        val createdUri = activity.contentResolver.insert(
-          MediaStore.Downloads.EXTERNAL_CONTENT_URI,
-          pendingValues,
-        ) ?: throw IllegalStateException("Android could not create the download")
+        validateDownloadMetadata(
+          args.fileName,
+          args.acceptedExtensions,
+          args.mimeType,
+          args.documentKind,
+        )
+        val createdUri = createPendingDownload(args.fileName, args.mimeType)
         uri = createdUri
 
         activity.contentResolver.openOutputStream(createdUri, "w").use { output ->
@@ -602,13 +585,7 @@ class MobileDocumentsPlugin(private val activity: Activity) : Plugin(activity) {
           output.flush()
         }
 
-        val published = ContentValues().apply {
-          put(MediaStore.MediaColumns.IS_PENDING, 0)
-        }
-        check(activity.contentResolver.update(createdUri, published, null, null) == 1) {
-          "Android could not publish the download"
-        }
-
+        publishDownload(createdUri)
         val displayName = resolveDisplayName(createdUri) ?: args.fileName
         invoke.resolve(JSObject().apply { put("displayName", displayName) })
       } catch (error: Exception) {
@@ -634,9 +611,9 @@ class MobileDocumentsPlugin(private val activity: Activity) : Plugin(activity) {
           File(activity.applicationInfo.dataDir),
           args.sourcePath,
         )
-        validateDownloadRequest(
+        require(args.maxBytes > 0) { "Document size limit must be positive" }
+        validateDownloadMetadata(
           args.fileName,
-          args.maxBytes,
           args.acceptedExtensions,
           args.mimeType,
           args.documentKind,
@@ -679,14 +656,12 @@ class MobileDocumentsPlugin(private val activity: Activity) : Plugin(activity) {
     }
   }
 
-  private fun validateDownloadRequest(
+  private fun validateDownloadMetadata(
     fileName: String,
-    maxBytes: Long,
     acceptedExtensions: List<String>,
     mimeType: String,
     documentKind: String,
   ) {
-    require(maxBytes > 0) { "Document size limit must be positive" }
     require(fileName.isNotBlank()) { "Download file name is required" }
     require(fileName.length <= 255) { "Download file name is too long" }
     require('/' !in fileName && '\\' !in fileName) { "Download file name must not contain path separators" }

@@ -160,6 +160,17 @@ describe("mapRow", () => {
     expect(result.exceptions).toBeUndefined();
   });
 
+  it("rejects valid JSON with incorrect calendar field shapes", () => {
+    const result = mapRow(makeDbRow({
+      rdate: '"2026-04-01"',
+      notifications: '[15,"60"]',
+      exceptions: '{"date":"2026-04-01"}',
+    }));
+    expect(result.rdate).toBeUndefined();
+    expect(result.notifications).toBeUndefined();
+    expect(result.exceptions).toBeUndefined();
+  });
+
   it("maps all-day events", () => {
     const result = mapRow(makeDbRow({ all_day: 1 }));
     expect(result.allDay).toBe(true);

@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 import {
   projectTaskDetailCustomFieldDirty,
   projectTaskDetailCustomFieldDrafts,
+  projectTaskDetailMergeSavedCustomFieldDraft,
+  projectTaskDetailCustomFieldRawDraft,
   projectTaskDetailCustomFieldSaveDraft,
   projectTaskDetailDraftDirty,
   projectTaskDetailDraftFromTask,
@@ -235,6 +237,100 @@ describe("project task detail helpers", () => {
       ok: false,
       reason: "invalid-date",
     });
+  });
+
+  it("merges only the saved custom field draft", () => {
+    const savedField = field("field-number", "number");
+    const otherField = field("field-other", "text");
+    const drafts = projectTaskDetailCustomFieldDrafts({
+      fields: [savedField, otherField],
+      valueForField: () => undefined,
+      optionValuesForField: () => [],
+    });
+    drafts.numberDrafts[savedField.id] = "03.50";
+    drafts.textDrafts[otherField.id] = "Unsaved elsewhere";
+    const submittedRawDraft = projectTaskDetailCustomFieldRawDraft({
+      field: savedField,
+      drafts,
+    });
+
+    const merged = projectTaskDetailMergeSavedCustomFieldDraft({
+      field: savedField,
+      drafts,
+      saved: {
+        textValue: null,
+        numberValue: 3.5,
+        dateValue: null,
+        checkboxValue: null,
+        optionIds: [],
+      },
+      submittedRawDraft,
+      requestGeneration: 2,
+      latestRequestGeneration: 2,
+    });
+
+    expect(merged.numberDrafts[savedField.id]).toBe("3.5");
+    expect(merged.textDrafts[otherField.id]).toBe("Unsaved elsewhere");
+    expect(merged.textDrafts).toBe(drafts.textDrafts);
+  });
+
+  it("preserves a newer same-field edit while an earlier save resolves", () => {
+    const savedField = field("field-number", "number");
+    const drafts = projectTaskDetailCustomFieldDrafts({
+      fields: [savedField],
+      valueForField: () => undefined,
+      optionValuesForField: () => [],
+    });
+    drafts.numberDrafts[savedField.id] = "03.50";
+    const submittedRawDraft = projectTaskDetailCustomFieldRawDraft({ field: savedField, drafts });
+    drafts.numberDrafts[savedField.id] = "4";
+
+    const merged = projectTaskDetailMergeSavedCustomFieldDraft({
+      field: savedField,
+      drafts,
+      saved: {
+        textValue: null,
+        numberValue: 3.5,
+        dateValue: null,
+        checkboxValue: null,
+        optionIds: [],
+      },
+      submittedRawDraft,
+      requestGeneration: 1,
+      latestRequestGeneration: 1,
+    });
+
+    expect(merged).toBe(drafts);
+    expect(merged.numberDrafts[savedField.id]).toBe("4");
+  });
+
+  it("ignores an older overlapping save even when its raw value matches again", () => {
+    const savedField = field("field-number", "number");
+    const drafts = projectTaskDetailCustomFieldDrafts({
+      fields: [savedField],
+      valueForField: () => undefined,
+      optionValuesForField: () => [],
+    });
+    drafts.numberDrafts[savedField.id] = "03.50";
+    const submittedRawDraft = projectTaskDetailCustomFieldRawDraft({ field: savedField, drafts });
+
+    const merged = projectTaskDetailMergeSavedCustomFieldDraft({
+      field: savedField,
+      drafts,
+      saved: {
+        textValue: null,
+        numberValue: 3.5,
+        dateValue: null,
+        checkboxValue: null,
+        optionIds: [],
+      },
+      submittedRawDraft,
+      requestGeneration: 1,
+      latestRequestGeneration: 2,
+    });
+
+    expect(merged).toBe(drafts);
+    expect(merged.numberDrafts[savedField.id]).toBe("03.50");
   });
 
   it("validates event link date ranges", () => {

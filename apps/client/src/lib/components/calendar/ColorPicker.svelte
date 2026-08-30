@@ -142,12 +142,7 @@
 
   function handleButtonKeydown(e: KeyboardEvent) {
     if (e.altKey || e.ctrlKey || e.metaKey || e.shiftKey) return;
-    if (e.key === " ") {
-      e.preventDefault();
-      e.stopPropagation();
-      return;
-    }
-    if (e.key !== "Enter") return;
+    if (e.key !== "Enter" && e.key !== " ") return;
     e.preventDefault();
     e.stopPropagation();
     openPalette("keyboard");

@@ -32,6 +32,8 @@
     parentTaskCandidateTasks as buildParentTaskCandidateTasks,
     projectTaskDetailCustomFieldDirty,
     projectTaskDetailCustomFieldDrafts,
+    projectTaskDetailMergeSavedCustomFieldDraft,
+    projectTaskDetailCustomFieldRawDraft,
     projectTaskDetailCustomFieldSaveDraft,
     projectTaskDetailDraftDirty,
     projectTaskDetailDraftFromTask,
@@ -115,6 +117,8 @@
   let customFieldCheckboxDrafts = $state<Record<string, boolean>>({});
   let customFieldSelectDrafts = $state<Record<string, string>>({});
   let customFieldMultiDrafts = $state<Record<string, string[]>>({});
+  const customFieldSaveGenerations = new Map<string, number>();
+  const customFieldSaveQueues = new Map<string, Promise<void>>();
   let dependencySearch = $state("");
   let parentTaskSearch = $state("");
 
@@ -162,7 +166,7 @@
     if (!selectedTask) return;
     if (
       detailDraftTaskId !== selectedTask.id
-      || (!detailDirty && detailDraftUpdatedAt !== selectedTask.updatedAt)
+      || (!detailHasUnsavedEdits && detailDraftUpdatedAt !== selectedTask.updatedAt)
     ) {
       loadTaskDetailDraft(selectedTask);
     }
@@ -471,10 +475,19 @@
 
   async function saveTaskCustomField(task: ProjectTask, field: ProjectCustomField): Promise<void> {
     detailError = null;
+    const requestKey = `${task.id}:${field.id}`;
+    const requestGeneration = (customFieldSaveGenerations.get(requestKey) ?? 0) + 1;
+    customFieldSaveGenerations.set(requestKey, requestGeneration);
+    const submittedDrafts = currentCustomFieldDrafts();
+    const submittedRawDraft = projectTaskDetailCustomFieldRawDraft({
+      field,
+      drafts: submittedDrafts,
+    });
+    let saveRequest: Promise<void> | null = null;
     try {
       const draft = projectTaskDetailCustomFieldSaveDraft({
         field,
-        drafts: currentCustomFieldDrafts(),
+        drafts: submittedDrafts,
       });
       if (!draft.ok) {
         detailError = draft.reason === "invalid-number"
@@ -482,17 +495,44 @@
           : t("projects.detail.invalidDate");
         return;
       }
-      await projects.saveCustomFieldValue({
-        taskId: task.id,
-        fieldId: field.id,
-        ...draft.value,
+      const previousSave = customFieldSaveQueues.get(requestKey) ?? Promise.resolve();
+      saveRequest = previousSave
+        .catch(() => undefined)
+        .then(() => projects.saveCustomFieldValue({
+          taskId: task.id,
+          fieldId: field.id,
+          ...draft.value,
+        }));
+      customFieldSaveQueues.set(requestKey, saveRequest);
+      await saveRequest;
+      if (selectedTask?.id !== task.id) return;
+      const mergedDrafts = projectTaskDetailMergeSavedCustomFieldDraft({
+        field,
+        drafts: currentCustomFieldDrafts(),
+        saved: draft.value,
+        submittedRawDraft,
+        requestGeneration,
+        latestRequestGeneration: customFieldSaveGenerations.get(requestKey) ?? 0,
       });
-      loadTaskDetailDraft(task);
+      customFieldTextDrafts = mergedDrafts.textDrafts;
+      customFieldNumberDrafts = mergedDrafts.numberDrafts;
+      customFieldDateDrafts = mergedDrafts.dateDrafts;
+      customFieldCheckboxDrafts = mergedDrafts.checkboxDrafts;
+      customFieldSelectDrafts = mergedDrafts.selectDrafts;
+      customFieldMultiDrafts = mergedDrafts.multiDrafts;
     } catch (error) {
+      if (
+        customFieldSaveGenerations.get(requestKey) !== requestGeneration
+        || selectedTask?.id !== task.id
+      ) return;
       detailError = t(
         "projects.customFields.valueSaveFailed",
         error instanceof Error ? error.message : String(error),
       );
+    } finally {
+      if (saveRequest && customFieldSaveQueues.get(requestKey) === saveRequest) {
+        customFieldSaveQueues.delete(requestKey);
+      }
     }
   }
 

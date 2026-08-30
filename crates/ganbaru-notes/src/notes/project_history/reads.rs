@@ -19,7 +19,7 @@ pub(super) async fn load_manifest_tx(
     .map_err(|e| format!("load Notes project history version: {e}"))?
     .ok_or_else(|| "Notes project history version not found".to_string())?;
     let version = version_from_row(&row)?;
-    let raw = load_bundle_tx(tx, &version.manifest_hash, "manifest").await?;
+    let raw = load_bundle_tx(tx, &version.manifest_hash).await?;
     let manifest: ProjectHistoryManifest = serde_json::from_slice(&raw)
         .map_err(|e| format!("parse Notes project history manifest: {e}"))?;
     if manifest.schema_version != HISTORY_SCHEMA_VERSION || manifest.project_id != project_id {
@@ -36,7 +36,7 @@ pub(super) async fn load_manifest_rows_tx(
     for (table, hashes) in &manifest.rows_by_table {
         let mut rows = Vec::with_capacity(hashes.len());
         for hash in hashes {
-            let raw = load_bundle_tx(tx, hash, "row").await?;
+            let raw = load_bundle_tx(tx, hash).await?;
             let row = serde_json::from_slice(&raw)
                 .map_err(|e| format!("parse Notes history row for {table}: {e}"))?;
             rows.push(row);

@@ -1,7 +1,5 @@
 import {
   getNotesPageBreadcrumb,
-  listNotesSidebarPages,
-  loadNotesPage,
   openNotesPage,
 } from "$lib/api/notes";
 import { blockPlainText } from "$lib/notes/block-factory";
@@ -113,7 +111,6 @@ let focusRequest = $state<NotesFocusRequest>({
   requestId: 0,
   selection: null,
 });
-const START_OF_NOTES_BLOCK_SELECTION: NotesTextSelection = { start: 0, end: 0 };
 const pageSession = new NotesPageSessionController({
   initialSelectedPageId: initialNotesSelectedPageId(),
   persistSelectedPageId: saveNotesSelectedPageId,
@@ -272,10 +269,6 @@ function replaceBlockOutlines(outlines: readonly NotesBlockOutline[], pageId: st
 
 function mergeBlockOutlines(outlines: readonly NotesBlockOutline[], pageId: string): void {
   treeProjection.mergeOutlines(outlines, pageId);
-}
-
-function syncHydratedBlockOutlines(pageId: string): void {
-  treeProjection.syncHydratedOutlines(pageId);
 }
 
 function requestLoadedPageFocus(

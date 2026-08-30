@@ -11,9 +11,17 @@ import {
   isValidPomodoroConfig,
   nextRhythmPosition,
   phaseDurationMinutesAtPosition,
+  summarizeSequencePomodoroRhythm,
 } from "./rhythm";
 
 describe("pomodoro rhythm engine", () => {
+  it("summarizes every step in a sequence cycle", () => {
+    expect(summarizeSequencePomodoroRhythm([
+      { focusDurationMinutes: 20, breakPhase: "short_break", breakDurationMinutes: 4 },
+      { focusDurationMinutes: 30, breakPhase: "long_break", breakDurationMinutes: 12 },
+    ])).toEqual({ stepCount: 2, focusMinutes: 50, breakMinutes: 16 });
+  });
+
   it("derives a count rhythm with a long break after one focus period", () => {
     const config = createCustomCountPomodoroConfig({
       focusDurationMinutes: 25,

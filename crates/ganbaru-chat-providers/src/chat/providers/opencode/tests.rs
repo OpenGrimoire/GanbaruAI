@@ -499,25 +499,12 @@ fn server_commands_are_bounded_and_dispatched_only_as_plain_slash_requests() {
 }
 
 #[test]
-fn resume_not_found_classifier_is_narrow_and_cursor_is_versioned() {
+fn resume_cursor_is_versioned() {
     let cursor = resume_cursor("ses_fixture").unwrap();
     assert_eq!(
         parse_resume_cursor(&cursor).unwrap().session_id,
         "ses_fixture"
     );
-    assert!(confirmed_not_found(404, None));
-    assert!(confirmed_not_found(
-        0,
-        Some(&json!({ "name": "NotFoundError" }))
-    ));
-    assert!(!confirmed_not_found(
-        500,
-        Some(&json!({ "name": "NotFoundError" }))
-    ));
-    assert!(!confirmed_not_found(
-        0,
-        Some(&json!({ "message": "session not found" }))
-    ));
 }
 
 #[test]

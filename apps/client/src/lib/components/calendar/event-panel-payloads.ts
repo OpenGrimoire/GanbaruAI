@@ -94,21 +94,6 @@ export interface EventPanelPayloadInput {
   guestCanSeeOtherGuests: boolean;
 }
 
-export function hasNonDefaultGuestPermissions(value: GuestPermissions | undefined): boolean {
-  return !!value && (value.canModify || !value.canInviteOthers || !value.canSeeOtherGuests);
-}
-
-export function hasMeetingState(value: Partial<CalendarEvent>): boolean {
-  return value.meetingEnabled === true
-    || !!(value.attendees && value.attendees.length > 0)
-    || !!value.organizer
-    || !!value.location
-    || !!value.url
-    || !!value.geo
-    || value.localParticipationStatus !== undefined
-    || hasNonDefaultGuestPermissions(value.guestPermissions);
-}
-
 export function collectEventPanelNotifications(
   input: EventPanelNotificationInput,
 ): number[] | undefined {

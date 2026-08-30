@@ -1,35 +1,29 @@
 use super::models::{
     NoteDataSourceRow, NoteDataSourceRowPropertyUpdate, NoteDataSourceTableConfigurationUpdate,
     NoteDataSourceTableFilter, NoteDataSourceTableSort, NoteDataSourceTableViewDto,
-    NoteDataSourceTableViewUpdate, NoteDataSourceViewWindowRequest, NoteDatabaseRow,
-    NoteDatabaseViewRow, NotePageDto, NotePageRow,
+    NoteDataSourceTableViewUpdate, NoteDataSourceViewWindowRequest, NoteDatabaseViewRow,
+    NotePageDto, NotePageRow,
 };
 use super::validation::require_uuid;
 use super::{
     data_source_buttons, data_source_formulas, data_source_relations, data_source_rollups,
-    data_source_views, data_source_window, history, writes,
+    data_source_views::{
+        self, canonical_filter, canonical_sorts, load_active_data_source_and_database_tx,
+        parse_json, read_string_field, rich_text_plain_text, stored_filters, stored_sorts,
+        title_from_property_value,
+    },
+    data_source_window, history, writes,
 };
 use serde_json::{json, Map, Value};
 use sqlx::{Sqlite, SqlitePool, Transaction};
 use std::cmp::Ordering;
 use std::collections::HashSet;
 
-const MAX_FILTERS: usize = 10;
-const MAX_SORTS: usize = 5;
 const MAX_PROPERTY_TEXT_CHARS: usize = 2_000;
-const MAX_FILTER_TEXT_CHARS: usize = 200;
 const MIN_COLUMN_WIDTH: i64 = 96;
 const MAX_COLUMN_WIDTH: i64 = 480;
 const MAX_TABLE_CONFIGURATION_BYTES: usize = 50 * 1024;
 const ROW_OPEN_MODES: &[&str] = &["full_page", "side_panel"];
-const FILTER_CONDITIONS: &[&str] = &[
-    "contains",
-    "equals",
-    "is_empty",
-    "is_not_empty",
-    "checked",
-    "unchecked",
-];
 
 #[cfg(test)]
 pub async fn get_data_source_table_view(
@@ -89,14 +83,14 @@ pub async fn update_data_source_table_view(
     )
     .await?;
     let (data_source, _database) =
-        load_active_data_source_and_database_tx(&mut tx, data_source_id).await?;
+        load_active_data_source_and_database_tx(&mut tx, data_source_id, "table").await?;
     let schema = table_schema(&parse_json(
         &data_source.properties,
         "data source properties",
     )?)?;
     let property_ids: HashSet<String> = schema.iter().map(|property| property.id.clone()).collect();
-    let filter = canonical_filter(&update.filter, &property_ids)?;
-    let sorts = canonical_sorts(&update.sorts, &property_ids)?;
+    let filter = canonical_filter(&update.filter, &property_ids, "table")?;
+    let sorts = canonical_sorts(&update.sorts, &property_ids, "table")?;
     let configuration = canonical_table_configuration(&update.configuration, &property_ids)?;
     let view = ensure_table_view_row_tx(&mut tx, &data_source, database_id, view_id).await?;
     sqlx::query(
@@ -143,7 +137,7 @@ pub async fn update_data_source_row_property(
         .await
         .map_err(|e| format!("begin notes data source row property update: {e}"))?;
     let (data_source, database) =
-        load_active_data_source_and_database_tx(&mut tx, data_source_id).await?;
+        load_active_data_source_and_database_tx(&mut tx, data_source_id, "table").await?;
     let schema = table_schema(&parse_json(
         &data_source.properties,
         "data source properties",
@@ -215,12 +209,12 @@ async fn load_table_view_tx(
     window_request: &NoteDataSourceViewWindowRequest,
 ) -> Result<NoteDataSourceTableViewDto, String> {
     let (data_source, database) =
-        load_active_data_source_and_database_tx(tx, data_source_id).await?;
+        load_active_data_source_and_database_tx(tx, data_source_id, "table").await?;
     let view = ensure_table_view_row_tx(tx, &data_source, database_id, view_id).await?;
     let schema_properties = parse_json(&data_source.properties, "data source properties")?;
     let schema = table_schema(&schema_properties)?;
-    let filters = stored_filters(view.filter.as_deref())?;
-    let sorts = stored_sorts(&view.sorts)?;
+    let filters = stored_filters(view.filter.as_deref(), "database view filter", "table")?;
+    let sorts = stored_sorts(&view.sorts, "database view sorts", "table")?;
     let mut window = data_source_window::load_row_window_tx(
         tx,
         data_source_id,
@@ -270,7 +264,12 @@ pub(super) async fn ensure_table_view_row_tx(
         return Ok(view);
     }
     let database_id = data_source_views::scoped_database_id(data_source, database_id);
-    let id = data_source_views::generated_uuid_tx(tx).await?;
+    let id = data_source_views::generated_uuid_tx(
+        tx,
+        "generate database view id",
+        "generated_database_view_id",
+    )
+    .await?;
     let sort_order = data_source_views::next_view_sort_order_tx(tx, database_id).await?;
     sqlx::query(
         "INSERT INTO notes_database_views (
@@ -305,33 +304,6 @@ pub(super) async fn ensure_table_view_row_tx(
     )
     .await?
     .ok_or_else(|| "inserted table view was not found".to_string())
-}
-
-pub(super) async fn load_active_data_source_and_database_tx(
-    tx: &mut Transaction<'_, Sqlite>,
-    data_source_id: &str,
-) -> Result<(NoteDataSourceRow, NoteDatabaseRow), String> {
-    let data_source = sqlx::query_as::<_, NoteDataSourceRow>(
-        "SELECT data_source.*
-         FROM notes_data_sources AS data_source
-         JOIN notes_databases AS database ON database.id = data_source.database_id
-         WHERE data_source.id = ?
-           AND data_source.in_trash = 0
-           AND database.in_trash = 0",
-    )
-    .bind(data_source_id.trim())
-    .fetch_optional(&mut **tx)
-    .await
-    .map_err(|e| format!("load notes data source for table: {e}"))?
-    .ok_or_else(|| "data source not found".to_string())?;
-    let database = sqlx::query_as::<_, NoteDatabaseRow>(
-        "SELECT * FROM notes_databases WHERE id = ? AND in_trash = 0",
-    )
-    .bind(&data_source.database_id)
-    .fetch_one(&mut **tx)
-    .await
-    .map_err(|e| format!("load notes database for table: {e}"))?;
-    Ok((data_source, database))
 }
 
 pub(super) async fn load_active_row_pages_tx(
@@ -428,96 +400,6 @@ pub(super) fn table_schema(properties: &Value) -> Result<Vec<TableProperty>, Str
         });
     }
     Ok(schema)
-}
-
-fn canonical_filter(
-    filters: &[NoteDataSourceTableFilter],
-    property_ids: &HashSet<String>,
-) -> Result<Option<Value>, String> {
-    if filters.len() > MAX_FILTERS {
-        return Err("table filters are limited to 10".to_string());
-    }
-    let mut canonical = Vec::new();
-    for filter in filters {
-        let property_id = filter.property_id.trim();
-        if property_id.is_empty() {
-            continue;
-        }
-        if !property_ids.contains(property_id) {
-            return Err("table filter references an unknown property".to_string());
-        }
-        let condition = filter.condition.trim();
-        if !FILTER_CONDITIONS.contains(&condition) {
-            return Err("table filter condition is not supported".to_string());
-        }
-        let value = canonical_filter_value(condition, filter.value.as_ref())?;
-        canonical.push(json!({
-            "property_id": property_id,
-            "condition": condition,
-            "value": value
-        }));
-    }
-    if canonical.is_empty() {
-        Ok(None)
-    } else {
-        Ok(Some(json!({
-            "type": "and",
-            "filters": canonical
-        })))
-    }
-}
-
-fn canonical_filter_value(condition: &str, value: Option<&Value>) -> Result<Value, String> {
-    if matches!(
-        condition,
-        "is_empty" | "is_not_empty" | "checked" | "unchecked"
-    ) {
-        return Ok(Value::Null);
-    }
-    let Some(value) = value else {
-        return Ok(Value::Null);
-    };
-    match value {
-        Value::Null | Value::Bool(_) | Value::Number(_) => Ok(value.clone()),
-        Value::String(text) => Ok(Value::String(validate_text(
-            text.trim(),
-            "table filter value",
-            MAX_FILTER_TEXT_CHARS,
-        )?)),
-        _ => Err("table filter value must be a scalar".to_string()),
-    }
-}
-
-fn canonical_sorts(
-    sorts: &[NoteDataSourceTableSort],
-    property_ids: &HashSet<String>,
-) -> Result<Value, String> {
-    if sorts.len() > MAX_SORTS {
-        return Err("table sorts are limited to 5".to_string());
-    }
-    let mut seen = HashSet::new();
-    let mut canonical = Vec::new();
-    for sort in sorts {
-        let property_id = sort.property_id.trim();
-        if property_id.is_empty() {
-            continue;
-        }
-        if !property_ids.contains(property_id) {
-            return Err("table sort references an unknown property".to_string());
-        }
-        if !seen.insert(property_id.to_string()) {
-            return Err("table sorts must not repeat properties".to_string());
-        }
-        let direction = sort.direction.trim();
-        if direction != "ascending" && direction != "descending" {
-            return Err("table sort direction is not supported".to_string());
-        }
-        canonical.push(json!({
-            "property_id": property_id,
-            "direction": direction
-        }));
-    }
-    Ok(Value::Array(canonical))
 }
 
 fn canonical_table_configuration(
@@ -638,25 +520,6 @@ fn canonical_column_widths(value: &Value, property_ids: &HashSet<String>) -> Res
     Ok(Value::Object(widths))
 }
 
-pub(super) fn stored_filters(
-    filter: Option<&str>,
-) -> Result<Vec<NoteDataSourceTableFilter>, String> {
-    let Some(filter) = filter else {
-        return Ok(Vec::new());
-    };
-    let value = parse_json(filter, "database view filter")?;
-    let filters = value
-        .get("filters")
-        .cloned()
-        .unwrap_or_else(|| Value::Array(Vec::new()));
-    serde_json::from_value(filters).map_err(|e| format!("parse table filters: {e}"))
-}
-
-pub(super) fn stored_sorts(sorts: &str) -> Result<Vec<NoteDataSourceTableSort>, String> {
-    let value = parse_json(sorts, "database view sorts")?;
-    serde_json::from_value(value).map_err(|e| format!("parse table sorts: {e}"))
-}
-
 pub(super) fn normalized_row_for_schema(
     mut row: NotePageRow,
     schema: &[TableProperty],
@@ -766,46 +629,10 @@ fn default_property_value(property: &TableProperty, title: &str) -> Value {
                 .cloned()
                 .unwrap_or(Value::Null)
         }),
-        "rollup" => json!({
-            "type": "incomplete",
-            "incomplete": null,
-            "function": property
-                .schema
-                .get("rollup")
-                .and_then(|config| config.get("function"))
-                .and_then(Value::as_str)
-                .unwrap_or("count")
-        }),
-        "formula" => json!({
-            "type": "string",
-            "string": ""
-        }),
-        "button" => property
-            .schema
-            .get("button")
-            .map(|config| {
-                data_source_buttons::button_property_value(
-                    &property.id,
-                    &data_source_buttons::button_plain_text(config),
-                )
-            })
-            .unwrap_or_else(|| data_source_buttons::button_property_value(&property.id, "Run")),
         _ => Value::Null,
     };
     if property.property_type == "relation" {
         return data_source_relations::relation_property_value(&property.id, payload);
-    }
-    if property.property_type == "rollup" {
-        return data_source_rollups::rollup_property_value(&property.id, payload);
-    }
-    if property.property_type == "formula" {
-        return data_source_formulas::formula_property_value(&property.id, payload);
-    }
-    if property.property_type == "button" {
-        return data_source_buttons::button_property_value(
-            &property.id,
-            &data_source_buttons::button_plain_text(&payload),
-        );
     }
     json!({
         "id": property.id,
@@ -884,27 +711,6 @@ fn canonical_property_payload(property_type: &str, value: &Value) -> Result<Valu
             }
         }
         "relation" => data_source_relations::canonical_relation_payload(value),
-        "rollup" => {
-            if value.is_object() {
-                Ok(value.clone())
-            } else {
-                Err("rollup property must be an object".to_string())
-            }
-        }
-        "formula" => {
-            if value.is_object() {
-                Ok(value.clone())
-            } else {
-                Err("formula property must be an object".to_string())
-            }
-        }
-        "button" => {
-            if value.is_object() {
-                Ok(value.clone())
-            } else {
-                Err("button property must be an object".to_string())
-            }
-        }
         "checkbox" => value
             .as_bool()
             .map(Value::Bool)
@@ -1318,29 +1124,6 @@ pub(super) fn row_property_checked(row: &NotePageRow, property: &TableProperty) 
     payload.as_bool()
 }
 
-fn rich_text_plain_text(items: &[Value]) -> String {
-    let mut text = String::new();
-    for item in items {
-        if let Some(plain_text) = item.get("plain_text").and_then(Value::as_str) {
-            text.push_str(plain_text);
-        } else if let Some(content) = item
-            .get("text")
-            .and_then(|value| value.get("content"))
-            .and_then(Value::as_str)
-        {
-            text.push_str(content);
-        }
-    }
-    text
-}
-
-fn title_from_property_value(value: &Value) -> Option<String> {
-    value
-        .get("title")?
-        .as_array()
-        .map(|items| rich_text_plain_text(items))
-}
-
 fn scalar_text(value: &Value, label: &str, max_chars: usize) -> Result<String, String> {
     let text = match value {
         Value::String(text) => text,
@@ -1379,19 +1162,4 @@ fn validate_text(value: &str, label: &str, max_chars: usize) -> Result<String, S
         return Err(format!("{label} is too long"));
     }
     Ok(value.to_string())
-}
-
-fn parse_json(value: &str, label: &str) -> Result<Value, String> {
-    serde_json::from_str(value).map_err(|e| format!("parse {label}: {e}"))
-}
-
-fn read_string_field<'a>(
-    object: &'a Map<String, Value>,
-    key: &str,
-    label: &str,
-) -> Result<&'a str, String> {
-    object
-        .get(key)
-        .and_then(Value::as_str)
-        .ok_or_else(|| format!("{label} must be a string"))
 }

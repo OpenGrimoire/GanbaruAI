@@ -1,10 +1,8 @@
 import type {
   AttendeeStatus,
   CalendarEvent,
-  EventOrganizer,
   EventOverride,
   EventVisibility,
-  GeoCoordinates,
   IcalendarPreservationStatus,
 } from "$lib/components/calendar/types";
 import { sanitizeCalendarDescriptionHtml } from "$lib/calendar/description-sanitizer";
@@ -15,13 +13,19 @@ import {
   mapOverride,
   mapRow,
   mapWindowAttendee,
-  safeJsonParse,
   type DbAlarm,
   type DbAttendee,
   type DbCalendarEvent,
   type DbOverride,
   type DbWindowAttendee,
 } from "./map-row";
+import {
+  parseJsonEventOrganizer,
+  parseJsonGeoCoordinates,
+  parseJsonStringArray,
+  parseJsonStringRecord,
+  safeJsonParse,
+} from "./calendar-json";
 
 export type DbFullEvent = DbCalendarEvent & {
   description: string | null;
@@ -96,15 +100,14 @@ function applyFullEventFields(row: DbFullEvent, event: CalendarEvent) {
     event.visibility = row.visibility as EventVisibility;
   }
   if (row.priority != null) event.priority = row.priority;
-  const categories = safeJsonParse<string[]>(row.categories);
+  const categories = parseJsonStringArray(row.categories);
   if (categories) event.categories = categories;
-  const geo = safeJsonParse<GeoCoordinates>(row.geo);
+  const geo = parseJsonGeoCoordinates(row.geo);
   if (geo) event.geo = geo;
   if (row.sequence) event.sequence = row.sequence;
-  const extendedProperties =
-    safeJsonParse<Record<string, string>>(row.extended_properties);
+  const extendedProperties = parseJsonStringRecord(row.extended_properties);
   if (extendedProperties) event.extendedProperties = extendedProperties;
-  const organizer = safeJsonParse<EventOrganizer>(row.organizer);
+  const organizer = parseJsonEventOrganizer(row.organizer);
   if (organizer) event.organizer = organizer;
   if (row.meeting_enabled === 1) event.meetingEnabled = true;
   if (row.local_rsvp_status) {
@@ -120,7 +123,7 @@ function applyFullEventFields(row: DbFullEvent, event: CalendarEvent) {
     };
   }
   if (row.icalendar_component_id) event.icalendarComponentId = row.icalendar_component_id;
-  const projectionWarnings = safeJsonParse<string[]>(row.icalendar_projection_warnings);
+  const projectionWarnings = parseJsonStringArray(row.icalendar_projection_warnings);
   const projectionState = deriveIcalendarProjectionState({
     sourceUid: row.source_uid,
     componentId: row.icalendar_component_id,
@@ -133,7 +136,7 @@ function applyFullEventFields(row: DbFullEvent, event: CalendarEvent) {
   if (projectionState.projectionWarnings) {
     event.icalendarProjectionWarnings = projectionState.projectionWarnings;
   }
-  const rawJcal = safeJsonParse<unknown>(row.icalendar_raw_jcal);
+  const rawJcal = safeJsonParse(row.icalendar_raw_jcal);
   if (rawJcal) event.icalendarRawJcal = rawJcal;
 }
 
@@ -239,10 +242,10 @@ export function hydrateFullEvent(
       if (r.location) slim.location = r.location;
       if (r.url) slim.url = r.url;
       if (r.visibility) slim.visibility = r.visibility as EventVisibility;
-      const ep = safeJsonParse<Record<string, string>>(r.extended_properties);
+      const ep = parseJsonStringRecord(r.extended_properties);
       if (ep) slim.extendedProperties = ep;
       if (r.icalendar_component_id) slim.icalendarComponentId = r.icalendar_component_id;
-      const rawJcal = safeJsonParse<unknown>(r.icalendar_raw_jcal);
+      const rawJcal = safeJsonParse(r.icalendar_raw_jcal);
       if (rawJcal) slim.icalendarRawJcal = rawJcal;
       return slim;
     });

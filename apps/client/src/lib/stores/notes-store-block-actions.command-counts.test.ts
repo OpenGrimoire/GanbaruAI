@@ -8,7 +8,6 @@ import {
 import {
   createNotesUndoSnapshot,
   createNotesUndoSnapshotForBlocks,
-  type NotesUndoRecordOptions,
 } from "$lib/notes/undo-history";
 import type {
   NotesBlock,
@@ -20,7 +19,6 @@ import {
   createNotesBlockActions,
   type NotesBlockActionsContext,
 } from "./notes-store-block-actions";
-import { notesTreeStateWithoutLeafBlock } from "./notes-store-block-tree";
 import { applyNotesPostMutationToTree } from "$lib/notes/post-mutation";
 import { collectLoadedBlockSubtreeIds } from "$lib/notes/block-duplicate";
 

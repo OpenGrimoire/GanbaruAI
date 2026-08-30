@@ -155,12 +155,24 @@
   onMount(() => {
     if (!isMainWindow) return;
     let unlisten: UnlistenFn | undefined;
-    void listen("tray-music-open", () => { void openMusicPanelFromTray(); })
-      .then((nextUnlisten) => { unlisten = nextUnlisten; })
+    let disposed = false;
+    void listen("tray-music-open", () => {
+      if (!disposed) void openMusicPanelFromTray();
+    })
+      .then((nextUnlisten) => {
+        if (disposed) {
+          nextUnlisten();
+          return;
+        }
+        unlisten = nextUnlisten;
+      })
       .catch((error: unknown) => {
         console.error("Failed to listen for Music panel opens:", error);
       });
-    return () => unlisten?.();
+    return () => {
+      disposed = true;
+      unlisten?.();
+    };
   });
 
   let showThemeQuickSwitcher = $state(false);

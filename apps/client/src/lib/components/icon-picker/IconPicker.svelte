@@ -95,6 +95,7 @@
   import IconPickerUploadPanel from "./IconPickerUploadPanel.svelte";
 
   type ProjectIconPickerTab = "emoji" | "icons" | "upload";
+  type PickerInteractionSource = "keyboard" | "pointer";
   type IconColorChoice = {
     slug: string;
     label: string;
@@ -127,6 +128,8 @@
     class?: string;
   } = $props();
 
+  const pickerId = $props.id();
+  const panelId = `${pickerId}-panel`;
   const { t } = getLocalization();
   const mobileBackStack = getMobileBackStack();
   const projects = getProjects();
@@ -162,6 +165,7 @@
 
   let open = $state(false);
   let activeTab = $state<ProjectIconPickerTab>("icons");
+  let pickerInteractionSource: PickerInteractionSource = "pointer";
   let triggerElement = $state<HTMLElement | undefined>();
   let uploadFileInput = $state<HTMLInputElement | undefined>();
   let customEmojiFileInput = $state<HTMLInputElement | undefined>();
@@ -374,6 +378,7 @@
   }
 
   function handlePanelPointerDown(event: PointerEvent): void {
+    pickerInteractionSource = "pointer";
     const target = event.target;
     if (!(target instanceof Element)) return;
     if (target.closest("[data-icon-picker-inline-panel]")) return;
@@ -572,19 +577,52 @@
     }
   }
 
+  function focusActivePickerTab(): void {
+    const tab = panelElement?.querySelector<HTMLButtonElement>(
+      `[data-icon-picker-tab="${activeTab}"]`,
+    );
+    if (tab) tab.focus();
+    else panelElement?.focus();
+  }
+
   async function openPicker(): Promise<void> {
     if (!visibleTabs.includes(activeTab)) activeTab = visibleTabs[0] ?? "emoji";
     placePanel();
     open = true;
     if (parsedValue.kind === "emoji") emojiSkinTone = projectEmojiSkinToneFromEmoji(parsedValue.emoji);
-    await loadPickerState();
-    if (activeTab === "icons") await loadLucideCatalog();
     await tick();
+    if (!open) return;
+    placePanel();
+    updateGridMetrics();
+    focusActivePickerTab();
+    await loadPickerState();
+    if (!open) return;
+    if (activeTab === "icons") await loadLucideCatalog();
+    if (!open) return;
+    await tick();
+    if (!open) return;
     placePanel();
     updateGridMetrics();
   }
 
-  function closePicker(): void {
+  function focusPickerTrigger(): void {
+    const element = triggerElement;
+    if (!element) return;
+    const selector = [
+      "button:not([disabled])",
+      "a[href]",
+      "input:not([disabled])",
+      "select:not([disabled])",
+      "textarea:not([disabled])",
+      '[tabindex]:not([tabindex="-1"])',
+    ].join(",");
+    const focusTarget = element.matches(selector)
+      ? element
+      : element.querySelector<HTMLElement>(selector);
+    focusTarget?.focus();
+  }
+
+  function closePicker(source: PickerInteractionSource = "pointer"): void {
     open = false;
     customEmojiPanelOpen = false;
     skinTonePanelOpen = false;
@@ -593,6 +631,9 @@
     iconColorChoice = null;
     uploadError = null;
     customEmojiError = null;
+    if (source === "keyboard") {
+      void tick().then(focusPickerTrigger);
+    }
   }
 
   async function setTab(tab: ProjectIconPickerTab): Promise<void> {
@@ -610,11 +651,32 @@
     updateGridMetrics();
   }
 
+  async function focusTab(index: number): Promise<void> {
+    const tab = visibleTabs[index];
+    if (!tab) return;
+    await setTab(tab);
+    await tick();
+    panelElement?.querySelector<HTMLButtonElement>(`[data-icon-picker-tab="${tab}"]`)?.focus();
+  }
+
+  function handleTabKeydown(event: KeyboardEvent, index: number): void {
+    if (event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return;
+    let nextIndex = index;
+    if (event.key === "ArrowLeft") nextIndex = (index - 1 + visibleTabs.length) % visibleTabs.length;
+    else if (event.key === "ArrowRight") nextIndex = (index + 1) % visibleTabs.length;
+    else if (event.key === "Home") nextIndex = 0;
+    else if (event.key === "End") nextIndex = visibleTabs.length - 1;
+    else return;
+    event.preventDefault();
+    event.stopPropagation();
+    void focusTab(nextIndex);
+  }
+
   function chooseIcon(icon: ProjectIconValue, closeAfterSelect = true): void {
     onChange(serializeProjectIcon(icon));
     const nextRecent = prependProjectIconRecentValue(recentValues, icon, customEmojiIds);
     saveRecentValues(nextRecent);
-    if (closeAfterSelect) closePicker();
+    if (closeAfterSelect) closePicker(pickerInteractionSource);
   }
 
   function openIconColorChoice(
@@ -757,7 +819,7 @@
         : await pickProjectIconImageFile();
       if (asset && uploadAdapter?.selectPickedAssetImmediately) {
         await uploadAdapter.selectAsset(asset);
-        closePicker();
+        closePicker(pickerInteractionSource);
       } else {
         uploadDraft = asset;
       }
@@ -776,7 +838,7 @@
       const asset = await saveUploadPastedFile(file);
       if (uploadAdapter?.selectPickedAssetImmediately) {
         await uploadAdapter.selectAsset(asset);
-        closePicker();
+        closePicker(pickerInteractionSource);
       } else {
         uploadDraft = asset;
       }
@@ -805,7 +867,7 @@
       if (uploadAdapter?.selectExternalUrl) {
         await uploadAdapter.selectExternalUrl(url);
         uploadUrl = "";
-        closePicker();
+        closePicker(pickerInteractionSource);
       } else {
         uploadDraft = uploadAdapter?.downloadImageUrl
           ? await uploadAdapter.downloadImageUrl(url)
@@ -830,7 +892,7 @@
     if (!uploadDraft) return;
     if (uploadAdapter) {
       await uploadAdapter.selectAsset(uploadDraft);
-      closePicker();
+      closePicker(pickerInteractionSource);
     } else {
       chooseIcon({ kind: "asset", relativePath: uploadDraft.relativePath });
     }
@@ -899,7 +961,7 @@
 
   function removeIcon(): void {
     onChange("none");
-    closePicker();
+    closePicker(pickerInteractionSource);
   }
 
   function selectIconColor(color: ProjectIconPickerColor): void {
@@ -974,6 +1036,7 @@
       updateGridMetrics();
     };
     const outside = (event: PointerEvent) => {
+      pickerInteractionSource = "pointer";
       const target = event.target;
       if (!(target instanceof Node)) return;
       if (triggerElement?.contains(target)) return;
@@ -983,17 +1046,25 @@
       if (iconCategoryMenuElement?.contains(target)) return;
       closePicker();
     };
+    const recordKeyboardInteraction = () => {
+      pickerInteractionSource = "keyboard";
+    };
     const keydown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") closePicker();
+      if (event.key === "Escape") {
+        event.preventDefault();
+        closePicker("keyboard");
+      }
     };
     window.addEventListener("resize", resize);
     window.addEventListener("scroll", resize, true);
     document.addEventListener("pointerdown", outside, true);
+    document.addEventListener("keydown", recordKeyboardInteraction, true);
     document.addEventListener("keydown", keydown);
     return () => {
       window.removeEventListener("resize", resize);
       window.removeEventListener("scroll", resize, true);
       document.removeEventListener("pointerdown", outside, true);
+      document.removeEventListener("keydown", recordKeyboardInteraction, true);
       document.removeEventListener("keydown", keydown);
       if (gridScrollStateFrame !== null) {
         cancelAnimationFrame(gridScrollStateFrame);
@@ -1042,7 +1113,7 @@
 
 {#if trigger}
   <span bind:this={triggerElement} class="inline-flex">
-    {@render trigger({ open, toggle: togglePicker })}
+    {@render trigger({ open, toggle: togglePicker, panelId })}
   </span>
 {:else}
   <button
@@ -1053,6 +1124,9 @@
       className,
     )}
     aria-label={ariaLabel}
+    aria-haspopup="dialog"
+    aria-expanded={open}
+    aria-controls={panelId}
     onclick={togglePicker}
   >
     <span class="flex min-w-0 items-center gap-2">
@@ -1088,6 +1162,7 @@
 
 {#if open}
   <div
+    id={panelId}
     bind:this={panelElement}
     use:portal
     class="fixed z-90 flex min-h-0 flex-col overflow-hidden rounded-xl border border-border shadow-xl"
@@ -1100,10 +1175,16 @@
     onpointerdown={handlePanelPointerDown}
   >
     <div class="flex h-12 shrink-0 items-center justify-between border-b border-border/70 px-3">
-      <div class="flex min-w-0 items-center gap-3">
-        {#each visibleTabs as tab}
+      <div class="flex min-w-0 items-center gap-3" role="tablist" aria-label={ariaLabel}>
+        {#each visibleTabs as tab, index}
           <button
             type="button"
+            id={`${pickerId}-tab-${tab}`}
+            role="tab"
+            aria-selected={activeTab === tab}
+            aria-controls={`${pickerId}-tabpanel-${tab}`}
+            tabindex={activeTab === tab ? 0 : -1}
+            data-icon-picker-tab={tab}
             class={cn(
               "h-10 border-b-2 px-0.5 text-[0.866667rem] transition-colors",
               activeTab === tab
@@ -1111,6 +1192,7 @@
                 : "border-transparent text-muted-foreground hover:text-foreground",
             )}
             onclick={() => void setTab(tab)}
+            onkeydown={(event) => handleTabKeydown(event, index)}
           >
             {tabLabel(tab)}
           </button>
@@ -1127,82 +1209,97 @@
       {/if}
     </div>
 
-    {#if activeTab === "emoji"}
-      <IconPickerEmojiTab
-        bind:scrollElement={gridScrollElement}
-        bind:customEmojiTriggerElement={customEmojiTriggerElement}
-        bind:emojiQuery
-        bind:emojiCategory
-        bind:emojiSkinTone
-        bind:skinTonePanelOpen
-        bind:iconColorPanelOpen
-        bind:customEmojiPanelOpen
-        allowCustomEmojiCreate={showUpload}
-        {gridScrollable}
-        {gridCanScrollUp}
-        {gridCanScrollDown}
-        {gridColumnCount}
-        {emojiRecentValues}
-        {visibleCustomEmojis}
-        {emojiGroups}
-        {visibleEmojiCategories}
-        onScroll={handleGridScroll}
-        onChooseRandom={chooseRandomEmoji}
-        onChooseRecent={chooseRecent}
-        onChooseIcon={chooseIcon}
-        onResetGridScroll={resetGridScroll}
-      />
-    {:else if activeTab === "icons"}
-      <IconPickerIconsTab
-        bind:scrollElement={gridScrollElement}
-        bind:iconCategoryMenuTriggerElement={iconCategoryMenuTriggerElement}
-        bind:iconQuery
-        bind:iconColor
-        bind:iconColorPanelOpen
-        bind:skinTonePanelOpen
-        {askIconColorEveryTime}
-        {iconCategory}
-        {iconCategoryMenuOpen}
-        {iconCategoryOverflowActive}
-        {colorSelectionBorder}
-        {gridScrollable}
-        {gridCanScrollUp}
-        {gridCanScrollDown}
-        {gridColumnCount}
-        {lucideRecentValues}
-        {lucideGroupVirtual}
-        {lucideLoading}
-        {primaryLucideCategoryOptions}
-        {automaticIconColor}
-        {iconColorLabel}
-        {iconColorSwatch}
-        {iconColorStyle}
-        {lucideRecentPreviewValue}
-        onScroll={handleGridScroll}
-        onChooseRandom={chooseRandomIcon}
-        onChooseRecent={chooseRecent}
-        onChooseLucideIcon={chooseLucideIcon}
-        onSelectIconColor={selectIconColor}
-        onDefaultIconColorPanelOpen={openDefaultIconColorPanel}
-        onAskIconColorEveryTimeChange={setAskIconColorEveryTime}
-        onSelectIconCategory={selectIconCategory}
-        onToggleIconCategoryMenu={toggleIconCategoryMenu}
-      />
-    {:else}
-      <IconPickerUploadPanel
-        {uploadDraft}
-        {uploadPreviewUrl}
-        {uploadError}
-        {uploading}
-        {uploadBodyStyle}
-        bind:uploadUrl
-        onChooseFile={chooseUploadFile}
-        onDiscardDraft={discardUploadDraft}
-        onSelectDraft={selectUploadDraft}
-        onDownloadUrl={downloadUploadUrl}
-        remoteUrlAvailable={remoteImageUrlsAvailable}
-      />
-    {/if}
+    {#each visibleTabs as tab}
+      <div
+        id={`${pickerId}-tabpanel-${tab}`}
+        role="tabpanel"
+        aria-labelledby={`${pickerId}-tab-${tab}`}
+        hidden={activeTab !== tab}
+        class={cn(
+          "min-h-0 flex-1 flex-col overflow-hidden",
+          activeTab === tab ? "flex" : "hidden",
+        )}
+      >
+        {#if activeTab === tab}
+          {#if tab === "emoji"}
+            <IconPickerEmojiTab
+              bind:scrollElement={gridScrollElement}
+              bind:customEmojiTriggerElement={customEmojiTriggerElement}
+              bind:emojiQuery
+              bind:emojiCategory
+              bind:emojiSkinTone
+              bind:skinTonePanelOpen
+              bind:iconColorPanelOpen
+              bind:customEmojiPanelOpen
+              allowCustomEmojiCreate={showUpload}
+              {gridScrollable}
+              {gridCanScrollUp}
+              {gridCanScrollDown}
+              {gridColumnCount}
+              {emojiRecentValues}
+              {visibleCustomEmojis}
+              {emojiGroups}
+              {visibleEmojiCategories}
+              onScroll={handleGridScroll}
+              onChooseRandom={chooseRandomEmoji}
+              onChooseRecent={chooseRecent}
+              onChooseIcon={chooseIcon}
+              onResetGridScroll={resetGridScroll}
+            />
+          {:else if tab === "icons"}
+            <IconPickerIconsTab
+              bind:scrollElement={gridScrollElement}
+              bind:iconCategoryMenuTriggerElement={iconCategoryMenuTriggerElement}
+              bind:iconQuery
+              bind:iconColor
+              bind:iconColorPanelOpen
+              bind:skinTonePanelOpen
+              {askIconColorEveryTime}
+              {iconCategory}
+              {iconCategoryMenuOpen}
+              {iconCategoryOverflowActive}
+              {colorSelectionBorder}
+              {gridScrollable}
+              {gridCanScrollUp}
+              {gridCanScrollDown}
+              {gridColumnCount}
+              {lucideRecentValues}
+              {lucideGroupVirtual}
+              {lucideLoading}
+              {primaryLucideCategoryOptions}
+              {automaticIconColor}
+              {iconColorLabel}
+              {iconColorSwatch}
+              {iconColorStyle}
+              {lucideRecentPreviewValue}
+              onScroll={handleGridScroll}
+              onChooseRandom={chooseRandomIcon}
+              onChooseRecent={chooseRecent}
+              onChooseLucideIcon={chooseLucideIcon}
+              onSelectIconColor={selectIconColor}
+              onDefaultIconColorPanelOpen={openDefaultIconColorPanel}
+              onAskIconColorEveryTimeChange={setAskIconColorEveryTime}
+              onSelectIconCategory={selectIconCategory}
+              onToggleIconCategoryMenu={toggleIconCategoryMenu}
+            />
+          {:else}
+            <IconPickerUploadPanel
+              {uploadDraft}
+              {uploadPreviewUrl}
+              {uploadError}
+              {uploading}
+              {uploadBodyStyle}
+              bind:uploadUrl
+              onChooseFile={chooseUploadFile}
+              onDiscardDraft={discardUploadDraft}
+              onSelectDraft={selectUploadDraft}
+              onDownloadUrl={downloadUploadUrl}
+              remoteUrlAvailable={remoteImageUrlsAvailable}
+            />
+          {/if}
+        {/if}
+      </div>
+    {/each}
   </div>
 
   {#if iconCategoryMenuOpen}

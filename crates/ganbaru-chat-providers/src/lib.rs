@@ -1,7 +1,5 @@
 //! Provider processes, transports, drivers, event sinks, and registry.
 
-#![allow(dead_code)]
-
 pub mod chat;
 
 pub use chat::{process, providers};

@@ -11,7 +11,6 @@ import type {
   MusicYouTubeVideoWrite,
 } from "$lib/music/library-contracts";
 import {
-  clampVolume,
   initialQueueSelection,
   stableStatusDuringYouTubeBuffering,
   type PersistedPlaybackState,

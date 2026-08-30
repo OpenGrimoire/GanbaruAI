@@ -650,7 +650,6 @@
   function positionFlyout(): void {
     if (!activeFlyoutTrigger || !flyoutPanel || !pickerPanel) return;
     const anchor = activeFlyoutTrigger.getBoundingClientRect();
-    const parent = pickerPanel.getBoundingClientRect();
     const panel = flyoutPanel.getBoundingClientRect();
     const rightPosition = anchor.right + flyoutGapPx;
     const leftPosition = anchor.left - panel.width - flyoutGapPx;

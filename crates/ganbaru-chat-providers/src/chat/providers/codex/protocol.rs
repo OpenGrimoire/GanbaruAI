@@ -26,7 +26,10 @@ const STANDARD_SERVICE_TIER: &str = "standard";
 pub struct InitializeResponse {
     pub user_agent: String,
     pub codex_home: PathBuf,
+    // Deserialized to validate the provider's advertised platform wire shape.
+    #[allow(dead_code)]
     pub platform_family: String,
+    #[allow(dead_code)]
     pub platform_os: String,
 }
 
@@ -89,6 +92,8 @@ pub struct CodexAccount {
     #[serde(rename = "type")]
     pub account_type: String,
     pub email: Option<String>,
+    // Deserialized to preserve account wire compatibility for future UI use.
+    #[allow(dead_code)]
     pub plan_type: Option<String>,
 }
 
@@ -107,6 +112,8 @@ pub struct CodexModel {
     pub display_name: String,
     pub description: String,
     pub hidden: bool,
+    // Deserialized to validate provider model metadata even when selection is explicit.
+    #[allow(dead_code)]
     pub is_default: bool,
     pub default_reasoning_effort: String,
     pub supported_reasoning_efforts: Vec<CodexReasoningEffort>,
@@ -116,6 +123,7 @@ pub struct CodexModel {
     pub service_tiers: Vec<CodexServiceTier>,
     pub default_service_tier: Option<String>,
     #[serde(default)]
+    #[allow(dead_code)]
     pub supports_personality: bool,
     pub upgrade: Option<String>,
 }

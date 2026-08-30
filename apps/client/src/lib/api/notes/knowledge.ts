@@ -1,0 +1,150 @@
+import { invoke } from "@tauri-apps/api/core";
+import { ensureDbUrl } from "$lib/api/db";
+import {
+  mapNotesBacklinkDto,
+  mapNotesPageBreadcrumbItemDto,
+  mapNotesPageAliasDto,
+  mapNotesSearchResultDto,
+  mapNotesUnresolvedLinkDto,
+} from "$lib/notes/notion-mappers";
+import type {
+  NotesBacklink,
+  NotesPageAlias,
+  NotesPageAliasCreate,
+  NotesPageBreadcrumbItem,
+  NotesSearchWindow,
+  NotesUnresolvedLink,
+  NotesUnresolvedLinkResolve,
+} from "$lib/notes/types";
+import { invokeNotesMutation } from "./mutation";
+import {
+  mapPageSummary,
+  notesWorkspaceShellRecord,
+  shellNullableString,
+} from "./workspace-parsing";
+
+export async function listNotesBacklinks(pageId: string): Promise<NotesBacklink[]> {
+  const dbUrl = await ensureDbUrl();
+  const rows = await invoke<unknown>("notes_list_backlinks", { dbUrl, pageId });
+  if (!Array.isArray(rows)) throw new Error("notes_list_backlinks returned a non-array payload");
+  return rows.map(mapNotesBacklinkDto);
+}
+
+export async function rebuildNotesBacklinkIndex(): Promise<number> {
+  const dbUrl = await ensureDbUrl();
+  const count = await invoke<unknown>("notes_rebuild_backlink_index", { dbUrl });
+  if (typeof count !== "number") {
+    throw new Error("notes_rebuild_backlink_index returned a non-number payload");
+  }
+  return count;
+}
+
+export async function rebuildNotesLinkFacts(): Promise<number> {
+  const dbUrl = await ensureDbUrl();
+  const count = await invoke<unknown>("notes_rebuild_link_facts", { dbUrl });
+  if (typeof count !== "number") {
+    throw new Error("notes_rebuild_link_facts returned a non-number payload");
+  }
+  return count;
+}
+
+export async function listNotesPageAliases(pageId: string): Promise<NotesPageAlias[]> {
+  const dbUrl = await ensureDbUrl();
+  const rows = await invoke<unknown>("notes_list_page_aliases", { dbUrl, pageId });
+  if (!Array.isArray(rows)) {
+    throw new Error("notes_list_page_aliases returned a non-array payload");
+  }
+  return rows.map(mapNotesPageAliasDto);
+}
+
+export async function addNotesPageAlias(
+  pageId: string,
+  request: NotesPageAliasCreate,
+): Promise<NotesPageAlias[]> {
+  const dbUrl = await ensureDbUrl();
+  const rows = await invokeNotesMutation("notes_add_page_alias", { dbUrl, pageId, request });
+  if (!Array.isArray(rows)) {
+    throw new Error("notes_add_page_alias returned a non-array payload");
+  }
+  return rows.map(mapNotesPageAliasDto);
+}
+
+export async function deleteNotesPageAlias(
+  pageId: string,
+  aliasId: string,
+): Promise<NotesPageAlias[]> {
+  const dbUrl = await ensureDbUrl();
+  const rows = await invokeNotesMutation("notes_delete_page_alias", { dbUrl, pageId, aliasId });
+  if (!Array.isArray(rows)) {
+    throw new Error("notes_delete_page_alias returned a non-array payload");
+  }
+  return rows.map(mapNotesPageAliasDto);
+}
+
+export async function listNotesUnresolvedLinks(pageId: string): Promise<NotesUnresolvedLink[]> {
+  const dbUrl = await ensureDbUrl();
+  const rows = await invoke<unknown>("notes_list_unresolved_links", { dbUrl, pageId });
+  if (!Array.isArray(rows)) {
+    throw new Error("notes_list_unresolved_links returned a non-array payload");
+  }
+  return rows.map(mapNotesUnresolvedLinkDto);
+}
+
+export async function resolveNotesUnresolvedLink(
+  linkId: string,
+  request: NotesUnresolvedLinkResolve,
+): Promise<NotesUnresolvedLink[]> {
+  const dbUrl = await ensureDbUrl();
+  const rows = await invokeNotesMutation("notes_resolve_unresolved_link", {
+    dbUrl,
+    linkId,
+    request,
+  });
+  if (!Array.isArray(rows)) {
+    throw new Error("notes_resolve_unresolved_link returned a non-array payload");
+  }
+  return rows.map(mapNotesUnresolvedLinkDto);
+}
+
+export async function getNotesPageBreadcrumb(pageId: string): Promise<NotesPageBreadcrumbItem[]> {
+  const dbUrl = await ensureDbUrl();
+  const rows = await invoke<unknown>("notes_get_page_breadcrumb", { dbUrl, pageId });
+  if (!Array.isArray(rows)) {
+    throw new Error("notes_get_page_breadcrumb returned a non-array payload");
+  }
+  return rows.map(mapNotesPageBreadcrumbItemDto);
+}
+
+export async function searchNotes(
+  query: string,
+  pageSize = 20,
+  includeResolvedComments = false,
+  cursor: string | null = null,
+): Promise<NotesSearchWindow> {
+  const dbUrl = await ensureDbUrl();
+  const rows = await invoke<unknown>("notes_search", {
+    dbUrl,
+    query,
+    pageSize,
+    includeResolvedComments,
+    cursor,
+  });
+  const record = notesWorkspaceShellRecord(rows);
+  if (!Array.isArray(record.results)) throw new Error("notes_search returned invalid results");
+  return {
+    results: record.results.map((value) => {
+    const record = notesWorkspaceShellRecord(value);
+    return mapNotesSearchResultDto({ ...record, page: mapPageSummary(record.page) });
+    }),
+    next_cursor: shellNullableString(record.next_cursor, "notes_search.next_cursor"),
+  };
+}
+
+export async function rebuildNotesSearchIndex(): Promise<number> {
+  const dbUrl = await ensureDbUrl();
+  const count = await invoke<unknown>("notes_rebuild_search_index", { dbUrl });
+  if (typeof count !== "number") {
+    throw new Error("notes_rebuild_search_index returned a non-number payload");
+  }
+  return count;
+}

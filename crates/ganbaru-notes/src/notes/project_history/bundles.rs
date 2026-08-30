@@ -137,10 +137,9 @@ async fn store_single_bundle_tx(
 pub(super) async fn load_bundle_tx(
     tx: &mut Transaction<'_, Sqlite>,
     hash: &str,
-    expected_kind: &str,
 ) -> Result<Vec<u8>, String> {
-    let row: Option<(String, String, Vec<u8>, i64)> = sqlx::query_as(
-        "SELECT kind, encoding, payload, uncompressed_bytes
+    let row: Option<(String, Vec<u8>, i64)> = sqlx::query_as(
+        "SELECT encoding, payload, uncompressed_bytes
          FROM notes_history_bundles
          WHERE hash = ?",
     )
@@ -148,9 +147,8 @@ pub(super) async fn load_bundle_tx(
     .fetch_optional(&mut **tx)
     .await
     .map_err(|e| format!("load Notes history bundle: {e}"))?;
-    let (_stored_kind, encoding, payload, uncompressed_bytes) =
+    let (encoding, payload, uncompressed_bytes) =
         row.ok_or_else(|| "Notes history bundle not found".to_string())?;
-    let _ = expected_kind;
     let expected_size = usize::try_from(uncompressed_bytes)
         .map_err(|_| "Notes history bundle size is invalid".to_string())?;
     if expected_size > MAX_HISTORY_BUNDLE_BYTES {
@@ -218,8 +216,8 @@ pub(super) async fn load_bundle_tx(
 }
 
 async fn load_chunk_tx(tx: &mut Transaction<'_, Sqlite>, hash: &str) -> Result<Vec<u8>, String> {
-    let row: Option<(String, String, Vec<u8>, i64)> = sqlx::query_as(
-        "SELECT kind, encoding, payload, uncompressed_bytes
+    let row: Option<(String, Vec<u8>, i64)> = sqlx::query_as(
+        "SELECT encoding, payload, uncompressed_bytes
          FROM notes_history_bundles
          WHERE hash = ?",
     )
@@ -227,7 +225,7 @@ async fn load_chunk_tx(tx: &mut Transaction<'_, Sqlite>, hash: &str) -> Result<V
     .fetch_optional(&mut **tx)
     .await
     .map_err(|e| format!("load Notes history chunk: {e}"))?;
-    let (_stored_kind, encoding, payload, uncompressed_bytes) =
+    let (encoding, payload, uncompressed_bytes) =
         row.ok_or_else(|| "Notes history chunk not found".to_string())?;
     let expected_size = usize::try_from(uncompressed_bytes)
         .map_err(|_| "Notes history chunk size is invalid".to_string())?;
@@ -336,10 +334,7 @@ mod tests {
             let first = store_bundle_tx(&mut tx, "row", payload).await.unwrap();
             let second = store_bundle_tx(&mut tx, "row", payload).await.unwrap();
             assert_eq!(first, second);
-            assert_eq!(
-                load_bundle_tx(&mut tx, &first, "row").await.unwrap(),
-                payload
-            );
+            assert_eq!(load_bundle_tx(&mut tx, &first).await.unwrap(), payload);
             let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM notes_history_bundles")
                 .fetch_one(&mut *tx)
                 .await
@@ -354,7 +349,29 @@ mod tests {
             .execute(&mut *tx)
             .await
             .unwrap();
-            assert!(load_bundle_tx(&mut tx, &first, "row").await.is_err());
+            assert!(load_bundle_tx(&mut tx, &first).await.is_err());
+        });
+    }
+
+    #[test]
+    fn identical_bytes_deduplicate_across_bundle_roles() {
+        crate::test_block_on(async {
+            let pool = migrated_pool().await;
+            let payload = br#"{"schema_version":1}"#;
+            let mut tx = pool.begin().await.unwrap();
+            let row_hash = store_bundle_tx(&mut tx, "row", payload).await.unwrap();
+            let manifest_hash = store_bundle_tx(&mut tx, "manifest", payload).await.unwrap();
+
+            assert_eq!(row_hash, manifest_hash);
+            assert_eq!(load_bundle_tx(&mut tx, &row_hash).await.unwrap(), payload);
+            let stored: (i64, String) = sqlx::query_as(
+                "SELECT COUNT(*), MIN(kind) FROM notes_history_bundles WHERE hash = ?",
+            )
+            .bind(&row_hash)
+            .fetch_one(&mut *tx)
+            .await
+            .unwrap();
+            assert_eq!(stored, (1, "row".to_string()));
         });
     }
 
@@ -365,10 +382,7 @@ mod tests {
             let payload = vec![b'a'; 8 * 1024 * 1024 + 17];
             let mut tx = pool.begin().await.unwrap();
             let hash = store_bundle_tx(&mut tx, "row", &payload).await.unwrap();
-            assert_eq!(
-                load_bundle_tx(&mut tx, &hash, "row").await.unwrap(),
-                payload
-            );
+            assert_eq!(load_bundle_tx(&mut tx, &hash).await.unwrap(), payload);
             let chunks: i64 = sqlx::query_scalar(
                 "SELECT COUNT(*) FROM notes_history_bundle_chunks WHERE parent_hash = ?",
             )
@@ -383,7 +397,7 @@ mod tests {
                 .execute(&mut *tx)
                 .await
                 .unwrap();
-            assert!(load_bundle_tx(&mut tx, &hash, "row").await.is_err());
+            assert!(load_bundle_tx(&mut tx, &hash).await.is_err());
         });
     }
 }

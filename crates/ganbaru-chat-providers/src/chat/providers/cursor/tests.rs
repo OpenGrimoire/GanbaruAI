@@ -1,6 +1,6 @@
 //! Cursor ACP provider tests.
 
-use super::driver::CursorProviderDriver;
+use super::driver::{AcpProviderFlavor, CursorProviderDriver};
 use super::executable::*;
 use super::interactions::*;
 use super::normalizer::{CursorEventNormalizer, CursorRouteState};
@@ -193,20 +193,20 @@ fn grok_acp_arguments_models_and_questions_preserve_provider_values() {
 #[test]
 fn endpoint_and_continuation_validation_bind_server_home_and_account() {
     let home = TestDirectory::new("identity");
-    assert!(CursorProviderSettings::parse(&configuration(
-        home.path(),
-        Some("http://localhost:3000")
-    ))
+    assert!(CursorProviderSettings::parse_for(
+        &configuration(home.path(), Some("http://localhost:3000")),
+        "Cursor"
+    )
     .is_ok());
-    assert!(CursorProviderSettings::parse(&configuration(
-        home.path(),
-        Some("http://localhost.evil.test")
-    ))
+    assert!(CursorProviderSettings::parse_for(
+        &configuration(home.path(), Some("http://localhost.evil.test")),
+        "Cursor"
+    )
     .is_err());
-    assert!(CursorProviderSettings::parse(&configuration(
-        home.path(),
-        Some("https://user:secret@cursor.example.test")
-    ))
+    assert!(CursorProviderSettings::parse_for(
+        &configuration(home.path(), Some("https://user:secret@cursor.example.test")),
+        "Cursor"
+    )
     .is_err());
 
     let default = CursorProviderSettings::default();
@@ -245,7 +245,7 @@ fn negotiated_capabilities_and_model_traits_are_truthful() {
         true,
     )
     .unwrap();
-    let capabilities = negotiated_capabilities(&initialize, &setup);
+    let capabilities = negotiated_capabilities_for(AcpProviderFlavor::Cursor, &initialize, &setup);
     for capability in [
         ProviderCapability::NativeResume,
         ProviderCapability::NativePlan,
@@ -269,7 +269,8 @@ fn negotiated_capabilities_and_model_traits_are_truthful() {
         .collect::<Vec<_>>();
     assert_eq!(keys, ["reasoning", "contextWindow", "fastMode", "thinking"]);
 
-    let disabled = negotiated_capabilities(
+    let disabled = negotiated_capabilities_for(
+        AcpProviderFlavor::Cursor,
         &parse_initialize(json!({
             "protocolVersion": 1,
             "agentCapabilities": {
@@ -483,10 +484,12 @@ fn structured_questions_are_separate_and_validate_provider_choices() {
 fn compatibility_fixture_normalizes_core_and_cursor_extensions() {
     let workspace = TestDirectory::new("normalizer");
     std::fs::create_dir_all(workspace.path().join("src")).unwrap();
-    let normalizer = CursorEventNormalizer::new(
+    let normalizer = CursorEventNormalizer::new_for_provider(
         ProviderInstanceId::new("cursor-instance-1".to_string()).unwrap(),
         ChatThreadId::new("thread-1".to_string()).unwrap(),
         ProviderSessionId::new("session-1".to_string()).unwrap(),
+        "cursor",
+        "Cursor",
     );
     let setup = parse_session_setup(
         session_setup(Some("cursor-session-fixture"), config_options()),

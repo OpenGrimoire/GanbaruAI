@@ -301,14 +301,6 @@ function keyPartVariants(part: string): string[] {
   return [normalizeKeyPart(trimmed)];
 }
 
-function combineVariants(parts: readonly string[][]): string[] {
-  return parts.reduce<string[]>(
-    (prefixes, partVariants) =>
-      prefixes.flatMap((prefix) => partVariants.map((variant) => `${prefix}${variant}`)),
-    [""],
-  );
-}
-
 function combinePartVariants(parts: readonly string[][]): string[][] {
   return parts.reduce<string[][]>(
     (prefixes, partVariants) =>

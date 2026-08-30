@@ -96,23 +96,6 @@ pub(crate) async fn authorize_scratch_target(
     })
 }
 
-pub(crate) async fn resolve_existing_scratch_path(
-    app: &tauri::AppHandle,
-    pool: &SqlitePool,
-    scratch_generation_id: &str,
-    execution_environment_id: &str,
-) -> ChatResult<PathBuf> {
-    require_active_scratch_target(pool, scratch_generation_id, execution_environment_id).await?;
-    let expected = scratch_path(app, scratch_generation_id)?;
-    let paths = read_active_device_scope(app)
-        .map_err(device_state_error)?
-        .execution_environment_paths;
-    let stored = paths
-        .get(execution_environment_id)
-        .ok_or_else(scratch_unavailable)?;
-    validate_stored_scratch_path(&expected, stored)
-}
-
 pub(crate) async fn resolve_managed_scratch_path_for_inspection(
     app: &tauri::AppHandle,
     pool: &SqlitePool,

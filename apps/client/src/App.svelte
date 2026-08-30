@@ -289,6 +289,7 @@
 
   onMount(() => {
     perfMark("boot.app-mount");
+    let disposed = false;
     const automaticUpdateCheckTimerId = isMainWindow
       ? setTimeout(() => {
         void updates.checkAutomatically({ kind: "startup" });
@@ -314,32 +315,52 @@
     if (isMainWindow) {
       notesProjectHistoryScheduler.setEnabled(true);
       listen("calendar-notification-open", () => {
+        if (disposed) return;
         nav.navigate("calendar");
       })
         .then((unlisten) => {
+          if (disposed) {
+            unlisten();
+            return;
+          }
           unlistenCalendarNotificationOpen = unlisten;
         })
         .catch((e) => console.error("Failed to listen for calendar notification opens:", e));
       listen<unknown>("notes-notification-open", (event) => {
+        if (disposed) return;
         const payload = parseNotesNotificationOpenPayload(event.payload);
         if (!payload) return;
         openNotesNotification(payload);
       })
         .then((unlisten) => {
+          if (disposed) {
+            unlisten();
+            return;
+          }
           unlistenNotesNotificationOpen = unlisten;
         })
         .catch((e) => console.error("Failed to listen for Notes notification opens:", e));
       listen("doomscrolling-open-desktop-settings", () => {
+        if (disposed) return;
         settingsLauncher.open("doomscrolling", { doomscrollingTab: "desktop" });
       })
         .then((unlisten) => {
+          if (disposed) {
+            unlisten();
+            return;
+          }
           unlistenDoomscrollingDesktopSettingsOpen = unlisten;
         })
         .catch((e) => console.error("Failed to listen for doomscrolling settings opens:", e));
       listen("doomscrolling-open-limits-settings", () => {
+        if (disposed) return;
         settingsLauncher.open("doomscrolling", { doomscrollingTab: "limits" });
       })
         .then((unlisten) => {
+          if (disposed) {
+            unlisten();
+            return;
+          }
           unlistenDoomscrollingLimitsSettingsOpen = unlisten;
         })
         .catch((e) => console.error("Failed to listen for doomscrolling limit settings opens:", e));
@@ -447,6 +468,7 @@
     window.addEventListener("focus", onFocus);
 
     return () => {
+      disposed = true;
       unlistenCalendarNotificationOpen?.();
       unlistenCalendarNotificationOpen = null;
       unlistenNotesNotificationOpen?.();
@@ -478,12 +500,23 @@
 
   $effect(() => {
     let cleanup: (() => void) | undefined;
+    let disposed = false;
     appWindow.onResized(() => {
-      appWindow.isMaximized().then((v) => (isMaximized = v));
+      if (disposed) return;
+      appWindow.isMaximized().then((value) => {
+        if (!disposed) isMaximized = value;
+      });
     }).then((unlisten) => {
+      if (disposed) {
+        unlisten();
+        return;
+      }
       cleanup = unlisten;
     });
-    return () => cleanup?.();
+    return () => {
+      disposed = true;
+      cleanup?.();
+    };
   });
 
   const visibleTabViews = $derived.by<DetachableTabView[]>(() => {

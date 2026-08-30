@@ -41,6 +41,11 @@ export interface ProjectTaskDetailCustomFieldDrafts {
 export type ProjectTaskDetailCustomFieldSaveDraft =
   Omit<ProjectCustomFieldValueUpdate, "taskId" | "fieldId">;
 
+export type ProjectTaskDetailCustomFieldRawDraft =
+  | { kind: "text" | "number" | "date" | "select"; value: string }
+  | { kind: "checkbox"; value: boolean }
+  | { kind: "multi"; value: string[] };
+
 export type ProjectTaskDetailCustomFieldSaveDraftResult =
   | { ok: true; value: ProjectTaskDetailCustomFieldSaveDraft }
   | { ok: false; reason: "invalid-number" | "invalid-date" };
@@ -266,6 +271,117 @@ export function projectTaskDetailCustomFieldSaveDraft(input: {
       dateValue,
       checkboxValue,
       optionIds,
+    },
+  };
+}
+
+/** Captures the exact editable value submitted for one custom field. */
+export function projectTaskDetailCustomFieldRawDraft(input: {
+  field: ProjectCustomField;
+  drafts: ProjectTaskDetailCustomFieldDrafts;
+}): ProjectTaskDetailCustomFieldRawDraft {
+  const fieldId = input.field.id;
+  if (projectCustomFieldUsesTextValue(input.field.fieldType)) {
+    return { kind: "text", value: input.drafts.textDrafts[fieldId] ?? "" };
+  }
+  if (input.field.fieldType === "number") {
+    return { kind: "number", value: input.drafts.numberDrafts[fieldId] ?? "" };
+  }
+  if (input.field.fieldType === "date") {
+    return { kind: "date", value: input.drafts.dateDrafts[fieldId] ?? "" };
+  }
+  if (input.field.fieldType === "checkbox") {
+    return { kind: "checkbox", value: input.drafts.checkboxDrafts[fieldId] ?? false };
+  }
+  if (input.field.fieldType === "select" || input.field.fieldType === "status") {
+    return { kind: "select", value: input.drafts.selectDrafts[fieldId] ?? "none" };
+  }
+  return { kind: "multi", value: [...(input.drafts.multiDrafts[fieldId] ?? [])] };
+}
+
+function projectTaskDetailCustomFieldRawDraftEqual(
+  left: ProjectTaskDetailCustomFieldRawDraft,
+  right: ProjectTaskDetailCustomFieldRawDraft,
+): boolean {
+  if (left.kind !== right.kind) return false;
+  if (left.kind === "multi" && right.kind === "multi") {
+    return left.value.length === right.value.length
+      && left.value.every((value, index) => value === right.value[index]);
+  }
+  return left.value === right.value;
+}
+
+/**
+ * Applies server-normalized field data only to the latest unchanged submission.
+ * Newer edits and newer overlapping saves keep ownership of the field draft.
+ */
+export function projectTaskDetailMergeSavedCustomFieldDraft(input: {
+  field: ProjectCustomField;
+  drafts: ProjectTaskDetailCustomFieldDrafts;
+  saved: ProjectTaskDetailCustomFieldSaveDraft;
+  submittedRawDraft: ProjectTaskDetailCustomFieldRawDraft;
+  requestGeneration: number;
+  latestRequestGeneration: number;
+}): ProjectTaskDetailCustomFieldDrafts {
+  if (input.requestGeneration !== input.latestRequestGeneration) return input.drafts;
+  const currentRawDraft = projectTaskDetailCustomFieldRawDraft({
+    field: input.field,
+    drafts: input.drafts,
+  });
+  if (!projectTaskDetailCustomFieldRawDraftEqual(currentRawDraft, input.submittedRawDraft)) {
+    return input.drafts;
+  }
+  const fieldId = input.field.id;
+  if (projectCustomFieldUsesTextValue(input.field.fieldType)) {
+    return {
+      ...input.drafts,
+      textDrafts: {
+        ...input.drafts.textDrafts,
+        [fieldId]: input.saved.textValue ?? "",
+      },
+    };
+  }
+  if (input.field.fieldType === "number") {
+    return {
+      ...input.drafts,
+      numberDrafts: {
+        ...input.drafts.numberDrafts,
+        [fieldId]: input.saved.numberValue === null ? "" : String(input.saved.numberValue),
+      },
+    };
+  }
+  if (input.field.fieldType === "date") {
+    return {
+      ...input.drafts,
+      dateDrafts: {
+        ...input.drafts.dateDrafts,
+        [fieldId]: input.saved.dateValue ?? "",
+      },
+    };
+  }
+  if (input.field.fieldType === "checkbox") {
+    return {
+      ...input.drafts,
+      checkboxDrafts: {
+        ...input.drafts.checkboxDrafts,
+        [fieldId]: input.saved.checkboxValue ?? false,
+      },
+    };
+  }
+  if (input.field.fieldType === "select" || input.field.fieldType === "status") {
+    return {
+      ...input.drafts,
+      selectDrafts: {
+        ...input.drafts.selectDrafts,
+        [fieldId]: input.saved.optionIds[0] ?? "none",
+      },
+    };
+  }
+  return {
+    ...input.drafts,
+    multiDrafts: {
+      ...input.drafts.multiDrafts,
+      [fieldId]: [...input.saved.optionIds],
     },
   };
 }

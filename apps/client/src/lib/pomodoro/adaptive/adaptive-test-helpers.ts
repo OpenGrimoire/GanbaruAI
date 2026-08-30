@@ -13,7 +13,6 @@ import type {
   AdaptiveSegmentInput,
   AdaptiveStateScores,
 } from "./types";
-import { computePlannedSegments } from "$lib/utils/pomodoro-segments";
 import {
   createPresetPomodoroConfig,
   type CountPomodoroRhythm,

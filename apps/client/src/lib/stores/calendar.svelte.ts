@@ -8,7 +8,6 @@ import type {
   CalendarDeleteArchiveOperation,
 } from "$lib/components/calendar/delete-archive-plan";
 import type { RecurringCommitPlan } from "$lib/components/calendar/recurrence-edit-plan";
-import { occurrenceOnDate } from "$lib/components/calendar/recurrence-commit-helpers";
 import { expandRecurring, parseYMD, fmtYMD } from "$lib/components/calendar/recurrence";
 import {
   buildExpansionIndex,

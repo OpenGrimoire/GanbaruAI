@@ -24,6 +24,7 @@
   import { getCalendarZoom } from "$lib/stores/calendarZoom.svelte";
   import { getPomodoro } from "$lib/stores/pomodoro.svelte";
   import { getLocalization } from "$lib/i18n/translator.svelte";
+  import { formatNumber } from "$lib/i18n/formatters";
   import { onMount } from "svelte";
   import Repeat from "@lucide/svelte/icons/repeat";
   import Video from "@lucide/svelte/icons/video";
@@ -606,10 +607,9 @@
         {#if allDayCollapsible && !allDayExpanded}
           {#each allDayOverflowPerCol as count, i}
             {#if count > 0}
-              <!-- svelte-ignore a11y_no_static_element_interactions -->
-              <!-- svelte-ignore a11y_click_events_have_key_events -->
-              <div
-                class="absolute z-3 flex cursor-pointer items-center px-1.5 text-[0.666667rem] text-muted-foreground hover:text-foreground"
+              <button
+                type="button"
+                class="absolute z-3 flex items-center px-1.5 text-[0.666667rem] text-muted-foreground hover:text-foreground"
                 style="
                   left: {(i / dayCount) * 100}%;
                   width: {(1 / dayCount) * 100}%;
@@ -618,8 +618,8 @@
                 "
                 onclick={(e) => { e.stopPropagation(); allDayExpanded = true; }}
               >
-                +{count} more
-              </div>
+                {t("calendar.moreEvents", formatNumber(locale, count))}
+              </button>
             {/if}
           {/each}
         {/if}

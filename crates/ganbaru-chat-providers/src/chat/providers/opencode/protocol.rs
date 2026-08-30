@@ -133,19 +133,6 @@ pub fn parse_rollback_cursor(value: &VersionedJson) -> ChatResult<OpenCodeRollba
     Ok(cursor)
 }
 
-pub fn confirmed_not_found(status: u16, body: Option<&Value>) -> bool {
-    if status == 404 {
-        return true;
-    }
-    if status != 0 {
-        return false;
-    }
-    body.and_then(Value::as_object)
-        .and_then(|object| object.get("name"))
-        .and_then(Value::as_str)
-        == Some("NotFoundError")
-}
-
 pub fn validate_identifier(value: &str, label: &str) -> ChatResult<()> {
     if value.is_empty()
         || value.len() > 512

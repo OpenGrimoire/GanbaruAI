@@ -881,7 +881,9 @@
   const metadataItemCount = $derived(showHeavySections ? 3 : 2);
 
   $effect(() => {
-    if (metadataFocusIndex >= metadataItemCount) metadataFocusIndex = Math.max(0, metadataItemCount - 1);
+    const firstEnabledIndex = startControlsDisabled ? 1 : 0;
+    if (metadataFocusIndex < firstEnabledIndex) metadataFocusIndex = firstEnabledIndex;
+    else if (metadataFocusIndex >= metadataItemCount) metadataFocusIndex = metadataItemCount - 1;
   });
 
   async function focusPanelRovingButton(group: string, index: number) {
@@ -903,12 +905,14 @@
     itemCount: number,
   ) {
     if (e.altKey || e.ctrlKey || e.metaKey || e.shiftKey) return;
-    const nextIndex = moveRovingIndex({
-      currentIndex: index,
-      itemCount,
+    const firstEnabledIndex = group === "metadata" && startControlsDisabled ? 1 : 0;
+    const nextRelativeIndex = moveRovingIndex({
+      currentIndex: index - firstEnabledIndex,
+      itemCount: itemCount - firstEnabledIndex,
       key: e.key,
       orientation: "horizontal",
     });
+    const nextIndex = nextRelativeIndex + firstEnabledIndex;
     if (nextIndex === index) return;
     e.preventDefault();
     e.stopPropagation();
@@ -1132,8 +1136,6 @@
         {#if dateTime.datepickerOpen}
           <!-- svelte-ignore a11y_click_events_have_key_events -->
           <!-- svelte-ignore a11y_no_static_element_interactions -->
-          <!-- svelte-ignore a11y_click_events_have_key_events -->
-          <!-- svelte-ignore a11y_no_static_element_interactions -->
           <div class="fixed inset-0 z-19" onclick={() => { dateTime.datepickerOpen = false; }}></div>
           <div class="absolute left-0 top-full z-20 mt-1 w-60 rounded-lg bg-popover p-2 shadow-lg ring-1 ring-border/60">
             <MiniDatePicker
@@ -1228,6 +1230,7 @@
         <button bind:this={dateTime.endDateButton}
           onclick={() => dateTime.toggleDatePicker("end", "pointer")}
           onkeydown={(e) => dateTime.handleDateButtonKeydown(e, "end")}
+          disabled={controlsDisabled}
           class="date-chip max-w-full rounded py-0.5 text-event-panel-input-text
             {controlsDisabled ? '' : dateTime.endDatepickerOpen ? 'ring-1 ring-primary/60' : 'hover:bg-black/5 dark:hover:bg-black/15'}">
           {shortEndDate}
@@ -1261,7 +1264,11 @@
   <div class="flex flex-col gap-3 px-4 pb-0 pt-1.5">
 
     <!-- All-day / Availability / Visibility -->
-    <div class="flex w-full items-center justify-evenly overflow-hidden rounded-none bg-event-panel-contrast text-[0.733333rem]">
+    <div
+      class="flex w-full items-center justify-evenly overflow-hidden rounded-none bg-event-panel-contrast text-[0.733333rem]"
+      role="toolbar"
+      aria-label={t("calendar.eventPanel.metadataControls")}
+    >
       <!-- All day -->
       <button
         onclick={() => dateTime.toggleAllDay()}
@@ -1269,7 +1276,7 @@
         onkeydown={(e) => handlePanelRovingKeydown(e, "metadata", 0, metadataItemCount)}
         data-panel-roving="metadata"
         data-roving-index="0"
-        tabindex={startControlsDisabled ? -1 : 0}
+        tabindex={!startControlsDisabled && metadataFocusIndex === 0 ? 0 : -1}
         disabled={startControlsDisabled}
         class={metadataStartButtonClass()}
       >
@@ -1290,7 +1297,7 @@
         data-panel-roving="metadata"
         data-roving-index="1"
         data-app-tooltip-focus-disabled="true"
-        tabindex={0}
+        tabindex={!controlsDisabled && metadataFocusIndex === 1 ? 0 : -1}
         disabled={controlsDisabled}
         class={metadataButtonClass()}
         title={t("calendar.eventPanel.busyTitle")}
@@ -1311,7 +1318,7 @@
           data-panel-roving="metadata"
           data-roving-index="2"
           data-app-tooltip-focus-disabled="true"
-          tabindex={0}
+          tabindex={!controlsDisabled && metadataFocusIndex === 2 ? 0 : -1}
           disabled={controlsDisabled}
           class={metadataButtonClass("capitalize")}
           title={t("calendar.eventPanel.privateTitle")}

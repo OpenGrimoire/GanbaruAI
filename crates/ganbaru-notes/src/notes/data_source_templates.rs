@@ -6,7 +6,7 @@ use super::models::{
 };
 use super::validation::{plain_text_from_payload, require_uuid, validate_block_payload};
 use super::{
-    data_source_board, data_source_relations, data_source_rollups, data_source_rows, reads, writes,
+    data_source_relations, data_source_rollups, data_source_rows, data_source_views, reads, writes,
 };
 use serde_json::{json, Value};
 use sqlx::{Sqlite, SqlitePool, Transaction};
@@ -142,7 +142,12 @@ pub async fn apply_data_source_template(
         Some(&replay_properties),
     )?;
     let blocks = load_template_block_rows_tx(&mut tx, &template_id).await?;
-    let page_id = data_source_board::generated_uuid_tx(&mut tx).await?;
+    let page_id = data_source_views::generated_uuid_tx(
+        &mut tx,
+        "generate data source template page id",
+        "generated_data_source_template_page_id",
+    )
+    .await?;
     sqlx::query(
         "INSERT INTO notes_pages (
             id,
@@ -812,7 +817,12 @@ async fn next_reserved_uuid(
     reserved_ids: &mut HashSet<String>,
 ) -> Result<String, String> {
     for _ in 0..32 {
-        let id = data_source_board::generated_uuid_tx(tx).await?;
+        let id = data_source_views::generated_uuid_tx(
+            tx,
+            "generate data source template block id",
+            "generated_data_source_template_block_id",
+        )
+        .await?;
         if reserved_ids.insert(id.clone()) {
             return Ok(id);
         }

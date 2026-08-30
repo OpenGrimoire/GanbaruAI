@@ -72,7 +72,7 @@ pub async fn load_page_history_blocks_tx(
     tx: &mut Transaction<'_, Sqlite>,
     hash: &str,
 ) -> Result<String, String> {
-    let raw = load_bundle_tx(tx, hash, "row").await?;
+    let raw = load_bundle_tx(tx, hash).await?;
     String::from_utf8(raw).map_err(|_| "Notes page history block bundle is not UTF-8".to_string())
 }
 

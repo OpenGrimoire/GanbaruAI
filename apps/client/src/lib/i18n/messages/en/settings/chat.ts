@@ -317,6 +317,7 @@ export const chatSettings = {
     discardDraft: "Discard draft",
     keepEditing: "Keep editing",
     saveFailed: "The teammate could not be saved.",
+    accessValidationFailed: "Review the invalid channel and folder access settings before saving.",
     lifecycleFailed: "The teammate lifecycle change could not be completed.",
     saving: "Saving...",
     archive: "Archive",

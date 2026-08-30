@@ -19,6 +19,10 @@ export const calendar = {
     readOnly: "read-only",
     settings: "Settings",
   },
+  timePicker: {
+    durationHours: (hours: string, singular: boolean) => `${hours} ${singular ? "hr" : "hrs"}`,
+  },
+  moreEvents: (count: string) => `+${count} more`,
   recurrence: {
     daily: "Daily",
     weekly: "Weekly",
@@ -135,6 +139,15 @@ export const calendar = {
     longBreakCompact: "LB",
     longBreakAfter: "Long break after",
     cycleCompact: "C",
+    sequenceSummary: (
+      steps: string,
+      singular: boolean,
+      focusMinutes: string,
+      breakMinutes: string,
+    ) => `Sequence (${steps} ${singular ? "step" : "steps"}, ${focusMinutes} min focus, ${breakMinutes} min break)`,
+    sequencePreserved: (count: string, _singular: boolean) =>
+      `${count}-step sequence preserved`,
+    convertSequenceToSimple: "Convert to simple rhythm",
     pauseOnInactivity: "Pause on inactivity",
   },
   meeting: {
@@ -221,6 +234,7 @@ export const calendar = {
     following: "Following",
     all: "All",
     titlePlaceholder: "Session title...",
+    metadataControls: "Event timing and visibility",
     allDay: "All day",
     timed: "Timed",
     busy: "Busy",

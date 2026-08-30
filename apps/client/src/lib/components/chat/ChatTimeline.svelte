@@ -744,7 +744,7 @@
     <FileText size={15} />
   {:else if activity.activityKind === "command_execution" || activity.activityKind === "command_output"}
     <Terminal size={15} />
-  {:else if activity.activityKind === "file_change" || activity.activityKind === "file_change_output" || isFileReadActivity(activity)}
+  {:else if activity.activityKind === "file_change" || activity.activityKind === "file_change_output"}
     <FileText size={15} />
   {:else if activity.activityKind === "web_search"}
     <Globe size={15} />

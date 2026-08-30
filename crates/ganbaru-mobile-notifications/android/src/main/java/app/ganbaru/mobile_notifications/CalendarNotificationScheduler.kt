@@ -7,7 +7,6 @@ import android.app.PendingIntent
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
-import android.os.Build
 import org.json.JSONObject
 
 internal const val CALENDAR_CHANNEL_ID = "calendar-events"
@@ -145,19 +144,7 @@ internal object CalendarNotificationScheduler {
   private fun scheduleAlarm(context: Context, delivery: CalendarNotificationDelivery) {
     val pendingIntent = pendingIntent(context, delivery.id, delivery)
     val manager = alarmManager(context)
-    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && !manager.canScheduleExactAlarms()) {
-      manager.setAndAllowWhileIdle(
-        AlarmManager.RTC_WAKEUP,
-        delivery.scheduledAtEpochMs,
-        pendingIntent,
-      )
-    } else {
-      manager.setExactAndAllowWhileIdle(
-        AlarmManager.RTC_WAKEUP,
-        delivery.scheduledAtEpochMs,
-        pendingIntent,
-      )
-    }
+    manager.scheduleRtcWakeupAllowingIdle(delivery.scheduledAtEpochMs, pendingIntent)
   }
 
   private fun pendingIntent(

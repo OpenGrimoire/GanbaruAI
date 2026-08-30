@@ -18,6 +18,7 @@ pub struct AcpSessionInitialization<'a> {
     pub context: &'a DriverOperationContext,
 }
 
+#[cfg(test)]
 pub async fn initialize_session(
     connection: &AcpRpcConnection,
     workspace: &str,
@@ -188,30 +189,6 @@ fn acp_mcp_servers(config: Option<&ProviderInternalMcpConfig>) -> ChatResult<Val
         .unwrap_or_default();
     serde_json::to_value(servers)
         .map_err(|_| ChatError::validation("internalMcp", "ACP MCP server is invalid"))
-}
-
-pub async fn apply_configuration(
-    client: &AcpRpcClient,
-    session_id: &str,
-    setup: &mut AcpSessionSetup,
-    modes: TurnModeSnapshot,
-    model_id: Option<&ModelId>,
-    model_options: &[ModelOptionSelection],
-    context: &DriverOperationContext,
-) -> ChatResult<()> {
-    apply_provider_configuration(
-        AcpProviderFlavor::Cursor,
-        client,
-        session_id,
-        setup,
-        AcpRequestedConfiguration {
-            modes,
-            model_id,
-            model_options,
-        },
-        context,
-    )
-    .await
 }
 
 pub async fn apply_provider_configuration(

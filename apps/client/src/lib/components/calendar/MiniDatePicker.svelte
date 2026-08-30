@@ -5,6 +5,8 @@
   import {
     type DatePickerDay,
     buildCalendarGrid,
+    clampDatePickerActiveDate,
+    datePickerMonthNavigationTarget,
   } from "./date-picker-utils";
   import { getLocalization } from "$lib/i18n/translator.svelte";
   import { normalizedDateRange } from "$lib/calendar/date-range-selection";
@@ -73,7 +75,16 @@
     };
   }
 
-  const initParts = selectedDateParts();
+  function initialDateParts(): { year: number; month: number; day: number } {
+    const selected = selectedDateParts();
+    const activeDate = clampDatePickerActiveDate(
+      formatDateStr(new Date(selected.year, selected.month - 1, selected.day)),
+      minDate,
+    );
+    return parseDateParts(activeDate) ?? selected;
+  }
+
+  const initParts = initialDateParts();
   const initYear = initParts.year;
   const initMonth = initParts.month;
   const initDay = initParts.day;
@@ -143,10 +154,28 @@
     previousSelectedDate = selectedDate;
     const parsed = parseDateParts(selectedDate);
     if (!parsed) return;
-    year = parsed.year;
-    month = parsed.month;
-    activeDateStr = formatDateStr(new Date(parsed.year, parsed.month - 1, parsed.day));
-    yearPageStart = parsed.year - 4;
+    const nextActiveDate = clampDatePickerActiveDate(
+      formatDateStr(new Date(parsed.year, parsed.month - 1, parsed.day)),
+      minDate,
+    );
+    const nextParts = parseDateParts(nextActiveDate);
+    if (!nextParts) return;
+    year = nextParts.year;
+    month = nextParts.month;
+    activeDateStr = nextActiveDate;
+    yearPageStart = nextParts.year - 4;
+    pickerMode = "days";
+  });
+
+  $effect(() => {
+    const nextActiveDate = clampDatePickerActiveDate(activeDateStr, minDate);
+    if (nextActiveDate === activeDateStr) return;
+    const nextParts = parseDateParts(nextActiveDate);
+    if (!nextParts) return;
+    activeDateStr = nextActiveDate;
+    year = nextParts.year;
+    month = nextParts.month;
+    yearPageStart = nextParts.year - 4;
     pickerMode = "days";
   });
 
@@ -199,12 +228,14 @@
   }
 
   function prevMonth() {
-    const parts = datePartsFor(activeDateStr);
     const next = new Date(year, month - 2, 1);
-    if (!setActiveDateParts(next.getFullYear(), next.getMonth() + 1, parts.day)) {
-      year = next.getFullYear();
-      month = next.getMonth() + 1;
-    }
+    const target = datePickerMonthNavigationTarget(
+      activeDateStr,
+      next.getFullYear(),
+      next.getMonth() + 1,
+      minDate,
+    );
+    if (target) setActiveDateStr(target);
   }
 
   function nextMonth() {
@@ -540,7 +571,8 @@
         {@const belowMin = !!minDate && day.dateStr < minDate}
         <button
           data-date={day.dateStr}
-          tabindex={day.dateStr === activeDateStr ? 0 : -1}
+          tabindex={!belowMin && day.dateStr === activeDateStr ? 0 : -1}
+          disabled={belowMin}
           onkeydown={handlePickerKeydown}
           onclick={() => selectDay(day)}
           class="flex h-6 w-full items-center justify-center rounded-sm {textSize}

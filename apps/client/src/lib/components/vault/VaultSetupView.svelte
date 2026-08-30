@@ -64,6 +64,7 @@
 
   onMount(() => {
     let cleanupResize: (() => void) | undefined;
+    let disposed = false;
     function handleGlobalShortcut(event: KeyboardEvent): void {
       if (!isCloseWindowShortcut(event)) return;
       event.preventDefault();
@@ -75,18 +76,24 @@
     setupError = initialError ? { raw: initialError, action: "startup" } : null;
     void loadDefaultLocation();
     void appWindow.isMaximized().then((value) => {
-      isMaximized = value;
+      if (!disposed) isMaximized = value;
     });
     void appWindow.onResized(() => {
+      if (disposed) return;
       void appWindow.isMaximized().then((value) => {
-        isMaximized = value;
+        if (!disposed) isMaximized = value;
       });
     }).then((unlisten) => {
+      if (disposed) {
+        unlisten();
+        return;
+      }
       cleanupResize = unlisten;
     });
     window.addEventListener("keydown", handleGlobalShortcut, { capture: true });
 
     return () => {
+      disposed = true;
       cleanupResize?.();
       window.removeEventListener("keydown", handleGlobalShortcut, { capture: true });
     };

@@ -13,6 +13,7 @@ use std::path::{Component, Path, PathBuf};
 const MAX_CUSTOM_MODELS: usize = 128;
 const MAX_MODEL_ID_BYTES: usize = 256;
 const MAX_MODEL_LABEL_BYTES: usize = 160;
+#[cfg(windows)]
 const MAX_SHIM_BYTES: u64 = 64 * 1024;
 
 #[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq)]

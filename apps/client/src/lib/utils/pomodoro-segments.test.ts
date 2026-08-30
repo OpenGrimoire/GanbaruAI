@@ -221,7 +221,6 @@ describe("computePlannedSegments", () => {
     // Block A: 120 min, Block B: 240 min (sequential, A ends where B starts)
     // Block C: 120 min, overlapping A and B (starts 20 min before A ends)
     // Block B should inherit from Block A, not Block C.
-    const blockA = computePlannedSegments(DEFAULT_CONFIG, 120);
     const trailingA = computeTrailingRhythmState(DEFAULT_CONFIG, 120);
     const trailingFocusA = trailingA.focusOffsetMinutes;
     const trailingPositionA = trailingA.rhythmPosition;
@@ -230,7 +229,6 @@ describe("computePlannedSegments", () => {
     const blockB = computePlannedSegments(DEFAULT_CONFIG, 240, trailingFocusA, trailingPositionA);
 
     // Block C inheriting from Block A (stacked event)
-    const blockC = computePlannedSegments(DEFAULT_CONFIG, 120, trailingFocusA, trailingPositionA);
     const trailingC = computeTrailingRhythmState(
       DEFAULT_CONFIG,
       120,

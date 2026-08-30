@@ -177,6 +177,7 @@
   async function loadTable(): Promise<NotesDataSourceTableView | null> {
     const requestId = ++tableRequestId;
     loading = true;
+    loadingMore = false;
     error = null;
     try {
       const [loaded, loadedTemplates] = await Promise.all([
@@ -201,10 +202,11 @@
       await focusPendingRow(loaded);
       return loaded;
     } catch (caught) {
+      if (requestId !== tableRequestId) return null;
       error = caught instanceof Error ? caught.message : String(caught);
       return null;
     } finally {
-      loading = false;
+      if (requestId === tableRequestId) loading = false;
     }
   }
 

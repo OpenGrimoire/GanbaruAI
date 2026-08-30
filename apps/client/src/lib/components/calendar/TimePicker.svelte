@@ -2,6 +2,8 @@
   import { tick } from "svelte";
   import { moveRovingIndex } from "./event-panel-utils";
   import { createSmoothScroll, formatTimeLabel } from "./utils";
+  import { formatNumber } from "$lib/i18n/formatters";
+  import { getLocalization } from "$lib/i18n/translator.svelte";
   import { getPreferences } from "$lib/stores/preferences.svelte";
 
   export interface TimePickerInputNavigation {
@@ -36,6 +38,9 @@
   } = $props();
 
   const preferences = getPreferences();
+  const localization = getLocalization();
+  const { t } = localization;
+  const locale = $derived(localization.locale);
 
   const TIME_SLOTS = Array.from({ length: 48 }, (_, i) => {
     const h = Math.floor(i / 2);
@@ -174,8 +179,11 @@
     if (d <= 0) d += 1440;
     if (d >= 1440) return "";
     const hrs = d / 60;
-    if (d % 60 === 0) return `${hrs} ${hrs === 1 ? "hr" : "hrs"}`;
-    return `${hrs.toFixed(1)} hrs`;
+    return t(
+      "calendar.timePicker.durationHours",
+      formatNumber(locale, hrs, { maximumFractionDigits: 1 }),
+      hrs === 1,
+    );
   }
 </script>
 

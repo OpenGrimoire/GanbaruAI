@@ -582,12 +582,14 @@
         <form class="mt-2" onsubmit={(event) => { event.preventDefault(); void createPlaylistAndAdd(); }}>
           <div class="flex items-center gap-2">
             <IconPicker value={viewState.newPlaylistIcon} onChange={(value) => viewState.newPlaylistIcon = value} ariaLabel={t("music.builder.selectPlaylistIcon")} showUpload={false}>
-              {#snippet trigger({ open, toggle })}
+              {#snippet trigger({ open, toggle, panelId })}
                 <button
                   type="button"
                   class={`grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-secondary text-foreground transition-colors hover:bg-accent ${open ? "bg-accent" : ""}`}
                   aria-label={t("music.builder.selectPlaylistIcon")}
+                  aria-haspopup="dialog"
                   aria-expanded={open}
+                  aria-controls={panelId}
                   title={t("music.builder.selectPlaylistIcon")}
                   onclick={toggle}
                 >

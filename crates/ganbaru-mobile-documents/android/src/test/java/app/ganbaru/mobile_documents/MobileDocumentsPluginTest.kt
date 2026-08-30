@@ -9,12 +9,6 @@ import org.junit.Test
 
 class MobileDocumentsPluginTest {
   @Test
-  fun recognizesJsonFileNamesCaseInsensitively() {
-    assertEquals(true, DocumentTextCodec.isJsonFileName("theme.JSON"))
-    assertEquals(false, DocumentTextCodec.isJsonFileName("theme.json.txt"))
-  }
-
-  @Test
   fun acceptsOnlyConfiguredDocumentExtensions() {
     val allowed = listOf("json", ".m3u8", "M3U")
 

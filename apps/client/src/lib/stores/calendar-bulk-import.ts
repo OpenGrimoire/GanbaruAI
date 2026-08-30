@@ -17,6 +17,7 @@ import type {
 } from "$lib/calendar/ics/types";
 import { recurrenceToRrule } from "$lib/components/calendar/rrule";
 import { sanitizeCalendarDescriptionHtml } from "$lib/calendar/description-sanitizer";
+import { hasMeetingState } from "$lib/calendar/meeting-state";
 import { toDbTime } from "./map-row";
 
 export type CalendarImportSourceKind =
@@ -378,18 +379,6 @@ function buildBulkImportEvent(
       overrideLinks,
     ),
   };
-}
-
-function hasMeetingState(event: CalendarEvent): boolean {
-  const gp = event.guestPermissions;
-  return event.meetingEnabled === true
-    || !!(event.attendees && event.attendees.length > 0)
-    || !!event.organizer
-    || !!event.location
-    || !!event.url
-    || !!event.geo
-    || event.localParticipationStatus !== undefined
-    || (!!gp && (gp.canModify || !gp.canInviteOthers || !gp.canSeeOtherGuests));
 }
 
 function buildAttendees(

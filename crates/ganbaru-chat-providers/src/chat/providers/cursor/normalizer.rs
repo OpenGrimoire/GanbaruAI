@@ -79,20 +79,6 @@ pub struct CursorEventNormalizer {
 }
 
 impl CursorEventNormalizer {
-    pub fn new(
-        provider_instance_id: ProviderInstanceId,
-        thread_id: ChatThreadId,
-        session_id: ProviderSessionId,
-    ) -> Self {
-        Self::new_for_provider(
-            provider_instance_id,
-            thread_id,
-            session_id,
-            "cursor",
-            "Cursor",
-        )
-    }
-
     pub fn new_for_provider(
         provider_instance_id: ProviderInstanceId,
         thread_id: ChatThreadId,
