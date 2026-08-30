@@ -24,6 +24,13 @@ internal data class JournalEvent(
   val vaultId: String,
 )
 
+internal data class JournalUsageInterval(
+  val packageName: String,
+  val displayName: String,
+  val startedAt: Long,
+  val endedAt: Long,
+)
+
 internal class DoomscrollingJournal(context: Context) : SQLiteOpenHelper(
   context,
   "ganbaru-doomscrolling-runtime.sqlite",
@@ -74,43 +81,37 @@ internal class DoomscrollingJournal(context: Context) : SQLiteOpenHelper(
     }
   }
 
-  fun recordUsage(
+  fun recordUsageBatch(
     vaultId: String,
-    packageName: String,
-    displayName: String,
-    startedAt: Long,
-    endedAt: Long,
+    intervals: List<JournalUsageInterval>,
+    observedAt: Long,
   ) {
-    if (endedAt <= startedAt) return
     writableDatabase.beginTransaction()
     try {
-      for (slice in splitByLocalDate(startedAt, endedAt)) {
-        val elapsedSeconds = ((slice.endEpochMs - slice.startEpochMs) / 1_000L)
-          .coerceAtMost(86_400L).toInt()
-        if (elapsedSeconds < 1) continue
-        val values = ContentValues().apply {
-          put("id", "usage-${UUID.randomUUID()}")
-          put("kind", "usage")
-          put("package_name", packageName.lowercase())
-          put("display_name", displayName.take(120))
-          put("started_at", slice.startEpochMs)
-          put("elapsed_seconds", elapsedSeconds)
-          put("local_date", slice.localDate)
-          put("occurred_at", endedAt)
-          put("vault_id", vaultId)
+      for (interval in intervals) {
+        if (interval.endedAt <= interval.startedAt) continue
+        val normalizedPackage = interval.packageName.lowercase()
+        for (slice in splitByLocalDate(interval.startedAt, interval.endedAt)) {
+          val elapsedSeconds = ((slice.endEpochMs - slice.startEpochMs) / 1_000L)
+            .coerceAtMost(86_400L).toInt()
+          if (elapsedSeconds < 1) continue
+          val values = ContentValues().apply {
+            put("id", "usage-${UUID.randomUUID()}")
+            put("kind", "usage")
+            put("package_name", normalizedPackage)
+            put("display_name", interval.displayName.take(120))
+            put("started_at", slice.startEpochMs)
+            put("elapsed_seconds", elapsedSeconds)
+            put("local_date", slice.localDate)
+            put("occurred_at", interval.endedAt)
+            put("vault_id", vaultId)
+          }
+          writableDatabase.insertOrThrow("journal_events", null, values)
+          incrementDailyTotal(normalizedPackage, slice.localDate, elapsedSeconds)
         }
-        writableDatabase.insertOrThrow("journal_events", null, values)
-        writableDatabase.execSQL(
-          """
-          INSERT INTO daily_totals(package_name, local_date, elapsed_seconds)
-          VALUES (?, ?, ?)
-          ON CONFLICT(package_name, local_date)
-          DO UPDATE SET elapsed_seconds = elapsed_seconds + excluded.elapsed_seconds
-          """.trimIndent(),
-          arrayOf<Any>(packageName.lowercase(), slice.localDate, elapsedSeconds),
-        )
       }
-      pruneDailyTotals(endedAt)
+      writeMetadata("lastObservedEpochMs", observedAt)
+      pruneDailyTotals(observedAt)
       writableDatabase.setTransactionSuccessful()
     } finally {
       writableDatabase.endTransaction()
@@ -219,7 +220,7 @@ internal class DoomscrollingJournal(context: Context) : SQLiteOpenHelper(
     "1",
   ).use { cursor -> cursor.takeIf { it.moveToFirst() }?.getString(0)?.toLongOrNull() }
 
-  fun setMetadata(key: String, value: Long) {
+  private fun writeMetadata(key: String, value: Long) {
     writableDatabase.insertWithOnConflict(
       "metadata",
       null,
@@ -321,6 +322,39 @@ internal class DoomscrollingJournal(context: Context) : SQLiteOpenHelper(
     val cutoff = Instant.ofEpochMilli(nowEpochMs).atZone(ZoneId.systemDefault())
       .toLocalDate().minusDays(14).toString()
     writableDatabase.delete("daily_totals", "local_date < ?", arrayOf(cutoff))
+  }
+
+  private fun incrementDailyTotal(
+    packageName: String,
+    localDate: String,
+    elapsedSeconds: Int,
+  ) {
+    val inserted = writableDatabase.insertWithOnConflict(
+      "daily_totals",
+      null,
+      ContentValues().apply {
+        put("package_name", packageName)
+        put("local_date", localDate)
+        put("elapsed_seconds", elapsedSeconds)
+      },
+      SQLiteDatabase.CONFLICT_IGNORE,
+    )
+    if (inserted != -1L) return
+
+    writableDatabase.compileStatement(
+      """
+      UPDATE daily_totals
+      SET elapsed_seconds = elapsed_seconds + ?
+      WHERE package_name = ? AND local_date = ?
+      """.trimIndent(),
+    ).use { statement ->
+      statement.bindLong(1, elapsedSeconds.toLong())
+      statement.bindString(2, packageName)
+      statement.bindString(3, localDate)
+      check(statement.executeUpdateDelete() == 1) {
+        "Android usage total could not be updated"
+      }
+    }
   }
 
   private data class UsageSlice(

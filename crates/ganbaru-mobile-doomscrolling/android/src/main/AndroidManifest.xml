@@ -1,6 +1,14 @@
 <?xml version="1.0" encoding="utf-8"?>
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
-    <uses-permission android:name="android.permission.PACKAGE_USAGE_STATS" />
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+    <permission
+        android:name="${applicationId}.permission.INTERNAL_GUARDIAN"
+        android:protectionLevel="signature" />
+
+    <uses-permission android:name="${applicationId}.permission.INTERNAL_GUARDIAN" />
+    <uses-permission
+        android:name="android.permission.PACKAGE_USAGE_STATS"
+        tools:ignore="ProtectedPermissions" />
 
     <queries>
         <intent>
@@ -10,11 +18,18 @@
     </queries>
 
     <application>
+        <provider
+            android:name="app.ganbaru.mobile_doomscrolling.DoomscrollingGuardianProvider"
+            android:authorities="${applicationId}.ganbaru.guardian.doomscrolling"
+            android:exported="false"
+            android:process=":guardian" />
+
         <service
             android:name="app.ganbaru.mobile_doomscrolling.DoomscrollingAccessibilityService"
             android:exported="true"
             android:label="@string/ganbaru_doomscrolling_accessibility_label"
-            android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE">
+            android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE"
+            android:process=":guardian">
             <intent-filter>
                 <action android:name="android.accessibilityservice.AccessibilityService" />
             </intent-filter>
@@ -25,7 +40,8 @@
 
         <receiver
             android:name="app.ganbaru.mobile_doomscrolling.DoomscrollingPhaseReceiver"
-            android:exported="false">
+            android:exported="false"
+            android:process=":guardian">
             <intent-filter>
                 <action android:name="app.ganbaru.intent.action.DOOMSCROLLING_PHASE" />
                 <action android:name="app.ganbaru.intent.action.DOOMSCROLLING_PHASE_CLEAR" />

@@ -99,8 +99,8 @@ internal class PomodoroScheduleReconcileArgs {
 internal object ExactAlarmCapability {
   fun isRequired(apiLevel: Int): Boolean = apiLevel >= Build.VERSION_CODES.S
 
-  fun isGranted(apiLevel: Int, alarmManager: AlarmManager): Boolean =
-    !isRequired(apiLevel) || alarmManager.canScheduleExactAlarms()
+  fun isGranted(alarmManager: AlarmManager): Boolean =
+    Build.VERSION.SDK_INT < Build.VERSION_CODES.S || alarmManager.canScheduleExactAlarms()
 }
 
 @InvokeArg
@@ -217,7 +217,7 @@ class MobileNotificationsPlugin(private val activity: Activity) : Plugin(activit
     try {
       val projection = args.state.toProjection()
       ensurePomodoroChannels(projection.copy)
-      PomodoroNotificationScheduler.update(activity, projection)
+      PomodoroGuardianClient(activity).update(projection)
       invoke.resolve()
     } catch (error: Exception) {
       invoke.reject(error.message ?: "Failed to update Pomodoro notification")
@@ -226,41 +226,26 @@ class MobileNotificationsPlugin(private val activity: Activity) : Plugin(activit
 
   @Command
   fun cancelPomodoroNotification(invoke: Invoke) {
-    PomodoroNotificationScheduler.cancel(activity)
-    invoke.resolve()
+    try {
+      PomodoroGuardianClient(activity).cancel()
+      invoke.resolve()
+    } catch (error: Exception) {
+      invoke.reject(error.message ?: "Failed to cancel Pomodoro notification")
+    }
   }
 
   @Command
   fun pomodoroNotificationState(invoke: Invoke) {
-    val projection = PomodoroNotificationScheduler.current(activity)
-    if (projection == null) {
-      invoke.resolveObject(JSObject().apply { put("active", false) })
-      return
+    try {
+      val projection = PomodoroGuardianClient(activity).current()
+      if (projection == null) {
+        invoke.resolveObject(JSObject().apply { put("active", false) })
+        return
+      }
+      invoke.resolveObject(projection.toResponse())
+    } catch (error: Exception) {
+      invoke.reject(error.message ?: "Failed to read Pomodoro notification")
     }
-    invoke.resolveObject(JSObject().apply {
-      put("active", true)
-      put("runId", projection.runId)
-      put("eventId", projection.eventId)
-      put("eventTitle", projection.eventTitle)
-      put("eventDate", projection.eventDate)
-      put("eventEndsAtEpochMs", projection.eventEndsAtEpochMs)
-      put("generatedAtEpochMs", projection.generatedAtEpochMs)
-      put("isRunning", projection.isRunning)
-      put("remainingSeconds", projection.remainingSeconds)
-      put("totalSeconds", projection.totalSeconds)
-      put("configJson", projection.configJson)
-      put("phases", JSArray().apply {
-        projection.phases.forEach { phase ->
-          put(JSObject().apply {
-            put("id", phase.id)
-            put("phase", phase.phase)
-            put("rhythmPosition", phase.rhythmPosition)
-            put("startsAtEpochMs", phase.startsAtEpochMs)
-            put("endsAtEpochMs", phase.endsAtEpochMs)
-          })
-        }
-      })
-    })
   }
 
   @Command
@@ -269,7 +254,7 @@ class MobileNotificationsPlugin(private val activity: Activity) : Plugin(activit
     try {
       val schedule = args.schedule.map(PomodoroNotificationStateArgs::toProjection)
       schedule.firstOrNull()?.let { ensurePomodoroChannels(it.copy) }
-      PomodoroActivationScheduler.reconcile(activity, schedule)
+      PomodoroGuardianClient(activity).reconcile(schedule)
       invoke.resolve()
     } catch (error: Exception) {
       invoke.reject(error.message ?: "Failed to reconcile Pomodoro activation schedule")
@@ -290,19 +275,15 @@ class MobileNotificationsPlugin(private val activity: Activity) : Plugin(activit
     invoke.resolve(JSObject().apply {
       put("apiLevel", apiLevel)
       put("required", ExactAlarmCapability.isRequired(apiLevel))
-      put("granted", ExactAlarmCapability.isGranted(apiLevel, alarmManager))
+      put("granted", ExactAlarmCapability.isGranted(alarmManager))
     })
   }
 
   @Command
   fun backgroundExecutionStatus(invoke: Invoke) {
     val powerManager = activity.getSystemService(Context.POWER_SERVICE) as PowerManager
-    val backgroundRestricted = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-      val activityManager = activity.getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager
-      activityManager.isBackgroundRestricted
-    } else {
-      false
-    }
+    val activityManager = activity.getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager
+    val backgroundRestricted = activityManager.isBackgroundRestricted
     invoke.resolve(JSObject().apply {
       put("manufacturer", Build.MANUFACTURER.trim().take(80))
       put(
@@ -522,3 +503,28 @@ private fun PomodoroNotificationStateArgs.toProjection(): PomodoroNotificationPr
       sessionCompleteText = copy.sessionCompleteText,
     ),
   )
+
+private fun PomodoroNotificationProjection.toResponse(): JSObject = JSObject().apply {
+  put("active", true)
+  put("runId", runId)
+  put("eventId", eventId)
+  put("eventTitle", eventTitle)
+  put("eventDate", eventDate)
+  put("eventEndsAtEpochMs", eventEndsAtEpochMs)
+  put("generatedAtEpochMs", generatedAtEpochMs)
+  put("isRunning", isRunning)
+  put("remainingSeconds", remainingSeconds)
+  put("totalSeconds", totalSeconds)
+  put("configJson", configJson)
+  put("phases", JSArray().apply {
+    phases.forEach { phase ->
+      put(JSObject().apply {
+        put("id", phase.id)
+        put("phase", phase.phase)
+        put("rhythmPosition", phase.rhythmPosition)
+        put("startsAtEpochMs", phase.startsAtEpochMs)
+        put("endsAtEpochMs", phase.endsAtEpochMs)
+      })
+    }
+  })
+}

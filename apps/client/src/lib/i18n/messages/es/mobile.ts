@@ -39,6 +39,7 @@ export const mobile = {
   settings: {
     categoriesLabel: "Categorías de ajustes",
     backToCategories: "Volver a las categorías de ajustes",
+    backToSection: "Volver a la sección",
     storageHeading: "Almacenamiento",
     privateStorage: "Privado",
     privateStorageDescription:

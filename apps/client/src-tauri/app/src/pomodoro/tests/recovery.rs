@@ -256,6 +256,61 @@ fn mobile_recovery_preserves_a_paused_phase_without_counting_time_away() {
 }
 
 #[test]
+fn mobile_recovery_counts_legacy_suspend_gaps_as_running_time() {
+    tauri::async_runtime::block_on(async {
+        let pool = migrated_pool_with_event().await;
+        let mut tx = pool.begin().await.unwrap();
+        insert_run_tx(
+            &mut tx,
+            &run_write(PomodoroRunRhythm::Count {
+                focus_duration_minutes: 40,
+                short_break_minutes: 5,
+                long_break_minutes: 10,
+                long_break_after_focus_count: 4,
+            }),
+            &initial_segment(),
+        )
+        .await
+        .unwrap();
+        sqlx::query(
+            "INSERT INTO pomodoro_pauses (id, segment_id, started_at, ended_at, reason)
+             VALUES ('pause-suspend', 'segment-1', '2026-05-29T10:04:00Z',
+                     '2026-05-29T10:08:00Z', 'suspend')",
+        )
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+        sqlx::query("UPDATE pomodoro_runs SET last_heartbeat = ? WHERE id = ?")
+            .bind("2026-05-29T10:09:30Z")
+            .bind("run-1")
+            .execute(&mut *tx)
+            .await
+            .unwrap();
+        tx.commit().await.unwrap();
+
+        let result = super::super::recovery::recover_mobile_run_from_pool(
+            &pool,
+            "2026-05-29T10:10:00Z",
+            None,
+        )
+        .await
+        .unwrap();
+        let PomodoroMobileRecoveryRead::Resumed { run } = result else {
+            panic!("expected resumable mobile pomodoro run");
+        };
+
+        assert!(run.is_running);
+        assert_eq!(run.phase_elapsed_seconds, 600);
+        assert_eq!(run.remaining_seconds, 1_800);
+        assert_eq!(run.segment.pause_log.len(), 1);
+        assert_eq!(
+            run.segment.pause_log[0].ended_at.as_deref(),
+            Some("2026-05-29T10:04:00Z")
+        );
+    });
+}
+
+#[test]
 fn mobile_recovery_closes_an_expired_phase_at_its_proven_deadline() {
     tauri::async_runtime::block_on(async {
         let pool = migrated_pool_with_event().await;

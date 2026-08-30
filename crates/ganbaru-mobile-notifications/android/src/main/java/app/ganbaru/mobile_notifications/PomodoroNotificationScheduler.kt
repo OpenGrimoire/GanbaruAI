@@ -1,5 +1,6 @@
 package app.ganbaru.mobile_notifications
 
+import android.annotation.SuppressLint
 import android.app.AlarmManager
 import android.app.Notification
 import android.app.NotificationManager
@@ -83,7 +84,9 @@ internal object PomodoroNotificationScheduler {
   fun cancel(context: Context) {
     PomodoroActivationScheduler.dismissCurrent(context)
     alarmManager(context).cancel(boundaryIntent(context, null, null))
-    store(context).edit().remove(POMODORO_NOTIFICATION_KEY).apply()
+    check(store(context).edit().remove(POMODORO_NOTIFICATION_KEY).commit()) {
+      "Pomodoro notification state could not be cleared"
+    }
     context.stopService(Intent(context, PomodoroNotificationService::class.java))
     notificationManager(context).cancel(POMODORO_NOTIFICATION_ID)
     notificationManager(context).cancel(POMODORO_ALERT_NOTIFICATION_ID)
@@ -97,7 +100,9 @@ internal object PomodoroNotificationScheduler {
   }
 
   internal fun clearCurrent(context: Context) {
-    store(context).edit().remove(POMODORO_NOTIFICATION_KEY).apply()
+    check(store(context).edit().remove(POMODORO_NOTIFICATION_KEY).commit()) {
+      "Pomodoro notification state could not be cleared"
+    }
   }
 
   fun deliverBoundary(
@@ -158,6 +163,7 @@ internal object PomodoroNotificationScheduler {
     scheduleBoundary(context, projection, activePhase)
   }
 
+  @SuppressLint("InlinedApi")
   private fun postOngoing(
     service: PomodoroNotificationService,
     projection: PomodoroNotificationProjection,
@@ -382,7 +388,9 @@ internal object PomodoroNotificationScheduler {
   }
 
   internal fun save(context: Context, projection: PomodoroNotificationProjection) {
-    store(context).edit().putString(POMODORO_NOTIFICATION_KEY, encode(projection)).apply()
+    check(store(context).edit()
+      .putString(POMODORO_NOTIFICATION_KEY, encode(projection))
+      .commit()) { "Pomodoro notification state could not be persisted" }
   }
 
   internal fun encode(projection: PomodoroNotificationProjection): String = JSONObject()
@@ -501,24 +509,35 @@ class PomodoroNotificationReceiver : BroadcastReceiver() {
   }
 }
 
+class PomodoroNotificationRestoreReceiver : BroadcastReceiver() {
+  override fun onReceive(context: Context, intent: Intent) {
+    if (!isNotificationRestoreAction(intent.action)) return
+    synchronized(POMODORO_GUARDIAN_LOCK) {
+      PomodoroActivationScheduler.restore(context)
+      PomodoroNotificationScheduler.restore(context)
+    }
+  }
+}
+
 class PomodoroNotificationService : Service() {
   override fun onBind(intent: Intent?): IBinder? = null
 
-  override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-    val projection = PomodoroNotificationScheduler.current(this)
-    if (projection == null || projection.eventEndsAtEpochMs <= System.currentTimeMillis()) {
-      finishSession()
-      return START_NOT_STICKY
-    }
-    if (intent?.action == ACTION_DELIVER_BOUNDARY) {
-      if (!PomodoroNotificationScheduler.deliverBoundary(this, intent)) {
+  override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int =
+    synchronized(POMODORO_GUARDIAN_LOCK) {
+      val projection = PomodoroNotificationScheduler.current(this)
+      if (projection == null || projection.eventEndsAtEpochMs <= System.currentTimeMillis()) {
+        finishSession()
+        return@synchronized START_NOT_STICKY
+      }
+      if (intent?.action == ACTION_DELIVER_BOUNDARY) {
+        if (!PomodoroNotificationScheduler.deliverBoundary(this, intent)) {
+          PomodoroNotificationScheduler.synchronize(this, projection, alertBoundary = false)
+        }
+      } else {
         PomodoroNotificationScheduler.synchronize(this, projection, alertBoundary = false)
       }
-    } else {
-      PomodoroNotificationScheduler.synchronize(this, projection, alertBoundary = false)
+      START_STICKY
     }
-    return START_STICKY
-  }
 
   internal fun publish(notification: Notification) {
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {

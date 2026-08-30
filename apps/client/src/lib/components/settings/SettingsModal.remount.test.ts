@@ -115,4 +115,46 @@ describe("SettingsModal remount state", () => {
     await tick();
     expect(target.querySelector('[aria-label="Back to settings categories"]')).toBeNull();
   });
+
+  it("renders and closes a nested detail in the mobile presentation", async () => {
+    vi.stubGlobal("ResizeObserver", ResizeObserverStub);
+    vi.stubGlobal("__GANBARU_AI_BUILD_PLATFORM__", "android");
+    originalScrollTo = HTMLElement.prototype.scrollTo;
+    Object.defineProperty(HTMLElement.prototype, "scrollTo", {
+      configurable: true,
+      value: vi.fn(),
+    });
+    target = document.createElement("div");
+    document.body.append(target);
+
+    component = mount(SettingsModal, {
+      target,
+      props: {
+        presentation: "mobile",
+        initialSection: "doomscrolling",
+        initialDoomscrollingTab: "limits",
+        onClose: () => undefined,
+      },
+    });
+    await tick();
+
+    const addLimitButton = [...target.querySelectorAll("button")]
+      .find((button) => button.textContent?.trim() === "Add limit");
+    expect(addLimitButton).toBeDefined();
+    addLimitButton?.click();
+
+    await vi.waitFor(() => {
+      expect(target?.querySelector("[data-settings-section-test-stub]")).not.toBeNull();
+    });
+    const backButton = target.querySelector<HTMLButtonElement>(
+      '[aria-label="Back to section"]',
+    );
+    expect(backButton).not.toBeNull();
+    backButton?.click();
+    await tick();
+
+    expect(target.querySelector("[data-settings-section-test-stub]")).toBeNull();
+    expect([...target.querySelectorAll("button")]
+      .some((button) => button.textContent?.trim() === "Add limit")).toBe(true);
+  });
 });

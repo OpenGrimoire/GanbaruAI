@@ -587,6 +587,7 @@
 
   onMount(() => {
     const detachPersistenceLifecycle = persistenceLifecycle.attach();
+    let schedulerResume: Promise<void> | null = null;
     const syncNestedRoute = (): void => {
       nestedRouteOpen = window.location.hash.length > 0;
     };
@@ -602,20 +603,35 @@
       }, 0);
     };
     const resumePomodoroScheduler = (): void => {
-      if (document.visibilityState !== "visible") return;
-      activeBlockScheduler?.resume();
-      void calendarNotificationScheduler?.reconcile();
-      void pomodoroScheduleScheduler?.reconcile();
-      void synchronizeMobileDoomscrolling();
-      void calendarNotificationScheduler?.takeAction().then((eventId) => {
+      if (document.visibilityState !== "visible" || !backendReady || schedulerResume) return;
+      schedulerResume = (async () => {
+        await pomodoro.recoverMobileRun();
+        activeBlockScheduler?.resume();
+        await Promise.all([
+          calendarNotificationScheduler?.reconcile(),
+          pomodoroScheduleScheduler?.reconcile(),
+          synchronizeMobileDoomscrolling(),
+        ]);
+        const eventId = await calendarNotificationScheduler?.takeAction();
         if (eventId) navigate("calendar");
+      })().catch((error) => {
+        console.error("Failed to resume mobile focus schedulers", error);
+      }).finally(() => {
+        schedulerResume = null;
       });
+    };
+    const handleVisibilityChange = (): void => {
+      if (document.visibilityState === "hidden") {
+        pomodoro.prepareForMobileBackground();
+        return;
+      }
+      resumePomodoroScheduler();
     };
     syncNestedRoute();
     window.addEventListener("hashchange", syncNestedRoute);
     window.addEventListener("popstate", syncNestedRoute);
     window.addEventListener("ganbaru-ai:inspect-music-assignment", handleMusicAssignmentInspection);
-    document.addEventListener("visibilitychange", resumePomodoroScheduler);
+    document.addEventListener("visibilitychange", handleVisibilityChange);
     window.addEventListener("focus", resumePomodoroScheduler);
 
     void initializeWorkspace();
@@ -624,7 +640,7 @@
       window.removeEventListener("hashchange", syncNestedRoute);
       window.removeEventListener("popstate", syncNestedRoute);
       window.removeEventListener("ganbaru-ai:inspect-music-assignment", handleMusicAssignmentInspection);
-      document.removeEventListener("visibilitychange", resumePomodoroScheduler);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
       window.removeEventListener("focus", resumePomodoroScheduler);
       removePomodoroBackLayer();
       removeSettingsBackLayer();

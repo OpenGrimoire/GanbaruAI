@@ -1,5 +1,6 @@
 package app.ganbaru.mobile_notifications
 
+import android.content.Intent
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -80,6 +81,16 @@ class MobileNotificationsPluginTest {
         "motorola",
       ).isEmpty(),
     )
+  }
+
+  @Test
+  fun restoreReceiversAcceptOnlyTheirDeclaredSystemActions() {
+    assertTrue(isNotificationRestoreAction(Intent.ACTION_BOOT_COMPLETED))
+    assertTrue(isNotificationRestoreAction(Intent.ACTION_MY_PACKAGE_REPLACED))
+    assertTrue(isNotificationRestoreAction(Intent.ACTION_TIME_CHANGED))
+    assertTrue(isNotificationRestoreAction(Intent.ACTION_TIMEZONE_CHANGED))
+    assertFalse(isNotificationRestoreAction(null))
+    assertFalse(isNotificationRestoreAction("app.ganbaru.UNTRUSTED_RESTORE"))
   }
 
   @Test

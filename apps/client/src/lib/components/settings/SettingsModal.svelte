@@ -118,7 +118,9 @@
 
   $effect(() => {
     if (!mobilePresentation || !mobileSectionOpen) return;
-    return mobileBackStack.activate({ handle: closeMobileSection });
+    return mobileBackStack.activate({
+      handle: detailView ? closeDetailView : closeMobileSection,
+    });
   });
 
   $effect(() => {
@@ -396,8 +398,10 @@
       <header class="flex min-h-14 shrink-0 items-center gap-1 border-b border-border px-1">
         <button
           type="button"
-          onclick={closeMobileSection}
-          aria-label={t("mobile.settings.backToCategories")}
+          onclick={detailView ? closeDetailView : closeMobileSection}
+          aria-label={detailView
+            ? t("mobile.settings.backToSection")
+            : t("mobile.settings.backToCategories")}
           class="flex min-h-12 min-w-12 items-center justify-center rounded-xl active:bg-accent"
         >
           <ArrowLeft size={22} aria-hidden="true" />
@@ -418,27 +422,67 @@
       <section
         bind:this={settingsScrollEl}
         data-settings-content
-        class="mobile-settings-content min-h-0 flex-1 overflow-y-auto px-4 py-5"
+        class={cn(
+          "mobile-settings-content min-h-0 flex-1",
+          detailView ? "overflow-hidden" : "overflow-y-auto px-4 py-5",
+        )}
       >
-        <div class="mx-auto w-full max-w-xl">
-          <SettingsSectionRenderer
-            {activeSection}
-            {initialDoomscrollingTab}
-            {activeChatSubsection}
-            {initialChatTeammateId}
-            {initialChatChannelId}
-            {initialChatCreateTeammate}
-            onOpenDoomscrollingLimitEditor={openDoomscrollingLimitEditor}
-            onOpenNotesTransferPanel={openNotesTransferPanel}
-            onOpenChatProviderSetup={openChatProviderSetup}
-            onChatSubsectionChange={(subsection: ChatSettingsSubsection) => {
-              activeChatSubsection = subsection;
-              scrollSettingsToTop();
-            }}
-            onRequestNavigation={requestSettingsNavigation}
-            onTeammateDraftStateChange={updateTeammateDraftState}
-          />
-        </div>
+        {#if detailView}
+          {#if activeDetailLoadState?.status === "ready"}
+            {@const loadedDetail = activeDetailLoadState.component}
+            {#if loadedDetail.kind === "doomscrolling-limit" && detailView.kind === "doomscrolling-limit"}
+              {@const DetailComponent = loadedDetail.component}
+              <DetailComponent
+                target={detailView.target}
+                onDone={closeDetailView}
+                onCancel={closeDetailView}
+                compactLayout
+              />
+            {/if}
+          {:else if activeDetailLoadState?.status === "failed"}
+            {@const failedDetailKind = activeDetailLoadState.key}
+            <div
+              class="flex h-full flex-col items-center justify-center gap-3 p-4 text-center text-sm text-muted-foreground"
+              role="alert"
+            >
+              <p>{t("common.viewLoadFailed", activeSectionLabel())}</p>
+              <button
+                type="button"
+                class="min-h-9 rounded-md border border-border bg-background px-3 font-medium text-foreground active:bg-accent"
+                onclick={() => requestSettingsDetail(failedDetailKind, true)}
+              >
+                {t("common.retry")}
+              </button>
+            </div>
+          {:else}
+            <div
+              class="flex h-full items-center justify-center p-4 text-sm text-muted-foreground"
+              aria-busy="true"
+            >
+              {t("common.loading")}
+            </div>
+          {/if}
+        {:else}
+          <div class="mx-auto w-full max-w-xl">
+            <SettingsSectionRenderer
+              {activeSection}
+              {initialDoomscrollingTab}
+              {activeChatSubsection}
+              {initialChatTeammateId}
+              {initialChatChannelId}
+              {initialChatCreateTeammate}
+              onOpenDoomscrollingLimitEditor={openDoomscrollingLimitEditor}
+              onOpenNotesTransferPanel={openNotesTransferPanel}
+              onOpenChatProviderSetup={openChatProviderSetup}
+              onChatSubsectionChange={(subsection: ChatSettingsSubsection) => {
+                activeChatSubsection = subsection;
+                scrollSettingsToTop();
+              }}
+              onRequestNavigation={requestSettingsNavigation}
+              onTeammateDraftStateChange={updateTeammateDraftState}
+            />
+          </div>
+        {/if}
       </section>
     {:else}
       <header class="flex min-h-14 shrink-0 items-center gap-2 border-b border-border px-2">

@@ -75,8 +75,6 @@ internal object CalendarNotificationScheduler {
       }
     }
     editor.apply()
-    PomodoroActivationScheduler.restore(context)
-    PomodoroNotificationScheduler.restore(context)
   }
 
   fun deliver(context: Context, intent: Intent) {
@@ -234,6 +232,14 @@ class CalendarNotificationReceiver : BroadcastReceiver() {
 
 class CalendarNotificationRestoreReceiver : BroadcastReceiver() {
   override fun onReceive(context: Context, intent: Intent) {
+    if (!isNotificationRestoreAction(intent.action)) return
     CalendarNotificationScheduler.restore(context)
   }
 }
+
+internal fun isNotificationRestoreAction(action: String?): Boolean = action in setOf(
+  Intent.ACTION_BOOT_COMPLETED,
+  Intent.ACTION_MY_PACKAGE_REPLACED,
+  Intent.ACTION_TIME_CHANGED,
+  Intent.ACTION_TIMEZONE_CHANGED,
+)

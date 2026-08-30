@@ -20,10 +20,10 @@ Called every second while a session is active.
 - `notify`: 60 seconds remain in focus; emit a notification.
 - `advance`: phase ended, advance to the next phase.
 - `expire`: event time expired, end the run (or transition if a consecutive event exists).
-- `suspend_pause`: tick gap > `SUSPEND_THRESHOLD_MS`, create a suspend pause.
+- `suspend_pause`: on desktop, tick gap > `SUSPEND_THRESHOLD_MS`, create a suspend pause. Mobile WebView tick gaps are normal background behavior and never create a pause.
 - `noop`: nothing to do.
 
-The order of checks inside `decideTick` is: suspend first (because a long tick gap means the rest of this tick's reasoning is based on stale state), then expire, then phase end, then notify, then normal tick.
+The order of checks inside `decideTick` is: desktop suspend first (because a long desktop tick gap means the rest of this tick's reasoning is based on stale state), then expire, then phase end, then notify, then normal tick. Android stops WebView-owned visual ticks while hidden and reconciles the native projection when visible again.
 
 ### `decideAdvancePhase`
 
@@ -203,7 +203,7 @@ Android cold startup performs one typed reconciliation transaction before Calend
 4. A matching Android projection is accepted only when its bounded run, event, event date, event deadline, generated timestamp, unique segment identifiers, rhythm positions, phases, durations, and contiguous boundaries validate against the open SQLite run. The first projected phase must match the single active segment and its proven deadline. Invalid projection data is ignored.
 5. If a valid native projection proves that one or more boundaries elapsed, recovery completes and inserts those segments in the same transaction, records phase completion and start events, then rechecks the resulting single active segment. Replaying the same startup cannot duplicate those writes because the original active segment no longer matches the projection's first phase.
 6. If the calendar event window has expired, recovery closes the run at its persisted event deadline as completed with reason `run_window_expired`. A valid native projection is replayed first so completed background phases remain in history.
-7. If a valid active phase still has work and event time remaining, recovery returns `resumed`. Running elapsed time is derived from the active segment's actual start minus closed pauses. An open pause remains paused and time away does not count. Visible remaining time is capped by both the phase and event deadlines.
+7. If a valid active phase still has work and event time remaining, recovery returns `resumed`. Running elapsed time is derived from the active segment's actual start minus closed pauses. An open manual or idle pause remains paused and time away does not count. Android compatibility recovery normalizes legacy suspend pauses created by background WebView throttling to zero duration, so that time continues to count. Visible remaining time is capped by both the phase and event deadlines.
 8. If the active phase expired without a valid matching native projection, recovery closes the run as interrupted at the proven phase deadline with reason `phase_expired`. It does not invent unobserved phase transitions.
 
 The transaction either returns a validated in-memory snapshot or closes unsafe persisted state. Closure updates the run, active segment, pauses, and audit event together. Repeating recovery sees no open rows after a closure, while a resumed row remains open and can be reconstructed again after another process eviction.

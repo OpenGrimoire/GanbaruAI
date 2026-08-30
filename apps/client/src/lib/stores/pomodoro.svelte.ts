@@ -663,6 +663,7 @@ const phaseController = createPomodoroPhaseController({
 
 const tickController = createPomodoroTickController({
   runtime,
+  detectSuspendGaps: BUILD_PLATFORM_PROFILE.shell === "desktop",
   clock: clockController,
   windowState: windowStateController,
   closeOverlay: effects.closePomodoroOverlay,
@@ -1052,6 +1053,11 @@ async function recoverMobileRunInternal(): Promise<PomodoroMobileRecoveryResult>
   return result;
 }
 
+function prepareForMobileBackground(): void {
+  if (BUILD_PLATFORM_PROFILE.shell !== "mobile") return;
+  stopVisualTick();
+}
+
 // Public API
 
 export function getPomodoro() {
@@ -1247,5 +1253,7 @@ export function getPomodoro() {
     async recoverMobileRun() {
       return recoverMobileRunInternal();
     },
+    /** Stop WebView-owned visual ticks while the native mobile runtime owns elapsed time. */
+    prepareForMobileBackground,
   };
 }

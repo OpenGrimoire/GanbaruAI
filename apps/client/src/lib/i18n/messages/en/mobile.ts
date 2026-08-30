@@ -36,6 +36,7 @@ export const mobile = {
   settings: {
     categoriesLabel: "Settings categories",
     backToCategories: "Back to settings categories",
+    backToSection: "Back to section",
     storageHeading: "Storage",
     privateStorage: "Private",
     privateStorageDescription:

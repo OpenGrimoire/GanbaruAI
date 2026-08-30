@@ -49,12 +49,12 @@ internal fun JournalEvent.toResponse(): Map<String, Any?> = mapOf(
 class MobileDoomscrollingPlugin(private val activity: Activity) : Plugin(activity) {
   override fun load(webView: WebView) {
     super.load(webView)
-    DoomscrollingRuntimeStore.captureNotificationAction(activity, activity.intent)
+    DoomscrollingNotificationActionStore.capture(activity, activity.intent)
   }
 
   override fun onNewIntent(intent: Intent) {
     super.onNewIntent(intent)
-    DoomscrollingRuntimeStore.captureNotificationAction(activity, intent)
+    DoomscrollingNotificationActionStore.capture(activity, intent)
   }
 
   @Command
@@ -125,10 +125,7 @@ class MobileDoomscrollingPlugin(private val activity: Activity) : Plugin(activit
   fun applyRules(invoke: Invoke) {
     val args = invoke.parseArgs(ApplyRulesArgs::class.java)
     try {
-      DoomscrollingRuntimeStore.saveRules(activity, args.snapshotJson)
-      activity.sendBroadcast(Intent(ACTION_DOOMSCROLLING_RULES_CHANGED).apply {
-        setPackage(activity.packageName)
-      })
+      DoomscrollingGuardianClient(activity).applyRules(args.snapshotJson)
       invoke.resolve()
     } catch (error: Exception) {
       invoke.reject(error.message ?: "Invalid mobile Doomscrolling rule snapshot")
@@ -139,7 +136,8 @@ class MobileDoomscrollingPlugin(private val activity: Activity) : Plugin(activit
   fun pendingEvents(invoke: Invoke) {
     Thread {
       try {
-        invoke.resolveObject(DoomscrollingJournal(activity).pending().map(JournalEvent::toResponse))
+        val events = DoomscrollingGuardianClient(activity).pendingEvents()
+        invoke.resolveObject(events.map(JournalEvent::toResponse))
       } catch (error: Exception) {
         invoke.reject(error.message ?: "Failed to read mobile Doomscrolling events")
       }
@@ -151,9 +149,7 @@ class MobileDoomscrollingPlugin(private val activity: Activity) : Plugin(activit
     val args = invoke.parseArgs(AcknowledgeEventsArgs::class.java)
     Thread {
       try {
-        require(args.ids.size <= 500) { "Too many Doomscrolling event acknowledgements" }
-        require(args.ids.all { it.length in 1..120 }) { "Doomscrolling event ID is invalid" }
-        DoomscrollingJournal(activity).acknowledge(args.ids)
+        DoomscrollingGuardianClient(activity).acknowledgeEvents(args.ids)
         invoke.resolve()
       } catch (error: Exception) {
         invoke.reject(error.message ?: "Failed to acknowledge mobile Doomscrolling events")
@@ -164,7 +160,7 @@ class MobileDoomscrollingPlugin(private val activity: Activity) : Plugin(activit
   @Command
   fun takeNotificationAction(invoke: Invoke) {
     invoke.resolve(JSObject().apply {
-      put("target", DoomscrollingRuntimeStore.takeNotificationAction(activity))
+      put("target", DoomscrollingNotificationActionStore.take(activity))
     })
   }
 

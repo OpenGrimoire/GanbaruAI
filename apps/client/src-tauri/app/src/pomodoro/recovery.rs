@@ -407,6 +407,7 @@ async fn decide_candidate(
         return Ok(invalid_end());
     }
 
+    normalize_mobile_suspend_pauses(tx, &segment.id).await?;
     let Some(pauses) = load_active_segment_pauses(tx, &run.id, &segment.id).await? else {
         return Ok(invalid_end());
     };
@@ -547,6 +548,27 @@ async fn decide_candidate(
             open_pause_reason,
         },
     )))
+}
+
+async fn normalize_mobile_suspend_pauses(
+    tx: &mut Transaction<'_, Sqlite>,
+    segment_id: &str,
+) -> Result<(), String> {
+    // Older mobile clients mistook normal WebView throttling for desktop sleep.
+    // Preserve the audit row while removing the incorrectly excluded duration.
+    sqlx::query(
+        "UPDATE pomodoro_pauses
+         SET ended_at = started_at
+         WHERE segment_id = ?
+           AND reason = 'suspend'
+           AND ended_at IS NOT NULL
+           AND ended_at <> started_at",
+    )
+    .bind(segment_id)
+    .execute(&mut **tx)
+    .await
+    .map_err(|error| format!("normalize mobile suspend pauses: {error}"))?;
+    Ok(())
 }
 
 fn valid_run_settings(run: &OpenRunRow) -> bool {

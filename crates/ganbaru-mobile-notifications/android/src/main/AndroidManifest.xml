@@ -32,10 +32,17 @@
     </queries>
 
     <application>
+        <provider
+            android:name=".PomodoroGuardianProvider"
+            android:authorities="${applicationId}.ganbaru.guardian.notifications"
+            android:exported="false"
+            android:process=":guardian" />
+
         <service
             android:name=".PomodoroNotificationService"
             android:exported="false"
             android:foregroundServiceType="specialUse"
+            android:process=":guardian"
             android:stopWithTask="false">
             <property
                 android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
@@ -46,14 +53,28 @@
             android:exported="false" />
         <receiver
             android:name=".PomodoroNotificationReceiver"
-            android:exported="false" />
+            android:exported="false"
+            android:process=":guardian" />
         <receiver
             android:name=".PomodoroActivationReceiver"
-            android:exported="false" />
+            android:exported="false"
+            android:process=":guardian" />
         <receiver
             android:name=".CalendarNotificationRestoreReceiver"
             android:directBootAware="false"
             android:exported="false">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+                <action android:name="android.intent.action.TIME_SET" />
+                <action android:name="android.intent.action.TIMEZONE_CHANGED" />
+            </intent-filter>
+        </receiver>
+        <receiver
+            android:name=".PomodoroNotificationRestoreReceiver"
+            android:directBootAware="false"
+            android:exported="false"
+            android:process=":guardian">
             <intent-filter>
                 <action android:name="android.intent.action.BOOT_COMPLETED" />
                 <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />

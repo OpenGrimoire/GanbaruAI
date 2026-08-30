@@ -49,10 +49,13 @@ internal object PomodoroActivationScheduler {
     previous.forEach { cancelAlarm(context, it.runId) }
     val desiredIds = schedule.mapTo(mutableSetOf()) { it.runId }
     val dismissed = dismissed(context).intersect(desiredIds)
-    store(context).edit().clear().apply()
-    saveDismissed(context, dismissed)
+    val editor = store(context).edit().clear()
+    if (dismissed.isNotEmpty()) editor.putStringSet(DISMISSED_ACTIVATIONS_KEY, dismissed)
     schedule.forEach { projection ->
-      store(context).edit().putString(projection.runId, PomodoroNotificationScheduler.encode(projection)).apply()
+      editor.putString(projection.runId, PomodoroNotificationScheduler.encode(projection))
+    }
+    check(editor.commit()) { "Pomodoro activation schedule could not be persisted" }
+    schedule.forEach { projection ->
       if (projection.runId !in dismissed) scheduleAlarm(context, projection)
     }
     activateEligible(context)
@@ -156,14 +159,18 @@ internal object PomodoroActivationScheduler {
 
   private fun remove(context: Context, activationId: String) {
     cancelAlarm(context, activationId)
-    store(context).edit().remove(activationId).apply()
+    check(store(context).edit().remove(activationId).commit()) {
+      "Pomodoro activation could not be removed"
+    }
   }
 
   private fun dismissed(context: Context): Set<String> =
     store(context).getStringSet(DISMISSED_ACTIVATIONS_KEY, emptySet())?.toSet() ?: emptySet()
 
   private fun saveDismissed(context: Context, values: Set<String>) {
-    store(context).edit().putStringSet(DISMISSED_ACTIVATIONS_KEY, values).apply()
+    check(store(context).edit().putStringSet(DISMISSED_ACTIVATIONS_KEY, values).commit()) {
+      "Pomodoro activation dismissal could not be persisted"
+    }
   }
 
   private fun store(context: Context) = context.getSharedPreferences(
@@ -174,6 +181,8 @@ internal object PomodoroActivationScheduler {
 
 class PomodoroActivationReceiver : BroadcastReceiver() {
   override fun onReceive(context: Context, intent: Intent) {
-    PomodoroActivationScheduler.activate(context, intent.getStringExtra(EXTRA_ACTIVATION_ID))
+    synchronized(POMODORO_GUARDIAN_LOCK) {
+      PomodoroActivationScheduler.activate(context, intent.getStringExtra(EXTRA_ACTIVATION_ID))
+    }
   }
 }

@@ -32,7 +32,7 @@ private const val PHASE_RUN_ID_KEY = "phaseRunId"
 private const val PHASE_KIND_KEY = "phaseKind"
 private const val PHASE_RUNNING_KEY = "phaseRunning"
 private const val PHASE_VALID_UNTIL_KEY = "phaseValidUntil"
-private const val ACTION_TARGET_KEY = "notificationAction"
+private const val LEGACY_ACTION_TARGET_KEY = "notificationAction"
 private const val NOTIFICATION_TIMESTAMPS_KEY = "notificationTimestamps"
 private const val BLOCK_CHANNEL_ID = "doomscrolling-blocks-v1"
 private const val BLOCK_NOTIFICATION_BASE_ID = 1_500_100_000
@@ -74,24 +74,24 @@ internal object DoomscrollingRuntimeStore {
       clearPhase(context)
       return false
     }
-    preferences(context).edit()
+    check(preferences(context).edit()
       .putBoolean(PHASE_ACTIVE_KEY, true)
       .putString(PHASE_RUN_ID_KEY, runId)
       .putString(PHASE_KIND_KEY, phase)
       .putBoolean(PHASE_RUNNING_KEY, running)
       .putLong(PHASE_VALID_UNTIL_KEY, validUntilEpochMs)
-      .apply()
+      .commit()) { "Doomscrolling phase state could not be persisted" }
     return true
   }
 
   fun clearPhase(context: Context) {
-    preferences(context).edit()
+    check(preferences(context).edit()
       .remove(PHASE_ACTIVE_KEY)
       .remove(PHASE_RUN_ID_KEY)
       .remove(PHASE_KIND_KEY)
       .remove(PHASE_RUNNING_KEY)
       .remove(PHASE_VALID_UNTIL_KEY)
-      .apply()
+      .commit()) { "Doomscrolling phase state could not be cleared" }
   }
 
   fun updatePhaseFromIntent(context: Context, intent: Intent): Boolean {
@@ -121,19 +121,10 @@ internal object DoomscrollingRuntimeStore {
     )
   }
 
-  fun captureNotificationAction(context: Context, intent: Intent?) {
-    val target = intent?.getStringExtra(ACTION_TARGET_KEY)
-      ?.takeIf { it == "mobile" || it == "limits" }
-      ?: return
-    preferences(context).edit().putString(ACTION_TARGET_KEY, target).apply()
-    intent.removeExtra(ACTION_TARGET_KEY)
-  }
-
-  fun takeNotificationAction(context: Context): String? {
+  fun cleanupLegacyUiState(context: Context): Boolean {
     val prefs = preferences(context)
-    val target = prefs.getString(ACTION_TARGET_KEY, null)
-    prefs.edit().remove(ACTION_TARGET_KEY).apply()
-    return target
+    if (!prefs.contains(LEGACY_ACTION_TARGET_KEY)) return true
+    return prefs.edit().remove(LEGACY_ACTION_TARGET_KEY).commit()
   }
 
   fun allowNotification(context: Context, nowEpochMs: Long): Boolean {
@@ -159,7 +150,9 @@ internal object DoomscrollingRuntimeStore {
 
 class DoomscrollingPhaseReceiver : BroadcastReceiver() {
   override fun onReceive(context: Context, intent: Intent) {
-    DoomscrollingRuntimeStore.updatePhaseFromIntent(context, intent)
+    synchronized(DOOMSCROLLING_GUARDIAN_LOCK) {
+      DoomscrollingRuntimeStore.updatePhaseFromIntent(context, intent)
+    }
   }
 }
 
@@ -211,42 +204,59 @@ internal object ProtectedPackages {
     manager.resolveActivity(intent, PackageManager.MATCH_DEFAULT_ONLY)?.activityInfo?.packageName
 }
 
+internal data class DoomscrollingRecoveryScope(
+  val usagePackages: Set<String>,
+  val observedPackages: Set<String>,
+)
+
+internal object DoomscrollingRecovery {
+  private const val EVENT_WINDOW_MS = 3 * 24 * 60 * 60 * 1_000L
+  private const val EVENT_DELIVERY_OVERLAP_MS = 5_000L
+
+  fun scope(rules: DoomscrollingRulesSnapshot): DoomscrollingRecoveryScope {
+    val usagePackages = if (rules.limitsEnabled) {
+      rules.limits.filter { it.enabled }.flatMapTo(mutableSetOf()) { it.packages }
+    } else {
+      mutableSetOf()
+    }
+    val observedPackages = rules.mobile.blockedApps
+      .filterTo(mutableListOf()) { it.enabled }
+      .mapTo(usagePackages.toMutableSet()) { it.packageName.lowercase() }
+    return DoomscrollingRecoveryScope(usagePackages, observedPackages)
+  }
+
+  fun queryStart(nowEpochMs: Long): Long = (nowEpochMs - EVENT_WINDOW_MS).coerceAtLeast(0L)
+
+  fun incrementalQueryStart(observedThroughEpochMs: Long): Long =
+    (observedThroughEpochMs - EVENT_DELIVERY_OVERLAP_MS).coerceAtLeast(0L)
+}
+
 internal class DoomscrollingEngine(private val context: Context) {
   private val journal = DoomscrollingJournal(context)
-  private var activePackage: String? = null
-  private var activeName: String? = null
-  private var activeStartedAt: Long = 0L
-  private var activeVaultId: String? = null
+  private var observationState: UsageObservationState? = null
+  private var observationScope: DoomscrollingRecoveryScope? = null
+  private var observedThroughEpochMs: Long = 0L
   private var lastBlockedPackage: String? = null
   private var lastBlockedAt: Long = 0L
 
-  fun onForegroundPackage(packageName: String, nowEpochMs: Long): Boolean {
-    checkpoint(nowEpochMs)
-    activePackage = packageName
-    activeName = appLabel(packageName)
-    activeStartedAt = nowEpochMs
-    activeVaultId = null
-    journal.setMetadata("lastObservedEpochMs", nowEpochMs)
-
-    if (!DoomscrollingAccess.hasUsageAccess(context)) return false
+  fun onAccessibilityPackage(packageName: String, nowEpochMs: Long): Boolean {
+    val rules = prepareObservation(nowEpochMs) ?: return false
     if (ProtectedPackages.isProtected(context, packageName)) return false
-    val rules = DoomscrollingRuntimeStore.rules(context) ?: return false
-    if (usageTracked(rules, packageName)) activeVaultId = rules.vaultId
     val decision = evaluate(rules, packageName, nowEpochMs)
     if (!decision.blocked) return false
     return enforce(packageName, rules, decision, nowEpochMs)
   }
 
   fun onCheckpoint(nowEpochMs: Long): Boolean {
-    checkpoint(nowEpochMs)
-    val packageName = activePackage ?: return false
-    activeVaultId = null
-    if (!DoomscrollingAccess.hasUsageAccess(context)) return false
-    if (ProtectedPackages.isProtected(context, packageName)) return false
-    val rules = DoomscrollingRuntimeStore.rules(context) ?: return false
-    if (usageTracked(rules, packageName)) activeVaultId = rules.vaultId
-    val decision = evaluate(rules, packageName, nowEpochMs)
-    return decision.blocked && enforce(packageName, rules, decision, nowEpochMs)
+    val rules = prepareObservation(nowEpochMs) ?: return false
+    val visiblePackages = observationState?.visibleActivities?.keys.orEmpty()
+    if (!isInteractiveAndUnlocked()) return false
+    for (packageName in visiblePackages.sorted()) {
+      if (ProtectedPackages.isProtected(context, packageName)) continue
+      val decision = evaluate(rules, packageName, nowEpochMs)
+      if (decision.blocked) return enforce(packageName, rules, decision, nowEpochMs)
+    }
+    return false
   }
 
   private fun enforce(
@@ -258,7 +268,7 @@ internal class DoomscrollingEngine(private val context: Context) {
     if (lastBlockedPackage == packageName && nowEpochMs - lastBlockedAt < 1_500L) return true
     lastBlockedPackage = packageName
     lastBlockedAt = nowEpochMs
-    val displayName = activeName ?: packageName
+    val displayName = appLabel(packageName)
     val phase = DoomscrollingRuntimeStore.phase(context)
     journal.recordBlock(
       packageName,
@@ -274,82 +284,106 @@ internal class DoomscrollingEngine(private val context: Context) {
     return true
   }
 
-  fun checkpoint(nowEpochMs: Long, countUntilNow: Boolean = false) {
-    val packageName = activePackage ?: return
-    val startedAt = activeStartedAt
-    if (startedAt > 0L
-      && nowEpochMs > startedAt
-      && (countUntilNow || isInteractiveAndUnlocked())
-    ) {
-      val vaultId = activeVaultId
-      if (vaultId != null) {
-        journal.recordUsage(vaultId, packageName, activeName ?: packageName, startedAt, nowEpochMs)
-      }
+  private fun prepareObservation(nowEpochMs: Long): DoomscrollingRulesSnapshot? {
+    if (!DoomscrollingAccess.hasUsageAccess(context)) {
+      resetObservation()
+      return null
     }
-    activeStartedAt = nowEpochMs
-    journal.setMetadata("lastObservedEpochMs", nowEpochMs)
-  }
-
-  fun stopTracking(nowEpochMs: Long, countUntilNow: Boolean = false) {
-    checkpoint(nowEpochMs, countUntilNow)
-    activePackage = null
-    activeName = null
-    activeStartedAt = 0L
-    activeVaultId = null
-  }
-
-  fun reconcile(nowEpochMs: Long) {
-    if (!DoomscrollingAccess.hasUsageAccess(context)) return
-    val rules = DoomscrollingRuntimeStore.rules(context) ?: return
-    val tracked = if (rules.limitsEnabled) {
-      rules.limits.filter { it.enabled }.flatMapTo(mutableSetOf<String>()) { it.packages }
+    val rules = DoomscrollingRuntimeStore.rules(context) ?: run {
+      resetObservation()
+      return null
+    }
+    val scope = DoomscrollingRecovery.scope(rules)
+    val lastObserved = (journal.metadata("lastObservedEpochMs") ?: nowEpochMs)
+      .coerceIn(0L, nowEpochMs)
+    val mustRebuild = observationState == null
+      || observationScope != scope
+      || observedThroughEpochMs > nowEpochMs
+      || lastObserved < observedThroughEpochMs
+    val queryStart = if (mustRebuild) {
+      DoomscrollingRecovery.queryStart(nowEpochMs)
     } else {
-      mutableSetOf<String>()
+      DoomscrollingRecovery.incrementalQueryStart(observedThroughEpochMs)
     }
-    if (tracked.isEmpty()) return
-    val lastObserved = journal.metadata("lastObservedEpochMs") ?: nowEpochMs
-    val queryStart = maxOf(nowEpochMs - 12 * 60 * 60 * 1_000L, lastObserved - 12 * 60 * 60 * 1_000L)
-    val events = (context.getSystemService(Context.USAGE_STATS_SERVICE) as UsageStatsManager)
-      .queryEvents(queryStart, nowEpochMs)
-    val starts = mutableMapOf<String, Long>()
+    val initialState = if (mustRebuild) UsageObservationState() else checkNotNull(observationState)
+    val result = if (nowEpochMs > queryStart) {
+      DoomscrollingUsageObserver.reconcile(
+        initialState = initialState,
+        events = queryUsageEvents(queryStart, nowEpochMs),
+        observedPackages = scope.observedPackages,
+        usagePackages = scope.usagePackages,
+        intervalStartEpochMs = lastObserved,
+        intervalEndEpochMs = nowEpochMs,
+      )
+    } else {
+      UsageObservationResult(
+        state = initialState,
+        intervals = emptyList(),
+        visiblePackages = initialState.visibleActivities.keys,
+      )
+    }
+    val usageIntervals = result.intervals.map { interval ->
+      JournalUsageInterval(
+        packageName = interval.packageName,
+        displayName = appLabel(interval.packageName),
+        startedAt = interval.startedAtEpochMs,
+        endedAt = interval.endedAtEpochMs,
+      )
+    }
+    journal.recordUsageBatch(rules.vaultId, usageIntervals, nowEpochMs)
+    val power = context.getSystemService(Context.POWER_SERVICE) as android.os.PowerManager
+    val keyguard = context.getSystemService(Context.KEYGUARD_SERVICE) as KeyguardManager
+    observationState = result.state.withDeviceState(
+      screenInteractive = power.isInteractive,
+      keyguardVisible = keyguard.isKeyguardLocked,
+    )
+    observationScope = scope
+    observedThroughEpochMs = nowEpochMs
+    return rules
+  }
+
+  private fun queryUsageEvents(
+    startedAtEpochMs: Long,
+    endedAtEpochMs: Long,
+  ): List<UsageObservationEvent> {
+    val usageEvents = (context.getSystemService(Context.USAGE_STATS_SERVICE) as UsageStatsManager)
+      .queryEvents(startedAtEpochMs, endedAtEpochMs)
+      ?: error("Android usage events were unavailable")
+    val observations = mutableListOf<UsageObservationEvent>()
     val event = UsageEvents.Event()
-    while (events.hasNextEvent()) {
-      events.getNextEvent(event)
-      val packageName = event.packageName?.lowercase() ?: continue
-      if (packageName !in tracked) continue
-      if (event.eventType == UsageEvents.Event.ACTIVITY_RESUMED) {
-        starts[packageName] = event.timeStamp
-      } else if (event.eventType == UsageEvents.Event.ACTIVITY_PAUSED) {
-        val startedAt = starts.remove(packageName) ?: continue
-        val clippedStart = maxOf(startedAt, lastObserved)
-        if (event.timeStamp > clippedStart) {
-          journal.recordUsage(
-            rules.vaultId,
-            packageName,
-            appLabel(packageName),
-            clippedStart,
-            event.timeStamp,
-          )
-        }
-      }
+    while (usageEvents.hasNextEvent()) {
+      usageEvents.getNextEvent(event)
+      val kind = eventKind(event.eventType) ?: continue
+      observations += UsageObservationEvent(
+        packageName = event.packageName?.lowercase(),
+        activityName = event.className,
+        kind = kind,
+        timestampEpochMs = event.timeStamp,
+      )
     }
-    starts.maxByOrNull { it.value }?.let { (packageName, startedAt) ->
-      val clippedStart = maxOf(startedAt, lastObserved)
-      if (nowEpochMs > clippedStart) {
-        journal.recordUsage(
-          rules.vaultId,
-          packageName,
-          appLabel(packageName),
-          clippedStart,
-          nowEpochMs,
-        )
-      }
-      activePackage = packageName
-      activeName = appLabel(packageName)
-      activeStartedAt = nowEpochMs
-      activeVaultId = rules.vaultId
-    }
-    journal.setMetadata("lastObservedEpochMs", nowEpochMs)
+    return observations
+  }
+
+  private fun eventKind(eventType: Int): UsageObservationEventKind? = when (eventType) {
+    UsageEvents.Event.ACTIVITY_RESUMED -> UsageObservationEventKind.ACTIVITY_RESUMED
+    UsageEvents.Event.ACTIVITY_PAUSED -> UsageObservationEventKind.ACTIVITY_PAUSED
+    UsageEvents.Event.ACTIVITY_STOPPED -> UsageObservationEventKind.ACTIVITY_STOPPED
+    USAGE_EVENT_END_OF_DAY,
+    USAGE_EVENT_CONTINUE_PREVIOUS_DAY,
+    -> UsageObservationEventKind.ACTIVITY_VISIBLE_ROLLOVER
+    UsageEvents.Event.SCREEN_INTERACTIVE -> UsageObservationEventKind.SCREEN_INTERACTIVE
+    UsageEvents.Event.SCREEN_NON_INTERACTIVE -> UsageObservationEventKind.SCREEN_NON_INTERACTIVE
+    UsageEvents.Event.KEYGUARD_SHOWN -> UsageObservationEventKind.KEYGUARD_SHOWN
+    UsageEvents.Event.KEYGUARD_HIDDEN -> UsageObservationEventKind.KEYGUARD_HIDDEN
+    UsageEvents.Event.DEVICE_SHUTDOWN -> UsageObservationEventKind.DEVICE_SHUTDOWN
+    UsageEvents.Event.DEVICE_STARTUP -> UsageObservationEventKind.DEVICE_STARTUP
+    else -> null
+  }
+
+  private fun resetObservation() {
+    observationState = null
+    observationScope = null
+    observedThroughEpochMs = 0L
   }
 
   private fun evaluate(
@@ -385,12 +419,6 @@ internal class DoomscrollingEngine(private val context: Context) {
     return BlockDecision(false)
   }
 
-  private fun usageTracked(rules: DoomscrollingRulesSnapshot, packageName: String): Boolean {
-    if (!rules.limitsEnabled) return false
-    val packageKey = packageName.lowercase()
-    return rules.limits.any { it.enabled && packageKey in it.packages }
-  }
-
   private fun notifyBlocked(
     rules: DoomscrollingRulesSnapshot,
     packageName: String,
@@ -410,7 +438,7 @@ internal class DoomscrollingEngine(private val context: Context) {
     val target = if (decision.reason == "usage_limit") "limits" else "mobile"
     val launchIntent = context.packageManager.getLaunchIntentForPackage(context.packageName)?.apply {
       flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
-      putExtra(ACTION_TARGET_KEY, target)
+      putExtra(DOOMSCROLLING_NOTIFICATION_ACTION_KEY, target)
     }
     val contentIntent = launchIntent?.let {
       PendingIntent.getActivity(
@@ -461,4 +489,9 @@ internal class DoomscrollingEngine(private val context: Context) {
     "drawable",
     context.packageName,
   ).takeIf { it != 0 } ?: context.applicationInfo.icon
+
+  private companion object {
+    const val USAGE_EVENT_END_OF_DAY = 3
+    const val USAGE_EVENT_CONTINUE_PREVIOUS_DAY = 4
+  }
 }
