@@ -1,15 +1,16 @@
 package app.ganbaru.mobile_doomscrolling
 
 import android.app.Activity
+import android.content.ComponentName
 import android.content.Intent
 import android.net.Uri
+import android.os.Process
 import android.provider.Settings
 import android.webkit.WebView
 import app.tauri.annotation.Command
 import app.tauri.annotation.InvokeArg
 import app.tauri.annotation.TauriPlugin
 import app.tauri.plugin.Invoke
-import app.tauri.plugin.JSArray
 import app.tauri.plugin.JSObject
 import app.tauri.plugin.Plugin
 
@@ -22,6 +23,27 @@ internal class ApplyRulesArgs {
 internal class AcknowledgeEventsArgs {
   var ids: List<String> = listOf()
 }
+
+internal fun launchableAppResponse(name: String, packageName: String): Map<String, String> = mapOf(
+  "name" to name,
+  "packageName" to packageName,
+)
+
+internal fun JournalEvent.toResponse(): Map<String, Any?> = mapOf(
+  "id" to id,
+  "kind" to kind,
+  "packageName" to packageName,
+  "displayName" to displayName,
+  "startedAt" to startedAt,
+  "elapsedSeconds" to elapsedSeconds,
+  "localDate" to localDate,
+  "occurredAt" to occurredAt,
+  "reason" to reason,
+  "ruleId" to ruleId,
+  "runId" to runId,
+  "phase" to phase,
+  "vaultId" to vaultId,
+)
 
 @TauriPlugin
 class MobileDoomscrollingPlugin(private val activity: Activity) : Plugin(activity) {
@@ -58,7 +80,11 @@ class MobileDoomscrollingPlugin(private val activity: Activity) : Plugin(activit
   @Command
   fun openAccessibilitySettings(invoke: Invoke) {
     startFirstAvailable(
-      listOf(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS), applicationDetailsIntent()),
+      listOf(
+        accessibilityDetailsIntent(),
+        Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS),
+        applicationDetailsIntent(),
+      ),
       invoke,
       "Accessibility",
     )
@@ -66,34 +92,33 @@ class MobileDoomscrollingPlugin(private val activity: Activity) : Plugin(activit
 
   @Command
   fun listLaunchableApps(invoke: Invoke) {
-    try {
-      val manager = activity.packageManager
-      val protected = ProtectedPackages.resolve(activity)
-      val intent = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER)
-      val apps = manager.queryIntentActivities(intent, 0)
-        .asSequence()
-        .mapNotNull { resolved ->
-          val packageName = resolved.activityInfo?.packageName?.trim().orEmpty()
-          if (packageName.isEmpty() || packageName in protected) return@mapNotNull null
-          if (ProtectedPackages.isProtected(activity, packageName)) return@mapNotNull null
-          val label = resolved.loadLabel(manager).toString().trim().take(120)
-            .ifBlank { packageName }
-          label to packageName
-        }
-        .distinctBy { it.second.lowercase() }
-        .sortedWith(compareBy(String.CASE_INSENSITIVE_ORDER) { it.first })
-        .take(512)
-        .map { (name, packageName) ->
-          JSObject().apply {
-            put("name", name)
-            put("packageName", packageName)
+    Thread {
+      try {
+        val manager = activity.packageManager
+        val protected = ProtectedPackages.resolve(activity)
+        val intent = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER)
+        val apps = manager.queryIntentActivities(intent, 0)
+          .asSequence()
+          .mapNotNull { resolved ->
+            val activityInfo = resolved.activityInfo ?: return@mapNotNull null
+            val packageName = activityInfo.packageName?.trim().orEmpty()
+            if (packageName.isEmpty() || packageName in protected) return@mapNotNull null
+            if (activityInfo.applicationInfo?.uid?.let { it < Process.FIRST_APPLICATION_UID } != false) {
+              return@mapNotNull null
+            }
+            val label = resolved.loadLabel(manager).toString().trim().take(120)
+              .ifBlank { packageName }
+            launchableAppResponse(label, packageName)
           }
-        }
-        .toList()
-      invoke.resolveObject(JSArray().apply { apps.forEach(::put) })
-    } catch (error: Exception) {
-      invoke.reject(error.message ?: "Failed to list launchable Android apps")
-    }
+          .distinctBy { it.getValue("packageName").lowercase() }
+          .sortedWith(compareBy(String.CASE_INSENSITIVE_ORDER) { it.getValue("name") })
+          .take(512)
+          .toList()
+        invoke.resolveObject(apps)
+      } catch (error: Exception) {
+        invoke.reject(error.message ?: "Failed to list launchable Android apps")
+      }
+    }.start()
   }
 
   @Command
@@ -112,41 +137,28 @@ class MobileDoomscrollingPlugin(private val activity: Activity) : Plugin(activit
 
   @Command
   fun pendingEvents(invoke: Invoke) {
-    try {
-      val events = DoomscrollingJournal(activity).pending().map { event ->
-        JSObject().apply {
-          put("id", event.id)
-          put("kind", event.kind)
-          put("packageName", event.packageName)
-          put("displayName", event.displayName)
-          put("startedAt", event.startedAt)
-          put("elapsedSeconds", event.elapsedSeconds)
-          put("localDate", event.localDate)
-          put("occurredAt", event.occurredAt)
-          put("reason", event.reason)
-          put("ruleId", event.ruleId)
-          put("runId", event.runId)
-          put("phase", event.phase)
-          put("vaultId", event.vaultId)
-        }
+    Thread {
+      try {
+        invoke.resolveObject(DoomscrollingJournal(activity).pending().map(JournalEvent::toResponse))
+      } catch (error: Exception) {
+        invoke.reject(error.message ?: "Failed to read mobile Doomscrolling events")
       }
-      invoke.resolveObject(JSArray().apply { events.forEach(::put) })
-    } catch (error: Exception) {
-      invoke.reject(error.message ?: "Failed to read mobile Doomscrolling events")
-    }
+    }.start()
   }
 
   @Command
   fun acknowledgeEvents(invoke: Invoke) {
     val args = invoke.parseArgs(AcknowledgeEventsArgs::class.java)
-    try {
-      require(args.ids.size <= 500) { "Too many Doomscrolling event acknowledgements" }
-      require(args.ids.all { it.length in 1..120 }) { "Doomscrolling event ID is invalid" }
-      DoomscrollingJournal(activity).acknowledge(args.ids)
-      invoke.resolve()
-    } catch (error: Exception) {
-      invoke.reject(error.message ?: "Failed to acknowledge mobile Doomscrolling events")
-    }
+    Thread {
+      try {
+        require(args.ids.size <= 500) { "Too many Doomscrolling event acknowledgements" }
+        require(args.ids.all { it.length in 1..120 }) { "Doomscrolling event ID is invalid" }
+        DoomscrollingJournal(activity).acknowledge(args.ids)
+        invoke.resolve()
+      } catch (error: Exception) {
+        invoke.reject(error.message ?: "Failed to acknowledge mobile Doomscrolling events")
+      }
+    }.start()
   }
 
   @Command
@@ -175,4 +187,16 @@ class MobileDoomscrollingPlugin(private val activity: Activity) : Plugin(activit
     Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
     Uri.parse("package:${activity.packageName}"),
   )
+
+  private fun accessibilityDetailsIntent(): Intent = Intent(
+    ACTION_ACCESSIBILITY_DETAILS_SETTINGS,
+  ).putExtra(
+    Intent.EXTRA_COMPONENT_NAME,
+    ComponentName(activity, DoomscrollingAccessibilityService::class.java),
+  )
+
+  companion object {
+    private const val ACTION_ACCESSIBILITY_DETAILS_SETTINGS =
+      "android.settings.ACCESSIBILITY_DETAILS_SETTINGS"
+  }
 }

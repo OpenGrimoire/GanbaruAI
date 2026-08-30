@@ -41,7 +41,7 @@
   let leftForReview = $state(false);
   let secondsRemaining = $state(5);
   let unavailable = $state(false);
-  let disclosure = $state<"usage" | "accessibility" | null>(null);
+  let disclosure = $state<"accessibility" | null>(null);
 
   function safeStorage(): Storage | undefined {
     try {
@@ -152,12 +152,16 @@
   }
 
   function reviewDoomscrolling(target: "usage" | "accessibility"): void {
-    disclosure = target;
+    if (target === "accessibility" && !doomscrollingStatus?.accessibility) {
+      disclosure = target;
+      return;
+    }
+    void openDoomscrollingSettings(target);
   }
 
-  async function agreeAndReviewDoomscrolling(): Promise<void> {
-    const target = disclosure;
-    disclosure = null;
+  async function openDoomscrollingSettings(
+    target: "usage" | "accessibility" | null,
+  ): Promise<void> {
     if (!target || opening) return;
     const review: MobileFocusAccessReview = target === "usage" ? "usage-access" : "app-blocking";
     opening = review;
@@ -172,6 +176,12 @@
     } finally {
       opening = null;
     }
+  }
+
+  function agreeAndReviewDoomscrolling(): void {
+    const target = disclosure;
+    disclosure = null;
+    void openDoomscrollingSettings(target);
   }
 
   function complete(): void {
@@ -302,16 +312,14 @@
             () => { void openBackground("battery"); },
           )}
 
-          {#if doomscrollingStatus && !doomscrollingStatus.usageAccess}
+          {#if doomscrollingStatus}
             {@render accessRow(
               "usage-access",
               t("mobile.focusOnboarding.usageAccess"),
               t("mobile.focusOnboarding.usageAccessDescription"),
               () => reviewDoomscrolling("usage"),
             )}
-          {/if}
 
-          {#if doomscrollingStatus && !doomscrollingStatus.accessibility}
             {@render accessRow(
               "app-blocking",
               t("mobile.focusOnboarding.appBlocking"),
@@ -351,11 +359,11 @@
 
 {#if disclosure}
   <ConfirmDialog
-    title={disclosure === "usage" ? t("settings.doomscrolling.mobile.disclosureUsageTitle") : t("settings.doomscrolling.mobile.disclosureBlockingTitle")}
-    message={disclosure === "usage" ? t("settings.doomscrolling.mobile.disclosureUsageMessage") : t("settings.doomscrolling.mobile.disclosureBlockingMessage")}
+    title={t("settings.doomscrolling.mobile.disclosureBlockingTitle")}
+    message={t("settings.doomscrolling.mobile.disclosureBlockingMessage")}
     confirmLabel={t("settings.doomscrolling.mobile.agreeAndReview")}
     cancelLabel={t("settings.doomscrolling.mobile.notNow")}
-    onConfirm={() => { void agreeAndReviewDoomscrolling(); }}
+    onConfirm={agreeAndReviewDoomscrolling}
     onCancel={() => { disclosure = null; }}
   />
 {/if}

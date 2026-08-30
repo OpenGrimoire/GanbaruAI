@@ -17,7 +17,7 @@
   import DoomscrollingRuleList from "./DoomscrollingRuleList.svelte";
 
   type ConfigurationToggle = "enabled" | "focus" | "shortBreaks" | "longBreaks" | "pause";
-  type Disclosure = "usage" | "accessibility";
+  type AccessTarget = "usage" | "accessibility";
   type PendingAction =
     | { target: "configuration"; toggle: ConfigurationToggle }
     | { target: "app"; type: "disable" | "delete"; packageName: string; name: string };
@@ -28,7 +28,7 @@
   let loadingStatus = $state(true);
   let statusError = $state(false);
   let pickerOpen = $state(false);
-  let disclosure = $state<Disclosure | null>(null);
+  let disclosure = $state<"accessibility" | null>(null);
   let pendingAction = $state<PendingAction | null>(null);
 
   const protectionActive = $derived(Boolean(status?.usageAccess && status.accessibility));
@@ -50,14 +50,31 @@
     }
   }
 
-  async function agreeAndReview(): Promise<void> {
+  async function openAccessSettings(target: AccessTarget | null): Promise<void> {
+    try {
+      if (target === "usage") {
+        await openMobileDoomscrollingUsageAccessSettings();
+      } else if (target === "accessibility") {
+        await openMobileDoomscrollingAccessibilitySettings();
+      }
+    } catch (error) {
+      console.warn("Android Doomscrolling settings failed", error);
+      statusError = true;
+    }
+  }
+
+  function reviewAccess(target: AccessTarget): void {
+    if (target === "accessibility" && !status?.accessibility) {
+      disclosure = target;
+      return;
+    }
+    void openAccessSettings(target);
+  }
+
+  function agreeAndReview(): void {
     const target = disclosure;
     disclosure = null;
-    if (target === "usage") {
-      await openMobileDoomscrollingUsageAccessSettings();
-    } else if (target === "accessibility") {
-      await openMobileDoomscrollingAccessibilitySettings();
-    }
+    void openAccessSettings(target);
   }
 
   function setConfiguration(toggle: ConfigurationToggle, checked: boolean): void {
@@ -166,14 +183,14 @@
           <div class="text-[0.866667rem] text-foreground">{t("settings.doomscrolling.mobile.usageAccess")}</div>
           <div class="mt-0.5 text-[0.8rem] text-muted-foreground">{t("settings.doomscrolling.mobile.usageAccessDescription")}</div>
         </div>
-        <button type="button" onclick={() => { disclosure = "usage"; }} class="h-7 shrink-0 rounded-md bg-primary px-2.5 text-[0.8rem] font-medium text-primary-foreground hover:bg-primary/90">{t("mobile.focusOnboarding.review")}</button>
+        <button type="button" onclick={() => reviewAccess("usage")} class="h-7 shrink-0 rounded-md bg-primary px-2.5 text-[0.8rem] font-medium text-primary-foreground hover:bg-primary/90">{t("mobile.focusOnboarding.review")}</button>
       </div>
       <div class="flex items-center justify-between gap-4 px-1 py-1">
         <div class="min-w-0 flex-1">
           <div class="text-[0.866667rem] text-foreground">{t("settings.doomscrolling.mobile.appBlocking")}</div>
           <div class="mt-0.5 text-[0.8rem] text-muted-foreground">{t("settings.doomscrolling.mobile.appBlockingDescription")}</div>
         </div>
-        <button type="button" onclick={() => { disclosure = "accessibility"; }} class="h-7 shrink-0 rounded-md bg-primary px-2.5 text-[0.8rem] font-medium text-primary-foreground hover:bg-primary/90">{t("mobile.focusOnboarding.review")}</button>
+        <button type="button" onclick={() => reviewAccess("accessibility")} class="h-7 shrink-0 rounded-md bg-primary px-2.5 text-[0.8rem] font-medium text-primary-foreground hover:bg-primary/90">{t("mobile.focusOnboarding.review")}</button>
       </div>
     </div>
     <p class={cn("px-1 text-[0.8rem]", protectionActive ? "text-muted-foreground" : "text-destructive")}>
@@ -220,11 +237,11 @@
 
 {#if disclosure}
   <ConfirmDialog
-    title={disclosure === "usage" ? t("settings.doomscrolling.mobile.disclosureUsageTitle") : t("settings.doomscrolling.mobile.disclosureBlockingTitle")}
-    message={disclosure === "usage" ? t("settings.doomscrolling.mobile.disclosureUsageMessage") : t("settings.doomscrolling.mobile.disclosureBlockingMessage")}
+    title={t("settings.doomscrolling.mobile.disclosureBlockingTitle")}
+    message={t("settings.doomscrolling.mobile.disclosureBlockingMessage")}
     confirmLabel={t("settings.doomscrolling.mobile.agreeAndReview")}
     cancelLabel={t("settings.doomscrolling.mobile.notNow")}
-    onConfirm={() => { void agreeAndReview(); }}
+    onConfirm={agreeAndReview}
     onCancel={() => { disclosure = null; }}
   />
 {/if}

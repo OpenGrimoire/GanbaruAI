@@ -71,12 +71,9 @@ export const doomscrolling = {
     desktopReadOnly: "Las reglas de apps de escritorio son de solo lectura en Android",
     unavailableSource: "Disponible en escritorio",
     legacyApp: "Vuelve a elegir esta app para activar el bloqueo en Android",
-    disclosureUsageTitle: "¿Permitir medir el uso en primer plano?",
-    disclosureUsageMessage:
-      "Ganbaru AI lee la identidad y el tiempo activo de las apps seleccionadas. Estos datos permanecen en tu dispositivo y nunca se comparten.",
     disclosureBlockingTitle: "¿Permitir bloquear apps seleccionadas?",
     disclosureBlockingMessage:
-      "Ganbaru AI usa Accesibilidad de Android para observar qué app se activa. Te devuelve al inicio cuando aplica una regla o límite seleccionado y solo guarda en este dispositivo el uso y los bloqueos de las apps seleccionadas. Estos datos nunca se comparten. No lee contenido de pantalla, texto, toques, contraseñas ni notificaciones.",
+      "Ganbaru AI usa Accesibilidad de Android para observar qué app se activa. Te devuelve al inicio cuando aplica una regla o límite seleccionado y solo guarda en este dispositivo el uso y los bloqueos de las apps seleccionadas. Estos datos nunca se comparten. No lee contenido de pantalla, texto, toques, contraseñas ni notificaciones. Android abrirá Ganbaru AI directamente cuando sea compatible. Si no, abre Servicios descargados o instalados, elige Ganbaru AI y actívalo.",
     agreeAndReview: "Aceptar y revisar",
     notNow: "Ahora no",
     channelName: "Bloqueos de doomscrolling",
