@@ -12,7 +12,6 @@ export interface MusicPlayerSettings {
   volume: number;
   rate: number;
   shuffleEnabled: boolean;
-  shuffleExplicit: boolean;
   muted: boolean;
   playlistVisible: boolean;
 }
@@ -22,7 +21,6 @@ function defaultSettings(): MusicPlayerSettings {
     volume: DEFAULT_PLAYBACK_SNAPSHOT.volume,
     rate: DEFAULT_PLAYBACK_SNAPSHOT.rate,
     shuffleEnabled: true,
-    shuffleExplicit: false,
     muted: false,
     playlistVisible: false,
   };
@@ -41,7 +39,6 @@ export function loadMusicPlayerSettings(): MusicPlayerSettings {
       throw new Error("Music settings must be an object.");
     }
     const record = value as Record<string, unknown>;
-    const shuffleExplicit = record.shuffleExplicit === true;
     return {
       volume: typeof record.volume === "number"
         ? clampVolume(record.volume)
@@ -49,10 +46,9 @@ export function loadMusicPlayerSettings(): MusicPlayerSettings {
       rate: typeof record.rate === "number"
         ? clampRate(record.rate)
         : DEFAULT_PLAYBACK_SNAPSHOT.rate,
-      shuffleEnabled: shuffleExplicit && typeof record.shuffleEnabled === "boolean"
+      shuffleEnabled: typeof record.shuffleEnabled === "boolean"
         ? record.shuffleEnabled
         : true,
-      shuffleExplicit,
       muted: record.muted === true,
       playlistVisible: record.playlistVisible === true,
     };

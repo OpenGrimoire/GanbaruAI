@@ -743,7 +743,7 @@
                       {/if}
                     </div>
                     {#if entry.mobileAppName && !entry.mobileAppPackage}
-                      <span class="text-[0.7rem] text-destructive">{t("settings.doomscrolling.mobile.legacyApp")}</span>
+                      <span class="text-[0.7rem] text-destructive">{t("settings.doomscrolling.mobile.reselectForAndroid")}</span>
                     {/if}
                   {:else}
                     <input value={entry.mobileAppName} oninput={(event) => updateEntry(entry.id, "mobileAppName", event.currentTarget.value)} class="h-8 min-w-0 rounded-md border border-border bg-background/70 px-2.5 text-[0.8rem] text-foreground outline-none placeholder:text-muted-foreground focus:border-ring dark:bg-transparent" placeholder={t("settings.doomscrolling.limits.editor.mobilePlaceholder")} />

@@ -52,17 +52,22 @@ const MOBILE_VAULT_IMPORT_MAX_DEPTH: u32 = 64;
 #[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct VaultAppState {
-    #[serde(default)]
+    #[serde(deserialize_with = "required_nullable")]
     pub device_id: Option<String>,
+    #[serde(deserialize_with = "required_nullable")]
     pub active_vault_path: Option<String>,
-    #[serde(default)]
     pub recent_vault_paths: Vec<String>,
-    #[serde(default)]
     pub music_root_bindings: BTreeMap<String, BTreeMap<String, String>>,
-    #[serde(default)]
     pub project_working_folders: ganbaru_working_folders::WorkingFolderDeviceState,
-    #[serde(default)]
     pub chat: crate::chat::device_state::ChatDeviceState,
+}
+
+fn required_nullable<'de, D, T>(deserializer: D) -> Result<Option<T>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+    T: serde::Deserialize<'de>,
+{
+    <Option<T> as serde::Deserialize>::deserialize(deserializer)
 }
 
 #[tauri::command]
@@ -1563,30 +1568,47 @@ mod tests {
     }
 
     #[test]
-    fn legacy_app_state_defaults_music_root_bindings() {
-        let path = unique_path("legacy-app-state.json");
+    fn app_state_rejects_missing_current_device_state_sections() {
+        let path = unique_path("incomplete-app-state.json");
         fs::write(
             &path,
             r#"{"activeVaultPath":"/tmp/vault","recentVaultPaths":[]}"#,
         )
-        .expect("write legacy state");
+        .expect("write incomplete state");
 
-        let state = read_app_state_from_path(&path).expect("read legacy state");
+        let state = read_app_state_from_path(&path);
 
-        assert!(state.music_root_bindings.is_empty());
-        assert!(state.device_id.is_none());
+        assert!(state.is_err());
         let _ = fs::remove_file(&path);
     }
 
     #[test]
-    fn legacy_provider_probe_defaults_isolated_conversation_support() {
-        let path = unique_path("legacy-provider-probe-app-state.json");
+    fn app_state_requires_current_nullable_fields() {
+        let current = serde_json::to_value(VaultAppState::default()).expect("serialize app state");
+        assert!(serde_json::from_value::<VaultAppState>(current.clone()).is_ok());
+
+        for field in ["deviceId", "activeVaultPath"] {
+            let mut incomplete = current.clone();
+            incomplete.as_object_mut().unwrap().remove(field);
+
+            assert!(
+                serde_json::from_value::<VaultAppState>(incomplete).is_err(),
+                "missing {field} must be rejected"
+            );
+        }
+    }
+
+    #[test]
+    fn provider_probe_requires_current_authority_support_fields() {
+        let path = unique_path("incomplete-provider-probe-app-state.json");
         fs::write(
             &path,
             r#"{
   "deviceId": "device-test",
   "activeVaultPath": null,
   "recentVaultPaths": [],
+  "musicRootBindings": {},
+  "projectWorkingFolders": { "schemaVersion": 1, "vaults": {} },
   "chat": {
     "schemaVersion": 1,
     "vaults": {
@@ -1618,29 +1640,25 @@ mod tests {
               "lastSuccessfulProbeAt": null,
               "modelCatalog": null
             }
-          }
+          },
+          "fullAccessTrust": {},
+          "preferences": {
+            "restoreLastSelectedThread": false,
+            "lastSelectedThreadId": null
+          },
+          "diagnostics": { "captureEnabled": false, "retentionDays": 7 },
+          "executionEnvironmentPaths": {}
         }
       }
     }
   }
 }"#,
         )
-        .expect("write legacy provider probe state");
+        .expect("write incomplete provider probe state");
 
-        let state = read_app_state_from_path(&path).expect("read legacy provider probe state");
-        let provider = state
-            .chat
-            .scope("vault-test", "device-test")
-            .and_then(|scope| scope.provider_instances.values().next())
-            .expect("provider device state");
-        let support = provider
-            .last_probe
-            .as_ref()
-            .expect("provider probe")
-            .authority_support;
+        let state = read_app_state_from_path(&path);
 
-        assert!(!support.isolated_conversation);
-        assert!(support.internal_host_tools);
+        assert!(state.is_err());
         let _ = fs::remove_file(&path);
     }
 

@@ -33,7 +33,7 @@ The domain also records:
 - stable playback resume state by source identity;
 - skip ranges and per-item behavior;
 - item signals, snoozes, statistics, and recent selections;
-- repair issues and user-required actions;
+- refresh issues and user-required actions;
 - bounded refresh and relink jobs;
 - context assignments and soundscape definitions.
 

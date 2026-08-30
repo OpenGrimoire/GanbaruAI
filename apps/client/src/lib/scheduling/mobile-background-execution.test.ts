@@ -53,6 +53,8 @@ describe("mobile Focus onboarding state", () => {
     markMobileFocusAccessReviewed("autostart", storage);
     completeMobileFocusOnboarding(storage);
 
+    expect(values.get("ganbaru.mobile-focus-onboarding.v1")).toBe("complete");
+    expect(values.get("ganbaru.mobile-focus-review.v1.autostart")).toBe("reviewed");
     expect(mobileFocusAccessReviewed("autostart", storage)).toBe(true);
     expect(mobileFocusAccessReviewed("battery", storage)).toBe(false);
     expect(mobileFocusOnboardingCompleted(storage)).toBe(true);

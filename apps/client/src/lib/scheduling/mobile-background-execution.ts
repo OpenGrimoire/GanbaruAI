@@ -8,7 +8,7 @@ export type MobileFocusAccessReview =
   | "usage-access"
   | "app-blocking";
 
-const MOBILE_FOCUS_ONBOARDING_STORAGE_KEY = "ganbaru.mobile-focus-onboarding.v2";
+const MOBILE_FOCUS_ONBOARDING_STORAGE_KEY = "ganbaru.mobile-focus-onboarding.v1";
 const MOBILE_FOCUS_REVIEW_STORAGE_PREFIX = "ganbaru.mobile-focus-review.v1";
 type ReadableStorage = Pick<Storage, "getItem">;
 type WritableStorage = Pick<Storage, "setItem">;

@@ -120,7 +120,7 @@ pub fn prepare_workspace_binding(
     let probe = probe_repository(&canonical_path)?;
     let binding = ProjectWorkingFolderBindingState {
         canonical_path: path_to_string(&canonical_path)?,
-        filesystem_identity: Some(filesystem_identity(&canonical_path, b"working-folder")?),
+        filesystem_identity: filesystem_identity(&canonical_path, b"working-folder")?,
         repository_kind: probe.kind,
         repository_identity: match workspace.repository_kind {
             RepositoryKind::Git => workspace.repository_identity.clone(),
@@ -153,28 +153,14 @@ pub fn authorize_workspace(
         ));
     }
     let current_filesystem_identity = filesystem_identity(&canonical_path, b"working-folder")?;
-    if let Some(expected) = binding.filesystem_identity.as_deref() {
-        if expected != current_filesystem_identity {
-            return Err(folder_identity_mismatch());
-        }
+    if binding.filesystem_identity != current_filesystem_identity {
+        return Err(folder_identity_mismatch());
     }
     let probe = match probe_repository(&canonical_path) {
         Ok(probe) => Some(probe),
-        Err(_)
-            if binding.filesystem_identity.is_some()
-                && !operation.requires_repository_continuity() =>
-        {
-            None
-        }
+        Err(_) if !operation.requires_repository_continuity() => None,
         Err(error) => return Err(error),
     };
-    if binding.filesystem_identity.is_none()
-        && !probe
-            .as_ref()
-            .is_some_and(|probe| legacy_binding_matches(workspace, binding, probe))
-    {
-        return Err(folder_identity_mismatch());
-    }
     let repository_matches = probe
         .as_ref()
         .is_some_and(|probe| repository_matches_binding(workspace, binding, probe));
@@ -241,14 +227,8 @@ pub fn workspace_read(
             Ok(path) => {
                 let path_matches =
                     path_to_string(&path).ok().as_deref() == Some(binding.canonical_path.as_str());
-                let filesystem_matches =
-                    binding
-                        .filesystem_identity
-                        .as_deref()
-                        .is_some_and(|expected| {
-                            filesystem_identity(&path, b"working-folder")
-                                .is_ok_and(|current| current == expected)
-                        });
+                let filesystem_matches = filesystem_identity(&path, b"working-folder")
+                    .is_ok_and(|current| current == binding.filesystem_identity);
                 if path_matches && filesystem_matches {
                     let branch = probe_repository(&path).ok().and_then(|probe| {
                         repository_matches_binding(&workspace, binding, &probe)
@@ -257,19 +237,7 @@ pub fn workspace_read(
                     });
                     (WorkingFolderBindingStatus::Available, branch)
                 } else {
-                    match probe_repository(&path) {
-                        Ok(probe)
-                            if path_matches
-                                && binding.filesystem_identity.is_none()
-                                && legacy_binding_matches(&workspace, binding, &probe) =>
-                        {
-                            let branch = repository_matches_binding(&workspace, binding, &probe)
-                                .then_some(probe.current_branch)
-                                .flatten();
-                            (WorkingFolderBindingStatus::Available, branch)
-                        }
-                        _ => (WorkingFolderBindingStatus::RepositoryMismatch, None),
-                    }
+                    (WorkingFolderBindingStatus::RepositoryMismatch, None)
                 }
             }
         },
@@ -301,23 +269,10 @@ pub fn repository_matches_binding(
             {
                 return false;
             }
-            match binding.repository_storage_identity.as_deref() {
-                Some(expected) => probe.identity.as_deref() == Some(expected),
-                None => legacy_binding_matches(workspace, binding, probe),
-            }
+            binding.repository_storage_identity.as_deref() == probe.identity.as_deref()
+                && binding.repository_storage_identity.is_some()
         }
     }
-}
-
-pub fn legacy_binding_matches(
-    workspace: &ProjectWorkingFolder,
-    binding: &ProjectWorkingFolderBindingState,
-    probe: &RepositoryProbe,
-) -> bool {
-    probe.kind == binding.repository_kind
-        && probe.kind == workspace.repository_kind
-        && probe.compatibility_identity == binding.repository_identity
-        && probe.compatibility_identity == workspace.repository_identity
 }
 
 pub fn initialized_repository_identity(

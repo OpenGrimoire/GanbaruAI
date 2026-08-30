@@ -32,12 +32,10 @@ Evidence reviewed:
 - `apps/client/src/lib/calendar/ics/parser.ts`
 - `apps/client/src/lib/calendar/ics/serializer.ts`
 - `apps/client/src/lib/calendar/ics/types.ts`
-- `apps/client/src/lib/calendar/ics/projection-state.ts`
 - `apps/client/src/lib/calendar/ics/parser.test.ts`
 - `apps/client/src/lib/calendar/ics/serializer.test.ts`
 - `apps/client/src/lib/calendar/ics/fixture-suite.test.ts`
 - `apps/client/src/lib/calendar/ics/round-trip.test.ts`
-- `apps/client/src/lib/calendar/ics/projection-state.test.ts`
 - `apps/client/src/lib/components/calendar/rrule.ts`
 - `apps/client/src/lib/components/calendar/rrule.test.ts`
 - `apps/client/src/lib/components/calendar/recurrence.ts`
@@ -47,7 +45,7 @@ Evidence reviewed:
 - `apps/client/src-tauri/app/src/calendar_import.rs`
 - `apps/client/src-tauri/app/src/calendar_import/preservation.rs`
 - `apps/client/src-tauri/app/src/calendar_reads/icalendar.rs`
-- `apps/client/src-tauri/migrations/20260713024120_baseline_schema.sql`
+- `apps/client/src-tauri/migrations/20260830173211_baseline_schema.sql`
 - current files under `apps/client/test-fixtures/ics/`
 
 This is a source and test audit, not a claim that every legal RFC 5545 form has a fixture.

@@ -167,10 +167,9 @@
   });
 
   $effect(() => {
-    player.setSurfaceElement(mediaSurface);
-    return () => {
-      player.setSurfaceElement(null);
-    };
+    const surface = mediaSurface;
+    if (!surface) return;
+    return player.claimSurface("music-panel", surface);
   });
 
   $effect(() => {

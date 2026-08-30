@@ -13,7 +13,6 @@ function createState(): MusicQueueState {
     currentSource: queue[0],
     queue,
     shuffleEnabled: false,
-    shuffleExplicit: false,
     shuffleOrder: [],
     queueHistory: [],
     pendingQueueIndex: null,

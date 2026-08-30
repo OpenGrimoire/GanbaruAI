@@ -597,6 +597,7 @@ mod tests {
             "version": "2.1.218",
             "accountLabel": null,
             "capabilities": { "entries": [] },
+            "authoritySupport": crate::chat::models::ProviderAuthoritySupport::default(),
             "checkedAt": "2026-07-23T03:18:50.240Z",
             "detail": null
         }))
@@ -626,6 +627,7 @@ mod tests {
             "version": "1.0.0",
             "accountLabel": null,
             "capabilities": { "entries": [] },
+            "authoritySupport": crate::chat::models::ProviderAuthoritySupport::default(),
             "checkedAt": "2026-07-23T03:18:50.240Z",
             "detail": null
         }))

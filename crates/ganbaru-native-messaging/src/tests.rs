@@ -7,6 +7,9 @@ use super::{
 use chrono::{DateTime, SecondsFormat, Utc};
 use sqlx::Row;
 
+static APP_MIGRATOR: sqlx::migrate::Migrator =
+    sqlx::migrate!("../../apps/client/src-tauri/migrations");
+
 fn config() -> DoomscrollingConfig {
     DoomscrollingConfig {
         mode: DoomscrollingMode::Blacklist,
@@ -95,6 +98,26 @@ fn maps_block_event_metadata() {
 }
 
 #[test]
+fn runtime_state_requires_current_nullable_fields() {
+    let current = serde_json::json!({
+        "active": true,
+        "paused": false,
+        "pauseReason": null,
+        "activeRunId": "run-1",
+        "phase": "focus",
+        "remainingSeconds": 60,
+        "updatedAt": "2026-05-28T12:00:00Z"
+    });
+    assert!(serde_json::from_value::<super::RuntimeState>(current.clone()).is_ok());
+
+    for field in ["pauseReason", "activeRunId", "remainingSeconds"] {
+        let mut missing = current.clone();
+        missing.as_object_mut().unwrap().remove(field);
+        assert!(serde_json::from_value::<super::RuntimeState>(missing).is_err());
+    }
+}
+
+#[test]
 fn records_block_event_to_sqlite_without_full_url() {
     let vault_path = std::env::temp_dir().join(format!(
         "ganbaru-ai-native-block-event-{}-{}",
@@ -106,21 +129,6 @@ fn records_block_event_to_sqlite_without_full_url() {
     let db_path = vault_path.join("ganbaru-ai.sqlite");
     std::fs::File::create(&db_path).unwrap();
     let db_url = format!("sqlite:{}", db_path.to_string_lossy());
-    super::block_on(async {
-        let pool = sqlx::sqlite::SqlitePoolOptions::new()
-            .max_connections(1)
-            .connect(&db_url)
-            .await
-            .unwrap();
-        sqlx::raw_sql(
-            "CREATE TABLE pomodoro_runs (id TEXT PRIMARY KEY);
-                 CREATE TABLE pomodoro_segments (id TEXT PRIMARY KEY);",
-        )
-        .execute(&pool)
-        .await
-        .unwrap();
-        pool.close().await;
-    });
 
     let mut runtime = runtime_for_phase("focus", false);
     runtime.active_run_id = None;
@@ -131,6 +139,32 @@ fn records_block_event_to_sqlite_without_full_url() {
         runtime: Some(runtime),
         limit_state: None,
     };
+
+    let rejected = record_block_event_in_database(
+        &snapshot,
+        "2026-06-10T10:00:00.000Z",
+        "youtube.com",
+        Some("blocked host: youtube.com"),
+    );
+    assert!(rejected.is_err());
+
+    super::block_on(async {
+        let pool = sqlx::sqlite::SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect(&db_url)
+            .await
+            .unwrap();
+        let table_count: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM sqlite_schema
+             WHERE type = 'table' AND name = 'doomscrolling_block_events'",
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(table_count, 0);
+        APP_MIGRATOR.run(&pool).await.unwrap();
+        pool.close().await;
+    });
 
     let rejected = record_block_event_in_database(
         &snapshot,
@@ -174,6 +208,65 @@ fn records_block_event_to_sqlite_without_full_url() {
         assert_eq!(rule_kind, "domain");
         assert_eq!(blocker_mode, "blacklist");
 
+        pool.close().await;
+    });
+    let _ = std::fs::remove_dir_all(&vault_path);
+}
+
+#[test]
+fn usage_samples_require_the_migrated_application_schema() {
+    let vault_path = std::env::temp_dir().join(format!(
+        "ganbaru-ai-native-usage-sample-{}-{}",
+        std::process::id(),
+        super::now_epoch_ms()
+    ));
+    let _ = std::fs::remove_dir_all(&vault_path);
+    std::fs::create_dir_all(&vault_path).unwrap();
+    let db_path = vault_path.join("ganbaru-ai.sqlite");
+    std::fs::File::create(&db_path).unwrap();
+    let db_url = format!("sqlite:{}", db_path.to_string_lossy());
+    let sample = || super::UsageSample {
+        id: "sample-1".to_string(),
+        source_type: "website".to_string(),
+        source_key: "example.com".to_string(),
+        display_name: Some("Example".to_string()),
+        started_at: 1_700_000_000_000,
+        elapsed_seconds: 30,
+        local_date: "2026-06-10".to_string(),
+        created_at: 1_700_000_030_000,
+    };
+
+    assert!(super::record_usage_sample(Some(&vault_path), None, sample()).is_err());
+    super::block_on(async {
+        let pool = sqlx::sqlite::SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect(&db_url)
+            .await
+            .unwrap();
+        let table_count: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM sqlite_schema
+             WHERE type = 'table' AND name = 'doomscrolling_usage_samples'",
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(table_count, 0);
+        APP_MIGRATOR.run(&pool).await.unwrap();
+        pool.close().await;
+    });
+    super::record_usage_sample(Some(&vault_path), None, sample()).unwrap();
+
+    super::block_on(async {
+        let pool = sqlx::sqlite::SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect(&db_url)
+            .await
+            .unwrap();
+        let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM doomscrolling_usage_samples")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        assert_eq!(count, 1);
         pool.close().await;
     });
     let _ = std::fs::remove_dir_all(&vault_path);
@@ -246,10 +339,10 @@ fn matches_subdomains_only_on_boundaries() {
 #[test]
 fn reads_enabled_host_rules() {
     let value = serde_json::json!([
-        "Reddit.com",
+        { "host": "Reddit.com", "enabled": true },
         { "host": "youtube.com", "enabled": false },
-        { "host": "Docs.GitHub.com" },
-        { "host": "reddit.com" }
+        { "host": "Docs.GitHub.com", "enabled": true },
+        { "host": "reddit.com", "enabled": true }
     ]);
     assert_eq!(
         super::read_host_array(Some(&value)),
@@ -260,7 +353,7 @@ fn reads_enabled_host_rules() {
 #[test]
 fn reads_only_enabled_built_in_categories() {
     let value = serde_json::json!([
-        "social-media",
+        { "id": "social-media", "enabled": true },
         { "id": "streaming", "enabled": false },
         { "id": "news", "enabled": true },
         { "id": "unknown", "enabled": true }
@@ -285,13 +378,17 @@ fn reads_enabled_custom_category_stacks() {
         {
             "id": "research-traps",
             "name": "  Research traps  ",
-            "hosts": ["news.ycombinator.com", { "host": "reddit.com", "enabled": false }]
+            "enabled": true,
+            "hosts": [
+                { "host": "news.ycombinator.com", "enabled": true },
+                { "host": "reddit.com", "enabled": false }
+            ]
         },
         {
             "id": "disabled",
             "name": "Disabled",
             "enabled": false,
-            "hosts": ["example.com"]
+            "hosts": [{ "host": "example.com", "enabled": true }]
         }
     ]);
     let stacks = super::read_custom_category_stacks(Some(&value));
@@ -299,6 +396,33 @@ fn reads_enabled_custom_category_stacks() {
     assert_eq!(stacks[0].id, "research-traps");
     assert_eq!(stacks[0].name, "Research traps");
     assert_eq!(stacks[0].hosts, vec!["news.ycombinator.com".to_string()]);
+}
+
+#[test]
+fn predecessor_string_rule_entries_are_not_loaded() {
+    let hosts = serde_json::json!(["reddit.com"]);
+    let categories = serde_json::json!(["social-media"]);
+    let stack = serde_json::json!({
+        "id": "old-stack",
+        "name": "Old stack",
+        "hosts": ["example.com"]
+    });
+
+    assert!(super::read_host_array(Some(&hosts)).is_empty());
+    assert!(super::read_category_array(Some(&categories)).is_empty());
+    assert!(super::read_custom_category_stack(&stack).is_none());
+}
+
+#[test]
+fn doomscrolling_mode_and_rule_enabled_flags_are_explicit() {
+    assert!(super::read_mode(&serde_json::json!({})).is_none());
+    assert!(super::read_host_rule(&serde_json::json!({ "host": "example.com" })).is_none());
+    assert!(super::read_custom_category_stack(&serde_json::json!({
+        "id": "stack",
+        "name": "Stack",
+        "hosts": [{ "host": "example.com", "enabled": true }]
+    }))
+    .is_none());
 }
 
 #[test]
@@ -341,14 +465,14 @@ fn blocks_exhausted_daily_website_limits_without_active_pomodoro_rules() {
     }];
     let limit_state = super::LimitState {
         local_date: "2026-05-28".to_string(),
-        week_start_local_date: Some("2026-05-25".to_string()),
+        week_start_local_date: "2026-05-25".to_string(),
         updated_at: super::now_utc().to_rfc3339_opts(SecondsFormat::Millis, true),
-        database_path: Some("/tmp/ganbaru-ai-vault/ganbaru-ai.sqlite".to_string()),
+        database_path: "/tmp/ganbaru-ai-vault/ganbaru-ai.sqlite".to_string(),
         limits: vec![super::LimitStateItem {
             id: "youtube".to_string(),
-            period: Some("day".to_string()),
-            window_start_local_date: Some("2026-05-28".to_string()),
-            window_end_local_date: Some("2026-05-28".to_string()),
+            period: "day".to_string(),
+            window_start_local_date: "2026-05-28".to_string(),
+            window_end_local_date: "2026-05-28".to_string(),
             used_seconds: 600,
             limit_seconds: 600,
             remaining_seconds: 0,
@@ -390,14 +514,14 @@ fn active_focus_rules_win_over_limit_blocks() {
     }];
     let limit_state = super::LimitState {
         local_date: "2026-05-28".to_string(),
-        week_start_local_date: Some("2026-05-25".to_string()),
+        week_start_local_date: "2026-05-25".to_string(),
         updated_at: super::now_utc().to_rfc3339_opts(SecondsFormat::Millis, true),
-        database_path: Some("/tmp/ganbaru-ai-vault/ganbaru-ai.sqlite".to_string()),
+        database_path: "/tmp/ganbaru-ai-vault/ganbaru-ai.sqlite".to_string(),
         limits: vec![super::LimitStateItem {
             id: "reddit".to_string(),
-            period: Some("day".to_string()),
-            window_start_local_date: Some("2026-05-28".to_string()),
-            window_end_local_date: Some("2026-05-28".to_string()),
+            period: "day".to_string(),
+            window_start_local_date: "2026-05-28".to_string(),
+            window_end_local_date: "2026-05-28".to_string(),
             used_seconds: 600,
             limit_seconds: 600,
             remaining_seconds: 0,
@@ -420,9 +544,9 @@ fn uses_limit_state_database_path_for_usage_samples() {
     let vault_path = std::path::Path::new("/tmp/ganbaru-ai-vault");
     let limit_state = super::LimitState {
         local_date: "2026-05-28".to_string(),
-        week_start_local_date: Some("2026-05-25".to_string()),
+        week_start_local_date: "2026-05-25".to_string(),
         updated_at: super::now_utc().to_rfc3339_opts(SecondsFormat::Millis, true),
-        database_path: Some("/tmp/ganbaru-ai-vault/ganbaru-ai.sqlite".to_string()),
+        database_path: "/tmp/ganbaru-ai-vault/ganbaru-ai.sqlite".to_string(),
         limits: Vec::new(),
     };
 
@@ -433,13 +557,45 @@ fn uses_limit_state_database_path_for_usage_samples() {
 }
 
 #[test]
-fn falls_back_to_vault_database_path_without_limit_state_path() {
+fn uses_vault_database_path_without_limit_state() {
     let vault_path = std::path::Path::new("/tmp/ganbaru-ai-vault");
 
     assert_eq!(
         super::usage_db_path(vault_path, None),
         vault_path.join("ganbaru-ai.sqlite")
     );
+}
+
+#[test]
+fn limit_state_requires_the_current_on_disk_shape() {
+    let current = serde_json::json!({
+        "localDate": "2026-05-28",
+        "weekStartLocalDate": "2026-05-25",
+        "updatedAt": "2026-05-28T12:00:00Z",
+        "databasePath": "/tmp/ganbaru-ai-vault/ganbaru-ai.sqlite",
+        "limits": [{
+            "id": "reddit",
+            "period": "day",
+            "windowStartLocalDate": "2026-05-28",
+            "windowEndLocalDate": "2026-05-28",
+            "usedSeconds": 60,
+            "limitSeconds": 600,
+            "remainingSeconds": 540,
+            "exhausted": false
+        }]
+    });
+    assert!(serde_json::from_value::<super::LimitState>(current.clone()).is_ok());
+
+    for field in ["weekStartLocalDate", "databasePath"] {
+        let mut missing = current.clone();
+        missing.as_object_mut().unwrap().remove(field);
+        assert!(serde_json::from_value::<super::LimitState>(missing).is_err());
+    }
+    for field in ["period", "windowStartLocalDate", "windowEndLocalDate"] {
+        let mut missing = current.clone();
+        missing["limits"][0].as_object_mut().unwrap().remove(field);
+        assert!(serde_json::from_value::<super::LimitState>(missing).is_err());
+    }
 }
 
 #[test]

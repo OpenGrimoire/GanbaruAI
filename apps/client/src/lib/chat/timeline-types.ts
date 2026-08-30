@@ -28,11 +28,11 @@ export interface TimelineAssistantMetadata {
 }
 
 export interface TimelineAttachmentSummary {
-  id: string | null;
+  attachmentId: string;
   displayName: string;
-  kind: string | null;
-  byteSize: number | null;
-  status: string | null;
+  kind: string;
+  byteSize: number;
+  status: string;
 }
 
 export interface TimelineMentionSummary {

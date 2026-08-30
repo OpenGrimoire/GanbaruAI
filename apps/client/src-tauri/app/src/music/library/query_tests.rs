@@ -80,7 +80,7 @@ fn review_snooze_and_statistics_commands_preserve_independent_scopes() {
 }
 
 #[test]
-fn review_window_retains_reviewed_and_legacy_deferred_items_but_excludes_ignored_items() {
+fn review_window_retains_reviewed_and_deferred_items_but_excludes_ignored_items() {
     tauri::async_runtime::block_on(async {
         let pool = pool().await;
         for id in ["unreviewed", "reviewed", "ignored", "due", "future"] {
@@ -427,10 +427,9 @@ fn summaries_issues_and_inspector_return_composed_data_without_row_queries() {
         .await
         .unwrap();
         sqlx::query(
-            "INSERT INTO music_library_repair_issues
-                (id, issue_kind, item_id, message, created_at)
-             VALUES ('issue-1', 'legacy-local-root-required', 'item-1',
-                 'Choose a root.', 1700000000000)",
+            "UPDATE music_library_items
+             SET availability = 'missing', updated_at = 1700000000000
+             WHERE id = 'item-1'",
         )
         .execute(&pool)
         .await
@@ -466,7 +465,7 @@ fn summaries_issues_and_inspector_return_composed_data_without_row_queries() {
         assert_eq!(roots[0].name, "Soundtracks");
         assert_eq!(collections[0].kind, MusicCollectionKind::LocalRoot);
         assert_eq!(playlist_detail.intended_uses, vec![MusicIntendedUse::Focus]);
-        assert_eq!(issues[0].id, "issue-1");
+        assert_eq!(issues[0].id, "availability:item-1");
         assert_eq!(detail.locations.len(), 1);
         assert_eq!(detail.memberships.len(), 1);
         assert_eq!(detail.signals, vec![MusicItemSignal::Calm]);

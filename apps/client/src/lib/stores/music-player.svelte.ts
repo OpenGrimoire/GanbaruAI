@@ -30,7 +30,6 @@ import {
   sourceDisplayLabel,
   type MusicSource,
 } from "$lib/music/sources";
-import { getConfigKey, setConfigKey } from "$lib/vault/config";
 import { onActiveVaultIdentityChange } from "$lib/vault/active-vault";
 import { planMusicQueueMutation } from "$lib/music/music-queue-mutation";
 import { musicContextStateAfterAction } from "$lib/music/music-automation-ownership";
@@ -95,9 +94,6 @@ export interface MusicSavedPlaylistLoadOptions {
 const progressMaxFallback = 1;
 
 const initialPlayerSettings = loadMusicPlayerSettings();
-if (getConfigKey<unknown>("music.recentPlaylistIds", undefined) !== undefined) {
-  setConfigKey("music.recentPlaylistIds", undefined);
-}
 
 class MusicPlayerStore {
   sourceInput = $state("");
@@ -108,7 +104,6 @@ class MusicPlayerStore {
   queue = $state<MusicSource[]>([]);
   folderScanTruncated = $state(false);
   shuffleEnabled = $state(initialPlayerSettings.shuffleEnabled);
-  shuffleExplicit = $state(initialPlayerSettings.shuffleExplicit);
   muted = $state(initialPlayerSettings.muted);
   playlistVisible = $state(initialPlayerSettings.playlistVisible);
   shuffleOrder = $state<number[]>([]);
@@ -374,10 +369,6 @@ class MusicPlayerStore {
       window.removeEventListener("online", this.handleConnectivityChange);
       window.removeEventListener("offline", this.handleConnectivityChange);
     }
-  }
-
-  setSurfaceElement(element: HTMLElement | null): void {
-    this.surfaceClaims.setLegacy(element);
   }
 
   applyLibraryMetadata(itemId: string, identityKey: string, title: string, artworkUrl?: string | null): void {
@@ -1028,7 +1019,6 @@ class MusicPlayerStore {
       volume: this.snapshot.volume,
       rate: this.snapshot.rate,
       shuffleEnabled: this.shuffleEnabled,
-      shuffleExplicit: this.shuffleExplicit,
       muted: this.muted,
       playlistVisible: this.playlistVisible,
     });

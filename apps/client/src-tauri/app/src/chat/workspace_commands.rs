@@ -4,9 +4,8 @@ use super::models::{ChatError, ChatErrorCode, ChatResult, ProjectWorkingFolderId
 use super::repository::workspaces as repository;
 use super::workspace::{
     authorize_workspace, ensure_managed_working_folder_binding, filesystem_identity,
-    initialized_repository_identity, legacy_binding_matches, open_authorized_workspace,
-    prepare_workspace_binding, probe_repository, remove_active_device_binding,
-    repository_matches_binding, store_active_device_binding,
+    initialized_repository_identity, open_authorized_workspace, prepare_workspace_binding,
+    probe_repository, remove_active_device_binding, store_active_device_binding,
     validate_external_folder_outside_vault, workspace_read, AuthorizedWorkingFolder,
     CreateProjectWorkingFolderRequest, ProjectWorkingFolder, ProjectWorkingFolderRead,
     WorkingFolderAuthorizationOperation, WorkingFolderKind,
@@ -103,11 +102,7 @@ async fn reconcile_working_folder_binding<R: Runtime>(
     else {
         return Ok(workspace);
     };
-    if existing_binding
-        .filesystem_identity
-        .as_deref()
-        .is_some_and(|expected| expected != current_filesystem_identity)
-    {
+    if existing_binding.filesystem_identity != current_filesystem_identity {
         return Ok(workspace);
     }
     let Ok(probe) = probe_repository(&canonical_path) else {
@@ -115,22 +110,9 @@ async fn reconcile_working_folder_binding<R: Runtime>(
     };
     let repository_transition_identity =
         initialized_repository_identity(&workspace, existing_binding, &probe);
-    let legacy_verified = legacy_binding_matches(&workspace, existing_binding, &probe);
-    if existing_binding.filesystem_identity.is_none()
-        && !legacy_verified
-        && repository_transition_identity.is_none()
-    {
-        return Ok(workspace);
-    }
-
-    let mut binding = existing_binding.clone();
-    let mut binding_changed = false;
-    if binding.filesystem_identity.is_none() {
-        binding.filesystem_identity = Some(current_filesystem_identity);
-        binding_changed = true;
-    }
 
     if let Some(logical_identity) = repository_transition_identity {
+        let mut binding = existing_binding.clone();
         binding.repository_kind = probe.kind;
         binding.repository_identity = Some(logical_identity.clone());
         binding.repository_storage_identity = probe.identity.clone();
@@ -144,18 +126,6 @@ async fn reconcile_working_folder_binding<R: Runtime>(
             &now_timestamp()?,
         )
         .await;
-    }
-
-    if repository_matches_binding(&workspace, &binding, &probe)
-        && binding.repository_storage_identity.is_none()
-        && probe.kind == super::models::RepositoryKind::Git
-    {
-        binding.repository_storage_identity = probe.identity;
-        binding_changed = true;
-    }
-    if binding_changed {
-        binding.last_verified_at = now_timestamp()?;
-        store_active_device_binding(app, &workspace.id, binding)?;
     }
     Ok(workspace)
 }

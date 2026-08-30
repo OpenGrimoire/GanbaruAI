@@ -65,6 +65,10 @@ pub(crate) fn default_provider_configuration(
     instance_id: ProviderInstanceId,
     executable: String,
 ) -> ChatResult<ProviderInstanceConfig> {
+    let provider_config = match metadata.family_id.as_str() {
+        "opencode" => serde_json::json!({ "mode": "local" }),
+        _ => serde_json::json!({}),
+    };
     Ok(ProviderInstanceConfig {
         schema_version: 1,
         instance_id,
@@ -80,7 +84,7 @@ pub(crate) fn default_provider_configuration(
         favorite_model_ids: Vec::new(),
         provider_config: VersionedJson {
             schema_version: metadata.configuration_schema_version,
-            value: serde_json::json!({}),
+            value: provider_config,
         },
         internal_mcp: None,
         unknown_fields: BTreeMap::new(),

@@ -1,7 +1,6 @@
 use chrono::{DateTime, SecondsFormat, Utc};
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::Value;
-use sqlx::raw_sql;
 use sqlx::sqlite::{SqliteConnectOptions, SqlitePoolOptions};
 use std::collections::HashSet;
 use std::io::{Read, Write};
@@ -30,65 +29,6 @@ const APP_SQLITE_FILE: &str = "ganbaru-ai.sqlite";
 const STALE_STATE_SECONDS: i64 = 75;
 const ACTIVE_STATE_STALE_SECONDS: i64 = 45;
 const LIMIT_STATE_STALE_SECONDS: i64 = 20;
-const USAGE_SAMPLE_TABLE_SQL: &str = "
-    CREATE TABLE IF NOT EXISTS doomscrolling_usage_samples (
-        id TEXT PRIMARY KEY CHECK (trim(id) <> ''),
-        source_type TEXT NOT NULL CHECK (source_type IN ('website', 'desktop-app', 'mobile-app')),
-        source_key TEXT NOT NULL CHECK (trim(source_key) <> ''),
-        display_name TEXT,
-        started_at INTEGER NOT NULL CHECK (started_at >= 0),
-        elapsed_seconds INTEGER NOT NULL CHECK (elapsed_seconds > 0 AND elapsed_seconds <= 86400),
-        local_date TEXT NOT NULL CHECK (
-            length(local_date) = 10
-            AND substr(local_date, 5, 1) = '-'
-            AND substr(local_date, 8, 1) = '-'
-        ),
-        created_at INTEGER NOT NULL CHECK (created_at >= 0)
-    );
-    CREATE INDEX IF NOT EXISTS idx_doomscrolling_usage_samples_date_source
-        ON doomscrolling_usage_samples(local_date, source_type, source_key);
-    CREATE INDEX IF NOT EXISTS idx_doomscrolling_usage_samples_started
-        ON doomscrolling_usage_samples(started_at);
-";
-const BLOCK_EVENT_TABLE_SQL: &str = "
-    CREATE TABLE IF NOT EXISTS doomscrolling_block_events (
-        id TEXT PRIMARY KEY CHECK (trim(id) <> ''),
-        run_id TEXT REFERENCES pomodoro_runs(id) ON DELETE SET NULL,
-        segment_id TEXT REFERENCES pomodoro_segments(id) ON DELETE SET NULL,
-        occurred_at TEXT NOT NULL CHECK (trim(occurred_at) <> ''),
-        source_type TEXT NOT NULL CHECK (source_type IN ('browser', 'desktop_app', 'mobile_app')),
-        source_key TEXT NOT NULL CHECK (trim(source_key) <> '' AND instr(source_key, '://') = 0),
-        display_name TEXT,
-        phase TEXT CHECK (
-            phase IS NULL OR
-            phase IN ('focus', 'short_break', 'long_break', 'manual_pause', 'idle_pause', 'suspend_pause')
-        ),
-        decision TEXT NOT NULL CHECK (
-            decision IN ('blocked', 'temporary_allowed', 'false_positive_reported', 'limit_exhausted')
-        ),
-        rule_id TEXT,
-        category_id TEXT,
-        created_at TEXT NOT NULL DEFAULT (datetime('now'))
-    );
-    CREATE INDEX IF NOT EXISTS idx_doomscrolling_block_events_run
-        ON doomscrolling_block_events(run_id, occurred_at);
-    CREATE INDEX IF NOT EXISTS idx_doomscrolling_block_events_source
-        ON doomscrolling_block_events(source_type, source_key, occurred_at);
-    CREATE TABLE IF NOT EXISTS doomscrolling_block_event_rule_snapshots (
-        block_event_id TEXT PRIMARY KEY REFERENCES doomscrolling_block_events(id) ON DELETE CASCADE,
-        rule_id TEXT,
-        rule_kind TEXT CHECK (
-            rule_kind IS NULL OR
-            rule_kind IN ('domain', 'url_pattern', 'category', 'custom_category', 'usage_limit', 'desktop_app')
-        ),
-        rule_label TEXT,
-        environment_id TEXT,
-        blocker_mode TEXT CHECK (
-            blocker_mode IS NULL OR
-            blocker_mode IN ('blacklist', 'whitelist', 'limit')
-        )
-    );
-";
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -174,13 +114,13 @@ struct NativeResponse {
 #[serde(rename_all = "camelCase")]
 struct RuntimeState {
     active: bool,
-    #[serde(default)]
     paused: bool,
-    #[serde(default)]
+    #[serde(deserialize_with = "required_nullable")]
     pause_reason: Option<String>,
-    #[serde(default)]
+    #[serde(deserialize_with = "required_nullable")]
     active_run_id: Option<String>,
     phase: String,
+    #[serde(deserialize_with = "required_nullable")]
     remaining_seconds: Option<i64>,
     updated_at: String,
 }
@@ -252,25 +192,34 @@ struct StateSnapshot {
 #[serde(rename_all = "camelCase")]
 struct LimitState {
     local_date: String,
-    week_start_local_date: Option<String>,
+    week_start_local_date: String,
     updated_at: String,
-    database_path: Option<String>,
+    database_path: String,
     limits: Vec<LimitStateItem>,
 }
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct AppState {
+    #[serde(deserialize_with = "required_nullable")]
     active_vault_path: Option<String>,
+}
+
+fn required_nullable<'de, D, T>(deserializer: D) -> Result<Option<T>, D::Error>
+where
+    D: Deserializer<'de>,
+    T: Deserialize<'de>,
+{
+    Option::<T>::deserialize(deserializer)
 }
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct LimitStateItem {
     id: String,
-    period: Option<String>,
-    window_start_local_date: Option<String>,
-    window_end_local_date: Option<String>,
+    period: String,
+    window_start_local_date: String,
+    window_end_local_date: String,
     used_seconds: i64,
     limit_seconds: i64,
     remaining_seconds: i64,
@@ -540,7 +489,7 @@ fn read_config(path: &std::path::Path) -> Option<DoomscrollingConfig> {
     let contents = std::fs::read_to_string(path).ok()?;
     let value: Value = serde_json::from_str(&contents).ok()?;
     let doomscrolling = value.get("doomscrolling")?;
-    let (mode, has_mode) = read_mode(doomscrolling);
+    let mode = read_mode(doomscrolling)?;
     Some(DoomscrollingConfig {
         mode,
         enabled: doomscrolling
@@ -569,20 +518,16 @@ fn read_config(path: &std::path::Path) -> Option<DoomscrollingConfig> {
         ),
         blocked_hosts: read_host_array(doomscrolling.get("blockedHosts")),
         exception_hosts: read_host_array(doomscrolling.get("exceptionHosts")),
-        allowed_hosts: if has_mode {
-            read_host_array(doomscrolling.get("allowedHosts"))
-        } else {
-            Vec::new()
-        },
+        allowed_hosts: read_host_array(doomscrolling.get("allowedHosts")),
         limits: read_usage_limits_config(doomscrolling.get("limits")),
     })
 }
 
-fn read_mode(doomscrolling: &Value) -> (DoomscrollingMode, bool) {
+fn read_mode(doomscrolling: &Value) -> Option<DoomscrollingMode> {
     match doomscrolling.get("mode").and_then(Value::as_str) {
-        Some("whitelist") => (DoomscrollingMode::Whitelist, true),
-        Some("blacklist") => (DoomscrollingMode::Blacklist, true),
-        _ => (DoomscrollingMode::Blacklist, false),
+        Some("blacklist") => Some(DoomscrollingMode::Blacklist),
+        Some("whitelist") => Some(DoomscrollingMode::Whitelist),
+        _ => None,
     }
 }
 
@@ -618,7 +563,6 @@ fn read_category_array(value: Option<&Value>) -> Vec<String> {
 
 fn read_category_rule(item: &Value) -> Option<String> {
     match item {
-        Value::String(id) if built_in_category(id).is_some() => Some(id.clone()),
         Value::Object(record) => {
             if record.get("enabled").and_then(Value::as_bool) != Some(true) {
                 return None;
@@ -653,7 +597,7 @@ fn read_custom_category_stack(item: &Value) -> Option<CustomCategoryStack> {
     let Value::Object(record) = item else {
         return None;
     };
-    if record.get("enabled").and_then(Value::as_bool) == Some(false) {
+    if record.get("enabled").and_then(Value::as_bool) != Some(true) {
         return None;
     }
     let id = record.get("id").and_then(Value::as_str)?.trim();
@@ -906,9 +850,8 @@ fn read_host_array(value: Option<&Value>) -> Vec<String> {
 
 fn read_host_rule(item: &Value) -> Option<String> {
     match item {
-        Value::String(host) => normalize_host_rule(host),
         Value::Object(record) => {
-            if record.get("enabled").and_then(Value::as_bool) == Some(false) {
+            if record.get("enabled").and_then(Value::as_bool) != Some(true) {
                 return None;
             }
             record
@@ -1197,7 +1140,7 @@ fn decide_url_limit(
             .iter()
             .any(|entry| limit_entry_matches_host(entry, host))
         {
-            let period = total.period.as_deref().unwrap_or("day");
+            let period = total.period.as_str();
             let period_label = if period == "week" { "weekly" } else { "daily" };
             return HostDecision {
                 blocked: true,
@@ -1326,23 +1269,13 @@ fn rules_fingerprint(config: &DoomscrollingConfig, limit_state: Option<&LimitSta
     }
     if let Some(limit_state) = limit_state {
         feed_fingerprint(&mut hash, &limit_state.local_date);
-        if let Some(week_start_local_date) = &limit_state.week_start_local_date {
-            feed_fingerprint(&mut hash, week_start_local_date);
-        }
-        if let Some(database_path) = &limit_state.database_path {
-            feed_fingerprint(&mut hash, database_path);
-        }
+        feed_fingerprint(&mut hash, &limit_state.week_start_local_date);
+        feed_fingerprint(&mut hash, &limit_state.database_path);
         for limit in &limit_state.limits {
             feed_fingerprint(&mut hash, &limit.id);
-            if let Some(period) = &limit.period {
-                feed_fingerprint(&mut hash, period);
-            }
-            if let Some(window_start_local_date) = &limit.window_start_local_date {
-                feed_fingerprint(&mut hash, window_start_local_date);
-            }
-            if let Some(window_end_local_date) = &limit.window_end_local_date {
-                feed_fingerprint(&mut hash, window_end_local_date);
-            }
+            feed_fingerprint(&mut hash, &limit.period);
+            feed_fingerprint(&mut hash, &limit.window_start_local_date);
+            feed_fingerprint(&mut hash, &limit.window_end_local_date);
             feed_fingerprint(&mut hash, &limit.used_seconds.to_string());
             feed_fingerprint(&mut hash, &limit.limit_seconds.to_string());
             feed_fingerprint(&mut hash, &limit.remaining_seconds.to_string());
@@ -1456,8 +1389,7 @@ fn database_path_is_allowed(path: &Path, vault_path: Option<&Path>) -> bool {
 
 fn usage_db_path(vault_path: &Path, limit_state: Option<&LimitState>) -> PathBuf {
     limit_state
-        .and_then(|state| state.database_path.as_deref())
-        .map(PathBuf::from)
+        .map(|state| PathBuf::from(&state.database_path))
         .filter(|path| database_path_is_allowed(path, Some(vault_path)))
         .unwrap_or_else(|| vault_path.join(APP_SQLITE_FILE))
 }
@@ -1487,14 +1419,10 @@ fn record_usage_sample(
             .connect_with(options)
             .await
             .map_err(|e| format!("connect usage database: {e}"))?;
-        raw_sql("PRAGMA busy_timeout=5000")
+        sqlx::query("PRAGMA busy_timeout=5000")
             .execute(&pool)
             .await
             .map_err(|e| format!("usage database busy timeout: {e}"))?;
-        raw_sql(USAGE_SAMPLE_TABLE_SQL)
-            .execute(&pool)
-            .await
-            .map_err(|e| format!("ensure usage sample table: {e}"))?;
         sqlx::query(
             "INSERT OR IGNORE INTO doomscrolling_usage_samples
                 (id, source_type, source_key, display_name, started_at, elapsed_seconds, local_date, created_at)
@@ -1570,40 +1498,18 @@ fn limit_state_is_fresh(state: &LimitState, vault_path: Option<&Path>) -> bool {
     if !valid_local_date(&state.local_date) {
         return false;
     }
-    if state
-        .week_start_local_date
-        .as_deref()
-        .is_some_and(|local_date| !valid_local_date(local_date))
-    {
+    if !valid_local_date(&state.week_start_local_date) {
         return false;
     }
     if state.limits.iter().any(|limit| {
-        limit
-            .period
-            .as_deref()
-            .is_some_and(|period| period != "day" && period != "week")
-            || limit
-                .window_start_local_date
-                .as_deref()
-                .is_some_and(|local_date| !valid_local_date(local_date))
-            || limit
-                .window_end_local_date
-                .as_deref()
-                .is_some_and(|local_date| !valid_local_date(local_date))
-            || limit
-                .window_start_local_date
-                .as_deref()
-                .zip(limit.window_end_local_date.as_deref())
-                .is_some_and(|(start, end)| start > end)
+        !matches!(limit.period.as_str(), "day" | "week")
+            || !valid_local_date(&limit.window_start_local_date)
+            || !valid_local_date(&limit.window_end_local_date)
+            || limit.window_start_local_date > limit.window_end_local_date
     }) {
         return false;
     }
-    if state
-        .database_path
-        .as_deref()
-        .map(Path::new)
-        .is_some_and(|path| !database_path_is_allowed(path, vault_path))
-    {
+    if !database_path_is_allowed(Path::new(&state.database_path), vault_path) {
         return false;
     }
     let Ok(updated_at) = DateTime::parse_from_rfc3339(&state.updated_at) else {
@@ -1687,14 +1593,10 @@ fn record_block_event_in_database(
             .connect_with(options)
             .await
             .map_err(|e| format!("connect usage database: {e}"))?;
-        raw_sql("PRAGMA busy_timeout=5000")
+        sqlx::query("PRAGMA busy_timeout=5000")
             .execute(&pool)
             .await
             .map_err(|e| format!("usage database busy timeout: {e}"))?;
-        raw_sql(BLOCK_EVENT_TABLE_SQL)
-            .execute(&pool)
-            .await
-            .map_err(|e| format!("ensure block event tables: {e}"))?;
         sqlx::query(
             "INSERT OR IGNORE INTO doomscrolling_block_events
                 (id, run_id, segment_id, occurred_at, source_type, source_key,

@@ -9,13 +9,10 @@ import {
   type SchedulerClock,
 } from "$lib/scheduling/lifecycle-scheduler";
 
-const ACTIVE_CHECKPOINT_MS = 10 * 60 * 1_000;
-const IDLE_CHECKPOINT_MS = 2 * 60 * 1_000;
 const ERROR_RETRY_MS = 60_000;
 
 export interface NotesProjectHistoryScheduler {
   setEnabled(enabled: boolean): void;
-  noteMutation(forceCheckpoint?: boolean): void;
   applyMutationDeadline(deadline: string | null): void;
   resume(): void;
   switchVault(): void;
@@ -50,8 +47,6 @@ export function createNotesProjectHistoryScheduler(
 ): NotesProjectHistoryScheduler {
   const clock = options.clock ?? systemSchedulerClock;
   const flush = options.flush ?? flushDueNotesProjectHistory;
-  let firstDirtyAtMs: number | null = null;
-  let lastDirtyAtMs: number | null = null;
   let lifecycle: LifecycleScheduler;
 
   lifecycle = createLifecycleScheduler({
@@ -60,36 +55,17 @@ export function createNotesProjectHistoryScheduler(
     onError: options.onError,
     run: async () => {
       const schedule = await flush();
-      firstDirtyAtMs = null;
-      lastDirtyAtMs = null;
       return nextScheduleDeadline(schedule);
     },
   });
 
-  function noteMutation(forceCheckpoint = false): void {
-    if (!lifecycle.isEnabled()) return;
-    const now = clock.now();
-    firstDirtyAtMs ??= now;
-    lastDirtyAtMs = now;
-    const deadline = forceCheckpoint
-      ? now
-      : Math.min(firstDirtyAtMs + ACTIVE_CHECKPOINT_MS, lastDirtyAtMs + IDLE_CHECKPOINT_MS);
-    lifecycle.scheduleAt(deadline);
-  }
-
   function applyMutationDeadline(deadline: string | null): void {
     const authoritativeDeadline = deadlineMs(deadline);
-    if (authoritativeDeadline === null) {
-      return;
-    }
-    firstDirtyAtMs ??= clock.now();
-    lastDirtyAtMs = clock.now();
+    if (authoritativeDeadline === null) return;
     lifecycle.scheduleAt(authoritativeDeadline);
   }
 
   function switchVault(): void {
-    firstDirtyAtMs = null;
-    lastDirtyAtMs = null;
     lifecycle.resume();
   }
 
@@ -101,7 +77,6 @@ export function createNotesProjectHistoryScheduler(
 
   return {
     setEnabled: lifecycle.setEnabled,
-    noteMutation,
     applyMutationDeadline,
     resume: lifecycle.resume,
     switchVault,
@@ -117,10 +92,6 @@ const sharedNotesProjectHistoryScheduler = createNotesProjectHistoryScheduler({
 
 export function getNotesProjectHistoryScheduler(): NotesProjectHistoryScheduler {
   return sharedNotesProjectHistoryScheduler;
-}
-
-export function notifyNotesProjectHistoryMutation(forceCheckpoint = false): void {
-  sharedNotesProjectHistoryScheduler.noteMutation(forceCheckpoint);
 }
 
 export function applyNotesProjectHistoryMutationDeadline(

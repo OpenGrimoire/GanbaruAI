@@ -162,7 +162,6 @@ export async function importNotesDataSourceCsv(
     await invokeNotesMutation(
       "notes_import_data_source_csv",
       { dbUrl, dataSourceId, request },
-      request.dry_run === false,
     ),
   );
 }

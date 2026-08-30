@@ -581,6 +581,7 @@ fn resume_creates_a_fresh_session_only_after_confirmed_not_found() {
 
 fn external_configuration(origin: &str, confirmed: bool) -> ProviderInstanceConfig {
     configuration(json!({
+        "mode": "external",
         "serverUrl": origin,
         "confirmExternalWorkspaceAccess": confirmed
     }))

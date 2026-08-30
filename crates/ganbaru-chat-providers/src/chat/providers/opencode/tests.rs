@@ -101,10 +101,7 @@ fn openapi_artifact_covers_the_stable_provider_surface() {
 
 #[test]
 fn server_origin_policy_requires_tls_or_an_explicit_override() {
-    assert_eq!(
-        settings(json!({})).connection,
-        OpenCodeConnectionMode::Local
-    );
+    assert!(OpenCodeProviderSettings::parse(&configuration(json!({}))).is_err());
     assert_eq!(
         settings(json!({
             "mode": "local",
@@ -113,43 +110,55 @@ fn server_origin_policy_requires_tls_or_an_explicit_override() {
         .connection,
         OpenCodeConnectionMode::Local
     );
-    assert_eq!(
-        settings(json!({
-            "mode": "external",
-            "endpoint": "https://legacy.example.test"
-        }))
-        .connection,
-        OpenCodeConnectionMode::External {
-            origin: "https://legacy.example.test".to_string(),
-            insecure_http: false,
-        }
-    );
+    assert!(OpenCodeProviderSettings::parse(&configuration(json!({
+        "mode": "external",
+        "endpoint": "https://unsupported.example.test"
+    })))
+    .is_err());
     assert!(OpenCodeProviderSettings::parse(&configuration(json!({
         "mode": "external"
     })))
     .is_err());
     assert_eq!(
-        settings(json!({ "serverUrl": "HTTP://LOCALHOST:80/" })).connection,
+        settings(json!({
+            "mode": "external",
+            "serverUrl": "HTTP://LOCALHOST:80/",
+            "confirmExternalWorkspaceAccess": true
+        }))
+        .connection,
         OpenCodeConnectionMode::External {
             origin: "http://localhost".to_string(),
             insecure_http: false,
         }
     );
     assert_eq!(
-        settings(json!({ "serverUrl": "https://Example.Test:443" })).connection,
+        settings(json!({
+            "mode": "external",
+            "serverUrl": "https://Example.Test:443",
+            "confirmExternalWorkspaceAccess": true
+        }))
+        .connection,
         OpenCodeConnectionMode::External {
             origin: "https://example.test".to_string(),
             insecure_http: false,
         }
     );
     assert!(OpenCodeProviderSettings::parse(&configuration(json!({
+        "mode": "external",
+        "serverUrl": "https://confirmation-required.example.test"
+    })))
+    .is_err());
+    assert!(OpenCodeProviderSettings::parse(&configuration(json!({
+        "mode": "external",
         "serverUrl": "http://example.test"
     })))
     .is_err());
     assert_eq!(
         settings(json!({
+            "mode": "external",
             "serverUrl": "http://example.test:8080",
-            "allowInsecureExternalHttp": true
+            "allowInsecureExternalHttp": true,
+            "confirmExternalWorkspaceAccess": true
         }))
         .connection,
         OpenCodeConnectionMode::External {
@@ -165,6 +174,7 @@ fn server_origin_policy_requires_tls_or_an_explicit_override() {
         "http://localhost.evil.test",
     ] {
         assert!(OpenCodeProviderSettings::parse(&configuration(json!({
+            "mode": "external",
             "serverUrl": invalid
         })))
         .is_err());
@@ -173,7 +183,11 @@ fn server_origin_policy_requires_tls_or_an_explicit_override() {
 
 #[test]
 fn password_is_extracted_and_redacted_from_driver_configuration() {
-    let mut configuration = configuration(json!({ "serverUrl": "https://example.test" }));
+    let mut configuration = configuration(json!({
+        "mode": "external",
+        "serverUrl": "https://example.test",
+        "confirmExternalWorkspaceAccess": true
+    }));
     configuration.environment.insert(
         OPENCODE_PASSWORD_ENVIRONMENT.to_string(),
         "sentinel-secret".to_string(),
@@ -192,7 +206,7 @@ fn password_is_extracted_and_redacted_from_driver_configuration() {
 #[test]
 fn process_environment_uses_the_configured_opencode_directory() {
     let home = TestDirectory::new("config-directory");
-    let mut provider = configuration(json!({}));
+    let mut provider = configuration(json!({ "mode": "local" }));
     provider.provider_home = Some(home.path().to_string_lossy().into_owned());
     let environment = process_environment(&provider).unwrap();
     assert_eq!(
@@ -208,7 +222,7 @@ fn typed_http_scopes_requests_and_redacts_authorization_failures() {
             "HTTP/1.1 401 Unauthorized\r\nContent-Type: application/json\r\nContent-Length: 30\r\nConnection: close\r\n\r\n{\"name\":\"AuthenticationError\"}",
         );
         let workspace = TestDirectory::new("http-auth");
-        let mut configuration = configuration(json!({}));
+        let mut configuration = configuration(json!({ "mode": "local" }));
         configuration.environment.insert(
             OPENCODE_PASSWORD_ENVIRONMENT.to_string(),
             "sentinel-secret".to_string(),
@@ -341,8 +355,12 @@ fn event_stream_decoder_handles_chunks_replay_fields_and_bounds() {
 
 #[test]
 fn continuation_identity_uses_origin_and_account_but_not_password() {
-    let local = settings(json!({}));
-    let external = settings(json!({ "serverUrl": "https://example.test" }));
+    let local = settings(json!({ "mode": "local" }));
+    let external = settings(json!({
+        "mode": "external",
+        "serverUrl": "https://example.test",
+        "confirmExternalWorkspaceAccess": true
+    }));
     let first = continuation_group(&external, Some("account-one")).unwrap();
     let second = continuation_group(&external, Some("account-two")).unwrap();
     assert_ne!(continuation_group(&local, None).unwrap(), first);
@@ -554,7 +572,7 @@ fn owned_server_fixture_stops_its_process_tree() {
         )
         .unwrap();
         std::fs::set_permissions(&executable, std::fs::Permissions::from_mode(0o700)).unwrap();
-        let mut configuration = configuration(json!({}));
+        let mut configuration = configuration(json!({ "mode": "local" }));
         configuration.executable = executable.to_string_lossy().into_owned();
         configuration.environment.insert(
             OPENCODE_PASSWORD_ENVIRONMENT.to_string(),
@@ -609,7 +627,7 @@ fn owned_server_reports_early_exit_timeout_and_oversized_output() {
                 std::fs::Permissions::from_mode(0o700),
             )
             .unwrap();
-            let mut configuration = configuration(json!({}));
+            let mut configuration = configuration(json!({ "mode": "local" }));
             configuration.executable = executable.to_string_lossy().into_owned();
             let result = OwnedOpenCodeServer::start_with_timeout(
                 &configuration,

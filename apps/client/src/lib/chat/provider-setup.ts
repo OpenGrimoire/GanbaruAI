@@ -160,11 +160,11 @@ function validateProviderSpecificFields(
   }
   if (draft.familyId === "opencode") {
     const mode = config.mode;
-    if (mode !== undefined && mode !== "local" && mode !== "external") {
+    if (mode !== "local" && mode !== "external") {
       fields["providerConfig.mode"] = "Choose local or external mode.";
     }
     if (mode === "external") {
-      const serverUrl = config.serverUrl ?? config.endpoint;
+      const serverUrl = config.serverUrl;
       const origin = typeof serverUrl === "string" ? parseHttpOrigin(serverUrl) : null;
       if (!origin) {
         fields["providerConfig.serverUrl"] = "Enter an HTTP or HTTPS server origin.";

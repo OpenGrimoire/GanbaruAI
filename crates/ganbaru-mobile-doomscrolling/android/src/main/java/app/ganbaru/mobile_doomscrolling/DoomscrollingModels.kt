@@ -80,7 +80,7 @@ internal object DoomscrollingRuleCodec {
       MobileAppRule(
         name = bounded(item.getString("name"), 1, 120, "app name"),
         packageName = packageName(item.getString("packageName")),
-        enabled = item.optBoolean("enabled", true),
+        enabled = item.getBoolean("enabled"),
       )
     }.distinctBy { it.packageName.lowercase() }
 
@@ -97,7 +97,7 @@ internal object DoomscrollingRuleCodec {
       MobileLimit(
         id = bounded(item.getString("id"), 1, 80, "limit ID"),
         name = bounded(item.getString("name"), 1, 80, "limit name"),
-        enabled = item.optBoolean("enabled", true),
+        enabled = item.getBoolean("enabled"),
         minutesPerDay = optionalMinutes(item, "minutesPerDay", 24 * 60),
         minutesPerWeek = optionalMinutes(item, "minutesPerWeek", 7 * 24 * 60),
         packages = packages,
@@ -110,14 +110,14 @@ internal object DoomscrollingRuleCodec {
       revision = revision,
       generatedAtEpochMs = generatedAt,
       mobile = MobileSchedule(
-        enabled = mobileJson.optBoolean("enabled", true),
-        blockDuringFocus = mobileJson.optBoolean("blockDuringFocus", true),
-        blockDuringShortBreaks = mobileJson.optBoolean("blockDuringShortBreaks", true),
-        blockDuringLongBreaks = mobileJson.optBoolean("blockDuringLongBreaks", true),
-        pauseDuringFocusPause = mobileJson.optBoolean("pauseDuringFocusPause", true),
+        enabled = mobileJson.getBoolean("enabled"),
+        blockDuringFocus = mobileJson.getBoolean("blockDuringFocus"),
+        blockDuringShortBreaks = mobileJson.getBoolean("blockDuringShortBreaks"),
+        blockDuringLongBreaks = mobileJson.getBoolean("blockDuringLongBreaks"),
+        pauseDuringFocusPause = mobileJson.getBoolean("pauseDuringFocusPause"),
         blockedApps = blockedApps,
       ),
-      limitsEnabled = limitsJson.optBoolean("enabled", true),
+      limitsEnabled = limitsJson.getBoolean("enabled"),
       limits = limits,
       copy = DoomscrollingCopy(
         channelName = bounded(copyJson.getString("channelName"), 1, 80, "channel name"),
@@ -134,7 +134,8 @@ internal object DoomscrollingRuleCodec {
   }
 
   private fun optionalMinutes(value: JSONObject, key: String, maximum: Int): Int? {
-    if (!value.has(key) || value.isNull(key)) return null
+    require(value.has(key)) { "$key is required" }
+    if (value.isNull(key)) return null
     return value.getInt(key).also { require(it in 1..maximum) { "$key is invalid" } }
   }
 

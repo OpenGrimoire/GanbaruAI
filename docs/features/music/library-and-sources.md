@@ -4,9 +4,7 @@
 
 SQLite owns canonical media items, source collections, local roots and locations, playlist memberships, membership skip ranges, review state, snoozes, listening statistics, and playback state.
 
-A media item represents stable content identity. Locations and source collections describe where it can currently be found. Playlist membership describes how that item behaves in one playlist. This separation replaces the legacy model in which one playlist-track row tried to own source identity, location, and playback settings together.
-
-Legacy playlist-track tables remain migration inputs only. Product documentation and new code use the canonical library model.
+A media item represents stable content identity. Locations and source collections describe where it can currently be found. Playlist membership describes how that item behaves in one playlist. Source identity, physical location, and per-playlist playback settings remain separate canonical concerns.
 
 ## Local sources on desktop
 

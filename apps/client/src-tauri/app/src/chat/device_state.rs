@@ -53,16 +53,11 @@ impl Default for ChatDiagnosticPreferences {
 #[derive(Clone, Debug, Default, Deserialize, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ChatDeviceScope {
-    #[serde(default)]
     pub provider_instances: BTreeMap<ProviderInstanceId, ChatProviderDeviceState>,
-    #[serde(default)]
     pub full_access_trust:
         BTreeMap<ProviderInstanceId, BTreeMap<ProjectWorkingFolderId, UtcTimestamp>>,
-    #[serde(default)]
     pub preferences: ChatMachinePreferences,
-    #[serde(default)]
     pub diagnostics: ChatDiagnosticPreferences,
-    #[serde(default)]
     pub execution_environment_paths: BTreeMap<String, String>,
 }
 
@@ -70,7 +65,6 @@ pub struct ChatDeviceScope {
 #[serde(rename_all = "camelCase")]
 pub struct ChatDeviceState {
     pub schema_version: u32,
-    #[serde(default)]
     pub vaults: BTreeMap<String, BTreeMap<String, ChatDeviceScope>>,
 }
 

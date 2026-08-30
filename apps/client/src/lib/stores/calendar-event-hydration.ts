@@ -6,7 +6,6 @@ import type {
   IcalendarPreservationStatus,
 } from "$lib/components/calendar/types";
 import { sanitizeCalendarDescriptionHtml } from "$lib/calendar/description-sanitizer";
-import { deriveIcalendarProjectionState } from "$lib/calendar/ics/projection-state";
 import {
   mapAlarm,
   mapAttendee,
@@ -123,19 +122,11 @@ function applyFullEventFields(row: DbFullEvent, event: CalendarEvent) {
     };
   }
   if (row.icalendar_component_id) event.icalendarComponentId = row.icalendar_component_id;
+  if (row.icalendar_preservation_status) {
+    event.icalendarPreservationStatus = row.icalendar_preservation_status;
+  }
   const projectionWarnings = parseJsonStringArray(row.icalendar_projection_warnings);
-  const projectionState = deriveIcalendarProjectionState({
-    sourceUid: row.source_uid,
-    componentId: row.icalendar_component_id,
-    preservationStatus: row.icalendar_preservation_status,
-    projectionWarnings,
-  });
-  if (projectionState.preservationStatus) {
-    event.icalendarPreservationStatus = projectionState.preservationStatus;
-  }
-  if (projectionState.projectionWarnings) {
-    event.icalendarProjectionWarnings = projectionState.projectionWarnings;
-  }
+  if (projectionWarnings) event.icalendarProjectionWarnings = projectionWarnings;
   const rawJcal = safeJsonParse(row.icalendar_raw_jcal);
   if (rawJcal) event.icalendarRawJcal = rawJcal;
 }

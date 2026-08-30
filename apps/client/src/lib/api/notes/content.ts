@@ -66,7 +66,7 @@ export async function moveNotesPage(
   request: NotesMovePageRequest,
 ): Promise<NotesLoadedPage> {
   const dbUrl = await ensureDbUrl();
-  return mapNotesLoadedPageDto(await invokeNotesMutation("notes_move_page", { dbUrl, pageId, request }, true));
+  return mapNotesLoadedPageDto(await invokeNotesMutation("notes_move_page", { dbUrl, pageId, request }));
 }
 
 export async function updateNotesPage(
@@ -83,7 +83,7 @@ export async function trashNotesPage(
 ): Promise<NotesPage> {
   const dbUrl = await ensureDbUrl();
   const page = mapNotesPageDto(
-    await invokeNotesMutation("notes_trash_page", { dbUrl, pageId, inTrash }, true),
+    await invokeNotesMutation("notes_trash_page", { dbUrl, pageId, inTrash }),
   );
   if (inTrash) invalidateNotesAssetUrls();
   return page;
@@ -94,7 +94,7 @@ export async function archiveNotesPage(
   archived = true,
 ): Promise<NotesPage> {
   const dbUrl = await ensureDbUrl();
-  return mapNotesPageDto(await invokeNotesMutation("notes_archive_page", { dbUrl, pageId, archived }, true));
+  return mapNotesPageDto(await invokeNotesMutation("notes_archive_page", { dbUrl, pageId, archived }));
 }
 
 export async function permanentlyDeleteNotesPage(pageId: string): Promise<string[]> {
@@ -102,7 +102,6 @@ export async function permanentlyDeleteNotesPage(pageId: string): Promise<string
   const deletedPageIds = await invokeNotesMutation(
     "notes_permanently_delete_page",
     { dbUrl, pageId },
-    true,
   );
   if (!Array.isArray(deletedPageIds)) {
     throw new Error("notes_permanently_delete_page returned a non-array payload");

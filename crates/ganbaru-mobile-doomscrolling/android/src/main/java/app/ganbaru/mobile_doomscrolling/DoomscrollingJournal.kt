@@ -35,7 +35,7 @@ internal class DoomscrollingJournal(context: Context) : SQLiteOpenHelper(
   context,
   "ganbaru-doomscrolling-runtime.sqlite",
   null,
-  3,
+  1,
 ) {
   override fun onCreate(db: SQLiteDatabase) {
     db.execSQL(
@@ -72,13 +72,7 @@ internal class DoomscrollingJournal(context: Context) : SQLiteOpenHelper(
   }
 
   override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
-    if (oldVersion < 2) {
-      db.execSQL("ALTER TABLE journal_events ADD COLUMN run_id TEXT")
-      db.execSQL("ALTER TABLE journal_events ADD COLUMN phase TEXT")
-    }
-    if (oldVersion < 3) {
-      db.execSQL("ALTER TABLE journal_events ADD COLUMN vault_id TEXT NOT NULL DEFAULT 'legacy'")
-    }
+    error("Unsupported Doomscrolling journal schema change from $oldVersion to $newVersion")
   }
 
   fun recordUsageBatch(

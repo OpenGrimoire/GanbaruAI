@@ -70,7 +70,7 @@ export const doomscrolling = {
     browserReadOnly: "Las reglas del navegador se aplican en escritorio y son de solo lectura en Android",
     desktopReadOnly: "Las reglas de apps de escritorio son de solo lectura en Android",
     unavailableSource: "Disponible en escritorio",
-    legacyApp: "Vuelve a elegir esta app para activar el bloqueo en Android",
+    reselectForAndroid: "Vuelve a elegir esta app para activar el bloqueo en Android",
     disclosureBlockingTitle: "¿Permitir bloquear apps seleccionadas?",
     disclosureBlockingMessage:
       "Ganbaru AI usa Accesibilidad de Android para observar qué app se activa. Te devuelve al inicio cuando aplica una regla o límite seleccionado y solo guarda en este dispositivo el uso y los bloqueos de las apps seleccionadas. Estos datos nunca se comparten. No lee contenido de pantalla, texto, toques, contraseñas ni notificaciones. Android abrirá Ganbaru AI directamente cuando sea compatible. Si no, abre Servicios descargados o instalados, elige Ganbaru AI y actívalo.",

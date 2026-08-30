@@ -28,7 +28,6 @@ pub struct RenderEvent {
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct EventOverride {
-    #[serde(default)]
     recurrence_id: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     recurrence_range: Option<String>,
@@ -842,6 +841,11 @@ mod tests {
             .collect::<Vec<_>>();
         dates.sort();
         dates
+    }
+
+    #[test]
+    fn override_requires_recurrence_id() {
+        assert!(serde_json::from_value::<EventOverride>(serde_json::json!({})).is_err());
     }
 
     #[test]

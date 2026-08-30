@@ -32,7 +32,6 @@ private const val PHASE_RUN_ID_KEY = "phaseRunId"
 private const val PHASE_KIND_KEY = "phaseKind"
 private const val PHASE_RUNNING_KEY = "phaseRunning"
 private const val PHASE_VALID_UNTIL_KEY = "phaseValidUntil"
-private const val LEGACY_ACTION_TARGET_KEY = "notificationAction"
 private const val NOTIFICATION_TIMESTAMPS_KEY = "notificationTimestamps"
 private const val BLOCK_CHANNEL_ID = "doomscrolling-blocks-v1"
 private const val BLOCK_NOTIFICATION_BASE_ID = 1_500_100_000
@@ -41,8 +40,9 @@ internal object DoomscrollingRuntimeStore {
   fun saveRules(context: Context, encoded: String) {
     val next = DoomscrollingRuleCodec.decode(encoded)
     val prefs = preferences(context)
-    val previousVaultId = prefs.getString(RULES_VAULT_ID_KEY, null) ?: rules(context)?.vaultId
-    if (previousVaultId != null && previousVaultId != next.vaultId) {
+    val previousVaultId = prefs.getString(RULES_VAULT_ID_KEY, null)
+    val incompletePreviousRules = prefs.contains(RULES_KEY) && previousVaultId == null
+    if (incompletePreviousRules || (previousVaultId != null && previousVaultId != next.vaultId)) {
       DoomscrollingJournal(context).clearTotalsAndCheckpoints()
     }
     check(prefs.edit()
@@ -119,12 +119,6 @@ internal object DoomscrollingRuntimeStore {
       running = prefs.getBoolean(PHASE_RUNNING_KEY, false),
       validUntilEpochMs = prefs.getLong(PHASE_VALID_UNTIL_KEY, 0L),
     )
-  }
-
-  fun cleanupLegacyUiState(context: Context): Boolean {
-    val prefs = preferences(context)
-    if (!prefs.contains(LEGACY_ACTION_TARGET_KEY)) return true
-    return prefs.edit().remove(LEGACY_ACTION_TARGET_KEY).commit()
   }
 
   fun allowNotification(context: Context, nowEpochMs: Long): Boolean {

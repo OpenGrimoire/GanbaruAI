@@ -219,10 +219,17 @@ fn user_intent_and_receipt_commit_before_provider_dispatch() {
                 .await
                 .unwrap();
         assert_eq!(stored, "  Preserve this exact prompt\n");
+        let context = serde_json::from_str::<serde_json::Value>(&context).unwrap();
         assert_eq!(
-            serde_json::from_str::<serde_json::Value>(&context).unwrap()["attachments"][0]["kind"],
-            "image"
+            context["attachments"][0]["attachmentId"],
+            "attachment-before-dispatch"
         );
+        assert_eq!(context["attachments"][0]["displayName"], "prompt.png");
+        assert_eq!(context["attachments"][0]["kind"], "image");
+        assert_eq!(context["attachments"][0]["byteSize"], 14);
+        assert_eq!(context["attachments"][0]["status"], "managed");
+        assert!(context["attachments"][0].get("id").is_none());
+        assert!(context["attachments"][0].get("filename").is_none());
         assert_eq!(receipt_state, "accepted");
         assert_eq!(turn_state, "pending");
     });

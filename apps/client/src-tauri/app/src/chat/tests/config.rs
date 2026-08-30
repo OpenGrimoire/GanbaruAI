@@ -60,6 +60,22 @@ fn missing_chat_branch_uses_safe_defaults() {
 }
 
 #[test]
+fn existing_chat_branch_requires_the_current_complete_shape() {
+    let result = parse_chat_config_branch(&json!({
+        "chat": { "schemaVersion": CHAT_VAULT_CONFIG_SCHEMA_VERSION }
+    }));
+
+    assert!(result.is_err());
+
+    let mut missing_nullable_model = valid_config();
+    missing_nullable_model["rememberedSelections"][0]
+        .as_object_mut()
+        .unwrap()
+        .remove("modelId");
+    assert!(parse_chat_config_branch(&json!({ "chat": missing_nullable_model })).is_err());
+}
+
+#[test]
 fn valid_chat_branch_preserves_unknown_portable_fields() {
     let input = valid_config();
     let config = parse_chat_config_branch(&json!({ "chat": input.clone() })).unwrap();

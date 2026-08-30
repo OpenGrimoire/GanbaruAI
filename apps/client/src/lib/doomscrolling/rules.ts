@@ -536,10 +536,6 @@ export function normalizeDoomscrollingDesktopAppMatchNames(
 }
 
 function normalizeHostRuleValue(value: unknown): DoomscrollingHostRule | null {
-  if (typeof value === "string") {
-    const host = normalizeDoomscrollingHost(value);
-    return host ? { host, enabled: true } : null;
-  }
   if (typeof value !== "object" || value === null || Array.isArray(value)) return null;
   const record = value as Record<string, unknown>;
   if (typeof record.host !== "string") return null;
@@ -569,10 +565,6 @@ function appRuleKey(name: string): string {
 }
 
 function normalizeAppRuleValue(value: unknown): DoomscrollingAppRule | null {
-  if (typeof value === "string") {
-    const name = normalizeDoomscrollingAppName(value);
-    return name ? { name, enabled: true, matchNames: [name] } : null;
-  }
   if (typeof value !== "object" || value === null || Array.isArray(value)) return null;
   const record = value as Record<string, unknown>;
   if (typeof record.name !== "string") return null;
@@ -619,9 +611,6 @@ function normalizeAppRules(value: unknown, includeProtectedApps = false): Doomsc
 }
 
 function normalizeCategoryRuleValue(value: unknown): DoomscrollingCategoryRule | null {
-  if (typeof value === "string" && isDoomscrollingCategoryId(value)) {
-    return { id: value, enabled: true };
-  }
   if (typeof value !== "object" || value === null || Array.isArray(value)) return null;
   const record = value as Record<string, unknown>;
   if (typeof record.id !== "string" || !isDoomscrollingCategoryId(record.id)) return null;

@@ -1218,7 +1218,7 @@ export function generateThemeId(
  *
  * Built-ins emit a minimal read-only payload (id, name, base, palette,
  * blendCanvas) used by the editor's "View JSON" affordance; built-ins are
- * never round-tripped through import. User themes emit `schemaVersion: 2`
+ * never round-tripped through import. User themes emit `schemaVersion: 1`
  * with the full token snapshot, sources, isolated-flag arrays, engine
  * version stamp, and palette. Seeds are install-local reset state and are
  * intentionally omitted from the export.
@@ -1236,7 +1236,7 @@ export function serializeTheme(theme: Theme): string {
     return JSON.stringify(ordered, null, 2);
   }
   const ordered: Record<string, unknown> = {
-    schemaVersion: 2,
+    schemaVersion: 1,
     id: theme.id,
     displayName: theme.displayName,
     iconLabel: theme.iconLabel,
@@ -1306,7 +1306,7 @@ export type ThemeValidationResult =
  * are stripped silently because dropping a stale token name should not
  * block an otherwise valid theme.
  *
- * Theme imports must use the current `schemaVersion: 2` export shape: full
+ * Theme imports must use the current `schemaVersion: 1` export shape: full
  * token snapshots, calendar defaults, source palette, isolated-flag arrays,
  * and an engine version stamp.
  */
@@ -1314,8 +1314,8 @@ export function validateThemeJson(input: unknown): ThemeValidationResult {
   if (!isPlainObject(input)) {
     return { ok: false, errors: ["theme must be a JSON object"] };
   }
-  if (input.schemaVersion !== 2) {
-    return { ok: false, errors: ["schemaVersion must be 2"] };
+  if (input.schemaVersion !== 1) {
+    return { ok: false, errors: ["schemaVersion must be 1"] };
   }
   return validateSnapshot(input);
 }

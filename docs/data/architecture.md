@@ -42,6 +42,8 @@ Music bytes remain wherever the user stores them. The vault owns playlist defini
 
 Portable preferences that should follow the vault live in config.json. Writes use a Rust-owned read, validate, merge, and atomic-replace flow so independent windows do not overwrite unrelated settings. Unknown or obsolete fields are handled by explicit validation and migration rules, not silently preserved forever.
 
+The maintainer-approved pre-user reset on 2026-08-30 established the current SQLite, portable configuration, and device-local state shapes together. Earlier development vaults and platform app-state files are intentionally unsupported and must be removed before creating a fresh vault. After a user-capable release can persist these shapes, later changes require explicit migration or compatibility rules.
+
 Device-only values do not belong in config.json. Examples include external absolute paths, native credential material, executable discovery, provider process state, and the active-folder pointer.
 
 ## Notes import and export

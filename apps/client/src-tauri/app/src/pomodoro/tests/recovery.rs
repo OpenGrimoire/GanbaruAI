@@ -4,6 +4,37 @@ use crate::db::run_migrations;
 use sqlx::Row;
 
 #[test]
+fn native_projection_requires_current_title_and_config_fields() {
+    let current = serde_json::json!({
+        "runId": "scheduled-run-1",
+        "eventId": "event-1",
+        "eventTitle": null,
+        "eventDate": "2026-05-29",
+        "eventEndsAtEpochMs": 1_769_703_600_000_i64,
+        "generatedAtEpochMs": 1_769_700_000_000_i64,
+        "isRunning": true,
+        "remainingSeconds": 2400,
+        "totalSeconds": 2400,
+        "configJson": "{}",
+        "phases": [],
+    });
+    assert!(serde_json::from_value::<PomodoroNativeProjectionWrite>(current.clone()).is_ok());
+
+    for field in ["eventTitle", "configJson"] {
+        let mut incomplete = current.clone();
+        incomplete.as_object_mut().unwrap().remove(field);
+        assert!(
+            serde_json::from_value::<PomodoroNativeProjectionWrite>(incomplete).is_err(),
+            "missing {field} must be rejected"
+        );
+    }
+
+    let mut null_config = current;
+    null_config["configJson"] = serde_json::Value::Null;
+    assert!(serde_json::from_value::<PomodoroNativeProjectionWrite>(null_config).is_err());
+}
+
+#[test]
 fn close_run_clamps_end_to_the_latest_open_activity_boundary() {
     tauri::async_runtime::block_on(async {
         let pool = sqlx::sqlite::SqlitePoolOptions::new()
@@ -256,7 +287,7 @@ fn mobile_recovery_preserves_a_paused_phase_without_counting_time_away() {
 }
 
 #[test]
-fn mobile_recovery_counts_legacy_suspend_gaps_as_running_time() {
+fn mobile_recovery_excludes_closed_suspend_pauses_from_focus_time() {
     tauri::async_runtime::block_on(async {
         let pool = migrated_pool_with_event().await;
         let mut tx = pool.begin().await.unwrap();
@@ -300,12 +331,12 @@ fn mobile_recovery_counts_legacy_suspend_gaps_as_running_time() {
         };
 
         assert!(run.is_running);
-        assert_eq!(run.phase_elapsed_seconds, 600);
-        assert_eq!(run.remaining_seconds, 1_800);
+        assert_eq!(run.phase_elapsed_seconds, 360);
+        assert_eq!(run.remaining_seconds, 2_040);
         assert_eq!(run.segment.pause_log.len(), 1);
         assert_eq!(
             run.segment.pause_log[0].ended_at.as_deref(),
-            Some("2026-05-29T10:04:00Z")
+            Some("2026-05-29T10:08:00Z")
         );
     });
 }
@@ -406,7 +437,7 @@ fn mobile_recovery_replays_native_boundaries_after_the_app_process_stops() {
             is_running: true,
             remaining_seconds: 1_800,
             total_seconds: 2_400,
-            config_json: Some(r#"{"rhythm":{"kind":"count","focusDurationMinutes":40,"shortBreakMinutes":5,"longBreakMinutes":10,"longBreakAfterFocusCount":4},"rhythmSource":"preset","presetKey":"adaptive","idleTimeoutMinutes":null}"#.to_string()),
+            config_json: r#"{"rhythm":{"kind":"count","focusDurationMinutes":40,"shortBreakMinutes":5,"longBreakMinutes":10,"longBreakAfterFocusCount":4},"rhythmSource":"preset","presetKey":"adaptive","idleTimeoutMinutes":null}"#.to_string(),
             phases: vec![
                 PomodoroNativeProjectionPhaseWrite {
                     id: "segment-1".to_string(),
@@ -487,7 +518,7 @@ fn mobile_recovery_materializes_a_native_calendar_activation() {
             is_running: true,
             remaining_seconds: 2_400,
             total_seconds: 2_400,
-            config_json: Some(r#"{"rhythm":{"kind":"count","focusDurationMinutes":40,"shortBreakMinutes":5,"longBreakMinutes":10,"longBreakAfterFocusCount":4},"rhythmSource":"preset","presetKey":"adaptive","idleTimeoutMinutes":null}"#.to_string()),
+            config_json: r#"{"rhythm":{"kind":"count","focusDurationMinutes":40,"shortBreakMinutes":5,"longBreakMinutes":10,"longBreakAfterFocusCount":4},"rhythmSource":"preset","presetKey":"adaptive","idleTimeoutMinutes":null}"#.to_string(),
             phases: vec![
                 PomodoroNativeProjectionPhaseWrite {
                     id: "scheduled-a1b2c3d4-1".to_string(),

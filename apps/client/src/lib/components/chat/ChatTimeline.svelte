@@ -686,8 +686,8 @@
   function messageImages(message: TimelineMessageRow): { id: string; displayName: string; byteSize: number | null }[] {
     const images: { id: string; displayName: string; byteSize: number | null }[] = [];
     for (const attachment of message.userContext?.attachments ?? []) {
-      if (attachment.kind !== "image" || !attachment.id) continue;
-      images.push({ id: attachment.id, displayName: attachment.displayName, byteSize: attachment.byteSize });
+      if (attachment.kind !== "image") continue;
+      images.push({ id: attachment.attachmentId, displayName: attachment.displayName, byteSize: attachment.byteSize });
     }
     return images;
   }
@@ -695,7 +695,7 @@
   function hasMessageContextChips(message: TimelineMessageRow): boolean {
     const context = message.userContext;
     return Boolean(context && (
-      context.attachments.some((attachment) => attachment.kind !== "image" || !attachment.id)
+      context.attachments.some((attachment) => attachment.kind !== "image")
       || context.mentions.length > 0
       || context.terminalContext.length > 0
     ));
@@ -913,7 +913,7 @@
                   <article class="chat-user-message">
                     <div use:measureExpandableHeight class="chat-message-expandable" class:collapsed={message.markdown.length > 1200 && !messageExpanded} class:expanded={messageExpanded}><div><p class="wrap-break-word whitespace-pre-wrap">{message.markdown}</p></div></div>
                     {#if messageImages(message).length > 0}<ChatImageGallery images={messageImages(message)} />{/if}
-                    {#if message.userContext && hasMessageContextChips(message)}<div class="chat-user-context">{#each message.userContext.attachments.filter((attachment) => attachment.kind !== "image" || !attachment.id) as attachment}<button type="button" title={attachment.status ?? t("chat.timeline.attachment")} onclick={() => copy(attachment.displayName)}><FileText size={12} /><span>{attachment.displayName}</span>{#if attachment.byteSize !== null}<small>{formatNumber(localization.locale, attachment.byteSize)} B</small>{/if}</button>{/each}{#each message.userContext.mentions as mention}<button type="button" title={t("chat.timeline.mention")} onclick={() => copy(mention.relativePath)}><span>@</span><span>{mention.relativePath}</span></button>{/each}{#each message.userContext.terminalContext as context}<button type="button" title={t("chat.timeline.terminalContext")} onclick={() => copy(context)}><Terminal size={12} /><span>{context}</span></button>{/each}</div>{/if}
+                    {#if message.userContext && hasMessageContextChips(message)}<div class="chat-user-context">{#each message.userContext.attachments.filter((attachment) => attachment.kind !== "image") as attachment}<button type="button" title={attachment.status} onclick={() => copy(attachment.displayName)}><FileText size={12} /><span>{attachment.displayName}</span><small>{formatNumber(localization.locale, attachment.byteSize)} B</small></button>{/each}{#each message.userContext.mentions as mention}<button type="button" title={t("chat.timeline.mention")} onclick={() => copy(mention.relativePath)}><span>@</span><span>{mention.relativePath}</span></button>{/each}{#each message.userContext.terminalContext as context}<button type="button" title={t("chat.timeline.terminalContext")} onclick={() => copy(context)}><Terminal size={12} /><span>{context}</span></button>{/each}</div>{/if}
                     <ChatMessageReactionList target={executionMessageActionTarget(message)} />
                     {#if message.markdown.length > 1200 || message.userContext?.preCheckpointId && (!message.sourceThreadId || message.sourceThreadId === chat.selectedThreadId)}
                       <div class="chat-message-secondary-actions text-muted-foreground">

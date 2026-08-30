@@ -15,7 +15,7 @@ The authoritative schema is the ordered migration set in apps/client/src-tauri/m
 
 ## Migration policy
 
-Persisted data is a user-owned contract. The baseline migration 20260713024120_baseline_schema.sql represents the final maintainer-approved pre-user reset. Once a user-capable release can have applied that baseline, it is immutable. Every later change uses a new UTC timestamped migration named YYYYMMDDHHMMSS_description.sql.
+Persisted data is a user-owned contract. The baseline migration 20260830173211_baseline_schema.sql represents the final maintainer-approved pre-user reset from 2026-08-30. Earlier development databases are intentionally unsupported and must be recreated. Once a user-capable release can have applied this baseline, it is immutable. Every later change uses a new UTC timestamped migration named YYYYMMDDHHMMSS_description.sql.
 
 Do not rewrite an applied migration, manually register a migration, or silently drop obsolete values. A removal or rename needs an explicit migration, cleanup, validator rule, and documentation of why existing user data remains meaningful or is safe to delete.
 

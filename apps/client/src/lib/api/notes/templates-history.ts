@@ -125,7 +125,6 @@ export async function restoreNotesPageHistorySnapshot(
     await invokeNotesMutation(
       "notes_restore_page_history_snapshot",
       { dbUrl, pageId, snapshotId },
-      true,
     ),
   );
 }
@@ -139,7 +138,6 @@ export async function copyNotesPageHistoryBlocks(
     await invokeNotesMutation(
       "notes_copy_page_history_blocks",
       { dbUrl, pageId, snapshotId, request },
-      true,
     ),
   );
 }

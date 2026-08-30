@@ -392,6 +392,7 @@ pub struct PomodoroRecoveredSegmentRead {
 pub struct PomodoroNativeProjectionWrite {
     run_id: String,
     event_id: String,
+    #[serde(deserialize_with = "required_nullable")]
     event_title: Option<String>,
     event_date: String,
     event_ends_at_epoch_ms: i64,
@@ -399,9 +400,17 @@ pub struct PomodoroNativeProjectionWrite {
     is_running: bool,
     remaining_seconds: i64,
     total_seconds: i64,
-    #[serde(default)]
-    config_json: Option<String>,
+    config_json: String,
     phases: Vec<PomodoroNativeProjectionPhaseWrite>,
+}
+
+#[cfg(any(test, target_os = "android", target_os = "ios"))]
+fn required_nullable<'de, D, T>(deserializer: D) -> Result<Option<T>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+    T: serde::Deserialize<'de>,
+{
+    <Option<T> as serde::Deserialize>::deserialize(deserializer)
 }
 
 #[derive(Deserialize)]

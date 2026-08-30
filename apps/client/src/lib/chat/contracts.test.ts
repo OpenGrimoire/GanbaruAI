@@ -468,6 +468,7 @@ describe("Chat vault configuration", () => {
   it("uses explicit safe defaults when the Chat branch is absent", () => {
     const defaults = defaultChatVaultConfig();
     expect(parseChatConfigRoot({ language: "en" })).toEqual(defaults);
+    expect(() => parseChatConfigRoot({ chat: {} })).toThrow("chat.schemaVersion");
     expect(defaults.panels).toEqual({ inspectorWidthPx: 520 });
   });
 
@@ -513,6 +514,84 @@ describe("Chat vault configuration", () => {
     };
 
     expect(parseChatVaultConfig(fixture)).toEqual(fixture);
+  });
+
+  it("requires every current field inside an existing Chat branch", () => {
+    const rootFields = [
+      "schemaVersion",
+      "providers",
+      "automaticProviderSetupDisabled",
+      "rememberedSelections",
+      "workingFolderProviderPreferences",
+      "panels",
+      "behavior",
+    ] as const;
+    for (const field of rootFields) {
+      const incomplete: Record<string, unknown> = { ...defaultChatVaultConfig() };
+      delete incomplete[field];
+      expect(() => parseChatVaultConfig(incomplete), field).toThrow();
+    }
+
+    const provider: Record<string, unknown> = {
+      schemaVersion: 1,
+      instanceId: "codex-personal",
+      familyId: "codex",
+      label: "Personal Codex",
+      enabled: true,
+      launchArguments: [],
+      environment: {},
+      credentialReferences: {},
+      visibleModelIds: [],
+      favoriteModelIds: [],
+      providerConfig: { schemaVersion: 1, value: {} },
+    };
+    for (const field of [
+      "enabled",
+      "launchArguments",
+      "environment",
+      "credentialReferences",
+      "visibleModelIds",
+      "favoriteModelIds",
+    ] as const) {
+      const incomplete = { ...provider };
+      delete incomplete[field];
+      expect(() => parseChatVaultConfig({
+        ...defaultChatVaultConfig(),
+        providers: [incomplete],
+      }), `provider.${field}`).toThrow();
+    }
+
+    const selection: Record<string, unknown> = {
+      workingFolderId: "workspace-1",
+      providerInstanceId: "codex-personal",
+      modelId: "gpt-5-codex",
+      providerManagedModel: false,
+      modelOptions: [],
+      safetyMode: "ask_for_approval",
+      interactionMode: "build",
+    };
+    for (const field of ["providerManagedModel", "modelOptions"] as const) {
+      const incomplete = { ...selection };
+      delete incomplete[field];
+      expect(() => parseChatVaultConfig({
+        ...defaultChatVaultConfig(),
+        rememberedSelections: [incomplete],
+      }), `selection.${field}`).toThrow();
+    }
+
+    expect(() => parseChatVaultConfig({
+      ...defaultChatVaultConfig(),
+      panels: {},
+    })).toThrow("inspectorWidthPx");
+
+    for (const field of Object.keys(defaultChatVaultConfig().behavior)) {
+      const behavior: Record<string, unknown> = { ...defaultChatVaultConfig().behavior };
+      delete behavior[field];
+      expect(() => parseChatVaultConfig({
+        ...defaultChatVaultConfig(),
+        behavior,
+      }), `behavior.${field}`).toThrow();
+    }
   });
 
   it("rejects machine-specific paths and implicit model selection", () => {

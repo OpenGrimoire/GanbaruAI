@@ -92,23 +92,6 @@ fn completed_activity_preserves_streamed_command_output() {
                 .await
                 .unwrap();
         assert_eq!(detail, "4\n");
-
-        sqlx::query("UPDATE chat_activities SET detail = NULL WHERE id = 'command-1'")
-            .execute(&pool)
-            .await
-            .unwrap();
-        sqlx::raw_sql(include_str!(
-            "../../../../../migrations/20260727223218_restore_chat_activity_output.sql"
-        ))
-        .execute(&pool)
-        .await
-        .unwrap();
-        let restored: String =
-            sqlx::query_scalar("SELECT detail FROM chat_activities WHERE id = 'command-1'")
-                .fetch_one(&pool)
-                .await
-                .unwrap();
-        assert_eq!(restored, "4\n");
     });
 }
 

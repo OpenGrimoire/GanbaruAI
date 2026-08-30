@@ -130,22 +130,28 @@ pub const WORKING_FOLDER_DEVICE_STATE_SCHEMA_VERSION: u32 = 1;
 #[serde(rename_all = "camelCase")]
 pub struct ProjectWorkingFolderBindingState {
     pub canonical_path: String,
-    #[serde(default)]
-    pub filesystem_identity: Option<String>,
+    pub filesystem_identity: String,
     pub repository_kind: RepositoryKind,
+    #[serde(deserialize_with = "required_nullable")]
     pub repository_identity: Option<String>,
-    #[serde(default)]
+    #[serde(deserialize_with = "required_nullable")]
     pub repository_storage_identity: Option<String>,
     pub last_verified_at: UtcTimestamp,
+}
+
+fn required_nullable<'de, D, T>(deserializer: D) -> Result<Option<T>, D::Error>
+where
+    D: Deserializer<'de>,
+    T: Deserialize<'de>,
+{
+    Option::<T>::deserialize(deserializer)
 }
 
 /// Device-local working-folder bindings and project selections for one scope.
 #[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct WorkingFolderDeviceScope {
-    #[serde(default)]
     pub bindings: BTreeMap<ProjectWorkingFolderId, ProjectWorkingFolderBindingState>,
-    #[serde(default)]
     pub last_selected_by_project: BTreeMap<String, ProjectWorkingFolderId>,
 }
 
@@ -154,7 +160,6 @@ pub struct WorkingFolderDeviceScope {
 #[serde(rename_all = "camelCase")]
 pub struct WorkingFolderDeviceState {
     pub schema_version: u32,
-    #[serde(default)]
     pub vaults: BTreeMap<String, BTreeMap<String, WorkingFolderDeviceScope>>,
 }
 
@@ -204,17 +209,30 @@ mod tests {
     }
 
     #[test]
-    fn legacy_binding_defaults_new_identity_fields() {
-        let binding: ProjectWorkingFolderBindingState = serde_json::from_value(serde_json::json!({
+    fn binding_requires_the_current_identity_fields() {
+        let current = serde_json::json!({
             "canonicalPath": "/tmp/workspace",
+            "filesystemIdentity": "filesystem-1",
             "repositoryKind": "git",
             "repositoryIdentity": "repository-1",
+            "repositoryStorageIdentity": null,
             "lastVerifiedAt": "2026-07-20T12:00:00Z"
-        }))
-        .unwrap();
+        });
+        assert!(
+            serde_json::from_value::<ProjectWorkingFolderBindingState>(current.clone()).is_ok()
+        );
 
-        assert_eq!(binding.filesystem_identity, None);
-        assert_eq!(binding.repository_storage_identity, None);
+        for field in [
+            "filesystemIdentity",
+            "repositoryIdentity",
+            "repositoryStorageIdentity",
+        ] {
+            let mut incomplete = current.clone();
+            incomplete.as_object_mut().unwrap().remove(field);
+            let binding = serde_json::from_value::<ProjectWorkingFolderBindingState>(incomplete);
+
+            assert!(binding.is_err(), "missing {field} must be rejected");
+        }
     }
 
     #[test]

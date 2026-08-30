@@ -21,6 +21,7 @@ describe("Chat channel sections", () => {
 
   it("round trips validated custom sections", () => {
     saveChatSidebarSections("project", [{ id: "section", name: "Work", collapsed: true, channelIds: ["a"] }]);
+    expect(localStorage.getItem("ganbaru.chat.channel-sections.v1:vault-a:project")).not.toBeNull();
     expect(readChatSidebarSections("project")).toEqual([
       { id: "section", name: "Work", collapsed: true, channelIds: ["a"] },
     ]);
@@ -45,6 +46,7 @@ describe("Chat channel sections", () => {
   it("remembers the last selected channel per project", () => {
     saveLastChatChannelId("one", "channel:a");
     saveLastChatChannelId("two", "channel:b");
+    expect(localStorage.getItem("ganbaru.chat.last-channel.v1:vault-a:one")).toBe("channel:a");
     expect(readLastChatChannelId("one")).toBe("channel:a");
     expect(readLastChatChannelId("two")).toBe("channel:b");
   });
@@ -66,13 +68,4 @@ describe("Chat channel sections", () => {
     expect(readLastChatChannelId("project-routine-learning")).toBe("channel:a");
   });
 
-  it("removes obsolete unscoped preferences instead of assigning them to a new vault", () => {
-    const legacyKey = "ganbaru.chat.channel-sections.v1:project-routine-learning";
-    localStorage.setItem(legacyKey, JSON.stringify([
-      { id: "section-old", name: "Old vault", collapsed: false, channelIds: [] },
-    ]));
-
-    expect(readChatSidebarSections("project-routine-learning")).toEqual([]);
-    expect(localStorage.getItem(legacyKey)).toBeNull();
-  });
 });

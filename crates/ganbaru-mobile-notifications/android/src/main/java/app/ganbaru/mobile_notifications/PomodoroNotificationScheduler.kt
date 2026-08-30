@@ -63,7 +63,7 @@ internal data class PomodoroNotificationProjection(
   val isRunning: Boolean,
   val remainingSeconds: Int,
   val totalSeconds: Int,
-  val configJson: String?,
+  val configJson: String,
   val phases: List<PomodoroNotificationPhase>,
   val copy: PomodoroNotificationCopy,
 )
@@ -288,7 +288,7 @@ internal object PomodoroNotificationScheduler {
     require(projection.remainingSeconds in 0..projection.totalSeconds && projection.totalSeconds > 0) {
       "Pomodoro remaining and total seconds are invalid"
     }
-    projection.configJson?.let(::validateConfig)
+    validateConfig(projection.configJson)
     require(projection.phases.isNotEmpty() && projection.phases.size <= MAX_PHASES) {
       "Pomodoro phase projection must contain 1 to $MAX_PHASES phases"
     }
@@ -399,7 +399,7 @@ internal object PomodoroNotificationScheduler {
     .put("isRunning", projection.isRunning)
     .put("remainingSeconds", projection.remainingSeconds)
     .put("totalSeconds", projection.totalSeconds)
-    .put("configJson", projection.configJson ?: JSONObject.NULL)
+    .put("configJson", projection.configJson)
     .put("phases", JSONArray().apply {
       projection.phases.forEach { phase ->
         put(JSONObject()
@@ -441,16 +441,18 @@ internal object PomodoroNotificationScheduler {
     PomodoroNotificationProjection(
       runId = value.getString("runId"),
       eventId = value.getString("eventId"),
-      eventTitle = if (value.isNull("eventTitle")) null else value.optString("eventTitle")
-        .trim().takeIf(String::isNotEmpty),
+      eventTitle = if (value.get("eventTitle") == JSONObject.NULL) {
+        null
+      } else {
+        value.getString("eventTitle").trim().takeIf(String::isNotEmpty)
+      },
       eventDate = value.getString("eventDate"),
       eventEndsAtEpochMs = value.getLong("eventEndsAtEpochMs"),
       generatedAtEpochMs = value.getLong("generatedAtEpochMs"),
       isRunning = value.getBoolean("isRunning"),
       remainingSeconds = value.getInt("remainingSeconds"),
       totalSeconds = value.getInt("totalSeconds"),
-      configJson = if (value.isNull("configJson")) null else value.optString("configJson")
-        .takeIf(String::isNotBlank),
+      configJson = value.getString("configJson"),
       phases = phases,
       copy = PomodoroNotificationCopy(
         channelName = copy.getString("channelName"),

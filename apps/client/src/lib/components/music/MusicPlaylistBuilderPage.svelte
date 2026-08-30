@@ -118,9 +118,6 @@
   let playlistSurfaceReturnsToCurrentView = $state(false);
   let playlistSurfaceTargetId = $state<string | null>(null);
   let reviewAutoplay = $state(parseMusicReviewAutoplay(getConfigKey<unknown>("music.review.autoplay", undefined)));
-  if (getConfigKey<unknown>("music.review.exitPreference", undefined) !== undefined) {
-    setConfigKey("music.review.exitPreference", undefined);
-  }
   let choosingFirstUseFolder = $state(false);
   let firstUseFolderError = $state<string | null>(null);
   let firstUsePreparationActive = $state(false);

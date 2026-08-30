@@ -62,15 +62,13 @@ describe("Notes project history scheduler", () => {
     await settle();
     expect(flush).toHaveBeenCalledOnce();
 
-    scheduler.noteMutation();
-    await clock.advanceTo(60_000);
-    scheduler.noteMutation();
+    scheduler.applyMutationDeadline(new Date(180_000).toISOString());
     await clock.advanceTo(179_999);
     expect(flush).toHaveBeenCalledOnce();
     await clock.advanceTo(180_000);
     expect(flush).toHaveBeenCalledTimes(2);
 
-    scheduler.noteMutation(true);
+    scheduler.applyMutationDeadline(new Date(180_000).toISOString());
     await clock.advanceTo(180_000);
     expect(flush).toHaveBeenCalledTimes(3);
 

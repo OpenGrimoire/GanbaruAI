@@ -7,7 +7,6 @@ import android.content.Intent
 import android.database.Cursor
 import android.net.Uri
 import android.os.Bundle
-import android.util.Log
 
 internal const val DOOMSCROLLING_NOTIFICATION_ACTION_KEY = "notificationAction"
 private const val NOTIFICATION_ACTION_STORE = "GANBARU_DOOMSCROLLING_NOTIFICATION_ACTION_STORE"
@@ -104,14 +103,7 @@ internal class DoomscrollingGuardianClient(private val context: Context) {
 
 /** Owns mobile Doomscrolling runtime state inside Ganbaru AI's guardian process. */
 class DoomscrollingGuardianProvider : ContentProvider() {
-  override fun onCreate(): Boolean {
-    if (!DoomscrollingRuntimeStore.cleanupLegacyUiState(
-        requireNotNull(context).applicationContext,
-      )) {
-      Log.w(LOG_TAG, "Legacy Doomscrolling notification state could not be removed")
-    }
-    return true
-  }
+  override fun onCreate(): Boolean = true
 
   override fun call(method: String, arg: String?, extras: Bundle?): Bundle {
     val appContext = requireNotNull(context).applicationContext
@@ -189,7 +181,6 @@ class DoomscrollingGuardianProvider : ContentProvider() {
       ?: error("Doomscrolling guardian argument is missing")
 
   companion object {
-    private const val LOG_TAG = "GanbaruDoomscrolling"
   }
 }
 

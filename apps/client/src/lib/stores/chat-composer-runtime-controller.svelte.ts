@@ -226,7 +226,7 @@ export class ChatComposerRuntimeController {
           attachments: this.attachments
             .filter((attachment) => attachmentIds.includes(attachment.id))
             .map((attachment) => ({
-              id: attachment.id,
+              attachmentId: attachment.id,
               displayName: attachment.originalDisplayName,
               kind: attachment.kind,
               byteSize: attachment.byteSize,

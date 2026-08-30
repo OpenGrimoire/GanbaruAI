@@ -41,7 +41,7 @@ export async function importNotesMarkdownPage(
 ): Promise<NotesMarkdownImportResult> {
   const dbUrl = await ensureDbUrl();
   return mapNotesMarkdownImportDto(
-    await invokeNotesMutation("notes_import_markdown_page", { dbUrl, request }, true),
+    await invokeNotesMutation("notes_import_markdown_page", { dbUrl, request }),
   );
 }
 
@@ -50,7 +50,7 @@ export async function importNotesHtmlPage(
 ): Promise<NotesHtmlImportResult> {
   const dbUrl = await ensureDbUrl();
   return mapNotesHtmlImportDto(
-    await invokeNotesMutation("notes_import_html_page", { dbUrl, request }, true),
+    await invokeNotesMutation("notes_import_html_page", { dbUrl, request }),
   );
 }
 
@@ -59,7 +59,7 @@ export async function importNotesNotionApi(
 ): Promise<NotesNotionApiImportResult> {
   const dbUrl = await ensureDbUrl();
   return mapNotesNotionApiImportDto(
-    await invokeNotesMutation("notes_import_notion_api", { dbUrl, request }, true),
+    await invokeNotesMutation("notes_import_notion_api", { dbUrl, request }),
   );
 }
 
@@ -68,7 +68,7 @@ export async function importNotesNotionExportFolder(
 ): Promise<NotesNotionExportImportResult> {
   const dbUrl = await ensureDbUrl();
   return mapNotesNotionExportImportDto(
-    await invokeNotesMutation("notes_import_notion_export_folder", { dbUrl, request }, true),
+    await invokeNotesMutation("notes_import_notion_export_folder", { dbUrl, request }),
   );
 }
 

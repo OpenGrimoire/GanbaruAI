@@ -43,15 +43,15 @@ function config(): DoomscrollingConfig {
           },
         ],
       }, {
-        id: "legacy-mobile",
-        name: "Legacy mobile",
+        id: "needs-android-selection",
+        name: "Needs Android selection",
         enabled: true,
         minutesPerDay: 10,
         entries: [{
-          id: "legacy",
-          name: "Legacy",
+          id: "needs-selection",
+          name: "Needs selection",
           websiteHost: null,
-          mobileAppName: "Legacy app",
+          mobileAppName: "Prepared app",
           desktopAppName: null,
           desktopAppMatchNames: [],
         }],
@@ -96,7 +96,7 @@ describe("mobile Doomscrolling rule projection", () => {
     expect(snapshot.revision).toMatch(/^1788041200000-/);
   });
 
-  it("does not send legacy name-only mobile entries to native enforcement", () => {
+  it("does not send name-only mobile entries to native enforcement", () => {
     const snapshot = buildMobileDoomscrollingSnapshot(config(), "vault-android", 1);
 
     expect(snapshot.limits.items.map((limit) => limit.id)).toEqual(["video"]);

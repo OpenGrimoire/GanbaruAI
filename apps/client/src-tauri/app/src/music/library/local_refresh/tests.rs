@@ -65,7 +65,7 @@ fn request(job_id: &str, root: &Path, requested_at: i64) -> MusicLocalRefreshReq
 }
 
 #[test]
-fn complete_refresh_catalogs_more_than_the_legacy_file_cap_with_bounded_staging() {
+fn complete_refresh_catalogs_large_file_sets_with_bounded_staging() {
     tauri::async_runtime::block_on(async {
         let pool = migrated_pool().await;
         seed_root(&pool).await;

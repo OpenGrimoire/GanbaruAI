@@ -27,15 +27,12 @@ pub struct OpenCodeProviderSettings {
 #[derive(Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct StoredOpenCodeSettings {
+    mode: String,
     #[serde(default)]
-    mode: Option<String>,
-    #[serde(default)]
-    #[serde(alias = "endpoint")]
     server_url: Option<String>,
     #[serde(default)]
     allow_insecure_external_http: bool,
-    #[serde(default)]
-    confirm_external_workspace_access: bool,
+    confirm_external_workspace_access: Option<bool>,
 }
 
 pub struct OpenCodeSecret(String);
@@ -69,17 +66,13 @@ impl OpenCodeProviderSettings {
                 "OpenCode provider configuration is invalid",
             )
         })?;
-        if stored
-            .mode
-            .as_deref()
-            .is_some_and(|mode| !matches!(mode, "local" | "external"))
-        {
+        if !matches!(stored.mode.as_str(), "local" | "external") {
             return Err(ChatError::validation(
                 "providerConfig.mode",
                 "OpenCode connection mode is invalid",
             ));
         }
-        if stored.mode.as_deref() == Some("external")
+        if stored.mode == "external"
             && stored
                 .server_url
                 .as_deref()
@@ -90,7 +83,7 @@ impl OpenCodeProviderSettings {
                 "External OpenCode mode requires a server URL",
             ));
         }
-        let configured_server_url = (stored.mode.as_deref() != Some("local"))
+        let configured_server_url = (stored.mode != "local")
             .then_some(stored.server_url.as_deref())
             .flatten();
         let Some(server_url) = configured_server_url
@@ -110,12 +103,19 @@ impl OpenCodeProviderSettings {
                 "External OpenCode HTTP requires an explicit insecure-connection override",
             ));
         }
+        let external_workspace_access_confirmed =
+            stored.confirm_external_workspace_access.ok_or_else(|| {
+                ChatError::validation(
+                    "providerConfig.confirmExternalWorkspaceAccess",
+                    "External OpenCode mode requires an explicit workspace access decision",
+                )
+            })?;
         Ok(Self {
             connection: OpenCodeConnectionMode::External {
                 origin,
                 insecure_http,
             },
-            external_workspace_access_confirmed: stored.confirm_external_workspace_access,
+            external_workspace_access_confirmed,
         })
     }
 
