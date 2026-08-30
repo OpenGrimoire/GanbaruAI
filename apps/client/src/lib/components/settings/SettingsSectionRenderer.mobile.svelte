@@ -6,12 +6,14 @@
   import NotesSection from "./NotesSection.svelte";
   import AboutSection from "./AboutSection.svelte";
   import FocusSection from "./FocusSection.svelte";
-  import MobileSettingsStatus from "./mobile/MobileSettingsStatus.svelte";
-  import { getLocalization } from "$lib/i18n/translator.svelte";
+  import DoomscrollingSection from "./DoomscrollingSection.svelte";
   import type { SettingsSectionRendererProps } from "./settings-section-renderer-contract";
 
-  let { activeSection }: SettingsSectionRendererProps = $props();
-  const { t } = getLocalization();
+  let {
+    activeSection,
+    initialDoomscrollingTab,
+    onOpenDoomscrollingLimitEditor,
+  }: SettingsSectionRendererProps = $props();
 </script>
 
 {#if activeSection === "appearance"}
@@ -44,9 +46,9 @@
     <MusicSettings />
   {/await}
 {:else if activeSection === "doomscrolling"}
-  <MobileSettingsStatus
-    heading={t("mobile.settings.doomscrollingHeading")}
-    description={t("mobile.settings.doomscrollingDescription")}
+  <DoomscrollingSection
+    initialTab={initialDoomscrollingTab}
+    onOpenLimitEditor={onOpenDoomscrollingLimitEditor}
   />
 {:else if activeSection === "data"}
   {#await import("./mobile/MobileDataSection.svelte") then module}

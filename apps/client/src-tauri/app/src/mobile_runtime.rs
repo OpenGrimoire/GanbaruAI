@@ -15,6 +15,7 @@ pub fn run(context: tauri::Context<tauri::Wry>) {
     let builder = builder
         .plugin(tauri_plugin_notification::init())
         .plugin(ganbaru_mobile_documents::init())
+        .plugin(ganbaru_mobile_doomscrolling::init())
         .plugin(ganbaru_mobile_media::init())
         .plugin(ganbaru_mobile_notifications::init());
     #[cfg(target_os = "ios")]
@@ -191,6 +192,8 @@ pub fn run(context: tauri::Context<tauri::Wry>) {
             pomodoro::pomodoro_heartbeat,
             pomodoro::pomodoro_record_run_event,
             pomodoro::pomodoro_recover_mobile_run,
+            crate::doomscrolling_mobile::doomscrolling_mobile_sync_events,
+            crate::doomscrolling_mobile::doomscrolling_mobile_list_usage_samples,
             projects::workspace::projects_load_workspace,
             projects::workspace::projects_refresh_workspace,
             projects::workspace::projects_load_task_view,

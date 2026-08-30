@@ -312,6 +312,18 @@ export default defineConfig({
           ? "src/lib/components/settings/settings-detail-registry.mobile.ts"
           : "src/lib/components/settings/settings-detail-registry.ts",
       ),
+      "$lib/components/settings/doomscrolling-desktop-selector": path.resolve(
+        configDir,
+        mobileBuild
+          ? "src/lib/components/settings/mobile/MobileNoopDoomscrollingDesktopSelector.svelte"
+          : "src/lib/components/settings/DoomscrollingAppSelector.svelte",
+      ),
+      "$lib/components/settings/doomscrolling-browser-connection": path.resolve(
+        configDir,
+        mobileBuild
+          ? "src/lib/components/settings/mobile/MobileNoopDoomscrollingBrowserConnection.svelte"
+          : "src/lib/components/settings/DoomscrollingBrowserConnectionStatus.svelte",
+      ),
       "$lib/components/settings/mobile-theme-editor-loader": path.resolve(
         configDir,
         mobileBuild
@@ -377,6 +389,12 @@ export default defineConfig({
         mobileBuild
           ? "src/lib/stores/pomodoro-doomscrolling-controller.mobile.ts"
           : "src/lib/stores/pomodoro-doomscrolling-controller.ts",
+      ),
+      "$lib/stores/doomscrolling-usage.svelte": path.resolve(
+        configDir,
+        mobileBuild
+          ? "src/lib/stores/doomscrolling-usage.mobile.svelte.ts"
+          : "src/lib/stores/doomscrolling-usage.svelte.ts",
       ),
       "$lib/stores/pomodoro-window-coordinator": path.resolve(
         configDir,

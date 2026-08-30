@@ -140,6 +140,7 @@ apps/
       build.rs, tauri.conf.json, tauri.dev.conf.json, tauri.android.conf.json, Cargo.toml
     index.html, package.json, svelte.config.js, vite.config.ts, tsconfig.json
 crates/
+  ganbaru-mobile-doomscrolling/: Android launchable-app discovery, explicit access settings, foreground app enforcement, and durable usage journal plugin
   ganbaru-mobile-documents/: Android MediaStore export and bounded document-picker transfer plugin
   ganbaru-mobile-media/: Android Media3 playback and selected music document-tree plugin
   ganbaru-mobile-notifications/: Android Calendar notification scheduling, channel, tap, exact-alarm, and settings adapter

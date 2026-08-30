@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-acknowledgeEvents"
+description = "Enables the acknowledgeEvents command without any pre-configured scope."
+commands.allow = ["acknowledgeEvents"]
+
+[[permission]]
+identifier = "deny-acknowledgeEvents"
+description = "Denies the acknowledgeEvents command without any pre-configured scope."
+commands.deny = ["acknowledgeEvents"]

@@ -30,7 +30,7 @@
       "roots": [
         "src/lib/components/notes/NotesView.svelte"
       ],
-      "maxSourceModules": 368
+      "maxSourceModules": 369
     },
     {
       "name": "quick-notes",
@@ -55,7 +55,7 @@
       "maxSourceModules": 252
     }
   ],
-  "maxTotalSourceModules": 959,
+  "maxTotalSourceModules": 976,
   "requiredMobileModules": [
     "src/main.ts",
     "src/main-mobile.ts",
@@ -90,9 +90,17 @@
     "src/lib/components/settings/mobile/MobileUpdatesSection.svelte",
     "src/lib/components/settings/FocusSection.svelte",
     "src/lib/components/settings/AndroidBackgroundExecutionSettings.svelte",
+    "src/lib/components/settings/DoomscrollingSection.svelte",
+    "src/lib/components/settings/DoomscrollingMobileSettings.svelte",
+    "src/lib/components/settings/DoomscrollingMobileAppSelector.svelte",
+    "src/lib/components/settings/DoomscrollingLimitEditor.svelte",
+    "src/lib/components/settings/settings-detail-registry.mobile.ts",
+    "src/lib/doomscrolling/rules.ts",
+    "src/lib/stores/doomscrolling.svelte.ts",
+    "src/lib/stores/doomscrolling-usage.mobile.svelte.ts",
+    "src/lib/scheduling/mobile-doomscrolling.ts",
     "src/lib/components/settings/MusicSection.svelte",
     "src/lib/scheduling/mobile-background-execution.ts",
-    "src/lib/components/settings/mobile/MobileSettingsStatus.svelte",
     "src/lib/components/settings/mobile/MobileThemeEditor.svelte",
     "src/lib/components/settings/mobile-theme-editor-loader.mobile.ts",
     "src/lib/components/settings/theme-json-file.ts",
@@ -193,10 +201,7 @@
     "src/lib/components/title-bar/",
     "src/lib/components/TitleBar.svelte",
     "src/lib/components/titlebar-",
-    "src/lib/doomscrolling/",
     "src/lib/api/doomscrolling",
-    "src/lib/stores/doomscrolling",
-    "src/lib/components/settings/Doomscrolling",
     "/node_modules/@tauri-apps/api/event.js",
     "/node_modules/codemirror/",
     "/node_modules/@codemirror/",

@@ -71,6 +71,7 @@ internal object PomodoroNotificationScheduler {
   fun update(context: Context, projection: PomodoroNotificationProjection) {
     validate(projection)
     save(context, projection)
+    DoomscrollingPhaseBridge.publish(context, projection)
     PomodoroNotificationService.synchronize(context)
   }
 
@@ -86,6 +87,7 @@ internal object PomodoroNotificationScheduler {
     context.stopService(Intent(context, PomodoroNotificationService::class.java))
     notificationManager(context).cancel(POMODORO_NOTIFICATION_ID)
     notificationManager(context).cancel(POMODORO_ALERT_NOTIFICATION_ID)
+    DoomscrollingPhaseBridge.clear(context)
   }
 
   fun restore(context: Context) {
@@ -131,11 +133,13 @@ internal object PomodoroNotificationScheduler {
       alarmManager(context).cancel(boundaryIntent(context, null, null))
       if (alertBoundary) postBoundaryAlert(context, projection, completedPhase, null)
       clearCurrent(context)
+      DoomscrollingPhaseBridge.clear(context)
       if (PomodoroActivationScheduler.activateEligible(context) == null) service.finishSession()
       return
     }
 
     if (!projection.isRunning) {
+      DoomscrollingPhaseBridge.publish(context, projection, projection.phases.first())
       postOngoing(service, projection, projection.phases.first(), now)
       scheduleBoundary(context, projection, projection.phases.first())
       return
@@ -145,9 +149,11 @@ internal object PomodoroNotificationScheduler {
     if (alertBoundary) postBoundaryAlert(context, projection, completedPhase, activePhase)
     if (activePhase == null) {
       alarmManager(context).cancel(boundaryIntent(context, null, null))
+      DoomscrollingPhaseBridge.clear(context)
       service.finishSession()
       return
     }
+    DoomscrollingPhaseBridge.publish(context, projection, activePhase)
     postOngoing(service, projection, activePhase, now)
     scheduleBoundary(context, projection, activePhase)
   }

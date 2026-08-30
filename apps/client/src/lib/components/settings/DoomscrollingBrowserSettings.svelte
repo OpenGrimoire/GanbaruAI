@@ -16,12 +16,13 @@
   import { getLocalization } from "$lib/i18n/translator.svelte";
   import { getDoomscrolling } from "$lib/stores/doomscrolling.svelte";
   import ConfirmDialog from "$lib/components/ui/ConfirmDialog.svelte";
-  import DoomscrollingBrowserConnectionStatus from "./DoomscrollingBrowserConnectionStatus.svelte";
+  import DoomscrollingBrowserConnectionStatus from "$lib/components/settings/doomscrolling-browser-connection";
   import DoomscrollingConfigurationSection from "./DoomscrollingConfigurationSection.svelte";
   import DoomscrollingRuleList from "./DoomscrollingRuleList.svelte";
 
   const doomscrolling = getDoomscrolling();
   const { t } = getLocalization();
+  let { showConnectionStatus = true }: { showConnectionStatus?: boolean } = $props();
 
   type WebsiteListKind = "blocked" | "exception" | "allowed";
 
@@ -768,7 +769,7 @@
 {/snippet}
 
 <div class="flex flex-col gap-6">
-  <DoomscrollingBrowserConnectionStatus />
+  {#if showConnectionStatus}<DoomscrollingBrowserConnectionStatus />{/if}
 
   <DoomscrollingConfigurationSection
     title={t("settings.doomscrolling.browser.browserConfiguration")}

@@ -16,6 +16,7 @@
   } = $props();
 
   const { t } = getLocalization();
+  const android = __GANBARU_AI_BUILD_PLATFORM__ === "android";
 
   const tabs: ReadonlyArray<{
     id: DoomscrollingSettingsTab;
@@ -62,10 +63,24 @@
   {#if activeTab === "limits"}
     <DoomscrollingLimitsSettings {onOpenLimitEditor} />
   {:else if activeTab === "browser"}
-    <DoomscrollingBrowserSettings />
+    {#if android}
+      <p class="px-1 text-[0.8rem] text-muted-foreground">{t("settings.doomscrolling.mobile.browserReadOnly")}</p>
+      <fieldset disabled class="m-0 min-w-0 border-0 p-0 opacity-60">
+        <DoomscrollingBrowserSettings showConnectionStatus={false} />
+      </fieldset>
+    {:else}
+      <DoomscrollingBrowserSettings />
+    {/if}
   {:else if activeTab === "mobile"}
     <DoomscrollingMobileSettings />
   {:else}
-    <DoomscrollingDesktopSettings />
+    {#if android}
+      <p class="px-1 text-[0.8rem] text-muted-foreground">{t("settings.doomscrolling.mobile.desktopReadOnly")}</p>
+      <fieldset disabled class="m-0 min-w-0 border-0 p-0 opacity-60">
+        <DoomscrollingDesktopSettings />
+      </fieldset>
+    {:else}
+      <DoomscrollingDesktopSettings />
+    {/if}
   {/if}
 </div>

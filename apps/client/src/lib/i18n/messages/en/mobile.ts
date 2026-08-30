@@ -23,6 +23,10 @@ export const mobile = {
     notificationsDescription: "Show ongoing Focus progress and phase alerts",
     exactAlarm: "Alarms and reminders",
     exactAlarmDescription: "Start scheduled Focus events at the correct time",
+    usageAccess: "Usage access",
+    usageAccessDescription: "Measure foreground time for the apps you choose",
+    appBlocking: "App blocking",
+    appBlockingDescription: "Return Home when a selected app rule or limit applies",
     backgroundRestricted: "Android currently restricts Ganbaru AI in the background",
     review: "Review",
     continue: "Continue",
@@ -38,8 +42,5 @@ export const mobile = {
       "Android keeps this data in Ganbaru AI's private app storage. Uninstalling the app removes it.",
     androidUpdatesDescription: "Android installs updates through the app's distribution source",
     viewReleases: "View",
-    doomscrollingHeading: "Mobile Doomscrolling is planned",
-    doomscrollingDescription:
-      "Website and desktop-process controls do not apply to Android. Mobile usage awareness and app enforcement need their own explicit system access flow.",
   },
 } as const;

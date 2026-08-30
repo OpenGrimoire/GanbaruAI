@@ -19,6 +19,9 @@ mod db;
 mod db_path;
 #[cfg(not(any(target_os = "android", target_os = "ios")))]
 mod doomscrolling;
+#[cfg(any(target_os = "android", all(test, not(target_os = "ios"))))]
+#[cfg_attr(not(target_os = "android"), allow(dead_code))]
+mod doomscrolling_mobile;
 #[cfg(all(test, not(any(target_os = "android", target_os = "ios"))))]
 mod first_use_contracts;
 #[cfg(not(any(target_os = "android", target_os = "ios")))]
@@ -89,6 +92,8 @@ mod composition_tests {
             "notes::notes_load_workspace_shell",
             "pomodoro::pomodoro_start_run",
             "pomodoro::pomodoro_recover_mobile_run",
+            "crate::doomscrolling_mobile::doomscrolling_mobile_sync_events",
+            "crate::doomscrolling_mobile::doomscrolling_mobile_list_usage_samples",
             "quick_notes::quick_notes_list",
             "themes::theme_load_all",
             "media_player::media_player_load",
@@ -124,7 +129,10 @@ mod composition_tests {
             "chat::workspace_commands::",
             "chat::interaction_commands::",
             "chat::preview::",
-            "doomscrolling::",
+            "doomscrolling::commands::",
+            "doomscrolling::state::",
+            "doomscrolling::usage::",
+            "doomscrolling::catalog::",
             "notification::show_event_notification",
             "soundscape::",
             "tray::",

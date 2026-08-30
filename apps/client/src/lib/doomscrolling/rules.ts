@@ -240,6 +240,12 @@ export interface DoomscrollingAppRule {
   matchNames: string[];
 }
 
+export interface DoomscrollingMobileAppRule {
+  name: string;
+  packageName: string;
+  enabled: boolean;
+}
+
 export interface DoomscrollingCategoryRule {
   id: DoomscrollingCategoryId;
   enabled: boolean;
@@ -261,12 +267,22 @@ export interface DoomscrollingDesktopConfig {
   blockedApps: DoomscrollingAppRule[];
 }
 
+export interface DoomscrollingMobileConfig {
+  enabled: boolean;
+  blockDuringFocus: boolean;
+  blockDuringShortBreaks: boolean;
+  blockDuringLongBreaks: boolean;
+  pauseDuringFocusPause: boolean;
+  blockedApps: DoomscrollingMobileAppRule[];
+}
+
 export interface DoomscrollingLimitEntry {
   id: string;
   name: string | null;
   color?: EventColor | null;
   websiteHost: string | null;
   mobileAppName: string | null;
+  mobileAppPackage?: string | null;
   desktopAppName: string | null;
   desktopAppMatchNames: string[];
 }
@@ -297,6 +313,7 @@ export interface DoomscrollingConfig {
   blockedHosts: DoomscrollingHostRule[];
   exceptionHosts: DoomscrollingHostRule[];
   allowedHosts: DoomscrollingHostRule[];
+  mobile: DoomscrollingMobileConfig;
   desktop: DoomscrollingDesktopConfig;
   limits: DoomscrollingUsageLimitsConfig;
 }
@@ -366,6 +383,17 @@ function defaultDesktopConfig(): DoomscrollingDesktopConfig {
   };
 }
 
+function defaultMobileConfig(): DoomscrollingMobileConfig {
+  return {
+    enabled: true,
+    blockDuringFocus: true,
+    blockDuringShortBreaks: true,
+    blockDuringLongBreaks: true,
+    pauseDuringFocusPause: true,
+    blockedApps: [],
+  };
+}
+
 function defaultUsageLimitsConfig(): DoomscrollingUsageLimitsConfig {
   return {
     enabled: true,
@@ -396,6 +424,7 @@ export const DEFAULT_DOOMSCROLLING_CONFIG: DoomscrollingConfig = Object.freeze({
   blockedHosts: [],
   exceptionHosts: [],
   allowedHosts: [],
+  mobile: defaultMobileConfig(),
   desktop: defaultDesktopConfig(),
   limits: defaultUsageLimitsConfig(),
 });
@@ -474,6 +503,14 @@ export function normalizeDoomscrollingAppName(input: string): string | null {
   if (name.length === 0) return null;
   if (/[\u0000-\u001f]/.test(name)) return null;
   return name;
+}
+
+/** Normalize a stable Android application package identifier. */
+export function normalizeDoomscrollingMobilePackage(input: string): string | null {
+  const packageName = input.trim();
+  if (packageName.length === 0 || packageName.length > 255) return null;
+  if (!/^[A-Za-z][A-Za-z0-9_]*(?:\.[A-Za-z][A-Za-z0-9_]*)+$/.test(packageName)) return null;
+  return packageName;
 }
 
 export function isProtectedDoomscrollingDesktopAppName(input: string): boolean {
@@ -709,6 +746,9 @@ function normalizeLimitEntryValue(value: unknown): DoomscrollingLimitEntry | nul
   const mobileAppName = typeof value.mobileAppName === "string"
     ? normalizeDoomscrollingAppName(value.mobileAppName)
     : null;
+  const mobileAppPackage = typeof value.mobileAppPackage === "string"
+    ? normalizeDoomscrollingMobilePackage(value.mobileAppPackage)
+    : null;
   const desktopAppName = typeof value.desktopAppName === "string"
     ? normalizeDoomscrollingAppName(value.desktopAppName)
     : null;
@@ -727,6 +767,7 @@ function normalizeLimitEntryValue(value: unknown): DoomscrollingLimitEntry | nul
     name,
     websiteHost,
     mobileAppName,
+    mobileAppPackage,
     desktopAppName,
     desktopAppMatchNames,
   };
@@ -740,7 +781,11 @@ export function doomscrollingLimitEntryKey(entry: DoomscrollingLimitEntry): stri
 export function doomscrollingLimitEntrySourceKeys(entry: DoomscrollingLimitEntry): string[] {
   const keys: string[] = [];
   if (entry.websiteHost) keys.push(`website:${entry.websiteHost}`);
-  if (entry.mobileAppName) keys.push(`mobile-app:${entry.mobileAppName.toLowerCase()}`);
+  if (entry.mobileAppPackage) {
+    keys.push(`mobile-app:${entry.mobileAppPackage.toLowerCase()}`);
+  } else if (entry.mobileAppName) {
+    keys.push(`mobile-app:${entry.mobileAppName.toLowerCase()}`);
+  }
   if (entry.desktopAppName) {
     const matchNames = entry.desktopAppMatchNames.length > 0
       ? entry.desktopAppMatchNames
@@ -840,11 +885,49 @@ function normalizeDesktopConfig(value: unknown): DoomscrollingDesktopConfig {
   };
 }
 
+function normalizeMobileAppRules(value: unknown): DoomscrollingMobileAppRule[] {
+  if (!Array.isArray(value)) return [];
+  const rules: DoomscrollingMobileAppRule[] = [];
+  const seen = new Set<string>();
+  for (const item of value) {
+    if (!isRecord(item)) continue;
+    const name = typeof item.name === "string" ? normalizeDoomscrollingAppName(item.name) : null;
+    const packageName = typeof item.packageName === "string"
+      ? normalizeDoomscrollingMobilePackage(item.packageName)
+      : null;
+    if (!name || !packageName) continue;
+    const key = packageName.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    rules.push({ name, packageName, enabled: item.enabled !== false });
+  }
+  return rules;
+}
+
+function normalizeMobileConfig(value: unknown): DoomscrollingMobileConfig {
+  if (!isRecord(value)) return defaultMobileConfig();
+  return {
+    enabled: typeof value.enabled === "boolean" ? value.enabled : true,
+    blockDuringFocus: typeof value.blockDuringFocus === "boolean" ? value.blockDuringFocus : true,
+    blockDuringShortBreaks: typeof value.blockDuringShortBreaks === "boolean"
+      ? value.blockDuringShortBreaks
+      : true,
+    blockDuringLongBreaks: typeof value.blockDuringLongBreaks === "boolean"
+      ? value.blockDuringLongBreaks
+      : true,
+    pauseDuringFocusPause: typeof value.pauseDuringFocusPause === "boolean"
+      ? value.pauseDuringFocusPause
+      : true,
+    blockedApps: normalizeMobileAppRules(value.blockedApps),
+  };
+}
+
 export function normalizeDoomscrollingConfig(value: unknown): DoomscrollingConfig {
   if (typeof value !== "object" || value === null || Array.isArray(value)) {
     return {
       ...DEFAULT_DOOMSCROLLING_CONFIG,
       blockedCategories: defaultCategoryRules(),
+      mobile: defaultMobileConfig(),
       desktop: defaultDesktopConfig(),
       limits: defaultUsageLimitsConfig(),
     };
@@ -872,6 +955,7 @@ export function normalizeDoomscrollingConfig(value: unknown): DoomscrollingConfi
     blockedHosts: normalizeHostRules(record.blockedHosts),
     exceptionHosts: normalizeHostRules(record.exceptionHosts),
     allowedHosts: normalizeHostRules(record.allowedHosts),
+    mobile: normalizeMobileConfig(record.mobile),
     desktop: normalizeDesktopConfig(record.desktop),
     limits: normalizeUsageLimitsConfig(record.limits),
   };
@@ -979,8 +1063,9 @@ export function matchesDoomscrollingLimitEntry(
       : [entry.desktopAppName];
     return matchNames.some((name) => appRuleKey(sample.sourceKey) === appRuleKey(name));
   }
-  if (sample.sourceType === "mobile-app" && entry.mobileAppName) {
-    return sample.sourceKey.toLowerCase() === entry.mobileAppName.toLowerCase();
+  if (sample.sourceType === "mobile-app") {
+    const expected = entry.mobileAppPackage ?? entry.mobileAppName;
+    return expected !== null && sample.sourceKey.toLowerCase() === expected.toLowerCase();
   }
   return false;
 }

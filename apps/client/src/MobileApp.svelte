@@ -332,6 +332,7 @@
     loadError = null;
     try {
       await ensureDbUrl();
+      await synchronizeMobileDoomscrolling();
       await pomodoro.recoverMobileRun();
       await Promise.all([
         calendars.load(),
@@ -346,6 +347,22 @@
       console.error("Failed to initialize the mobile workspace", error);
     } finally {
       initializingWorkspace = false;
+    }
+  }
+
+  async function synchronizeMobileDoomscrolling(): Promise<void> {
+    try {
+      const [storeModule, usageModule, mobileModule] = await Promise.all([
+        import("$lib/stores/doomscrolling.svelte"),
+        import("$lib/stores/doomscrolling-usage.svelte"),
+        import("$lib/scheduling/mobile-doomscrolling"),
+      ]);
+      await storeModule.getDoomscrolling().publishMobileRules();
+      await usageModule.getDoomscrollingUsage().refresh();
+      const target = await mobileModule.takeMobileDoomscrollingNotificationAction();
+      if (target) settingsLauncher.open("doomscrolling", { doomscrollingTab: target });
+    } catch (error) {
+      console.warn("Failed to synchronize Android Doomscrolling", error);
     }
   }
 
@@ -589,6 +606,7 @@
       activeBlockScheduler?.resume();
       void calendarNotificationScheduler?.reconcile();
       void pomodoroScheduleScheduler?.reconcile();
+      void synchronizeMobileDoomscrolling();
       void calendarNotificationScheduler?.takeAction().then((eventId) => {
         if (eventId) navigate("calendar");
       });

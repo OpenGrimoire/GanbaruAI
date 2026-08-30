@@ -6,6 +6,15 @@ export default defineConfig({
   plugins: [svelte()],
   resolve: {
     alias: {
+      "$lib/components/settings/doomscrolling-browser-connection": path.resolve(
+        "./src/lib/components/settings/DoomscrollingBrowserConnectionStatus.svelte",
+      ),
+      "$lib/components/settings/doomscrolling-desktop-selector": path.resolve(
+        "./src/lib/components/settings/DoomscrollingAppSelector.svelte",
+      ),
+      "$lib/stores/doomscrolling-usage.svelte": path.resolve(
+        "./src/lib/stores/doomscrolling-usage.svelte.ts",
+      ),
       $lib: path.resolve("./src/lib"),
     },
     conditions: ["browser"],

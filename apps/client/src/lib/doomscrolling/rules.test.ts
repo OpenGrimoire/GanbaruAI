@@ -10,6 +10,7 @@ import {
   normalizeDoomscrollingAppName,
   normalizeDoomscrollingConfig,
   normalizeDoomscrollingHost,
+  normalizeDoomscrollingMobilePackage,
   parseDoomscrollingHosts,
   type DoomscrollingAppRule,
   type DoomscrollingCategoryId,
@@ -153,6 +154,20 @@ describe("normalizeDoomscrollingAppName", () => {
   });
 });
 
+describe("normalizeDoomscrollingMobilePackage", () => {
+  it("accepts stable Android package identifiers", () => {
+    expect(normalizeDoomscrollingMobilePackage("  com.example.video_app  ")).toBe(
+      "com.example.video_app",
+    );
+  });
+
+  it("rejects labels, single segments, and malformed identifiers", () => {
+    expect(normalizeDoomscrollingMobilePackage("YouTube")).toBeNull();
+    expect(normalizeDoomscrollingMobilePackage("1com.example.video")).toBeNull();
+    expect(normalizeDoomscrollingMobilePackage("com.example-video")).toBeNull();
+  });
+});
+
 describe("normalizeDoomscrollingConfig", () => {
   it("defaults news to disabled and other built-in categories to enabled", () => {
     const normalized = normalizeDoomscrollingConfig(null);
@@ -181,6 +196,7 @@ describe("normalizeDoomscrollingConfig", () => {
       blockedHosts: [hostRule("reddit.com"), hostRule("youtube.com")],
       exceptionHosts: [],
       allowedHosts: [],
+      mobile: DEFAULT_DOOMSCROLLING_CONFIG.mobile,
       desktop: DEFAULT_DOOMSCROLLING_CONFIG.desktop,
       limits: DEFAULT_DOOMSCROLLING_CONFIG.limits,
     });
@@ -300,6 +316,33 @@ describe("normalizeDoomscrollingConfig", () => {
     });
   });
 
+  it("normalizes mobile app rules by stable package identity", () => {
+    expect(normalizeDoomscrollingConfig({
+      mobile: {
+        enabled: false,
+        blockDuringFocus: false,
+        blockedApps: [
+          { name: " YouTube ", packageName: "com.google.android.youtube" },
+          { name: "Duplicate", packageName: "COM.GOOGLE.ANDROID.YOUTUBE", enabled: false },
+          { name: "Invalid", packageName: "YouTube" },
+        ],
+      },
+    })).toMatchObject({
+      mobile: {
+        enabled: false,
+        blockDuringFocus: false,
+        blockDuringShortBreaks: true,
+        blockDuringLongBreaks: true,
+        pauseDuringFocusPause: true,
+        blockedApps: [{
+          name: "YouTube",
+          packageName: "com.google.android.youtube",
+          enabled: true,
+        }],
+      },
+    });
+  });
+
   it("normalizes valid daily usage limits", () => {
     const normalized = normalizeDoomscrollingConfig({
       limits: {
@@ -318,6 +361,7 @@ describe("normalizeDoomscrollingConfig", () => {
                 desktopAppName: "FreeTube",
                 desktopAppMatchNames: [],
                 mobileAppName: "YouTube",
+                mobileAppPackage: "com.google.android.youtube",
               },
             ],
           },
@@ -337,6 +381,7 @@ describe("normalizeDoomscrollingConfig", () => {
             name: "YouTube main",
             websiteHost: "youtube.com",
             mobileAppName: "YouTube",
+            mobileAppPackage: "com.google.android.youtube",
             desktopAppName: "FreeTube",
             desktopAppMatchNames: ["FreeTube"],
           },
@@ -400,6 +445,25 @@ describe("Doomscrolling usage limit matching", () => {
     expect(matchesDoomscrollingLimitEntry(
       {
         id: "youtube",
+        name: null,
+        websiteHost: null,
+        mobileAppName: "YouTube",
+        mobileAppPackage: "com.google.android.youtube",
+        desktopAppName: null,
+        desktopAppMatchNames: [],
+      },
+      {
+        sourceType: "mobile-app",
+        sourceKey: "com.google.android.youtube",
+        displayName: "YouTube",
+        elapsedSeconds: 60,
+        startedAt: 1_779_923_600_000,
+        localDate: "2026-05-28",
+      },
+    )).toBe(true);
+    expect(matchesDoomscrollingLimitEntry(
+      {
+        id: "youtube-legacy",
         name: null,
         websiteHost: null,
         mobileAppName: "YouTube",

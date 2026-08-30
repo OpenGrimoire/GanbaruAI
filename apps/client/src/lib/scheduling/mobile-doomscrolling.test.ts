@@ -1,0 +1,104 @@
+import { describe, expect, it } from "vitest";
+import { DEFAULT_DOOMSCROLLING_CONFIG, type DoomscrollingConfig } from "$lib/doomscrolling";
+import { buildMobileDoomscrollingSnapshot } from "./mobile-doomscrolling";
+
+function config(): DoomscrollingConfig {
+  return {
+    ...DEFAULT_DOOMSCROLLING_CONFIG,
+    mobile: {
+      ...DEFAULT_DOOMSCROLLING_CONFIG.mobile,
+      blockDuringShortBreaks: false,
+      blockedApps: [{
+        name: "YouTube",
+        packageName: "com.google.android.youtube",
+        enabled: true,
+      }],
+    },
+    limits: {
+      enabled: true,
+      items: [{
+        id: "video",
+        name: "Video",
+        enabled: true,
+        minutesPerDay: 20,
+        minutesPerWeek: 120,
+        entries: [
+          {
+            id: "youtube",
+            name: "YouTube",
+            websiteHost: "youtube.com",
+            mobileAppName: "YouTube",
+            mobileAppPackage: "com.google.android.youtube",
+            desktopAppName: null,
+            desktopAppMatchNames: [],
+          },
+          {
+            id: "youtube-duplicate",
+            name: "YouTube duplicate",
+            websiteHost: null,
+            mobileAppName: "YouTube",
+            mobileAppPackage: "com.google.android.youtube",
+            desktopAppName: null,
+            desktopAppMatchNames: [],
+          },
+        ],
+      }, {
+        id: "legacy-mobile",
+        name: "Legacy mobile",
+        enabled: true,
+        minutesPerDay: 10,
+        entries: [{
+          id: "legacy",
+          name: "Legacy",
+          websiteHost: null,
+          mobileAppName: "Legacy app",
+          desktopAppName: null,
+          desktopAppMatchNames: [],
+        }],
+      }],
+    },
+  };
+}
+
+describe("mobile Doomscrolling rule projection", () => {
+  it("projects stable packages, vault identity, schedules, and limits", () => {
+    const snapshot = buildMobileDoomscrollingSnapshot(
+      config(),
+      "vault-android",
+      1_788_041_200_000,
+    );
+
+    expect(snapshot).toMatchObject({
+      schemaVersion: 1,
+      vaultId: "vault-android",
+      generatedAtEpochMs: 1_788_041_200_000,
+      mobile: {
+        enabled: true,
+        blockDuringShortBreaks: false,
+        blockedApps: [{
+          name: "YouTube",
+          packageName: "com.google.android.youtube",
+          enabled: true,
+        }],
+      },
+      limits: {
+        enabled: true,
+        items: [{
+          id: "video",
+          name: "Video",
+          enabled: true,
+          minutesPerDay: 20,
+          minutesPerWeek: 120,
+          packages: ["com.google.android.youtube"],
+        }],
+      },
+    });
+    expect(snapshot.revision).toMatch(/^1788041200000-/);
+  });
+
+  it("does not send legacy name-only mobile entries to native enforcement", () => {
+    const snapshot = buildMobileDoomscrollingSnapshot(config(), "vault-android", 1);
+
+    expect(snapshot.limits.items.map((limit) => limit.id)).toEqual(["video"]);
+  });
+});

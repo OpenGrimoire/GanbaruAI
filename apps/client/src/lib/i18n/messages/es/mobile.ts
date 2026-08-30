@@ -26,6 +26,10 @@ export const mobile = {
     notificationsDescription: "Muestra el progreso de Enfoque y las alertas de fase",
     exactAlarm: "Alarmas y recordatorios",
     exactAlarmDescription: "Inicia los eventos de Enfoque programados a la hora correcta",
+    usageAccess: "Acceso de uso",
+    usageAccessDescription: "Mide el tiempo en primer plano de las apps que elijas",
+    appBlocking: "Bloqueo de apps",
+    appBlockingDescription: "Vuelve al inicio cuando aplica una regla o límite seleccionado",
     backgroundRestricted: "Android actualmente restringe Ganbaru AI en segundo plano",
     review: "Revisar",
     continue: "Continuar",
@@ -41,8 +45,5 @@ export const mobile = {
       "Android conserva estos datos en el almacenamiento privado de Ganbaru AI. Desinstalar la app los elimina.",
     androidUpdatesDescription: "Android instala actualizaciones desde el origen de distribución de la app",
     viewReleases: "Ver",
-    doomscrollingHeading: "Doomscrolling para móvil está planeado",
-    doomscrollingDescription:
-      "Los controles de sitios web y procesos de escritorio no aplican en Android. La medición de uso y el bloqueo de apps necesitan su propio flujo explícito de acceso al sistema.",
   },
 } as const satisfies MessageShape<typeof enMobile>;
