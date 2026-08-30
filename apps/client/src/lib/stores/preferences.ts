@@ -29,7 +29,7 @@ export {
  * the theme system (font family, font scale, density). Themes may ship a
  * recommended pair of these, but the active values stay user-controlled.
  *
- * See `docs/features/themes.md`, section "Typography and density".
+ * See `docs/features/themes/README.md`, section "Typography and density".
  */
 
 export type FontFamilyId = string;

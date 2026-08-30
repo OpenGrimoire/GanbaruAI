@@ -264,7 +264,7 @@ jobs:
             -e "s/^\*\*Full Changelog\*\*:/\*\*Full changelog\*\*:/" \
             -e "s/^Full Changelog:/Full changelog:/" \
             dist/generated-release-notes.md
-          cat docs/release-notes-template.md > dist/release-notes.md
+          cat .github/release-notes-template.md > dist/release-notes.md
           printf '\n\n' >> dist/release-notes.md
           cat dist/generated-release-notes.md >> dist/release-notes.md
 

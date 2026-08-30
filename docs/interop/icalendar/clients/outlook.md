@@ -29,24 +29,15 @@ Sources:
 
 Expected handling:
 
-- Preserve original Windows `TZID` values in the lossless layer.
+- Preserve original Windows `TZID` values in structured source data.
 - Map recognized Windows timezones to IANA zones for projection.
 - Preserve full `VTIMEZONE` blocks when present.
 - Preserve organizer, attendees, and scheduling metadata.
 - Preserve attachments as inert data until the user explicitly opens them.
 
-## Export from Ganbaru AI into Outlook
+## Manual test
 
-Manual checks:
-
-1. Create a disposable Outlook calendar.
-2. Import Ganbaru AI-generated fixtures from `apps/client/test-fixtures/ics/rfc5545/`.
-3. Verify all-day date spans.
-4. Verify zoned recurrence across DST.
-5. Verify reminders and attachments.
-6. Verify attendee fields display without implying sent invitations.
-7. Export or save as iCalendar from Outlook when possible.
-8. Re-import into Ganbaru AI and compare semantic results.
+Use the [shared client procedure](./README.md#shared-procedure). Record Outlook on the web, Windows, and macOS results separately because their behavior can differ.
 
 ## Behavior to verify
 
@@ -60,12 +51,3 @@ Manual checks:
 ## Observed behavior log
 
 No manual Ganbaru AI compatibility run recorded yet.
-
-Record separate results for:
-
-- Outlook on the web
-- Outlook for Windows
-- Outlook for macOS
-- account type
-- timezone
-- import and export dates

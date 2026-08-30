@@ -1,0 +1,73 @@
+# Android experience
+
+## Adaptive shell
+
+Phones use a compact global top bar for primary destinations and utility surfaces. Larger windows can use a navigation rail. Calendar, Projects, Notes, and Chat are primary destinations. Pomodoro, Quick notes, Music, and Settings open as contextual surfaces without adding another permanent bar.
+
+The shell uses touch-sized controls, visible selection, localized accessible names, system safe areas, and the current theme. It does not repeat the active destination label when that would consume essential phone width.
+
+Inactive complex destinations load lazily, but the shell and current destination remain stable while a feature module is loading or recovering.
+
+## Hierarchical navigation
+
+Projects, Notes, and Chat share one compact identity row. On phones, selecting a breadcrumb level opens a full-height touch selector for that hierarchy level rather than reproducing adjacent desktop sidebars.
+
+Only one hierarchy level is visible at a time. Back moves toward the group root before dismissing the selector. Opening navigation or switching a channel does not summon the keyboard until the user selects Search or the composer.
+
+## Calendar
+
+Calendar starts in day view and retains direct touch navigation and editing. Day, work-cycle, week, month, zoom, visibility, and settings remain available through compact controls.
+
+Native two-axis gestures do not conflict with event drag or resize. Active-event protections remain identical to desktop.
+
+## Projects
+
+Projects starts in List and reuses the same canonical List, Dashboard, Kanban, Calendar, and Gantt views. Wide views use native horizontal and vertical touch panning with momentum. Selection and task-detail controls remain visible on coarse pointers instead of depending on hover.
+
+Filters, sorting, columns, grouping, view selection, and project settings open in touch-sized overlays or sheets.
+
+## Notes
+
+Notes reuses the page, block, database, history, and navigation contracts. On phones, the hierarchy selector moves one group, project, folder, or page level at a time. The page action bar remains available below the stable identity row.
+
+Desktop working-folder Markdown controls are absent. Managed images and files use bounded document-input flows.
+
+## Chat
+
+Chat reuses the responsive canonical workspace. Channel navigation replaces the conversation while open rather than covering it with a dimmed desktop overlay. Search and close actions remain reachable in the navigation surface.
+
+Provider process setup, terminal, files, Git, local review workspace, and execution diagnostics are absent. Communication and existing durable review activity remain available.
+
+## Pomodoro, Quick notes, Music, and Settings
+
+Pomodoro, Quick notes, and the compact Music player float above the active destination within the visible safe viewport. The Music library builder expands to a full-screen workspace. Android Back closes the topmost consumable surface first.
+
+Settings preserves the desktop category structure when a real shared preference or Android equivalent exists. Unsupported individual controls are omitted. Shortcuts are omitted because hardware keyboard shortcuts are not a core mobile contract.
+
+Doomscrolling settings include shared usage limits, Android selected-app rules and access status, plus read-only browser and desktop configuration where it helps users understand portable vault settings. The Android surface is not status-only.
+
+## Insets and cutouts
+
+A native bridge publishes system-bar and display-cutout insets. CSS safe-area values remain a fallback. Layout reacts to portrait, landscape, gesture or button navigation, cutouts, and window changes without hardcoded device dimensions.
+
+Controls remain inside the visible viewport and content is not hidden beneath system UI.
+
+## Keyboard and input method
+
+Visual viewport tracking keeps focused inputs and editor actions visible while the keyboard opens, resizes, or changes orientation. Sheets and full-screen editors can scroll their focused content into view without shifting unrelated shell state.
+
+Opening navigation does not focus Search automatically. Dismissing the keyboard does not accidentally leave the current feature.
+
+## Android Back
+
+A serialized frontend Back controller intercepts only when the UI has consumable state. It covers dialogs, menus, pickers, full-screen builders, navigation levels, editor layers, task details, Notes contextual pages, and global utility sheets.
+
+At a destination root, the listener unregisters or yields so the next Back action follows native Android behavior. Two layers cannot consume the same press, and a stale closed layer cannot keep the app trapped.
+
+Predictive Back requires validation on supported newer devices. The state model should be compatible without inventing a separate navigation history.
+
+## Accessibility
+
+All touch controls expose localized names, selected and expanded state, and sufficient target size. Keyboard and switch-access users can reach primary navigation, overlays, hierarchy selectors, editing, Save, Cancel, and recovery actions.
+
+Motion is restrained and respects user preferences. Status is never communicated by color or animation alone.

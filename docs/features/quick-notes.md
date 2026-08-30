@@ -1,39 +1,45 @@
 # Quick notes
 
-Quick notes are a lightweight, app-wide place for capturing temporary thoughts, reminders, and small pieces of information. They are deliberately separate from the Notes tab. A Quick note has no project membership, page hierarchy, blocks, icons, covers, comments, backlinks, attachments, history, or collaboration state.
+Quick notes is an app-wide capture surface for temporary thoughts, reminders, and small pieces of information. It is deliberately separate from [Notes](notes/README.md).
 
-## Collection panel
+A Quick note has no project membership, page hierarchy, blocks, icons, covers, comments, backlinks, attachments, version history, import/export, or collaboration state.
 
-The sticky-note control in every app title bar opens a resident panel aligned to the right edge of a desktop window. On mobile, it remains a floating panel below its top-bar control instead of replacing the active destination, and it is clamped to the visible safe viewport. The panel and its editor code load with the application shell so the first opening does not wait for a deferred component import. The shell also starts one shared SQLite read for the initial All view and tag list. The panel consumes that resident snapshot when opened, while later mutations invalidate it and canonical reads refresh it. If the user opens the panel before the read finishes, the stable header and creation surface appear immediately without replacing the whole collection with a loading screen. The panel has a default size of 760 by 680 pixels and is clamped to the usable viewport. This width presents three masonry columns at full app size. Its header provides local search, an All view, tag views, Archive, and Trash. Archive and Trash stay aligned to the right, separate from the active-note filters. The active collection begins with a prominent note creation action.
+## Collection
 
-A note can have one optional tag. Users create up to nine tags through a compact inline field placed directly after the final tag in the header. Enter saves the tag, while Escape or moving focus away cancels the draft. Users can select a tag to filter the active collection and assign or clear a tag from a card or editor. View shortcuts follow the same numeric navigation pattern as Calendar and Projects: 1 selects All, keys 2 through 9 select the first eight tags, and 0 selects the ninth tag. Tooltips expose each shortcut. Numeric navigation is disabled while typing or while a nested modal is open.
+The title-bar control opens a floating collection panel on desktop and mobile. The panel stays within the visible viewport and adapts to narrow windows without becoming a primary destination.
 
-Active notes use a durable manual order, with pinned and unpinned notes kept as separate order groups. New, newly pinned, unpinned, unarchived, and restored active notes enter at the start of their group. Users can reorder active notes in All or a tag view. A tag-view reorder changes the relative order of the visible tagged notes without otherwise rearranging hidden notes. Search, Archive, and Trash remain lifecycle or relevance ordered and do not allow manual reordering.
+The collection supports All, up to nine ordered tags, search, Archive, and Trash. A note has at most one tag. Numeric shortcuts can select All and tag views when the user is not typing or interacting with a nested modal.
 
-Cards use a measured shortest-column masonry layout based on the panel's actual width. Pointer dragging preserves the exact offset between the pointer and the card, renders the real card above the layout, chooses insertion positions against the measured masonry geometry, animates displaced cards, and scrolls the panel near its vertical edges. Mouse users can initiate a drag from the card body after a movement threshold. Touch users drag from a visible handle so ordinary vertical scrolling is not captured accidentally. The same handle supports one-position moves with arrow keys. Escape or pointer cancellation restores the pre-drag order, persistence failures reload the canonical SQLite order, and reduced-motion preferences disable displacement animation. Pinned state changes remain explicit actions rather than side effects of crossing the pinned group boundary.
+Active notes have durable manual order with separate pinned and unpinned groups. Reordering inside a filtered tag view changes only the relative order of visible matching notes. Search, Archive, and Trash use relevance or lifecycle order and cannot be manually reordered.
 
-Opening the panel and navigating among All, tags, Archive, Trash, and search results places cards directly at their final cached or measured positions without movement animation. Masonry movement is reserved for content changes such as manual reordering, creating, deleting, pinning, archiving, restoring, recoloring, retagging, or appending another result window. Card previews keep their natural height up to 320 pixels, then fade rather than letting one long note dominate the collection. Pointer actions can be revealed on hover where hover exists, but remain visible for touch-like input.
+Cards use a responsive masonry layout. Pointer users can drag from a valid card area; touch users use an explicit handle so scrolling remains reliable. Keyboard movement and live announcements provide an equivalent reorder path. Cancellation and persistence failure restore canonical order.
 
-Search covers titles and body text through a local SQLite FTS projection. Collection reads use bounded keyset windows of at most 60 cards. The resident shell preloads All before first opening and keeps bounded windows for visited tags, Archive, and Trash in memory. View changes retain the rendered collection until the next local SQLite window is ready, then replace it atomically without exposing skeletons or an unpositioned masonry pass. Search results are not cached. Quick notes stay fully offline and publish only local Tauri events to keep open app windows synchronized.
+Search uses a local rebuildable SQLite projection. Collection reads are bounded. Loading and view changes keep stable controls available and do not expose unpositioned cards as a false final layout.
 
 ## Editor
 
-Creating or opening a card shows a modal editor above the collection panel. The editor has an optional title and one multiline body. It supports bold, italic, and underline through toolbar controls and Ctrl or Cmd keyboard shortcuts. A collapsed formatting shortcut changes the formatting inherited by subsequent typing. Undo and redo are local to the open editing session.
+The editor has an optional title and one multiline body with bold, italic, and underline. Paste retains supported text and formatting while flattening or dropping links, lists, media, scripts, styles, and raw HTML.
 
-Pasted content is converted to text, line breaks, bold, italic, and underline. Links, lists, media, scripts, styles, and unsupported formatting are flattened or discarded. Raw HTML is never persisted. Titles are limited to 200 characters and bodies to 65,536 characters.
+Titles are limited to 200 characters and bodies to 65,536 characters. Empty new drafts are discarded.
 
-The note background uses the muted variant of one of the 32 theme-aware event palette slots. New notes default to palette index 30, the same penultimate default used by Calendar events. The picker shows each source palette color clearly, while the card and editor apply the same canvas-blended treatment as past calendar events. The same palette slot follows theme changes. Note titles and bodies share whichever of pure black or pure white has the higher WCAG contrast against the blended background.
+The background uses a theme-aware event-palette slot. Notes store the slot identity, so theme changes recolor them without rewriting content. Text chooses the stronger black or white contrast against the resolved background.
 
-Edits autosave after 250 milliseconds and pending writes flush before an editor, panel, detached window, or application closes. Empty new drafts are discarded. Revision checks prevent another window from silently overwriting an edited note. Conflicts can be reloaded or saved as a separate copy, while ordinary failures keep the editor open with a retry action.
+Edits autosave after a short debounce, and pending writes flush at relevant lifecycle boundaries. Revision checks prevent another window from silently overwriting newer content. Conflicts can reload the canonical note or preserve local work as a separate copy.
 
-## Lifecycle and storage
+## Lifecycle
 
-Active notes can be pinned, archived, or moved to Trash. Archiving and trashing clear the pinned state. Trash preserves whether the note came from the active collection or Archive, so restoring returns it to the correct collection. Trashed notes are read-only, can be restored, and are permanently deleted after seven days. Manual permanent deletion and Empty Trash require confirmation.
+Active notes can be pinned, archived, or moved to Trash. Archive and Trash clear pin state. Trash remembers whether the note came from active or Archive so restore returns it appropriately.
 
-Quick notes are structured SQLite data. `quick_note_tags` stores the bounded tag list and its shortcut order. `quick_notes` stores identity, lifecycle, manual order, color, optional tag, revision, timestamps, and derived searchable text. Manual order changes do not increment the content revision or edit timestamp. Anchor-based reorder writes run atomically and use fractional positions, with an in-transaction rebalance when adjacent positions become too close. `quick_note_text_runs` stores ordered normalized text runs and their supported formatting flags. Mutations replace the run set and derived plain text atomically. Quick notes do not create files in the Ganbaru AI folder and do not participate in Notes import, export, search, history, or collaboration.
+Trashed notes are read-only and are permanently deleted after seven days. Manual permanent deletion and Empty Trash require confirmation.
 
-## Accessibility and responsive behavior
+## Data ownership
 
-The title-bar control exposes its dialog state. The panel and editor trap focus while active, close with Escape, and restore prior focus. Cards keep their persisted source order in the DOM even though their visual positions use masonry placement. Reorder handles have localized instructions, keyboard operation, focus indicators, and polite position announcements. All icon actions have localized names, focus indicators, keyboard activation, and visible touch alternatives. Reduced-motion preferences disable masonry movement animation.
+Quick notes, tags, formatted text runs, lifecycle, order, color, revision, and derived search text are SQLite-canonical. Reordering is transactional and does not pretend content changed.
 
-At narrow desktop sizes, the panel and editor fill the available app space. On mobile, the collection panel preserves a visible margin around its floating frame, while its editor may use the available app space to remain usable above the keyboard. Content scrolls internally, and primary close and lifecycle actions remain reachable. The feature treats the 280 by 180 minimum window as a recovery floor rather than a comfortable editing size.
+Quick notes creates no Markdown files and does not participate in Notes search, history, backlinks, exports, or collaboration.
+
+## Accessibility
+
+The panel and editor manage focus, close with Escape or Android Back as appropriate, and restore prior focus. DOM order remains canonical even when masonry changes visual placement. Reorder, tags, lifecycle, formatting, color, and close actions are keyboard reachable and have visible touch equivalents.
+
+Reduced-motion preference disables displacement animation. At recovery-size windows, primary close, Save state, restore, and delete actions remain reachable.

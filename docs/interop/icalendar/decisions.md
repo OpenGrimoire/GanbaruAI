@@ -2,20 +2,20 @@
 
 This log records architecture decisions for iCalendar compatibility. New entries should include date, status, decision, and rationale.
 
-## 2026-05-14: use lossless preservation plus normalized projection
+## 2026-05-14: use structured preservation plus normalized projection
 
 Status: accepted.
 
 Decision:
 
-Ganbaru AI will pursue full `.ics` compatibility with two layers:
+Ganbaru AI will pursue broad `.ics` compatibility with two layers:
 
-- a lossless iCalendar preservation layer
+- a structured iCalendar preservation layer
 - the existing normalized app projection layer
 
 Rationale:
 
-This preserves unsupported standard data without loading every iCalendar field into the calendar UI model. It keeps startup and visible-window performance focused on projected rows while enabling lossless import/export.
+This preserves unsupported standard semantics without loading every iCalendar field into the calendar UI model. It keeps startup and visible-window performance focused on projected rows while enabling semantic round trips. It does not promise byte-for-byte reproduction of source serialization.
 
 ## 2026-05-14: preserve scheduling metadata but do not act without transport
 
@@ -59,7 +59,7 @@ Status: accepted.
 
 Decision:
 
-Exports should be generated from structured preserved data plus projected edits. Raw component text may be kept for diagnostics, but should not be spliced with edited fields.
+Exports should be generated from structured preserved data plus projected edits. Imported relational rows remain source provenance during ordinary editing, and export overlays generated-owned fields in memory. Raw component text may be kept for diagnostics, but should not be spliced with edited fields.
 
 Rationale:
 

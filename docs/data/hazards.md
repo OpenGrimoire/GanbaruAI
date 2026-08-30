@@ -1,189 +1,148 @@
 # Cross-cutting hazards
 
-Situations most likely to produce bugs, data corruption, or confusing UX. Every implementer, reviewer, and AI agent working on this system should internalize these before writing or modifying code in the affected areas. Each hazard names the danger, gives a concrete scenario, and points to the docs that govern the correct behavior.
+These scenarios cross feature, persistence, and platform boundaries. They are not substitutes for tests or invariants. They explain failure sequences that should be considered whenever adjacent behavior changes.
 
 ## 1. Event boundary timing
 
-**Why it's dangerous:** block expiration, auto-start, and consecutive-event transitions all race for the same moment. If the expiration handler fires before the transition handler checks for the next event, inherited state is lost and the user sees a fresh session instead of a continuation.
+**Scenario.** One calendar block ends exactly when another begins. The first run must close at the boundary before the second block starts or inherits progress. A delayed scheduler may process both after the fact, but it must preserve boundary order and must not count the delay twice.
 
-**Scenario:** the user has "Deep Work" 09:00-11:00 and "Code Review" 11:00-13:00, both with pomodoro enabled. At 10:48 the user starts a 25-minute focus. At 11:00, "Deep Work" expires. The system must (a) end the current run on "Deep Work" with `end_reason = block_transition`, (b) compute `inherited_focus_minutes = 12` (the 12 minutes of focus done from 10:48 to 11:00), (c) create a new run on "Code Review" with those inherited values so the remaining 13 minutes carry over. If the expiration handler simply ends the run and a separate auto-start handler creates a fresh run, those 12 minutes vanish.
+Current inheritance applies across adjacent or overlapping eligible blocks. A real gap starts a fresh session. There is no configurable five-minute gap tolerance.
 
-**Variation, tiny gaps.** If "Code Review" starts at 11:02 instead of 11:00, there is a 2-minute gap. The system should still attempt inheritance if the gap is within a configurable threshold (e.g. 5 minutes). Outside that threshold, the next event auto-starts fresh.
+An event shorter than its focus phase ends the active segment as interrupted at the block boundary. No future break row is created merely because the derived plan contained one.
 
-**Variation, events shorter than one focus period.** A 15-minute event with 25-minute focus config will never complete a full cycle. The run starts, produces one focus segment, and the block expires before the focus period ends. The segment is marked `interrupted` with actual duration of 15 minutes. No break segment is created. Inherited focus for the next event is 15 minutes. If there is no next event, the run simply ends.
+**Governed by:** [Pomodoro state machine](../algorithms/pomodoro/state-machine.md), [Pomodoro schema](schema/pomodoro.md), and invariant 6.
 
-**Governed by:** `algorithms/pomodoro-state-machine.md` (block expiration with transition), `data/schema.md` (inherited fields on runs), invariant 6.
+## 2. Concurrent event edits during a run
 
-## 2. Concurrent user edits while a session is running
+**Scenario.** The user shortens, moves, reconfigures, archives, or deletes the calendar event that owns the active run.
 
-**Why it's dangerous:** the user can interact with the calendar while a pomodoro session is active. Dragging, resizing, deleting, converting, or reconfiguring an event that owns the active run can invalidate assumptions the timer is relying on.
+The timer must re-evaluate eligibility and the new block deadline. Elapsed segments remain immutable. A shortened event can interrupt the active phase immediately. Moving an event away from now cannot leave an orphaned running timer. A config edit uses elapsed progress against the new phase duration and persists the reconfiguration before a new phase begins.
 
-**Scenario, resize while running.** The user has a session active on "Study" 14:00-16:00. At 14:45, they drag the end edge to 15:00, shortening the event by an hour. The active run's block now expires in 15 minutes instead of 75. The system must re-evaluate the block boundary and schedule an earlier expiration. If the resize is not propagated to the timer, the session continues past the event boundary.
+Protected events use archive or domain-specific detach behavior instead of hard deletion.
 
-**Scenario, end while running.** The user wants to stop the active event now. The calendar panel offers End event instead of delete or archive. The system sets the event end time to now, closes the active run with `end_reason = completed`, interrupts the active segment with `end_reason = event_expired`, closes open pauses, and leaves the ended event visible as a past protected row. If the user archives that row afterward, the pomodoro history survives with nullable live `event_id` links and immutable run snapshots.
+**Governed by:** [Pomodoro state machine](../algorithms/pomodoro/state-machine.md), [Calendar schema](schema/calendar.md), and invariant 6.
 
-**Scenario, convert away from pomodoro.** The user disables the pomodoro toggle on the active event. The system must stop the session (`end_reason = stopped`), save all segment data, and remove the rail rendering. Re-enabling pomodoro later starts a fresh session, no inheritance.
+## 3. Crash, suspend, and process kill
 
-**Scenario, reconfigure while running.** The user changes focus duration from 25 to 40 minutes while in a focus phase at minute 18. The system must end the current run (`end_reason = reconfigured`), create a new run with the new rhythm snapshot, carry `inherited_focus_minutes = 18` and `inherited_rhythm_position` from the old run, and preserve elapsed focus so the active focus has 22 minutes remaining under the new config (40 - 18 = 22 minutes).
+These cases require different evidence:
 
-**Governed by:** `algorithms/pomodoro-state-machine.md` (reconfiguration), `features/calendar.md` (active event protection), invariant 6.
+- During a live suspend, the frontend and native lifecycle create or normalize suspend state and block ordinary ticking until the return decision is complete.
+- On desktop cold startup, stale open state is bounded by the last valid heartbeat and persisted pause evidence. Orphaned work is interrupted rather than extended to the current time.
+- On Android cold startup, recovery may use the current time only after native lifecycle evidence proves that the event and phase remained valid. Otherwise it closes stale state conservatively.
+- An open manual or idle pause remains paused after valid recovery. Time away does not become focus time.
 
-## 3. Crash, suspend, or kill at critical moments
+Recovery writes must be transactional and idempotent. Repeating startup recovery cannot create another segment, pause, or terminal run event.
 
-**Why it's dangerous:** the app can die at any point, including mid-transaction. The heartbeat (updated every ~30 seconds) is the recovery signal, but the window between last heartbeat and actual crash can contain important state changes. Phase transitions, pause writes, and reconfigurations are particularly vulnerable because they involve multiple table writes.
+**Governed by:** [Pomodoro state machine](../algorithms/pomodoro/state-machine.md), [Plan and history](../algorithms/pomodoro/plan-and-history.md), and invariant 5.
 
-**Scenario, crash during phase transition.** The focus phase ends at 14:25. The system needs to (a) update the focus segment to `completed`, (b) create the break segment. If the app crashes after (a) but before (b), recovery finds a completed focus segment with no following break. The system does not retroactively insert a break; the missing break is treated as a skipped break.
+## 4. Overlap, containment, and ownership
 
-**Scenario, laptop suspend during focus.** The user closes the laptop at 14:20 during a focus phase that started at 14:00. The last heartbeat is at 14:20. The user opens the laptop at 16:00. Recovery detects the last heartbeat is far behind current time. The active segment's actual end is set to 14:20 (the last heartbeat), status becomes `interrupted`. The idle gap from 14:20 to 16:00 is empty rail. The user sees a prompt to start a new session.
+**Scenario.** Several Pomodoro-enabled events overlap, including a short event fully nested inside a longer one.
 
-**Scenario, crash during pause write.** The user triggers a pause at 14:30. The system needs to insert a row into `pomodoro_pauses`. If it crashes before the write commits, recovery finds no pause record. The segment's green fill extends to the last heartbeat, which is correct (the user was focusing up to that point, the pause had not been saved). No data is fabricated.
+The already-active eligible event must remain the owner. Switching merely because another candidate starts would split one real session into artificial fragments. When there is no active owner, selection must be deterministic and the calendar rail must not show competing bands for the same time.
 
-**Governed by:** `algorithms/pomodoro-state-machine.md` (recovery), `data/schema.md` (heartbeat, pause rows), invariant 5.
+There is a current implementation gap. Auto-start prefers shortest remaining duration, then creation time and ID. The rail removes contained events, prefers the outer range, and uses the shorter first focus duration for equal windows. It also filters containment before finding the active event, so an active nested event can disappear from the rail. These policies must converge rather than being documented as equivalent.
 
-## 4. Overlapping events, containment, and auto-start tiebreakers
+**Governed by:** [Time conflict detection](../algorithms/calendar/time-conflict-detection.md) and invariant 4.
 
-**Why it's dangerous:** overlapping pomodoro events interact in two compounding ways. First, the timeline band algorithm must decide which event's schedule owns each time slot, handling nested containment when three or more events stack. Second, when multiple events could auto-start simultaneously (same start time, or app opened mid-overlap), the system must deterministically pick one. If containment logic and auto-start logic use different priority rules, the rail shows one event's schedule while the timer runs on another.
+## 5. DST and timezone boundaries
 
-**Scenario, triple stack.** "Work Block" 09:00-17:00, "Sprint" 10:00-15:00, "Quick Task" 11:00-11:30. All have pomodoro enabled. The containment algorithm must identify "Quick Task" as contained in "Sprint", and "Sprint" as contained in "Work Block". The rail shows: Work Block's schedule from 09:00-10:00, Sprint's from 10:00-11:00, Quick Task's from 11:00-11:30, Sprint's from 11:30-15:00, Work Block's from 15:00-17:00. If any of these three has an active session, that session's event takes priority regardless of containment.
+Calendar identity uses instants plus the event's home-zone and local recurrence representation where needed. A local clock label is not an elapsed duration.
 
-**Scenario, active session on the contained event.** The user starts a session on "Quick Task" at 11:00. At 11:15, the rail shows "Quick Task"'s green fill from 11:00-11:15, not Sprint's or Work Block's schedule. "Quick Task" owns that time slot even though it's the shortest event. When "Quick Task" ends at 11:30, "Sprint" reclaims the rail.
+For example, in New York a spring interval from 01:30 to 03:30 crosses the missing hour and spans one elapsed hour. During the fall transition, 01:00 occurs twice, so 01:00 to 03:00 spans either two or three elapsed hours depending on which 01:00 instant is selected. Parsing must use an explicit disambiguation policy.
 
-**Scenario, two events at 09:00.** "Morning Standup" (09:00-09:30) and "Deep Work" (09:00-12:00) both have pomodoro and auto-start. The user opens the app at 09:00. Tiebreaker: the shorter event wins (more time-sensitive). "Morning Standup" auto-starts. When it ends at 09:30, "Deep Work" auto-starts for its remaining window. If two events have the same duration, fall back to creation order (earliest `created_at` wins). This ensures determinism without requiring manual prioritization.
+Recurring events walk civil dates in their home zone. The same local start should remain the same local start across a DST change even though its UTC offset changes. History rows preserve their original instants; changing the device zone affects display, not stored history.
 
-**Scenario, app opened mid-overlap.** The user opens the app at 09:15. Both events above are in progress. Neither has an active session. Same tiebreaker: "Morning Standup" (shorter remaining duration) auto-starts. If the user already had an interrupted session on "Deep Work", the interrupted session takes priority (last user intent matters).
+**Governed by:** [Calendar schema](schema/calendar.md), [Recurrence expansion](../algorithms/calendar/recurrence-expansion.md), and calendar formatting services.
 
-**Governed by:** `algorithms/time-conflict-detection.md`, `features/pomodoro-progress-displays.md` (band computation), `algorithms/pomodoro-state-machine.md` (auto-start).
+## 6. Rapid and repeated actions
 
-## 5. DST transitions and timezone boundary cases
+**Scenario.** The user double-clicks start, skips twice, stops while a transition is committing, or two windows issue the same command.
 
-**Why it's dangerous:** all timestamps are stored in UTC, but the user sees local time. A DST transition can make a 60-minute event appear as 0 minutes or 120 minutes in local time. The 2 AM hour can repeat (fall back) or vanish (spring forward). A recurring "9 AM daily" event must keep firing at 9 AM local even though its UTC offset shifts by an hour.
+Commands need stable receipts or state preconditions. Database uniqueness prevents duplicate active state, but callers must also handle the losing operation without showing success for a write that did not occur. Notification, overlay, and media side effects run only after the canonical transition commits and must tolerate repeated delivery.
 
-**Mitigation.** Storage is UTC ISO 8601 plus an IANA home zone per event. Recurrence walks dates in zone-free `Temporal.PlainDate` arithmetic anchored to the home zone, then reattaches the original wall-clock time, so the wall clock survives DST without drift. Render zone tracks the device's current IANA zone via visibility, focus, and a 60s sanity poll, refreshing without app restart. Notifications schedule against UTC instants, so they fire correctly even if the user's zone changes between scheduling and firing. Ambiguous wall-clock cases (the second 1:30 AM during fall-back) resolve via Temporal's `compatible` disambiguation, matching RFC 5545 expectations.
+**Governed by:** transactional command services, command receipts where defined, and invariants 1 through 3.
 
-**Scenario, spring forward.** The user has an event from 01:30 to 03:30 local time. At 02:00, clocks jump to 03:00. In UTC, the event is still 2 hours. In local display, it looks like a 1-hour event (01:30-02:00, then 03:00-03:30). The rail renders based on UTC duration (2 hours of rail space), not local-time appearance. The pixel mapping uses UTC elapsed time.
+## 7. Multiple runs for one event
 
-**Scenario, fall back.** The user has an event from 01:00 to 03:00. At 02:00, clocks fall back to 01:00. The UTC duration is still 2 hours. Display might show 01:00-01:00-02:00-03:00 (the 01:00-02:00 hour appears twice). The rail must not duplicate bands for the repeated hour. UTC is the authority.
+Stopping and restarting the same event creates another run. Every segment, pause, adaptive decision, and run event belongs to its exact run. Timeline projection may aggregate runs for display but must not merge their identities or infer one continuous session.
 
-**Scenario, recurring 9 AM through spring-forward.** A daily 09:00 event in `America/New_York` starting 2026-03-07 (the day before DST starts). On 2026-03-08 the rendered time stays 09:00; the UTC instant shifts from 14:00Z to 13:00Z. The expansion engine walks `PlainDate` in the home zone and reattaches `09:00`, so no occurrence is skipped or duplicated.
+A recurrence instance also preserves template and occurrence identity. Two dates from the same template are not the same event occurrence merely because they share a title and configuration.
 
-**Scenario, user travels.** The user creates an event in EST, flies to PST during the day. The event times are stored in UTC. Within 60s of opening the laptop in PST (or instantly on focus), the display shifts by 3 hours, but the data is intact. No reload, no recalculation needed.
+**Governed by:** [Pomodoro schema](schema/pomodoro.md), [Calendar schema](schema/calendar.md), and invariant 5.
 
-**Assumption: the system clock is reasonably accurate.** UTC protects against timezone and DST issues, but all timestamps ultimately come from the OS clock. If the clock jumps (NTP correction after boot with a dead CMOS battery, VM resume drift, dual-boot clock mismatch), timestamps within an active session can become logically inconsistent (e.g. a heartbeat before the previous one). This does not corrupt the database at the SQLite level, but it produces bad data for that session. The system does not defend against this because the scenarios are rare, the drift is usually small, and reliable countermeasures (monotonic clocks) do not survive reboots. If a user notices wrong session data, a clock issue is the likely cause.
+## 8. Pause boundaries
 
-**Governed by:** `data/schema.md` (UTC timestamps + home zone), `algorithms/recurrence-expansion.md` (home-zone walk), all rendering logic.
+Manual and idle pauses freeze the visible remaining duration. Resume moves the phase deadline by the effective pause duration. An indefinitely paused phase does not complete merely because its former wall-clock deadline passed.
 
-## 6. Sub-second and rapid-succession actions
+A pause starting exactly at a phase boundary is assigned according to the committed transition order. The system must not close one phase, open the next, and attach the pause to both. Repeated pause or resume commands are idempotent.
 
-**Why it's dangerous:** users can click quickly. Debouncing and idempotency guards must prevent duplicate runs, duplicate segments, or corrupted state.
+Idle backdating cannot precede the segment start or overlap an already closed pause. Stop while idle closes the run at the appropriate persisted boundary without converting idle time into focus. Suspend handling takes precedence over ordinary idle detection when a large scheduler gap indicates that the operating system was asleep.
 
-**Scenario, double-click start.** The user double-clicks the "Start" button. Two `startSession` calls fire within 50ms. Without a guard, two runs are created on the same event. The system must check for an existing active run before creating a new one. If a run exists, the second call is a no-op.
+**Governed by:** [Idle detection](../algorithms/pomodoro/idle-detection.md), [Plan and history](../algorithms/pomodoro/plan-and-history.md), and invariant 5.
 
-**Scenario, rapid skip-skip.** The user presses "Skip Break" twice quickly during a break phase. The first skip ends the break segment and creates the next focus segment. The second skip finds no active break, so it's a no-op. The guard: "skip break" only operates on an active break segment.
+## 9. Reconfiguration chains
 
-**Scenario, start-stop-start.** The user starts, immediately stops, then immediately starts again. Each action must fully commit before the next begins. After start-stop, the first run is closed (`end_reason = stopped`). The second start creates a fresh run with no inheritance (stop breaks concentration). If the stop has not committed when the second start arrives, the start must wait or fail gracefully.
+Reconfiguration compares elapsed active work with the new phase duration. If elapsed work already satisfies the shorter duration, the next boundary is immediately due. Increasing the duration preserves elapsed work and extends only the remaining amount.
 
-**Governed by:** `algorithms/pomodoro-state-machine.md` (all transitions), invariant 2.
+Persisted past segments never change. Future projections derive from the new rhythm and recorded boundary decisions. Repeated reconfiguration must not create a cycle, lose inherited focus, or assign one segment to two rhythm positions.
 
-## 7. Multiple runs on the same event
+**Governed by:** [Pomodoro state machine](../algorithms/pomodoro/state-machine.md), [Plan and history](../algorithms/pomodoro/plan-and-history.md), and invariant 3.
 
-**Why it's dangerous:** a single calendar event can accumulate many runs across its lifetime (stop/restart, reconfigurations, crash recovery). Analytics queries that assume one run per event will produce wrong results. Rail rendering must stitch all runs together into a coherent visual.
+## 10. Notes placement and graph divergence
 
-**Scenario, four runs on one event.** "Deep Work" 09:00-13:00. The user starts at 09:00, stops at 10:30 (run 1, `stopped`). Starts again at 10:45 (run 2, fresh, no inheritance). App crashes at 11:20 (run 2, `interrupted`). Opens app at 11:40, starts again (run 3, fresh). Changes config at 12:00 (run 3 ends `reconfigured`, run 4 starts with inheritance). The rail shows: green 09:00-10:30 (run 1), empty 10:30-10:45, green 10:45-11:20 (run 2 up to heartbeat), empty 11:20-11:40, green from 11:40 onward (runs 3 and 4). Break marks come from each run's own config and schedule. All four runs share the same `event_id` and `event_date`.
+**Scenario.** A page move updates navigation but not project membership, a folder migration updates descendants in only one table, or history restore reintroduces a stale parent.
 
-**Governed by:** `data/schema.md` (runs and segments by `run_id`), `features/pomodoro-progress-displays.md` (rail rendering and band computation).
+Placement, project association, folder ancestry, links, and search projections must change through one domain transaction. Cycle checks run against the resulting graph, not only the submitted parent. Restore preserves the current placement unless the restore operation explicitly includes a validated move.
 
-## 8. Pause edge cases
+Filesystem exports do not repair or override the canonical Notes graph. Disposable search and derivative Markdown are rebuilt after canonical restore.
 
-**Why it's dangerous:** pauses create holes in the green fill within a segment. Multiple pauses, pauses at phase boundaries, and zero-green segments are all valid states that rendering and analytics must handle.
+**Governed by:** [Notes and projects schema](schema/notes-and-projects.md) and invariant 8.
 
-**Scenario, multiple pauses in one segment.** Focus from 14:00-14:25. The user pauses at 14:05-14:08, again at 14:15-14:18. Total pause time: 6 minutes. Green fill: 14:00-14:05, 14:08-14:15, 14:18-14:25. The focus timer counts 19 minutes of actual focus. Each pause is its own row.
+## 11. Working-folder identity drift
 
-**Scenario, pause at phase boundary.** The user pauses at 14:24 during a focus phase that ends at 14:25. The pause is still within the focus segment. When the timer reaches 14:25 (or when the user resumes, whichever is later), the focus segment ends and the break begins. The pause does not extend the focus segment's planned end, but it does mean the user only focused for 24 minutes. The actual end of the segment is when the phase transitions, not when the planned duration elapses.
+An external path can later point to a different directory because of replacement, mount changes, symlinks, or path reuse. Git's common directory can also change independently of the working tree.
 
-**Scenario, zero-green segment.** The user starts a focus, immediately pauses, stays paused for the entire focus duration. The segment has `actual_start`, `actual_end`, status `completed` (the timer ran out), but every second was paused. Green fill: nothing. The segment exists in the data model but produces no green on the rail. This is correct.
+Every privileged operation revalidates the device-local folder identity. Ordinary file authority may remain valid when only Git identity changed, but Git, checkpoint, diff, and restore operations fail closed. Missing or replaced folders never fall back to a similarly named path.
 
-**Scenario, idle detection triggers pause.** The user stops interacting. After `idle_timeout_minutes`, the system inserts a pause starting at `idle_timeout_minutes` ago (the estimated moment the user became idle). If this retroactive start overlaps with previously rendered green, the green is shortened. The pause row's `started_at` is in the past, not at the detection moment.
+**Governed by:** [Chat access control](access-control.md), [Chat security](security/chat.md), and invariants 9 and 10.
 
-**Governed by:** `data/schema.md` (pause rows), `features/pomodoro-progress-displays.md` (green-fill rules), `algorithms/idle-detection.md`.
+## 12. Conversation and provider-session conflation
 
-## 9. Reconfiguration chain integrity
+A provider continuation may fail, be replaced, fork, or disappear while the project channel remains valid. Provider cleanup must not cascade into organizational message, approval, assignment, or decision deletion.
 
-**Why it's dangerous:** each reconfiguration ends one run and creates another with inherited state. A chain of reconfigurations creates a chain of runs. If any link miscalculates inherited values, every subsequent run's plan derivation is wrong.
+Conversely, archiving a channel prevents new organization activity but does not pretend that a native provider process stopped. Process shutdown and cleanup remain explicit bounded operations.
 
-**Scenario, triple reconfiguration.** Run 1: config 25/5/15, starts at 14:00, 18 minutes of focus done. User changes to 40/5/15 at 14:18. Run 2: `inherited_focus_minutes = 18`, bridge focus has 22 minutes remaining. At 14:30, user changes to 30/5/15 (12 minutes into run 2's bridge focus, so total focus = 18 + 12 = 30). Run 3: `inherited_focus_minutes = 30`. Since 30 >= 30, run 3 starts with a break. If run 2 had miscalculated its inherited focus (e.g. forgot to add run 1's 18 minutes), run 3 would incorrectly start with focus instead of break.
+**Governed by:** [Chat schema](schema/chat.md), [Chat access control](access-control.md), and invariant 11.
 
-**Key rule:** `inherited_focus_minutes` on the new run equals focus already accumulated in the ending run's current cycle, including any focus inherited by the ending run itself. It is cumulative, not just the delta from the last run.
+## 13. Permission leaks through derived data
 
-**Governed by:** `data/schema.md` (inherited fields), `algorithms/pomodoro-state-machine.md` (reconfiguration), `algorithms/pomodoro-segments-and-plan.md` (plan derivation).
+Search, summaries, unread state, suggestions, exports, cached prompts, and synchronization envelopes can reveal restricted content even when direct reads are correct.
 
-## 10. Notes folder and page graph divergence
+Every derivative declares its authorization inputs and invalidates when membership, history cutoff, profile revision, folder grant, or audience changes. Cache hits are denied if any authorization dimension is missing from the key.
 
-**Why it's dangerous:** a folder is a local navigation owner while a page parent is part of the Notion-shaped document graph. Updating one without the other can leave a page visible in two places, hide a paired child-page block incorrectly, or place a page in another project's folder.
+**Governed by:** [Chat access control](access-control.md), [Chat security](security/chat.md), and invariant 12.
 
-**Scenario, moving a nested page into a folder.** The operation must change the canonical parent to `workspace`, hide the paired child-page block, assign the folder, and refresh both old and new navigation parents in one transaction. Setting only the folder id would leave the page nested under its old note and inside the folder at the same time.
+## 14. AI identity used as an authority bridge
 
-**Scenario, deleting a folder.** Direct pages and child folders must move to the deleted folder's parent before the folder row is removed. A database cascade that deletes pages together with the folder would turn a harmless organization action into data loss.
+Mentioning an AI teammate, assigning it a role label, or selecting a capable provider can create the false impression that the teammate now has broad project access. None of these actions grants membership, history, folder, terminal, Git, or application-tool authority.
 
-**Scenario, project history restore.** Folder rows must be restored before page rows that reference them, and the current project's folder rows must be replaced with the historical set. Omitting empty folders or folder placement from the project scope changes navigation even when note bodies restore correctly.
+Assignment review must show unresolved targets and denied capabilities without inferring them from natural-language instructions.
 
-**Governed by:** `features/notes.md`, `data/schema.md`, invariant 8, folder migration triggers, atomic folder and page commands, and project history restore ordering.
+**Governed by:** [Chat access control](access-control.md) and invariant 13.
 
-## 11. Working-folder identity and filesystem drift
+## 15. Restricted context retained by a continuation
 
-**Why it is dangerous:** an external folder can move, disappear, become a symbolic link, or be replaced by another Git repository after it was assigned. A managed folder can also be removed outside the app. Reusing a stale absolute path would let Chat or Notes act on a different filesystem target than the project association intended.
+After a membership, profile, folder, or scratch reduction, a provider continuation may still contain earlier restricted context. Filtering new reads does not remove that material.
 
-**Scenario:** a project folder originally bound to repository A is replaced at the same path by repository B. Chat history must remain readable, but provider start, terminal start, mentions, diffs, checkpoints, restores, attachments, and Markdown writes must fail until the user deliberately rebinds or selects another folder. The application cannot accept the matching path string as proof of repository identity.
+The application interrupts affected work, rejects tools and publication, stops the provider, discards or quarantines the continuation, and requires a new authorization revision. Failed cleanup remains visible as retryable state without leaking native paths.
 
-**Mitigation:** project working-folder ids are durable SQLite identity, while external absolute paths, platform filesystem identities, Git storage identities, and verification times are device-local. Rust canonicalizes the path and compares the bound directory's filesystem identity before every filesystem-sensitive operation. Git-sensitive operations separately compare Git's common storage directory identity. This lets branches, remotes, Git configuration, and a first Git initialization change normally without confusing them with folder replacement. Replacing the directory still blocks all access, while replacing only `.git` blocks Git-sensitive behavior without hiding ordinary files. External folders cannot overlap the active Ganbaru AI folder. Managed folders resolve only from the active vault and stable project id, and a missing directory is recreated only by the explicit managed-folder recovery path.
+**Governed by:** [Chat access control](access-control.md), [Chat security](security/chat.md), and invariant 15.
 
-**Governed by:** `features/projects.md`, `features/chat.md`, `features/notes.md`, `data/security.md`, invariants 9 and 10.
+## 16. Destination audience expands around a reference
 
-## 12. Organizational conversation and provider-session conflation
+A message in a restricted channel may be referenced from a broader channel whose participants overlap but are not a subset. Rendering the source title, excerpt, attachment thumbnail, or generated summary would leak information.
 
-**Why it is dangerous:** a channel or direct message is a durable place organized around participants and purpose. A provider session is a replaceable execution continuation bound to one authorized working folder. Reusing one identity for both makes a room inherit the provider, model, context window, folder, failure state, and retention lifecycle of one execution attempt.
+The destination receives an opaque unavailable reference unless strict audience and history checks pass. Explicit declassification creates a new destination-owned statement and retains provenance for audit; it does not silently relax the source.
 
-**Scenario:** a person discusses a release in `#general`, delegates two tasks to separate ordinary teammates, and later changes one teammate's provider. If the channel row is also the provider thread row, only one folder can be authoritative, parallel runs collide, changing providers appears to erase the teammate identity, and archiving one failed run can hide the organizational history.
-
-**Mitigation:** channels, direct messages, replies, and task discussions have stable organizational identities. Agent runs link them to one or more provider sessions, context packages, workspaces, and deliverables. Replacing or resuming a session preserves provenance without claiming that provider continuity defines the room. Existing `chat_threads` remain execution-session records. The pre-user redesign resets development vaults instead of inferring organizational relationships from unrelated legacy threads.
-
-**Governed by:** `features/agent-coordination.md`, `features/chat.md`, `features/ai-integration.md`, `data/schema.md`, invariants 9 and 11.
-
-## 13. Permission leaks through derived coordination data
-
-**Why it is dangerous:** checking access only when opening a Note or channel does not protect titles, counts, mentions, summaries, search results, reports, notifications, task descriptions, or AI context assembled from that resource. An agent can also reveal restricted data through an otherwise authorized answer.
-
-**Scenario:** a restricted collaborator can read one project channel but not a private Notes folder. A manager summary generated for that channel mentions a confidential page title and uses its contents to explain a decision. The collaborator learns restricted information even though the Notes page itself correctly denies access.
-
-**Mitigation:** authorization runs before direct reads, aggregation, indexing, notification rendering, export, and context-package assembly. AI receives the intersection of the requesting participant, destination conversation, teammate principal, explicit resource grants, and run grants. Access denial does not reveal inaccessible titles, counts, relationships, or participants. Revocation invalidates future derived reads and stale offline writes as well as direct access.
-
-**Governed by:** `features/agent-coordination.md`, `features/notes.md`, `data/sync.md`, `data/security.md`, invariant 12.
-
-## 14. AI teammate identity used as an authority bridge
-
-**Why it is dangerous:** a persistent teammate can appear in several channels, which makes it tempting to reuse its broadest resource access or memory everywhere. A visible name and channel membership are not proof that every participant or destination may use every capability associated with that teammate.
-
-**Scenario:** the same teammate appears in `#legal` and `#engineering`. It can read contracts in the first scope and edit a codebase in the second. A legal-channel participant asks it to change code, or an engineering question causes a contract summary to enter the reply thread. If dispatch uses the union of grants attached to the display identity, the teammate crosses both boundaries.
-
-**Mitigation:** every actionable mention creates a typed work assignment and computes the intersection of requester authority, destination policy and audience, teammate policy and profile ceiling, destination and source memberships, exact folder grants, assignment references and target, runtime approval, budgets, and verified provider enforcement. References and context packages retain scope and provenance. A shared display identity never merges access profiles. Denials remain permission-safe, and future proactive subscriptions name one bounded readable scope.
-
-**Governed by:** `features/agent-coordination.md`, `features/chat.md`, `data/access-control.md`, `data/security.md`, invariants 12 and 13.
-
-## 15. Restricted context retained by continuations or scratch
-
-**Why it is dangerous:** denying a new database read does not remove data already retained in a native provider continuation, host-tool result, worktree, or scratch generation. Reusing those materials after a membership or audience change can disclose data that current authorization would reject.
-
-**Scenario:** a teammate reads a restricted source channel while producing an artifact for a narrow destination. A new reader later joins the destination, or the teammate loses source access. The next prompt reuses the provider continuation or promotes the old scratch artifact into the broader destination.
-
-**Mitigation:** every authorization revision has a scope digest and exact materialized-source provenance. Contractions interrupt runs, revoke handles, stop sessions, suppress publication, discard continuations, and quarantine affected scratch generations. Expansion creates new authority and never revives old material. Cleanup failures become retryable durable jobs.
-
-**Governed by:** `data/access-control.md`, `data/security.md`, invariants 14 and 15.
-
-## 16. Destination audience expands around retained channel references
-
-**Why it is dangerous:** a channel message can retain an authorized reference after the destination audience changes. Adding a reader with earlier-history access can expose the existence or result of a source that the new reader cannot access.
-
-**Scenario:** a private source is safely referenced into a destination whose current readers all share source access. A later membership change gives another person the destination's entire history, including the retained reference and its result.
-
-**Mitigation:** destination membership changes recheck every retained source constraint. The change is blocked when earlier history would widen disclosure. The safe alternative is From access grant, which captures a lower message ordinal after the restricted reference. Scheduled delivery and result publication repeat the same audience-revision check.
-
-**Governed by:** `data/access-control.md`, `data/security.md`, invariant 14.
+**Governed by:** [Chat access control](access-control.md) and invariant 14.

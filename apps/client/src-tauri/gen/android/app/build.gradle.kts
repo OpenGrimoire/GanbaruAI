@@ -31,7 +31,7 @@ val releaseTaskRequested = gradle.startParameter.taskNames.any { taskName ->
 
 if (releaseTaskRequested && !releaseSigningPropertiesFile.isFile) {
     throw GradleException(
-        "Android release builds require gen/android/keystore.properties; see docs/release.md",
+        "Android release builds require gen/android/keystore.properties; see docs/operations/release/signing.md",
     )
 }
 

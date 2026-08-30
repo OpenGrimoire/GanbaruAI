@@ -43,7 +43,7 @@ The setup trigger displays the resolved locale name for `system`, such as `Espa√
 
 ## Runtime behavior
 
-`main.ts` resolves the system or temporary setup language before mounting any Svelte surface. For the main app it then loads the active config, resolves the persisted preference, and awaits that catalog before importing and mounting `App.svelte`. English is the resident typed fallback. Every non-default catalog is a separate dynamic chunk with one cached catalog value and one in-flight import per locale.
+The desktop and mobile platform bootstraps resolve the system or temporary setup language before mounting Svelte. They load active configuration, resolve the persisted preference, and await the selected catalog before mounting the platform shell. The shared `main.ts` module only selects the platform entry. English is the resident typed fallback. Every non-default catalog is a separate dynamic chunk with one cached catalog value and one in-flight import per locale.
 
 Language changes are atomic. The preference, active catalog, resolved locale, document language and direction, and persisted config value change together only after the requested catalog loads. A failed import retains the previous language and is retryable through the next selection. A slower obsolete import cannot replace a newer selection. System `languagechange` events follow the same load-before-commit path.
 
@@ -69,7 +69,7 @@ Storage and interoperability stay canonical:
 - All-day values remain floating dates.
 - SQLite and config keys stay stable English identifiers.
 - iCalendar import and export preserve standards-defined values, not translated UI labels.
-- Benchmark markdown copied for `docs/PERFORMANCE.md` stays in the canonical English format so historical rows remain comparable.
+- Benchmark markdown copied for [performance results](../performance/results.md) stays in the canonical English format so historical rows remain comparable.
 
 ## Translation scope
 

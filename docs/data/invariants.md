@@ -1,175 +1,165 @@
 # Data invariants
 
-These hold across the whole app. Any operation that can break one is wrong, regardless of which feature it belongs to. The list is numbered for cross-referencing from feature and algorithm docs; the numbers are stable.
+These conditions must remain true across UI actions, imports, migrations, recovery, synchronization, and direct service calls. Each invariant names the rule, why it exists, its enforcement boundary, and the tests expected to protect it.
 
-A violation is a bug in whatever code produced it: the data layer, the derivation logic, or the renderer's visual math. The renderer must not paper over bad data with cosmetic clamps, and the data layer must not lean on the renderer to hide impossible state. Each side has to be correct on its own.
+## Pomodoro and calendar
 
-## 1. Green never appears after the current time
+### 1. Progress never appears after the current time
 
-A focus fill band on the rail can only exist for a segment with `actual_start` in the past and recorded work. Any time the rail shows green beyond the current moment, something is wrong: the segment data, the projection logic, or the visual math that maps time to pixels under the current scroll position, calendar zoom, or app scaling.
+**Rule.** Historical focus or break progress is clipped to the current instant. Future projections may be visible as planned time, but they must not use the visual language of completed or active progress.
 
-**Why:** the rail is a record of what happened, not a forecast. Green ahead of "now" would suggest progress the user has not actually made, undermining the trust the rail builds.
+**Why.** A progress rail that colors future time misrepresents work as already performed.
 
-**What would break:** the user could be misled into thinking they have already focused, leading them to skip a session they meant to do. Analytics derived from green time would inflate.
+**Enforcement.** Timeline projection and rendering, using persisted segment timestamps and the current clock.
 
-**Enforced by:** segment fetch (no future timestamps from the database), the active-segment renderer (clamps to `now`), the projected-band renderer (emits break marks only, never green), and a single time-to-pixel transform shared by the `now` indicator and any green band. That transform must stay correct under every viewport state: scroll position, calendar zoom (25 to 200 px/hour), and app or OS scaling. A green pixel past the `now` line under any zoom or scroll combination is a real violation, not a rounding artifact to ignore.
+**Tests.** Active, paused, completed, and future segments at exact time boundaries.
 
-## 2. Exactly one segment is `active` at a time
+### 2. At most one Pomodoro segment is active globally
 
-Across all runs in the database, at most one segment row carries `status = active`. Two would mean the timer is running two things simultaneously.
+**Rule.** Zero or one segment may have active status across the database. An open run may temporarily have no active segment during a transactional transition or recovery boundary.
 
-**Why:** the timer state machine assumes a single active phase. Pauses, transitions, reconfigurations, and crash recovery all key off the active segment.
+**Why.** The application exposes one global timer and one enforcement state.
 
-**What would break:** double pauses on the wrong segment, transitions that end the wrong run, recovery picking the wrong segment to mark interrupted.
+**Enforcement.** A partial unique SQLite index, transactional phase transitions, and startup recovery.
 
-**Enforced by:** session start/transition/reconfigure code paths (always close the previous active segment before creating a new one), and crash recovery (closes any stale active segments on startup).
+**Tests.** Concurrent starts, repeated transition requests, crash recovery, and rapid start or stop actions.
 
-## 3. Break positions are stable within a session
+### 3. Historical phases are stable within a run
 
-For a running session, the planned positions of upcoming breaks are deterministic from the run's `started_at`, rhythm snapshot, and inherited state (`inherited_focus_minutes`, `inherited_rhythm_position`). Once the session is running, these positions do not shift.
+**Rule.** Completed and interrupted segment positions, phases, durations, and timestamps never move. The active phase keeps its persisted identity. Explicit reconfiguration or an adaptive boundary decision may change future projections, but the decision and selected value must be persisted before the affected segment starts.
 
-For events without an active session, projected break marks are computed from "now" and naturally shift each tick. This is a different surface, see `features/pomodoro-progress-displays.md`.
+**Why.** History must remain auditable while future assistance remains adaptable.
 
-**Why:** if break positions slid around while the user was working, the rail would feel unreliable; the user would not know whether the break mark in front of them was a real commitment or a moving target.
+**Enforcement.** Immutable historical rows, boundary-only adaptive decisions, and the reconfiguration transaction.
 
-**What would break:** users would lose trust in the schedule. The state machine's assumption that "next break is at minute X" would be invalidated mid-session.
+**Tests.** Reconfigure and adaptive decisions before, during, and after a phase boundary.
 
-**Enforced by:** plan derivation reads only the run's snapshot fields, never "now," for active sessions.
+### 4. One visible Pomodoro owner occupies a time range
 
-## 4. No duplicate bands in the same time range
+**Rule.** Overlapping calendar events must not render duplicate active or planned Pomodoro bands for the same occupied interval. The already-active event remains the owner while it is eligible. Other conflicts are resolved deterministically.
 
-The rail shows one coherent schedule at any point in time. Two overlapping events must never both contribute bands (green or break) to the same minute range.
+**Why.** Duplicated bands imply simultaneous timers that cannot exist.
 
-**Why:** the user must not see, for example, a 25/5 break cadence and a 40/5 break cadence interleaved over the same hour. That makes the rail unreadable.
+**Enforcement.** The calendar conflict policy and timeline band projection.
 
-**What would break:** visual ambiguity, conflicting break notifications, double-counting in analytics.
+**Tests.** Partial overlap, full containment, equal windows, active nested events, and identical configuration.
 
-**Enforced by:** timeline band computation (containment filter and active-event suppression, see `features/pomodoro-progress-displays.md`).
+Current rail and auto-start tie-breakers are not fully aligned. See [Time conflict detection](../algorithms/calendar/time-conflict-detection.md).
 
-## 5. Persisted data is the source of truth for the past
+### 5. Persisted evidence owns the past
 
-The rail renders past time from segment records, never from re-computation of what "should have happened." If a session was interrupted, the green stops where it stopped. If a break was skipped, no break band appears for that slot.
+**Rule.** Past and active progress is reconstructed from runs, segments, pauses, run events, heartbeats, and adaptive decisions. Configuration is used only to derive a future projection where no persisted segment exists.
 
-Future time is rendered from config-based projections derived from the run's `started_at`, config snapshot, and inherited state. The planned schedule is never stored as separate rows because it is fully deterministic from these fields. See `algorithms/pomodoro-segments-and-plan.md` for the derivation.
+**Why.** A later config edit must not rewrite what happened.
 
-**Why:** treating the past as truth is the foundation for honest analytics. Rebuilding it from "what should have happened" would mask gaps and inflate focus time.
+**Enforcement.** Projection order, run snapshots, segment timestamps, pause normalization, and recovery services.
 
-**What would break:** AI suggestions and stats would optimize for the imagined ideal instead of the user's real patterns.
+**Tests.** Config edits after completion, crash recovery, inherited runs, and adaptive changes.
 
-**Enforced by:** rail rendering reads segments for past time and pauses for green-fill splitting; never recomputes.
+### 6. Past progress is never erased by calendar edits
 
-## 6. Past progress is never erased
+**Rule.** Resizing, moving, archiving, or deleting a calendar event cannot delete elapsed Pomodoro history. An active run may be interrupted or shortened when its event becomes ineligible, but its completed evidence remains.
 
-Once a segment has `actual_start` set and its status is `completed` or `interrupted`, no user action may delete, overwrite, or hide it. Skipping a break, stopping the session, dismissing the idle overlay, reconfiguring pomodoro settings, the app closing unexpectedly, deleting a calendar event, or archiving the calendar event: none of these remove previously recorded work. There is no mechanism to delete individual segments.
+**Why.** Calendar planning is editable; work history is durable.
 
-**Why:** the system is honest with the user about their patterns. Letting users (or operations) wipe out evidence breaks the contract that the app is a record, not a manipulable narrative.
+**Enforcement.** Protected-event deletion rules, archive relationships, event snapshots on runs, and explicit run end reasons.
 
-**What would break:** users would learn to "clean up" sessions they regret, defeating the anti-procrastination feedback loop.
+**Tests.** Move, resize, recurrence split, archive, and delete while a run is active or historical.
 
-**Enforced by:** absence of any delete-segment API. Even structural calendar operations (detach, split, template-wide edit) preserve segments by transferring run references rather than dropping them.
+### 7. Protected calendar events are not hard-deleted
 
-## 7. Protected events are never deleted
+**Rule.** An event with Pomodoro history, project links, imported preservation state, or another protected relationship is archived or detached through a domain command. It is not removed by a generic delete.
 
-A calendar event that has started, is in progress, is in the past, or has pomodoro tracking can only be archived, never hard deleted. This applies regardless of whether the event has completed focus segments. An event where the user planned to focus but never opened the app is still valuable: the absence of work on a planned block is itself a procrastination pattern. Only future events with no run or segment history can be truly deleted.
+**Why.** Hard deletion would break history and interoperability identity.
 
-**Why:** this is invariant 6 generalized to events. The shape of the user's schedule is part of the historical record; deleting past blocks rewrites the past.
+**Enforcement.** Rust calendar services and foreign-key or trigger constraints. The current app boundary implements this. Future CLI or external MCP surfaces must reuse the same service policy.
 
-**What would break:** analytics would lose context (what was planned versus what happened). AI estimates would mistake the absence of an event for the absence of an attempt.
+**Tests.** Every protected relationship, recurrence templates and overrides, imported events, repeated delete commands, and restore from archive.
 
-**Enforced by every programmatic boundary:**
+## Notes and projects
 
-- **UI:** protected events show archive behavior instead of delete. Active pomodoro events show End event first; delete and archive become available only after the run is closed and the event is past.
-- **CLI (`ganbaru-ai`):** delete commands on past events are rejected with a descriptive error pointing to archive. The rejection is logged with timestamp, command, and event ID.
-- **MCP handlers:** event deletion handlers refuse past events at the handler level and return a structured error including the archive alternative.
-- **Internal Tauri commands and database layer:** `calendar_delete_event` accepts the concrete rendered identity and rejects protected rows with an archive-required error. Hard delete is allowed only when the exact event or occurrence is future-only and untracked. `calendar_archive_event`, `calendar_clear_events`, and `calendar_remove_calendar` snapshot protected rows into archive tables and null live pomodoro FKs.
-- **AI agent integration:** system prompts and tool descriptions communicate the policy. Repeated rejection attempts by an agent are logged for diagnostic purposes.
+### 8. A Notes page has one valid owner path
 
-The user owns the SQLite file and can modify it directly with a third-party tool. The app does not attempt to prevent that. But every code path inside the app must refuse.
+**Rule.** A page is either workspace-rooted, nested under one valid parent page, or placed through one project location. It cannot simultaneously claim incompatible parents or escape its project and folder ancestry.
 
-Recurring events have additional protection: structural changes that would cause protected occurrences to silently stop expanding (an EXDATE on a protected date, an UNTIL moved earlier, a pattern change that excludes protected dates) must preserve those occurrences first. This is not a visible-window-only rule. For supported recurrence rules, structural edit code must reason over all affected occurrences from the template start through the captured edit time, using each occurrence's start time rather than only its date. Same-day occurrences that already started are protected; same-day occurrences that have not started and have no tracking remain mutable. A capped historical template is preferred when it can preserve the protected range without changing its meaning. Detached standalone events or archive snapshots are required when an occurrence needs its own event ID or cannot be represented safely by the capped template. Delete/archive requests and recurrence edit saves use one semantic frontend plan and one atomic backend batch so protected archive snapshots, detachments, template caps, splits, and active Pomodoro reference transfers cannot partially apply. The frontend may build occurrence materialization payloads because it owns live preview and wall-clock edit semantics; the backend remains authoritative for persisted writes and invariant enforcement. Occurrences with runs, segments, overrides, exceptions, active sessions, or persisted references are always protected. See `features/calendar-recurrence.md`.
+**Why.** Multiple canonical placements produce divergent navigation, permissions, and history.
 
-## 8. Notes folder placement has one valid owner path
+**Enforcement.** Page and folder validation, cycle checks, project membership rules, and transactional move commands.
 
-A Notes folder belongs to exactly one project, folder parents stay inside that project, and the folder graph is acyclic. A page may have a folder id only while its canonical parent is `workspace`, and that folder must belong to the page's project. Page-parented, block-parented, and data-source-parented pages never carry folder placement.
+**Tests.** Cycles, stale parents, cross-project moves, trash and restore, folder migration, and project history restore.
 
-**Why:** folders organize the page navigation graph without replacing the Notion-compatible page graph. Allowing both paths at once would make one note appear to have two locations and would desynchronize paired child-page blocks.
+## Chat and working folders
 
-**What would break:** navigation could duplicate or lose pages, folder deletion could affect another project, imports and exports could infer the wrong page hierarchy, and project history could restore an invalid graph.
+### 9. Native Chat work has exactly one execution target
 
-**Enforced by:** SQLite foreign keys and placement triggers, folder create and update validation, the atomic page move command, defensive mixed-tree planning, migration invariant tests, and focused folder and page-movement tests.
+**Rule.** Organizational planning may be targetless. Before filesystem, terminal, Git, preview, checkpoint, restore, or provider process work begins, the run resolves exactly one authorized working folder or one private scratch generation.
 
-## 9. Native Chat work has one execution target
+**Why.** A single target gives every native operation an unambiguous authority root.
 
-**Statement:** an organizational conversation run may have no native filesystem target. A run that uses native files or commands resolves exactly one current-folder, existing-worktree, or explicitly selected private-scratch target. A target stays locked during an active continuation. A run may read or edit other explicitly granted project folders only through application-brokered tools, and a communication surface never inherits an execution target.
+**Enforcement.** Assignment validation, thread and run target constraints, and the authorization service.
 
-**Why:** commands and native provider filesystem access need one stable root, while communication and bounded context may span several separately authorized resources. Keeping those identities separate prevents provider convenience from becoming an organizational permission boundary.
+**Tests.** Targetless discussion, missing target, conflicting targets, folder and scratch mixing, and target replacement.
 
-**What would break:** a provider continuation could resume in another repository, folder-specific trust could leak across contexts, concurrent runs could collide, a channel could become unreadable when one folder disappears, or changing a membership default could retarget active work.
+### 10. Filesystem access remains below the authorized root
 
-**Enforced by:** optional typed execution-target records, assignment authorization revisions, one-target dispatch resolution for native work, continuation scope digests, folder grants, explicit private scratch scopes, execution-environment reservations, and focused target-inference tests. No conversation row owns or inherits an execution folder.
+**Rule.** Every native path is resolved from a validated relative path below the current target. Traversal, symlinks, replaced directories, invalid external bindings, and Git common-directory changes fail closed.
 
-## 10. Working-folder filesystem access stays bounded
+**Why.** Provider-native trust and user-authored repository content must not widen application authority.
 
-**Statement:** the frontend passes an authorized folder, scratch, or execution-environment identity and normalized relative path, never an arbitrary root path. Rust recanonicalizes the device-local binding and rechecks the directory's filesystem identity before every filesystem-sensitive operation. Git-sensitive operations additionally recheck the Git common storage identity. Secondary folders remain behind bounded broker tools, and shell commands run only in the selected target.
+**Enforcement.** Rust folder authorization at every file, terminal, preview, attachment, Git, checkpoint, and restore boundary.
 
-**Why:** folder selection grants a narrow project capability, not general filesystem access.
+**Tests.** Traversal, absolute paths, symlink escape, replacement, stale bindings, ignored directories, and Git indirection.
 
-**What would break:** traversal, symbolic-link escapes, stale bindings, folder replacement, Git storage replacement, or vault overlap could expose or modify data outside the selected context.
+### 11. Organizational conversations outlive provider sessions
 
-**Enforced by:** the shared Rust authorization boundary, device-local vault and device scoping, vault-overlap validation, symlink rejection, bounded Markdown scanning, expected revision saves, and authorization tests.
+**Rule.** A channel, message, decision, or approval is not owned by a provider continuation. Replacing, forking, archiving, or deleting a provider session changes execution linkage without silently changing organizational history.
 
-## 11. Organizational conversations outlive provider sessions
+**Why.** Provider sessions are replaceable implementation resources. Team history is the product record.
 
-**Statement:** a channel, DM, task discussion, or reply thread has stable identity and durable history independently of any provider instance, model, provider continuation, working folder, or agent run. Replacing, forking, archiving, losing, or deleting an execution session cannot silently replace, merge, fork, or delete its organizational conversation.
+**Enforcement.** Separate channel, link, session, canonical-event, and projection identities.
 
-**Why:** people organize around purposes and participants, while providers and execution contexts are replaceable. Treating both as one record recreates isolated chat navigation and makes long-term project memory depend on a vendor session.
+**Tests.** Session handoff, provider change, retry, archive, cleanup, and failed provider startup.
 
-**What would break:** a provider change could create a fake new relationship, context compaction could fragment a channel, unrelated legacy chats could merge into `#general`, or deleting execution artifacts could erase decisions and provenance.
+### 12. Effective access applies to every derivative
 
-**Enforced by:** separate conversation, assignment, agent-run, and provider-thread identities; immutable materialized communication revisions; exact run provenance; protected `#general` creation; foreign keys that do not make a run the room owner; and lifecycle tests covering provider replacement and archive. Pre-user development vaults are reset instead of receiving a speculative legacy-thread migration.
+**Rule.** Search, summaries, unread counts, suggestions, context packages, exports, caches, and synchronized projections apply the same current membership, history, resource, and revision limits as canonical reads.
 
-## 12. Effective access applies to derived context
+**Why.** A derivative is a common route around otherwise correct authorization.
 
-**Statement:** if a participant cannot read a resource directly, no search result, mention, backlink, notification, count, dashboard, report, export, summary, manager proposal, or AI context package may reveal its content or existence beyond a permission-safe generic result.
+**Enforcement.** Shared access services and authorization-complete cache keys.
 
-**Why:** AI and aggregated views can leak restricted information without opening the original record. Future channel and Notes restrictions are meaningless if a model can summarize inaccessible content into an authorized room.
+**Tests.** Revocation and history cutoffs across every derivative read path.
 
-**What would break:** a restricted collaborator could infer private Notes, tasks, channels, working folders, personal productivity measurements, or participant activity through generated or aggregated output.
+### 13. A mention never expands authority
 
-**Enforced by:** future resource grants and membership tables, authorization before query and derivation, permission-scoped indexes or post-query filters with non-leaking counts, context-package manifests, destination-scope checks, revocation tests, and audit records. The local single-user implementation uses the same APIs with one effective owner rather than bypassing the boundary.
+**Rule.** Mentioning an AI teammate or resource does not add membership, history, folder, scratch, or runtime access. The mention resolves only within existing authority.
 
-## 13. An AI mention never expands authority
+**Why.** User-authored text is not an authorization channel.
 
-**Statement:** mentioning or adding an AI teammate can invoke only the intersection of the requester's invocation authority, destination visibility, teammate principal grants, explicit resource grants, run grants, budgets, and provider safety policy. Channel membership and a shared teammate display identity cannot widen filesystem, Notes, Calendar, provider, external-service, or cross-conversation access.
+**Enforcement.** Mention resolution and assignment review through [Chat access control](access-control.md).
 
-**Why:** a mention is a communication action, not a credential delegation or permission grant. Persistent teammates must remain useful across channels without becoming a bridge between otherwise separate resources.
+**Tests.** Unauthorized participant, hidden history, cross-channel references, ambiguous targets, and fabricated IDs.
 
-**What would break:** a teammate addressed in a legal channel could edit an engineering codebase, a restricted collaborator could cause private Notes to enter a shared thread, one channel could spend another channel's budget, or an organizational teammate could act with the tagger's personal credentials.
+### 14. Cross-channel disclosure never widens the audience
 
-**Enforced by:** separate participant membership and AI access records, teammate principals, access-profile ceilings, typed work-assignment preflight, frozen references, exact folder grants, layered budget checks, verified provider enforcement, permission-safe denial results, and audit tests covering cross-channel and cross-resource invocation.
+**Rule.** Content may be copied or summarized into another channel only when the destination readable audience is a subset of the source audience, or an explicit declassification creates new content under the destination policy.
 
-## 14. Cross-channel disclosure never widens the audience
+**Why.** A shared participant or project does not make two channel audiences equivalent.
 
-**Statement:** a channel reference is valid only when the requester and teammate can read its source, the teammate can participate in the destination, and the destination read-history audience is a subset of the source read-history audience. There is no override.
+**Enforcement.** Publication, reference, export, and context-building services.
 
-**Why:** channel access would be meaningless if an authorized reader could ask a teammate to summarize a restricted source into a broader destination.
+**Tests.** Broader, narrower, overlapping, and history-bounded audiences.
 
-**What would break:** private leadership, legal, security, customer, or personal information could enter channels whose readers were never granted the source.
+### 15. Materialized context cannot silently outlive authority
 
-**Enforced by:** permission-filtered candidates, send and schedule validation, assignment preflight, scoped history handles, result-publication validation, destination membership impact checks, frozen audience revisions, and retained-reference tests.
+**Rule.** When a continuation has already received context that is later revoked, the application interrupts the run, denies tools and publication, discards or quarantines the continuation, and requires fresh authorization before reuse.
 
-## 15. Materialized context cannot outlive its authority
+**Why.** Filtering future reads cannot remove data already present in model context or scratch.
 
-**Statement:** a provider continuation, host-tool handle, or scratch generation can be reused only while every materialized source remains authorized for the same destination. Access contraction revokes the scope and never becomes reversible through a later expansion.
+**Enforcement.** Authorization revisions, revocation workflow, bounded provider shutdown, and retryable cleanup.
 
-**Why:** provider continuations and scratch files retain data after the direct database read. Checking only future tool calls would let stale context launder revoked information.
+**Tests.** Membership, profile, folder, scratch, and audience reduction during active and idle continuations.
 
-**What would break:** a removed channel member, lost source grant, destination move, or reduced folder capability could leave restricted content available to a live provider or later result.
+## Adding an invariant
 
-**Enforced by:** authorization-scope digests, source provenance, revocation records, active-run interruption, generic host-tool denial, suppressed publication, continuation discard, scratch quarantine, clean generations, and retryable cleanup jobs.
-
-## Adding new invariants
-
-When an operation reveals a constraint the system depends on but had not stated explicitly, add it here as the next number. Number reuse is forbidden; numbers may be marked deprecated but never recycled. Each new invariant gets the same five fields: statement, why, what would break, enforced by, plus any cross-doc links.
-
-Operations are not invariants. "We always validate input" is a practice; "no segment may exist without a parent run" is an invariant. The test is whether the property must hold across every state of the database, regardless of which code path produced that state.
+A new invariant must include a rule, rationale, enforcement boundary, and meaningful failure tests. Prefer one durable assertion over a list of current helper or table names. If the assertion belongs to authorization, make [Chat access control](access-control.md) normative and reference it here.

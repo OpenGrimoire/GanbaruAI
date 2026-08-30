@@ -1,10 +1,10 @@
 # Architecture
 
-Full iCalendar compatibility should not turn every standard field into always-loaded app state. The design uses a lossless preservation layer beside the existing normalized projection.
+Broad iCalendar compatibility should not turn every standard field into always-loaded app state. The design uses a structured preservation layer beside the existing normalized projection.
 
 ## Goals
 
-- Preserve every legal imported iCalendar component, property, parameter, value type, and extension.
+- Preserve the semantic structure of every accepted iCalendar component, property, parameter, value type, and extension within documented safety limits.
 - Keep calendar startup and visible-window queries close to the current cost.
 - Let Ganbaru AI render and edit the supported event subset without corrupting unsupported data.
 - Export standards-shaped `.ics` files from preserved components plus current projected edits.
@@ -12,9 +12,9 @@ Full iCalendar compatibility should not turn every standard field into always-lo
 
 ## Two-layer model
 
-### Lossless preservation layer
+### Structured preservation layer
 
-The preservation layer stores full iCalendar data in durable relational form. The parser may use jCal in memory because it maps directly to iCalendar components, properties, parameters, and values, but SQLite stores those parts as rows.
+The preservation layer stores accepted iCalendar data in durable relational form. The parser uses jCal in memory because it maps directly to iCalendar components, properties, parameters, and values, while SQLite stores those parts as rows. The layer preserves semantics, not original bytes or lexical formatting.
 
 Responsibilities:
 
@@ -48,18 +48,21 @@ The projection layer may be lossy compared with iCalendar, but every lossy proje
 1. Read the `.ics` or `.ics.zip` entry through the existing safe file path and size checks.
 2. Parse into a structured iCalendar representation.
 3. Validate structure, line folding, value types, required fields, and configured limits.
-4. Store the full object and components in preservation tables.
+4. Store the accepted object and component structure in preservation tables.
 5. Project supported `VEVENT` components into normalized calendar rows.
 6. Link each projected row to its preserved component.
 7. Preserve unsupported components without projecting them.
-8. Emit warnings for lossy projections, unsupported semantics, and repairable invalid data.
-9. Dedupe re-imports by calendar source, `UID`, recurrence identity, and sequence rules.
+8. Emit warnings for narrowed projections, unsupported semantics, and repairable invalid data.
+9. Select duplicate masters within one file by `UID`, then newest `SEQUENCE` and revision timestamp.
+10. Upsert projected events against the target calendar by `source_uid`, skipping a lower `SEQUENCE` than the stored row.
+
+Preservation objects are replaced by target calendar, source kind, and source name only when the import contains no older projected event revision. This is the current re-import identity. Component type and `RECURRENCE-ID` are preserved metadata, but they are not independent bulk-upsert keys today.
 
 ## Export flow
 
 1. Load projected rows for the target calendar.
 2. Load preserved components only for events or components included in the export.
-3. For linked projected events, merge supported edited fields into the preserved component.
+3. For linked projected events, generate supported fields from current projection data and overlay them onto the preserved source component in memory.
 4. For local events without preserved components, generate clean iCalendar components from projection data.
 5. Include preserved unsupported components that belong to the exported calendar.
 6. Emit `VTIMEZONE` data needed by the output, preferring preserved definitions when still valid.
@@ -70,15 +73,16 @@ The exporter must not blindly concatenate stale raw text with edited projected f
 
 ## Edit merge flow
 
-When a user edits a supported field, the app updates:
+Current behavior:
 
-- the normalized projection row
-- the corresponding property in the preserved component when one exists
-- component diagnostics if the edit changes lossless status
+- A supported user edit updates the normalized projection row.
+- The imported relational component remains source provenance and is not rewritten at edit time.
+- Export reconstructs that source component and replaces generated-owned fields with values from the current projection.
+- Unsupported properties, parameters, and nested components remain in the reconstructed component where the merge path supports them.
 
-Unsupported preserved properties remain untouched.
+The current implementation does not automatically change preservation status or add a user-visible export warning after structural edits.
 
-If an edit changes structure in a way that cannot be safely merged, the component must be marked with a preservation status such as `needs-review` or `regenerated`. The user should see a warning before export if data may no longer be lossless.
+Desired future safeguards are to mark uncertain structural edits as `needs-review` or `regenerated` and show a warning before export. These safeguards remain planned and must not be described as current behavior.
 
 Detailed rules live in [Edit merge policy](./edit-merge-policy.md).
 
@@ -107,17 +111,16 @@ Never required for startup:
 
 ## Error and preservation states
 
-Suggested component preservation states:
+The schema currently accepts these component preservation states:
 
-- `lossless`: parsed and preserved without known loss
-- `projected`: projected into app rows with all modeled fields mapped
+- `lossless`: parsed and semantically preserved without a known narrowing
 - `partial`: projected with unsupported data preserved separately
 - `unsupported`: preserved but not projected
-- `needs-review`: edited or imported in a way that requires user-visible caution
-- `regenerated`: original component was replaced by app-generated output
+- `needs-review`: reserved for data that requires user-visible caution
+- `regenerated`: no usable original component is linked, so export is generated from projection
 - `invalid`: could not be safely parsed or exported
 
-These states are diagnostics. They must not block rendering of valid projected data.
+Imports currently assign these states from component type, and older imported rows without a component link derive `regenerated` during reads. Automatic edit-time transitions and corresponding user-visible warnings are planned. These diagnostics must not block rendering of valid projected data.
 
 ## Security posture
 
@@ -139,4 +142,4 @@ Use three classes of tests:
 - round-trip preservation tests for unsupported but legal data
 - client fixtures from real exports and manual imports
 
-The final compatibility claim must be based on the conformance checklist and fixture coverage, not only on existing app tests.
+Compatibility claims must be based on [conformance status](./conformance/README.md) and fixture coverage, not only on individual app tests.

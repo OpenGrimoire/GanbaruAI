@@ -33,17 +33,9 @@ Expected handling:
 - Preserve recurrence and timezone data.
 - Preserve alarms even if Proton has limited alarm import/export behavior.
 
-## Export from Ganbaru AI into Proton Calendar
+## Manual test
 
-Manual checks:
-
-1. Create a disposable Proton calendar.
-2. Import Ganbaru AI-generated fixtures from `apps/client/test-fixtures/ics/rfc5545/` through Proton's import/export screen.
-3. Verify all-day and timed event dates.
-4. Verify recurrence, exceptions, and overrides.
-5. Export the Proton calendar as `.ics`.
-6. Import back into Ganbaru AI.
-7. Compare semantic results.
+Use the [shared client procedure](./README.md#shared-procedure). Record the Proton surface and plan only when they affect import or export behavior.
 
 ## Behavior to verify
 
@@ -57,13 +49,3 @@ Manual checks:
 ## Observed behavior log
 
 No manual Ganbaru AI compatibility run recorded yet.
-
-Record:
-
-- Proton web or desktop version if visible
-- plan type if it affects calendar count
-- timezone
-- fixture name
-- import result
-- export result
-- unsupported or skipped fields

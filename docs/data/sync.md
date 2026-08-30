@@ -1,100 +1,99 @@
-# Sync and collaboration
+# Synchronization
 
-Sync turns Ganbaru AI from a local app into a multi-device and optionally collaborative workspace. The user provisions and hosts the sync server; Ganbaru AI does not run shared infrastructure. End-to-end encryption keeps cleartext away from the server, and typed conflict handling preserves the local data invariants.
-
-Human collaboration is a later capability. Local AI teammate access is already canonical in the active vault and is defined by [Chat access control](access-control.md). Its immutable revisions, disclosure constraints, and revocations constrain future synchronization. Collaboration cannot be added safely as a simple shared-workspace boolean.
+Remote synchronization and remote collaboration are not implemented. This document defines the intended local-first contract and the constraints that any implementation must satisfy. Yjs, Hocuspocus, and encrypted operation envelopes are the current proposed architecture, not deployed services.
 
 ## Principles
 
-- Local canonical storage remains usable offline and does not depend on the sync server.
-- The server routes and persists encrypted operations, not trusted application data.
-- Sync replicates canonical operations and records, not derivative Markdown exports or a raw SQLite database file.
-- A participant receives only the resources and keys allowed by their effective membership.
-- Direct reads and derived output use the same permission boundary.
-- Removing access stops future reads and context assembly without rewriting legitimate history owned by remaining participants.
-- Private productivity measurements remain private even when their coarse capacity effect helps team planning.
+- Local writes remain available without a server or network connection.
+- The active local vault remains usable and authoritative for the device's current state.
+- The server stores and routes encrypted operations. It does not become the plaintext source of truth.
+- Authorization is resource-scoped and evaluated before decrypting, applying, or deriving content.
+- Device-local paths, secrets, process state, and native credential material never synchronize.
+- Backup and synchronization remain separate features.
 
-## Architecture
+## Proposed architecture
 
-**Yjs-compatible CRDT operations.** Collaborative state uses CRDT documents or typed operations appropriate to each data family. Notes uses its existing page and block graph rather than introducing an editor-owned second source of truth. Calendar, Projects, Chat, and other relational data require typed operations that preserve foreign keys, lifecycle rules, protected history, and application invariants when concurrent changes converge.
+Clients will maintain typed local operations and CRDT state for synchronizable resources. A self-hostable Hocuspocus service is the current candidate for durable encrypted update routing, presence, and account or device authentication.
 
-**Hocuspocus server.** A self-hostable synchronization server persists encrypted updates, routes presence, and applies authentication and authorization at the encrypted resource envelope. The user can run it on a VPS, home server, or another host they control.
+Yjs is suitable for collaborative documents and ordered shared state, but it does not by itself define safe relational synchronization. SQLite domains need explicit resource boundaries, typed operations, referential validation, migration compatibility, and deterministic projection into local tables. Raw database pages or arbitrary SQL statements never synchronize.
 
-**End-to-end encryption.** Clients encrypt resource updates before sending them. The server stores ciphertext only. Key distribution follows explicit membership and resource grants rather than one permanent key that gives every collaborator the complete Ganbaru AI folder.
+End-to-end encryption uses per-resource keys or envelopes so the server cannot read ordinary content. Transport encryption remains required in addition to payload encryption. Exact key hierarchy, recovery, rotation, and multi-device enrollment remain deferred design work.
 
-**Live presence.** Authorized participants can appear as cursors, typing indicators, or activity state in relevant views. Presence is ephemeral and scoped to the current resource. It does not create employee monitoring or a permanent online-time record.
+## Identity and membership
 
-## Identity and membership scopes
+Synchronized resources use stable vault, project, channel, document, participant, and device identities. Membership grants are explicit and revisioned. An AI teammate identity has no authority until it receives the relevant membership and resource grants.
 
-Future roles can include owner, administrator, member, and restricted guest. Role names do not replace resource grants. A person may join:
+The local owner may operate without a remote account. Enabling sync introduces device enrollment and recovery choices without changing ownership of the local vault.
 
-- A project group and its permitted projects.
-- One project without access to the complete group.
-- Selected Chat channels in a project.
-- A direct message or task discussion.
-- Selected Notes folder subtrees or pages.
-- Selected tasks, reviews, or project views.
-- Explicit project working folders when filesystem collaboration is intended.
+Device-local external-folder bindings do not synchronize. Another device may bind the same portable working-folder identity to a separately selected and validated local directory.
 
-Project groups, projects, channels, Notes folders, Notes pages, task discussions, and project working folders are different resource types. A grant to one does not silently imply the others. Inheritance reduces configuration work, but the effective access result is inspectable before invitation, movement, export, or AI use.
+## What may synchronize
 
-Invitations state whether prior history becomes visible. A participant joining a channel does not automatically receive messages from before the selected visibility boundary. Moving a Note, task discussion, or channel across an access boundary previews who gains and loses access.
+Subject to product and privacy settings, synchronizable data may include:
 
-## What syncs
+- calendar and project structured data;
+- Notes pages, blocks, databases, comments, and collaboration operations;
+- organizational Chat channels, memberships, messages, and canonical coordination history;
+- portable preferences and themes;
+- managed assets through separately bounded encrypted blobs;
+- file-authoritative documents as file operations with explicit conflict handling.
 
-- **File-backed documents:** canonical diary entries, project documents, and reports through a document-appropriate synchronization model.
-- **Structured data and document graphs:** Notes folders, pages, blocks, comments, Calendar events, Projects tasks, Chat conversations and messages, work environments, and project state through typed operations that preserve graph invariants.
-- **Chat execution summaries:** durable run state, approvals, usage, deliverable links, and provider-neutral events needed for authorized history. Device-bound executable paths, provider homes, live processes, terminals, and local trust remain device-local.
-- **Pomodoro tracking data:** per-user data available to that user's devices. Other workspace participants never receive raw focus, idle, break, blocker, or diary measurements.
-- **Membership and permission changes:** future sync carries signed, ordered access operations, immutable authorization revisions, history-visibility decisions, key-envelope changes, revocation state, and audit metadata. Device bindings, provider probes, external paths, and scratch paths never sync.
+Pomodoro history is private by default. Sharing aggregate availability or a user-authored status must not expose detailed focus, pause, idle, or avoidance history unless the user explicitly changes that scope.
 
-The two-category storage model in `data/architecture.md` remains intact. File-backed documents stay files on each authorized client. Structured data and Notes graphs stay in local SQLite. Sync does not make exported Markdown or the server database authoritative.
+Provider credentials, provider homes, executable paths, external absolute folder paths, active process state, and native diagnostic caches do not synchronize.
+
+The storage distinctions in [Data architecture](architecture.md) remain intact. Sync does not make exported Notes Markdown or the server database canonical.
 
 ## Permission-safe derivation
 
-Authorization happens before direct reads and before aggregation. The same effective scope applies to:
+Incoming operations are applied only within their authorized resource envelope. Search indexes, summaries, unread state, context packages, and other derivatives are rebuilt under the recipient's effective access. A client must not download a broader plaintext dataset and rely on UI filtering.
 
-- Search results and counts.
-- Mentions, backlinks, reminders, and notification previews.
-- Channel summaries and attention views.
-- Project dashboards, saved views, and reports.
-- Notes imports, exports, and agent bridge output.
-- Calendar availability and scheduling suggestions.
-- Manager proposals and AI context packages.
-- Agent-run tools, artifacts, and explanations.
+Cross-channel references remain audience-safe. A synchronized reference does not carry the source content or its authority into the destination.
 
-An inaccessible resource does not leak through its title, count, participant list, relationship, or a detailed denial reason. AI uses the complete requester, destination audience, teammate, source membership, folder, assignment, runtime, and provider-enforcement intersection from the normative access specification.
+Key access, membership, and history cutoffs are revisioned. Cached derivatives include the authorization revision that produced them and are invalidated by a stricter revision.
 
-## Conflict resolution
+## Conflict handling
 
-CRDT semantics handle compatible concurrent edits, but Ganbaru adds domain rules where generic merging is insufficient:
+Collaborative text and ordered structures may use CRDT semantics. Domain operations still validate invariants after merge. A merge that would create a Notes cycle, two active Pomodoro segments, an invalid project relationship, or a widened audience cannot be accepted merely because the underlying CRDT converged.
 
-- **Protected history:** past Pomodoro and protected Calendar records cannot disappear through conflict resolution.
-- **Active sessions:** one person cannot have two authoritative active Pomodoro sessions. Heartbeats and explicit takeover resolve device conflict.
-- **Recurring events:** conflicting scope edits preserve protected occurrences and surface the losing intent for review.
-- **Projects requirements:** concurrent scope, assignment, review, budget, or deadline changes produce explicit revisions and downstream-impact recalculation instead of silently combining incompatible commitments.
-- **Manager proposals:** acceptance applies to an exact proposal and source revision. A stale proposal is replanned or reviewed against current state.
-- **Chat ordering:** messages use stable identities and causal ordering. Edits and replies remain attached to the intended message after offline merge.
-- **Permission changes:** access reduction wins over stale content updates for future delivery. A client cannot publish a new operation under a revoked grant after reconnecting.
+File-authoritative documents require visible file conflict behavior. Silent last-writer-wins replacement is unacceptable for user-authored Markdown or binary assets. The implementation must preserve both versions or request resolution when automatic merging is unsafe.
+
+Schema versions and operation versions are explicit. A client that cannot understand an operation fails safely and retains the encrypted operation for later upgrade rather than partially applying it.
 
 ## Revocation and offline devices
 
-Revocation is not equivalent to deleting shared history. It prevents new authorized reads, updates, exports, notifications, and AI context assembly from the removed participant or device. Remaining authorized participants retain legitimate shared history.
+Revocation prevents new key distribution and new authorized operations. It cannot erase plaintext already materialized on an offline or external device. The product must state this limitation clearly.
 
-The implementation must define key rotation, cached ciphertext retention, local cleartext cleanup, offline operation rejection, device removal, recovery keys, and re-invitation before collaboration ships. The UI must explain that a person who previously received cleartext could have copied it outside Ganbaru AI; cryptography can stop future access but cannot erase an external copy.
+On reconnect, a revoked device cannot submit operations under an obsolete membership revision. Key rotation limits future access. High-risk revocation may require discarding continuations, scratch state, and cached derivatives on still-controlled devices.
 
 ## Privacy-safe capacity
 
-Team scheduling can use coarse signals such as unavailable, available after a date, or a suggested duration range. It never exposes individual focus hours, idle time, break behavior, blocker attempts, diary mood, or comparisons between participants. Team-facing AI receives only the coarse signal needed for the requested decision and cannot query the raw source rows.
+Future coordination features may expose availability or workload capacity. Share the smallest useful claim, such as available, busy, or user-entered capacity, instead of raw Pomodoro sessions, idle intervals, private calendar titles, or health-related inferences.
+
+Aggregates must have explicit audiences and provenance. They remain subject to the same revocation and derivative-data rules as their source.
 
 ## Self-hosting
 
-Ganbaru AI provides a server image, documented Compose configuration, guided setup for common hosts, health checks, backup guidance, and key-recovery warnings. It does not offer a hosted sync service. Donation funding cannot safely support an implicit promise of centralized uptime, storage, or account recovery.
+The synchronization server must be self-hostable with documented storage, backup, upgrade, and key-management requirements. A hosted option may be added later, but local-only use remains a first-class mode.
+
+Server operators can observe connection metadata, timing, ciphertext size, and account-level routing unless additional padding or privacy work is introduced. End-to-end encryption does not hide those facts.
 
 ## Backups
 
-Sync is not a backup. Backups live outside the Ganbaru AI folder. Android currently provides an explicit portable backup in shared Downloads and transactional restore during first use or from Data settings. Scheduled backups will use a user-controlled destination and require encryption before automatic or cloud placement. Sync keeps authorized devices converged; backups recover data after loss, corruption, accidental deletion, or a bad synchronized operation.
+Sync propagates changes, including mistakes and deletions. A backup captures recoverable state at a point in time and is written to a user-selected destination outside the active vault. Enabling sync does not enable backup, and restoring a backup requires an explicit reconciliation policy before reconnecting.
 
-## Deferred implementation details
+## Deferred decisions
 
-Exact CRDT schemas, key hierarchy, invitation protocol, encrypted search strategy, offline revocation, conflict UI, server deployment, and recovery flows remain to be designed and threat-modeled before phase 9 implementation. The local schema already supplies stable access and authorization revisions that future operations must preserve. The collaboration behavior in this document remains a product constraint, not a claim that remote collaboration is currently available.
+Implementation must resolve, document, and test:
+
+- device enrollment and owner recovery;
+- resource-key hierarchy, rotation, and removal;
+- exact typed operation formats for relational domains;
+- asset chunking, deduplication, and size limits;
+- file conflict UX;
+- server authentication and abuse limits;
+- protocol and schema compatibility windows;
+- encrypted backup interaction;
+- metadata minimization and optional padding.
+
+These choices may change the proposed mechanism, but they must not weaken the principles above.
