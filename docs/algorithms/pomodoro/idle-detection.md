@@ -6,11 +6,11 @@ The user-visible overlay and choices are defined by the Pomodoro idle feature. T
 
 ## Platform sources
 
-The Rust adapter returns elapsed idle milliseconds and a best-effort webcam-in-use signal.
+The Rust adapter returns elapsed idle milliseconds when the platform source succeeds, an explicit unavailable value when it fails, and a best-effort webcam-in-use signal.
 
 ### Linux
 
-The primary idle source is GNOME Mutter's IdleMonitor GetIdletime call through gdbus. If that is unavailable, the adapter tries xprintidle. When neither succeeds, current code reports zero idle time.
+The primary idle source is GNOME Mutter's IdleMonitor GetIdletime call through gdbus. If that is unavailable, the adapter tries xprintidle. When neither succeeds, the adapter reports the source as unavailable.
 
 Webcam use is inferred by scanning process file descriptors for opened video devices. The adapter does not read device content.
 
@@ -20,7 +20,7 @@ Current code does not directly call XScreenSaver, implement a KDE-specific API, 
 
 Idle duration comes from GetLastInputInfo and the system tick count. Webcam use is inferred through the current user's camera capability-use registry state.
 
-The calculation handles system tick wrapping and returns a bounded non-negative duration.
+The calculation handles one 32-bit system tick wrap and returns a bounded non-negative duration. A GetLastInputInfo failure reports the source as unavailable instead of reporting user activity.
 
 ### macOS
 
@@ -30,7 +30,7 @@ This is not direct in-process IOKit integration. A future native adapter may rep
 
 ### Other platforms
 
-Unsupported targets report zero idle time and no webcam use. Mobile lifecycle recovery is separate from desktop idle detection and must not infer idle from missing foreground ticks.
+Unsupported targets report the idle source as unavailable and report no webcam use. Mobile lifecycle recovery is separate from desktop idle detection and must not infer idle from missing foreground ticks.
 
 ## Privacy and webcam suppression
 
@@ -95,15 +95,15 @@ On cold startup, recovery uses persisted heartbeat, pause, segment, event, and p
 
 See [Pomodoro state machine](state-machine.md) for recovery order.
 
-## Failure behavior and current gap
+## Failure behavior
 
-Failure to query a platform source currently produces zero idle duration, so detection continues and retries on later checks. The earlier documentation claim that the feature is explicitly disabled and logged once was not true.
+Failure to query a platform source produces an explicit unavailable sample. The controller does not interpret that sample as recent activity and does not create or backdate an idle pause. It retries at the maximum polling interval. This preserves the distinction between known activity and missing platform evidence while remaining safe against false idle pauses.
 
-This fallback is safe against false idle pauses but can silently disable intended tracking and repeatedly invoke failing commands. A future improvement should expose adapter availability, apply bounded diagnostic logging, and stop or back off unsupported polling without turning an error into user inactivity.
+Diagnostic presentation is still pending. A future improvement may add bounded logging or a user-visible degraded-state indicator without changing the unavailable-sample contract.
 
 ## Required tests
 
-Tests cover:
+Required coverage includes:
 
 - exact threshold and one millisecond below it;
 - disabled and invalid thresholds;
@@ -115,4 +115,5 @@ Tests cover:
 - focus failure at exactly 60 seconds;
 - resume, stop, event expiry, and fresh restart;
 - suspend and cold-recovery precedence;
-- platform parser failures and bounded output.
+- platform parser failures and bounded output;
+- unavailable source samples and retry scheduling.

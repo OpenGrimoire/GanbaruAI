@@ -85,6 +85,20 @@ pub(super) async fn capture_preview_png(
     Ok(bytes)
 }
 
+#[cfg(any(target_os = "linux", windows, target_os = "macos", test))]
+fn run_native_capture_callback(callback: impl FnOnce()) -> bool {
+    // WebKit, WebView2, and Objective-C invoke these closures through foreign
+    // callback ABIs that cannot accept a Rust unwind. A panic payload may also
+    // panic when dropped, so leak that exceptional payload after catching it.
+    match std::panic::catch_unwind(std::panic::AssertUnwindSafe(callback)) {
+        Ok(()) => true,
+        Err(payload) => {
+            std::mem::forget(payload);
+            false
+        }
+    }
+}
+
 #[cfg(target_os = "linux")]
 pub(super) fn capture_platform_png(
     webview: &tauri::Webview,
@@ -100,19 +114,31 @@ pub(super) fn capture_platform_png(
                 SnapshotOptions::NONE,
                 None::<&webkit2gtk::gio::Cancellable>,
                 move |result| {
-                    let encoded = result
-                        .map_err(|_| preview_unavailable())
-                        .and_then(|surface| {
-                            let mut bytes = Vec::new();
-                            surface
-                                .write_to_png(&mut bytes)
-                                .map_err(|_| preview_unavailable())?;
-                            Ok(bytes)
-                        });
-                    if let Ok(mut sender) = sender.lock() {
-                        if let Some(sender) = sender.take() {
-                            let _ = sender.send(encoded);
+                    let completed = run_native_capture_callback(|| {
+                        let encoded =
+                            result
+                                .map_err(|_| preview_unavailable())
+                                .and_then(|surface| {
+                                    let mut bytes = Vec::new();
+                                    surface
+                                        .write_to_png(&mut bytes)
+                                        .map_err(|_| preview_unavailable())?;
+                                    Ok(bytes)
+                                });
+                        if let Ok(mut sender) = sender.lock() {
+                            if let Some(sender) = sender.take() {
+                                let _ = sender.send(encoded);
+                            }
                         }
+                    });
+                    if !completed {
+                        let _ = run_native_capture_callback(|| {
+                            if let Ok(mut sender) = sender.lock() {
+                                if let Some(sender) = sender.take() {
+                                    let _ = sender.send(Err(preview_unavailable()));
+                                }
+                            }
+                        });
                     }
                 },
             );
@@ -130,36 +156,105 @@ pub(super) fn capture_platform_png(
     use windows::Win32::System::Com::IStream;
     use windows::Win32::System::Com::StructuredStorage::CreateStreamOnHGlobal;
 
+    let sender = Arc::new(Mutex::new(Some(sender)));
     webview
-        .with_webview(move |platform| unsafe {
-            let stream = match CreateStreamOnHGlobal(HGLOBAL::default(), true) {
+        .with_webview(move |platform| {
+            // SAFETY: Tauri runs this callback on the WebView thread where COM is
+            // initialized. A null HGLOBAL requests a new movable allocation, and
+            // `true` transfers its cleanup to the returned IStream.
+            let stream = match unsafe { CreateStreamOnHGlobal(HGLOBAL::default(), true) } {
                 Ok(stream) => stream,
                 Err(_) => {
-                    let _ = sender.send(Err(preview_unavailable()));
+                    if let Ok(mut sender) = sender.lock() {
+                        if let Some(sender) = sender.take() {
+                            let _ = sender.send(Err(preview_unavailable()));
+                        }
+                    }
                     return;
                 }
             };
             let callback_stream: IStream = stream.clone();
+            let callback_sender = Arc::clone(&sender);
             let handler = CapturePreviewCompletedHandler::create(Box::new(move |result| {
-                let captured = result
-                    .map_err(|_| preview_unavailable())
-                    .and_then(|_| read_windows_stream(&callback_stream));
-                let _ = sender.send(captured);
+                let completed = run_native_capture_callback(|| {
+                    let captured = result
+                        .map_err(|_| preview_unavailable())
+                        .and_then(|_| read_windows_stream(&callback_stream));
+                    if let Ok(mut sender) = callback_sender.lock() {
+                        if let Some(sender) = sender.take() {
+                            let _ = sender.send(captured);
+                        }
+                    }
+                });
+                if !completed {
+                    let _ = run_native_capture_callback(|| {
+                        if let Ok(mut sender) = callback_sender.lock() {
+                            if let Some(sender) = sender.take() {
+                                let _ = sender.send(Err(preview_unavailable()));
+                            }
+                        }
+                    });
+                }
                 Ok(())
             }));
-            let core: ICoreWebView2 = match platform.controller().CoreWebView2() {
+            // SAFETY: `controller()` returns a live typed COM controller owned by
+            // the platform webview. The getter initializes and returns its typed
+            // CoreWebView2 interface without retaining Rust pointers.
+            let core: ICoreWebView2 = match unsafe { platform.controller().CoreWebView2() } {
                 Ok(core) => core,
                 Err(_) => {
+                    if let Ok(mut sender) = sender.lock() {
+                        if let Some(sender) = sender.take() {
+                            let _ = sender.send(Err(preview_unavailable()));
+                        }
+                    }
                     return;
                 }
             };
-            let _ = core.CapturePreview(
-                COREWEBVIEW2_CAPTURE_PREVIEW_IMAGE_FORMAT_PNG,
-                &stream,
-                &handler,
-            );
+            // SAFETY: `core`, `stream`, and `handler` are live typed COM
+            // interfaces in the current apartment. WebView2 retains the stream
+            // and handler for the asynchronous operation; both own their state.
+            if unsafe {
+                core.CapturePreview(
+                    COREWEBVIEW2_CAPTURE_PREVIEW_IMAGE_FORMAT_PNG,
+                    &stream,
+                    &handler,
+                )
+            }
+            .is_err()
+            {
+                if let Ok(mut sender) = sender.lock() {
+                    if let Some(sender) = sender.take() {
+                        let _ = sender.send(Err(preview_unavailable()));
+                    }
+                }
+            }
         })
         .map_err(|_| preview_unavailable())
+}
+
+#[cfg(any(windows, test))]
+fn capture_stream_capacity(reported_length: u64) -> ChatResult<usize> {
+    let length = usize::try_from(reported_length).map_err(|_| preview_unavailable())?;
+    if length == 0 || length > MAX_CAPTURE_BYTES {
+        return Err(preview_unavailable());
+    }
+    let _ = u32::try_from(length).map_err(|_| preview_unavailable())?;
+    Ok(length)
+}
+
+#[cfg(any(windows, test))]
+fn capture_stream_read_progress(
+    reported_read: u32,
+    offset: usize,
+    length: usize,
+) -> ChatResult<usize> {
+    let remaining = length.checked_sub(offset).ok_or_else(preview_unavailable)?;
+    let read = usize::try_from(reported_read).map_err(|_| preview_unavailable())?;
+    if read == 0 || read > remaining {
+        return Err(preview_unavailable());
+    }
+    offset.checked_add(read).ok_or_else(preview_unavailable)
 }
 
 #[cfg(windows)]
@@ -167,27 +262,36 @@ pub(super) fn read_windows_stream(
     stream: &windows::Win32::System::Com::IStream,
 ) -> ChatResult<Vec<u8>> {
     use windows::Win32::System::Com::{STATFLAG_NONAME, STATSTG, STREAM_SEEK_SET};
-    unsafe {
-        let mut stat = STATSTG::default();
-        stream
-            .Stat(&mut stat, STATFLAG_NONAME)
-            .map_err(|_| preview_unavailable())?;
-        let length = usize::try_from(stat.cbSize).map_err(|_| preview_unavailable())?;
-        if length == 0 || length > MAX_CAPTURE_BYTES {
-            return Err(preview_unavailable());
+    let mut stat = STATSTG::default();
+    // SAFETY: `stream` is a live typed COM interface, and `stat` is initialized
+    // writable storage of the exact type required. STATFLAG_NONAME prevents COM
+    // from allocating a name that the caller would need to free.
+    unsafe { stream.Stat(&mut stat, STATFLAG_NONAME) }.map_err(|_| preview_unavailable())?;
+    let length = capture_stream_capacity(stat.cbSize)?;
+    // SAFETY: `stream` remains live, the seek origin and zero offset are valid,
+    // and no output-position pointer is supplied.
+    unsafe { stream.Seek(0, STREAM_SEEK_SET, None) }.map_err(|_| preview_unavailable())?;
+    let mut bytes = vec![0_u8; length];
+    let mut offset = 0;
+    while offset < length {
+        let remaining = &mut bytes[offset..];
+        let read_capacity = u32::try_from(remaining.len()).map_err(|_| preview_unavailable())?;
+        let mut reported_read = 0_u32;
+        // SAFETY: `remaining` is writable for exactly `read_capacity` bytes,
+        // which was checked to fit COM's u32 count. `reported_read` is valid
+        // writable storage, and neither pointer is retained after this call.
+        unsafe {
+            stream.Read(
+                remaining.as_mut_ptr().cast(),
+                read_capacity,
+                Some(&mut reported_read),
+            )
         }
-        stream
-            .Seek(0, STREAM_SEEK_SET, None)
-            .map_err(|_| preview_unavailable())?;
-        let mut bytes = vec![0_u8; length];
-        let mut read = 0_u32;
-        stream
-            .Read(bytes.as_mut_ptr().cast(), length as u32, Some(&mut read))
-            .ok()
-            .map_err(|_| preview_unavailable())?;
-        bytes.truncate(read as usize);
-        Ok(bytes)
+        .ok()
+        .map_err(|_| preview_unavailable())?;
+        offset = capture_stream_read_progress(reported_read, offset, length)?;
     }
+    Ok(bytes)
 }
 
 #[cfg(target_os = "macos")]
@@ -199,36 +303,117 @@ pub(super) fn capture_platform_png(
     use objc2_app_kit::{NSBitmapImageRep, NSImage, NSPNGFileType};
     use objc2_foundation::{NSDictionary, NSError};
     use objc2_web_kit::WKWebView;
+    use std::ptr::NonNull;
 
     let sender = Arc::new(Mutex::new(Some(sender)));
     webview
-        .with_webview(move |platform| unsafe {
-            let sender = Arc::clone(&sender);
-            let view: &WKWebView = &*platform.inner().cast();
-            let block = RcBlock::new(move |image: *mut NSImage, error: *mut NSError| {
-                let result = if !error.is_null() || image.is_null() {
-                    Err(preview_unavailable())
-                } else {
-                    (*image)
-                        .TIFFRepresentation()
-                        .and_then(|data| NSBitmapImageRep::imageRepWithData(&data))
-                        .and_then(|representation| {
-                            let properties = NSDictionary::new();
-                            representation
-                                .representationUsingType_properties(NSPNGFileType, &properties)
-                        })
-                        .map(|data| data.to_vec())
-                        .ok_or_else(preview_unavailable)
-                };
+        .with_webview(move |platform| {
+            let Some(view) = NonNull::new(platform.inner().cast::<WKWebView>()) else {
                 if let Ok(mut sender) = sender.lock() {
                     if let Some(sender) = sender.take() {
-                        let _ = sender.send(result);
+                        let _ = sender.send(Err(preview_unavailable()));
                     }
                 }
+                return;
+            };
+            // SAFETY: Tauri documents this non-null platform pointer as the live
+            // WKWebView for the duration of `with_webview`. It is borrowed only
+            // within this callback and is never released by this code.
+            let view = unsafe { view.as_ref() };
+            let callback_sender = Arc::clone(&sender);
+            let block = RcBlock::new(move |image: *mut NSImage, error: *mut NSError| {
+                let completed = run_native_capture_callback(|| {
+                    let result = if !error.is_null() {
+                        Err(preview_unavailable())
+                    } else if let Some(image) = NonNull::new(image) {
+                        // SAFETY: WebKit supplied a non-null NSImage pointer with no
+                        // NSError. The callback contract keeps it alive for this
+                        // invocation, so the temporary shared reference cannot escape.
+                        let image = unsafe { image.as_ref() };
+                        image
+                            .TIFFRepresentation()
+                            .and_then(|data| NSBitmapImageRep::imageRepWithData(&data))
+                            .and_then(|representation| {
+                                let properties = NSDictionary::new();
+                                representation
+                                    .representationUsingType_properties(NSPNGFileType, &properties)
+                            })
+                            .map(|data| data.to_vec())
+                            .ok_or_else(preview_unavailable)
+                    } else {
+                        Err(preview_unavailable())
+                    };
+                    if let Ok(mut sender) = callback_sender.lock() {
+                        if let Some(sender) = sender.take() {
+                            let _ = sender.send(result);
+                        }
+                    }
+                });
+                if !completed {
+                    let _ = run_native_capture_callback(|| {
+                        if let Ok(mut sender) = callback_sender.lock() {
+                            if let Some(sender) = sender.take() {
+                                let _ = sender.send(Err(preview_unavailable()));
+                            }
+                        }
+                    });
+                }
             });
-            view.takeSnapshotWithConfiguration_completionHandler(None, &block);
+            // SAFETY: `view` is the live Tauri WKWebView established above. The
+            // Objective-C block owns its captured sender and remains valid for
+            // the asynchronous completion callback.
+            unsafe { view.takeSnapshotWithConfiguration_completionHandler(None, &block) };
         })
         .map_err(|_| preview_unavailable())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        capture_stream_capacity, capture_stream_read_progress, run_native_capture_callback,
+        MAX_CAPTURE_BYTES,
+    };
+
+    #[test]
+    fn capture_stream_lengths_are_nonzero_bounded_and_representable() {
+        assert!(capture_stream_capacity(0).is_err());
+        assert_eq!(
+            capture_stream_capacity(MAX_CAPTURE_BYTES as u64).unwrap(),
+            MAX_CAPTURE_BYTES
+        );
+        assert!(capture_stream_capacity(MAX_CAPTURE_BYTES as u64 + 1).is_err());
+        assert!(capture_stream_capacity(u64::MAX).is_err());
+    }
+
+    #[test]
+    fn capture_stream_fills_short_reads_and_rejects_stalls_or_overruns() {
+        let offset = capture_stream_read_progress(3, 0, 8).unwrap();
+        assert_eq!(offset, 3);
+        assert_eq!(capture_stream_read_progress(5, offset, 8).unwrap(), 8);
+        assert!(capture_stream_read_progress(0, offset, 8).is_err());
+        assert!(capture_stream_read_progress(6, offset, 8).is_err());
+        assert!(capture_stream_read_progress(1, 9, 8).is_err());
+    }
+
+    #[test]
+    fn native_capture_callback_barrier_forgets_panicking_payloads() {
+        struct PanicOnDrop(std::sync::Arc<std::sync::atomic::AtomicBool>);
+
+        impl Drop for PanicOnDrop {
+            fn drop(&mut self) {
+                self.0.store(true, std::sync::atomic::Ordering::SeqCst);
+                panic!("panic payload drop fixture");
+            }
+        }
+
+        let dropped = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let payload = PanicOnDrop(std::sync::Arc::clone(&dropped));
+        assert!(!run_native_capture_callback(|| {
+            std::panic::panic_any(payload)
+        }));
+        assert!(!dropped.load(std::sync::atomic::Ordering::SeqCst));
+        assert!(run_native_capture_callback(|| {}));
+    }
 }
 
 #[cfg(not(any(target_os = "linux", target_os = "windows", target_os = "macos")))]

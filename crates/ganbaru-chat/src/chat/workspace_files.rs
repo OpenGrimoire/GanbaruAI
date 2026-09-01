@@ -24,7 +24,7 @@ use windows::Win32::Storage::FileSystem::{
 #[cfg(unix)]
 use std::ffi::{CStr, CString};
 #[cfg(unix)]
-use std::os::fd::{AsRawFd, FromRawFd};
+use std::os::fd::{AsRawFd, FromRawFd, IntoRawFd};
 #[cfg(unix)]
 use std::os::unix::ffi::OsStrExt;
 #[cfg(unix)]
@@ -532,15 +532,37 @@ fn safety_excluded(relative_path: &str) -> bool {
     super::composer::workspace_mentions::workspace_mention_is_safety_excluded(relative_path)
 }
 
+fn ganbaru_internal_artifact_segment(segment: &str) -> bool {
+    for prefix in [".ganbaru.backup.", ".ganbaru.recovery."] {
+        if let Some(token) = segment.strip_prefix(prefix) {
+            return token.len() == 64 && token.bytes().all(|byte| byte.is_ascii_hexdigit());
+        }
+    }
+
+    let Some((_, suffix)) = segment.rsplit_once(".ganbaru.") else {
+        return false;
+    };
+    let mut parts = suffix.split('.').collect::<Vec<_>>();
+    let Some(extension) = parts.pop() else {
+        return false;
+    };
+    let shape_matches = match extension {
+        "tmp" | "backup" => matches!(parts.len(), 2 | 3),
+        "recovery" => parts.len() == 3,
+        _ => false,
+    };
+    shape_matches
+        && parts
+            .iter()
+            .all(|part| !part.is_empty() && part.bytes().all(|byte| byte.is_ascii_digit()))
+}
+
 fn common_ignored(relative_path: &str) -> bool {
     relative_path.split('/').any(|segment| {
-        let ganbaru_temporary = segment.starts_with('.')
-            && segment.contains(".ganbaru.")
-            && (segment.ends_with(".tmp") || segment.ends_with(".backup"));
         matches!(
             segment,
             ".git" | ".cache" | ".turbo" | "node_modules" | "target" | "dist" | "build"
-        ) || ganbaru_temporary
+        ) || ganbaru_internal_artifact_segment(segment)
     })
 }
 

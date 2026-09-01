@@ -562,13 +562,14 @@ fn owned_server_arguments_and_readiness_are_exact() {
 #[test]
 fn owned_server_fixture_stops_its_process_tree() {
     use std::os::unix::fs::PermissionsExt;
+    use std::time::Duration;
 
     crate::test_block_on(async {
         let directory = TestDirectory::new("owned-server");
         let executable = directory.path().join("opencode-fixture");
         std::fs::write(
             &executable,
-            "#!/bin/sh\nif [ \"$OPENCODE_SERVER_PASSWORD\" != \"sentinel-secret\" ]; then exit 12; fi\necho 'opencode server listening on http://127.0.0.1:43123'\nwhile :; do /bin/sleep 1; done\n",
+            "#!/bin/sh\nif [ \"$OPENCODE_SERVER_PASSWORD\" != \"sentinel-secret\" ]; then exit 12; fi\ntrap '' TERM\necho 'opencode server listening on http://127.0.0.1:43123'\nwhile :; do /bin/sleep 1; done\n",
         )
         .unwrap();
         std::fs::set_permissions(&executable, std::fs::Permissions::from_mode(0o700)).unwrap();
@@ -584,14 +585,30 @@ fn owned_server_fixture_stops_its_process_tree() {
                 .await
                 .unwrap();
         assert_eq!(server.origin, "http://127.0.0.1:43123");
-        let pid = server.process_id().unwrap();
+        let process_group_id = libc::pid_t::try_from(server.process_id().unwrap())
+            .ok()
+            .filter(|pid| *pid > 1)
+            .expect("fixture process ID must fit a process-group ID greater than one");
         server.stop().await.unwrap();
-        let result = unsafe { libc::kill(pid as i32, 0) };
-        assert_eq!(result, -1);
-        assert_eq!(
-            std::io::Error::last_os_error().raw_os_error(),
-            Some(libc::ESRCH)
-        );
+        let target = process_group_id
+            .checked_neg()
+            .expect("fixture process-group ID must be negatable");
+        let deadline = std::time::Instant::now() + Duration::from_secs(2);
+        loop {
+            // SAFETY: `target` is the checked negative form of the group ID greater
+            // than one created for this fixture. It cannot be zero or the broad -1
+            // selector, and signal zero only probes existence.
+            let result = unsafe { libc::kill(target, 0) };
+            let error = std::io::Error::last_os_error();
+            if result == -1 && error.raw_os_error() == Some(libc::ESRCH) {
+                break;
+            }
+            assert!(
+                std::time::Instant::now() < deadline,
+                "provider process group still exists after stop: {error}",
+            );
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
     });
 }
 

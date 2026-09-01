@@ -16,8 +16,17 @@ import type { PomodoroSegmentController } from "./pomodoro-segment-controller";
 import type { IdlePauseState } from "./pomodoro-window-sync";
 
 interface IdleStatus {
-  idle_ms: number;
+  idle_ms: number | null;
   webcam_in_use: boolean;
+}
+
+export function nextIdleStatusCheckDelayMs(
+  idleTimeoutMs: number,
+  idleMs: number | null,
+  webcamInUse: boolean,
+): number {
+  if (idleMs === null) return IDLE_CHECK_MAX_INTERVAL_MS;
+  return nextIdleCheckDelayMs({ idleTimeoutMs, idleMs, webcamInUse });
 }
 
 interface PomodoroIdleContext {
@@ -274,11 +283,12 @@ export function createPomodoroIdleController(
       const nowMs = Date.now();
       const currentIdleTimeoutMs = context.idleTimeoutMs;
       if (currentIdleTimeoutMs === null) return;
-      nextDelayMs = nextIdleCheckDelayMs({
-        idleTimeoutMs: currentIdleTimeoutMs,
-        idleMs: status.idle_ms,
-        webcamInUse: status.webcam_in_use,
-      });
+      nextDelayMs = nextIdleStatusCheckDelayMs(
+        currentIdleTimeoutMs,
+        status.idle_ms,
+        status.webcam_in_use,
+      );
+      if (status.idle_ms === null) return;
 
       const result = decideIdleCheck(
         {

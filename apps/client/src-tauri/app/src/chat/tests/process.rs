@@ -243,5 +243,31 @@ fn process_is_running(process_id: i32) -> bool {
 
 #[cfg(not(target_os = "linux"))]
 fn process_is_running(process_id: i32) -> bool {
-    (unsafe { libc::kill(process_id, 0) }) == 0
+    if process_id <= 0 {
+        return false;
+    }
+    // SAFETY: A positive process ID addresses one process, and signal zero only
+    // probes its existence and permissions without delivering a signal.
+    let result = unsafe { libc::kill(process_id, 0) };
+    let error = (result != 0)
+        .then(std::io::Error::last_os_error)
+        .and_then(|error| error.raw_os_error());
+    process_probe_indicates_running(result, error)
+}
+
+#[cfg(any(not(target_os = "linux"), test))]
+fn process_probe_indicates_running(result: i32, error: Option<i32>) -> bool {
+    result == 0 || (result == -1 && error == Some(libc::EPERM))
+}
+
+#[cfg(test)]
+mod process_probe_tests {
+    use super::process_probe_indicates_running;
+
+    #[test]
+    fn permission_denied_still_means_the_process_exists() {
+        assert!(process_probe_indicates_running(0, None));
+        assert!(process_probe_indicates_running(-1, Some(libc::EPERM)));
+        assert!(!process_probe_indicates_running(-1, Some(libc::ESRCH)));
+    }
 }

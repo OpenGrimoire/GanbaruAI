@@ -30,6 +30,7 @@ The active vault is user-owned durable storage. The platform app config director
 
 - [Supply chain](supply-chain.md) covers dependencies, CI, releases, copied code, and contributor rules.
 - [Application boundaries](application-boundaries.md) covers Tauri capabilities, native I/O, imports, assets, Notes, overlays, and loopback services.
+- [Unsafe Rust](unsafe-rust.md) defines the first-party unsafe-code policy and records reviewed native and FFI boundaries.
 - [Chat security](chat.md) covers provider processes, working folders, terminals, attachments, previews, checkpoints, and internal host tools.
 - [Network and privacy](network-and-privacy.md) covers telemetry, current and future network flows, local encryption, sync encryption, and metadata exposure.
 - [Dependency audits](dependency-audits.md) records reviewed advisory exceptions and the current warning snapshot.

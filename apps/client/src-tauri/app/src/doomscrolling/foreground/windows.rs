@@ -1,9 +1,17 @@
+#[cfg(windows)]
 use super::*;
+
+#[cfg(any(windows, test))]
+fn validated_window_process_id(thread_id: u32, process_id: u32) -> Option<u32> {
+    (thread_id != 0 && process_id != 0).then_some(process_id)
+}
 
 #[cfg(windows)]
 fn windows_foreground_window() -> Option<::windows::Win32::Foundation::HWND> {
     use ::windows::Win32::UI::WindowsAndMessaging::GetForegroundWindow;
 
+    // SAFETY: This getter accepts no pointers and returns a borrowed window
+    // identifier. A null result is rejected before the identifier is used.
     let hwnd = unsafe { GetForegroundWindow() };
     if hwnd.0.is_null() {
         None
@@ -17,42 +25,57 @@ fn windows_foreground_process_id(hwnd: ::windows::Win32::Foundation::HWND) -> Op
     use ::windows::Win32::UI::WindowsAndMessaging::GetWindowThreadProcessId;
 
     let mut process_id = 0;
-    unsafe {
-        GetWindowThreadProcessId(hwnd, Some(&mut process_id as *mut u32));
-    }
-    if process_id == 0 {
-        None
-    } else {
-        Some(process_id)
+    // SAFETY: `hwnd` came from Windows, and `process_id` is valid writable
+    // storage for the duration of the call. Windows does not retain the pointer.
+    let thread_id = unsafe { GetWindowThreadProcessId(hwnd, Some(&mut process_id as *mut u32)) };
+    validated_window_process_id(thread_id, process_id)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::validated_window_process_id;
+
+    #[test]
+    fn foreground_process_identity_requires_api_success_and_nonzero_output() {
+        assert_eq!(validated_window_process_id(7, 11), Some(11));
+        assert_eq!(validated_window_process_id(0, 11), None);
+        assert_eq!(validated_window_process_id(7, 0), None);
     }
 }
 
 #[cfg(windows)]
 fn windows_process_image_path(process_id: u32) -> Option<String> {
-    use ::windows::core::PWSTR;
-    use ::windows::Win32::Foundation::CloseHandle;
+    use ::windows::core::{Owned, PWSTR};
     use ::windows::Win32::System::Threading::{
         OpenProcess, QueryFullProcessImageNameW, PROCESS_NAME_WIN32,
         PROCESS_QUERY_LIMITED_INFORMATION,
     };
 
+    // SAFETY: No pointers are passed, inheritance is disabled, and Windows
+    // returns a fresh owning process handle on success.
     let handle = unsafe { OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, process_id).ok()? };
+    // SAFETY: `OpenProcess` returned a fresh owning handle above. Ownership is
+    // transferred exactly once and released on every return path.
+    let handle = unsafe { Owned::new(handle) };
     let mut buffer = vec![0u16; 32_768];
-    let mut size = buffer.len() as u32;
+    let mut size = u32::try_from(buffer.len()).ok()?;
+    // SAFETY: `handle` owns a live process handle with query access. `buffer` is
+    // writable for the capacity reported through `size`, and the size pointer is
+    // valid for the call. Windows does not retain either pointer.
     let result = unsafe {
         QueryFullProcessImageNameW(
-            handle,
+            *handle,
             PROCESS_NAME_WIN32,
             PWSTR(buffer.as_mut_ptr()),
             &mut size as *mut u32,
         )
     };
-    let _ = unsafe { CloseHandle(handle) };
     result.ok()?;
-    if size == 0 {
+    let size = usize::try_from(size).ok()?;
+    if size == 0 || size > buffer.len() {
         return None;
     }
-    Some(String::from_utf16_lossy(&buffer[..size as usize]))
+    Some(String::from_utf16_lossy(&buffer[..size]))
 }
 
 #[cfg(windows)]
@@ -107,8 +130,22 @@ pub(in crate::doomscrolling) fn close_current_foreground_desktop_app(
         return Err("foreground app changed before it could be closed".to_string());
     }
     authorize(&status)?;
+
+    let current_hwnd = windows_foreground_window()
+        .ok_or_else(|| "foreground app changed before it could be closed".to_string())?;
+    let current_status = windows_status_for_window(current_hwnd);
+    if current_hwnd != hwnd
+        || current_status != status
+        || !foreground_expectation_matches(&current_status, &expected)
+    {
+        return Err("foreground app changed before it could be closed".to_string());
+    }
+
+    // SAFETY: `current_hwnd` was just revalidated as the original foreground
+    // window with the authorized process ID. WM_CLOSE carries only scalar values,
+    // so Windows does not borrow any Rust memory after this call.
     unsafe {
-        PostMessageW(Some(hwnd), WM_CLOSE, WPARAM(0), LPARAM(0))
+        PostMessageW(Some(current_hwnd), WM_CLOSE, WPARAM(0), LPARAM(0))
             .map_err(|e| format!("close foreground window: {e}"))?;
     }
     Ok(())

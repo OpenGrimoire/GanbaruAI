@@ -1,7 +1,5 @@
-use std::sync::{
-    atomic::{AtomicBool, Ordering},
-    Arc,
-};
+use std::sync::mpsc::{self, SyncSender};
+use std::thread::JoinHandle;
 
 #[cfg(any(target_os = "windows", test))]
 const VK_TAB_CODE: u32 = 0x09;
@@ -31,6 +29,47 @@ const VK_R_CODE: u32 = 0x52;
 const VK_LWIN_CODE: u32 = 0x5B;
 #[cfg(any(target_os = "windows", test))]
 const VK_RWIN_CODE: u32 = 0x5C;
+#[cfg(any(target_os = "windows", test))]
+const VK_SHIFT_CODE: u32 = 0x10;
+#[cfg(any(target_os = "windows", test))]
+const VK_CONTROL_CODE: u32 = 0x11;
+#[cfg(any(target_os = "windows", test))]
+const VK_MENU_CODE: u32 = 0x12;
+#[cfg(any(target_os = "windows", test))]
+const VK_LSHIFT_CODE: u32 = 0xA0;
+#[cfg(any(target_os = "windows", test))]
+const VK_RSHIFT_CODE: u32 = 0xA1;
+#[cfg(any(target_os = "windows", test))]
+const VK_LCONTROL_CODE: u32 = 0xA2;
+#[cfg(any(target_os = "windows", test))]
+const VK_RCONTROL_CODE: u32 = 0xA3;
+#[cfg(any(target_os = "windows", test))]
+const VK_LMENU_CODE: u32 = 0xA4;
+#[cfg(any(target_os = "windows", test))]
+const VK_RMENU_CODE: u32 = 0xA5;
+
+#[cfg(any(target_os = "windows", test))]
+const MODIFIER_SHIFT: u16 = 1 << 0;
+#[cfg(any(target_os = "windows", test))]
+const MODIFIER_CONTROL: u16 = 1 << 1;
+#[cfg(any(target_os = "windows", test))]
+const MODIFIER_ALT: u16 = 1 << 2;
+#[cfg(any(target_os = "windows", test))]
+const MODIFIER_LEFT_SHIFT: u16 = 1 << 3;
+#[cfg(any(target_os = "windows", test))]
+const MODIFIER_RIGHT_SHIFT: u16 = 1 << 4;
+#[cfg(any(target_os = "windows", test))]
+const MODIFIER_LEFT_CONTROL: u16 = 1 << 5;
+#[cfg(any(target_os = "windows", test))]
+const MODIFIER_RIGHT_CONTROL: u16 = 1 << 6;
+#[cfg(any(target_os = "windows", test))]
+const MODIFIER_LEFT_ALT: u16 = 1 << 7;
+#[cfg(any(target_os = "windows", test))]
+const MODIFIER_RIGHT_ALT: u16 = 1 << 8;
+#[cfg(any(target_os = "windows", test))]
+const MODIFIER_LEFT_WIN: u16 = 1 << 9;
+#[cfg(any(target_os = "windows", test))]
+const MODIFIER_RIGHT_WIN: u16 = 1 << 10;
 
 #[cfg(any(target_os = "macos", test))]
 const MAC_PRESENTATION_HIDE_DOCK: u64 = 1 << 1;
@@ -181,6 +220,50 @@ pub(crate) fn should_block_windows_overlay_shortcut(event: WindowsOverlayShortcu
 }
 
 #[cfg(any(target_os = "windows", test))]
+fn windows_modifier_bit(key_code: u32) -> Option<u16> {
+    match key_code {
+        VK_SHIFT_CODE => Some(MODIFIER_SHIFT),
+        VK_CONTROL_CODE => Some(MODIFIER_CONTROL),
+        VK_MENU_CODE => Some(MODIFIER_ALT),
+        VK_LSHIFT_CODE => Some(MODIFIER_LEFT_SHIFT),
+        VK_RSHIFT_CODE => Some(MODIFIER_RIGHT_SHIFT),
+        VK_LCONTROL_CODE => Some(MODIFIER_LEFT_CONTROL),
+        VK_RCONTROL_CODE => Some(MODIFIER_RIGHT_CONTROL),
+        VK_LMENU_CODE => Some(MODIFIER_LEFT_ALT),
+        VK_RMENU_CODE => Some(MODIFIER_RIGHT_ALT),
+        VK_LWIN_CODE => Some(MODIFIER_LEFT_WIN),
+        VK_RWIN_CODE => Some(MODIFIER_RIGHT_WIN),
+        _ => None,
+    }
+}
+
+#[cfg(any(target_os = "windows", test))]
+fn update_windows_modifier_bits(bits: u16, key_code: u32, key_down: bool) -> u16 {
+    let Some(bit) = windows_modifier_bit(key_code) else {
+        return bits;
+    };
+    if key_down {
+        bits | bit
+    } else {
+        bits & !bit
+    }
+}
+
+#[cfg(any(target_os = "windows", test))]
+fn windows_modifiers_from_bits(
+    bits: u16,
+    low_level_alt_context: bool,
+) -> WindowsOverlayShortcutModifiers {
+    WindowsOverlayShortcutModifiers {
+        alt: low_level_alt_context
+            || bits & (MODIFIER_ALT | MODIFIER_LEFT_ALT | MODIFIER_RIGHT_ALT) != 0,
+        ctrl: bits & (MODIFIER_CONTROL | MODIFIER_LEFT_CONTROL | MODIFIER_RIGHT_CONTROL) != 0,
+        shift: bits & (MODIFIER_SHIFT | MODIFIER_LEFT_SHIFT | MODIFIER_RIGHT_SHIFT) != 0,
+        win: bits & (MODIFIER_LEFT_WIN | MODIFIER_RIGHT_WIN) != 0,
+    }
+}
+
+#[cfg(any(target_os = "windows", test))]
 fn is_shell_chord_key(key_code: u32) -> bool {
     matches!(
         key_code,
@@ -196,6 +279,43 @@ fn is_modifier_only_key(key_code: u32) -> bool {
 #[cfg(any(target_os = "macos", test))]
 pub(crate) fn mac_overlay_presentation_options_bits() -> u64 {
     MAC_APPROVED_PRESENTATION_BITS
+}
+
+#[derive(Debug, Default)]
+#[cfg(any(target_os = "macos", test))]
+struct MacPresentationLeaseState {
+    active_guards: usize,
+    restore_options_bits: Option<u64>,
+}
+
+#[cfg(any(target_os = "macos", test))]
+impl MacPresentationLeaseState {
+    fn acquire(&mut self, previous_options_bits: u64) -> Result<(), String> {
+        let next_active_guards = self
+            .active_guards
+            .checked_add(1)
+            .ok_or_else(|| "macOS presentation guard count overflowed".to_string())?;
+        if self.active_guards == 0 {
+            self.restore_options_bits = Some(previous_options_bits);
+        }
+        self.active_guards = next_active_guards;
+        Ok(())
+    }
+
+    fn release(&mut self) -> Result<Option<u64>, String> {
+        if self.active_guards == 0 {
+            return Err("macOS presentation guard release was unbalanced".to_string());
+        }
+        self.active_guards -= 1;
+        if self.active_guards == 0 {
+            self.restore_options_bits
+                .take()
+                .map(Some)
+                .ok_or_else(|| "macOS presentation restore state was unavailable".to_string())
+        } else {
+            Ok(None)
+        }
+    }
 }
 
 pub(crate) fn start_overlay_enforcement(
@@ -268,36 +388,65 @@ pub(crate) fn reinforce_overlay_windows(
 }
 
 pub(crate) struct OverlayReconcileGuard {
-    stop: Arc<AtomicBool>,
+    stop_tx: Option<SyncSender<()>>,
+    worker: Option<JoinHandle<()>>,
 }
 
 impl OverlayReconcileGuard {
-    pub(crate) fn start<F>(mut reconcile: F) -> Result<Self, String>
+    pub(crate) fn start<F>(reconcile: F) -> Result<Self, String>
     where
         F: FnMut() -> bool + Send + 'static,
     {
-        let stop = Arc::new(AtomicBool::new(false));
-        let worker_stop = Arc::clone(&stop);
-        std::thread::Builder::new()
+        Self::start_with_interval(reconcile, std::time::Duration::from_millis(2_500))
+    }
+
+    fn start_with_interval<F>(
+        mut reconcile: F,
+        interval: std::time::Duration,
+    ) -> Result<Self, String>
+    where
+        F: FnMut() -> bool + Send + 'static,
+    {
+        let (stop_tx, stop_rx) = mpsc::sync_channel(1);
+        let worker = std::thread::Builder::new()
             .name("ganbaru-ai-pomodoro-overlay-reconcile".to_string())
             .spawn(move || loop {
-                std::thread::sleep(std::time::Duration::from_millis(2_500));
-                if worker_stop.load(Ordering::SeqCst) || !reconcile() {
-                    break;
+                match stop_rx.recv_timeout(interval) {
+                    Ok(()) | Err(mpsc::RecvTimeoutError::Disconnected) => break,
+                    Err(mpsc::RecvTimeoutError::Timeout) => {
+                        if !reconcile() {
+                            break;
+                        }
+                    }
                 }
             })
             .map_err(|e| e.to_string())?;
-        Ok(Self { stop })
+        Ok(Self {
+            stop_tx: Some(stop_tx),
+            worker: Some(worker),
+        })
     }
 
-    pub(crate) fn stop(&self) {
-        self.stop.store(true, Ordering::SeqCst);
+    fn request_stop(&mut self) {
+        if let Some(stop_tx) = self.stop_tx.take() {
+            let _ = stop_tx.send(());
+        }
+    }
+
+    pub(crate) fn stop(&mut self) -> Result<(), String> {
+        self.request_stop();
+        if let Some(worker) = self.worker.take() {
+            worker
+                .join()
+                .map_err(|_| "Pomodoro overlay monitor reconciler panicked".to_string())?;
+        }
+        Ok(())
     }
 }
 
 impl Drop for OverlayReconcileGuard {
     fn drop(&mut self) {
-        self.stop();
+        self.request_stop();
     }
 }
 
@@ -317,33 +466,44 @@ where
 
 #[cfg(target_os = "windows")]
 mod windows {
-    use std::sync::mpsc::{self, SyncSender};
+    use std::os::windows::io::{AsRawHandle, FromRawHandle, OwnedHandle};
+    use std::sync::{
+        atomic::{AtomicBool, AtomicU16, Ordering},
+        mpsc::{self, SyncSender},
+        Arc,
+    };
     use std::thread::JoinHandle;
 
     use super::{
-        run_main_thread_setup, should_block_windows_overlay_shortcut, WindowsOverlayShortcutEvent,
-        WindowsOverlayShortcutModifiers,
+        run_main_thread_setup, should_block_windows_overlay_shortcut, update_windows_modifier_bits,
+        windows_modifiers_from_bits, WindowsOverlayShortcutEvent, VK_LCONTROL_CODE, VK_LMENU_CODE,
+        VK_LSHIFT_CODE, VK_LWIN_CODE, VK_RCONTROL_CODE, VK_RMENU_CODE, VK_RSHIFT_CODE,
+        VK_RWIN_CODE,
     };
     use tauri::Manager;
-    use windows::Win32::Foundation::{LPARAM, LRESULT, WPARAM};
+    use windows::core::PCWSTR;
+    use windows::Win32::Foundation::{
+        HANDLE, HINSTANCE, LPARAM, LRESULT, WAIT_FAILED, WAIT_OBJECT_0, WAIT_TIMEOUT, WPARAM,
+    };
+    use windows::Win32::System::LibraryLoader::GetModuleHandleW;
     use windows::Win32::System::Power::{
         SetThreadExecutionState, ES_CONTINUOUS, ES_DISPLAY_REQUIRED, ES_SYSTEM_REQUIRED,
     };
-    use windows::Win32::System::Threading::GetCurrentThreadId;
-    use windows::Win32::UI::Input::KeyboardAndMouse::{
-        GetAsyncKeyState, VK_CONTROL, VK_LCONTROL, VK_LMENU, VK_LSHIFT, VK_LWIN, VK_MENU,
-        VK_RCONTROL, VK_RMENU, VK_RSHIFT, VK_RWIN, VK_SHIFT,
-    };
+    use windows::Win32::System::Threading::{CreateEventW, SetEvent};
+    use windows::Win32::UI::Input::KeyboardAndMouse::GetAsyncKeyState;
     use windows::Win32::UI::WindowsAndMessaging::{
-        CallNextHookEx, GetMessageW, PeekMessageW, PostThreadMessageW, SetWindowPos,
-        SetWindowsHookExW, UnhookWindowsHookEx, HWND_TOPMOST, KBDLLHOOKSTRUCT, LLKHF_ALTDOWN, MSG,
-        PM_NOREMOVE, SWP_NOMOVE, SWP_NOSIZE, SWP_SHOWWINDOW, WH_KEYBOARD_LL, WM_KEYDOWN, WM_KEYUP,
-        WM_QUIT, WM_SYSKEYDOWN, WM_SYSKEYUP,
+        CallNextHookEx, DispatchMessageW, MsgWaitForMultipleObjects, PeekMessageW, SetWindowPos,
+        SetWindowsHookExW, TranslateMessage, UnhookWindowsHookEx, HC_ACTION, HWND_TOPMOST,
+        KBDLLHOOKSTRUCT, LLKHF_ALTDOWN, MSG, PM_REMOVE, QS_ALLINPUT, SWP_NOMOVE, SWP_NOSIZE,
+        SWP_SHOWWINDOW, WH_KEYBOARD_LL, WM_KEYDOWN, WM_KEYUP, WM_QUIT, WM_SYSKEYDOWN, WM_SYSKEYUP,
     };
+
+    static MODIFIER_BITS: AtomicU16 = AtomicU16::new(0);
+    const SHORTCUT_HOOK_STOP_POLL_MS: u32 = 250;
 
     pub(super) struct WindowsPowerGuard {
         stop_tx: Option<SyncSender<()>>,
-        worker: Option<JoinHandle<()>>,
+        worker: Option<JoinHandle<Result<(), String>>>,
     }
 
     impl WindowsPowerGuard {
@@ -354,15 +514,35 @@ mod windows {
                 .name("ganbaru-ai-overlay-windows-power".to_string())
                 .spawn(move || {
                     let active_state = ES_CONTINUOUS | ES_DISPLAY_REQUIRED | ES_SYSTEM_REQUIRED;
+                    // SAFETY: The flags are a documented execution-state
+                    // combination and this dedicated thread also clears them.
                     let active = unsafe { SetThreadExecutionState(active_state) };
                     let _ = ready_tx.send(active.0 != 0);
                     let _ = stop_rx.recv();
-                    let _ = unsafe { SetThreadExecutionState(ES_CONTINUOUS) };
+                    // SAFETY: ES_CONTINUOUS alone clears the requirements set by
+                    // this same thread and requires no pointer or owned handle.
+                    if unsafe { SetThreadExecutionState(ES_CONTINUOUS) }.0 == 0 {
+                        Err("Windows rejected execution-state cleanup".to_string())
+                    } else {
+                        Ok(())
+                    }
                 })
                 .map_err(|e| e.to_string())?;
 
-            if !ready_rx.recv().map_err(|e| e.to_string())? {
-                eprintln!("Windows did not accept the Pomodoro overlay execution state");
+            let accepted = match ready_rx.recv() {
+                Ok(accepted) => accepted,
+                Err(error) => {
+                    let _ = stop_tx.send(());
+                    let _ = worker.join();
+                    return Err(error.to_string());
+                }
+            };
+            if !accepted {
+                let _ = stop_tx.send(());
+                worker
+                    .join()
+                    .map_err(|_| "Windows power guard thread panicked".to_string())??;
+                return Err("Windows rejected the Pomodoro overlay execution state".to_string());
             }
 
             Ok(Self {
@@ -380,90 +560,213 @@ mod windows {
             if let Some(worker) = self.worker.take() {
                 worker
                     .join()
-                    .map_err(|_| "Windows power guard thread panicked".to_string())?;
+                    .map_err(|_| "Windows power guard thread panicked".to_string())??;
             }
             Ok(())
         }
     }
 
     pub(super) struct WindowsShortcutHookGuard {
-        thread_id: u32,
-        worker: Option<JoinHandle<()>>,
+        stop_requested: Arc<AtomicBool>,
+        stop_event: OwnedHandle,
+        worker: Option<JoinHandle<Result<(), String>>>,
     }
 
     impl WindowsShortcutHookGuard {
         pub(super) fn start() -> Result<Self, String> {
             let (ready_tx, ready_rx) = mpsc::sync_channel(1);
+            // SAFETY: Null security attributes and name create a private,
+            // non-inheritable manual-reset event. The returned handle is new.
+            let raw_stop_event = unsafe { CreateEventW(None, true, false, PCWSTR::null()) }
+                .map_err(|e| e.to_string())?;
+            // SAFETY: CreateEventW returned a new handle owned by this call. No
+            // other Rust owner exists, so OwnedHandle closes it exactly once.
+            let stop_event = unsafe { OwnedHandle::from_raw_handle(raw_stop_event.0) };
+            let worker_stop_event = stop_event.try_clone().map_err(|e| e.to_string())?;
+            let stop_requested = Arc::new(AtomicBool::new(false));
+            let worker_stop_requested = Arc::clone(&stop_requested);
             let worker = std::thread::Builder::new()
                 .name("ganbaru-ai-overlay-keyboard-hook".to_string())
-                .spawn(move || unsafe {
-                    let thread_id = GetCurrentThreadId();
-                    let mut msg = MSG::default();
-                    let _ = PeekMessageW(&mut msg, None, 0, 0, PM_NOREMOVE);
-                    let hook =
-                        SetWindowsHookExW(WH_KEYBOARD_LL, Some(low_level_keyboard_proc), None, 0);
-                    let hook = match hook {
-                        Ok(hook) => {
-                            let _ = ready_tx.send(Ok(thread_id));
-                            hook
-                        }
-                        Err(err) => {
-                            let _ = ready_tx.send(Err(err.to_string()));
-                            return;
-                        }
-                    };
-
-                    loop {
-                        let result = GetMessageW(&mut msg, None, 0, 0);
-                        if result.0 <= 0 || msg.message == WM_QUIT {
-                            break;
-                        }
-                    }
-
-                    let _ = UnhookWindowsHookEx(hook);
+                .spawn(move || {
+                    run_shortcut_hook(worker_stop_event, worker_stop_requested, ready_tx)
                 })
                 .map_err(|e| e.to_string())?;
 
-            match ready_rx.recv().map_err(|e| e.to_string())? {
-                Ok(thread_id) => Ok(Self {
-                    thread_id,
+            match ready_rx.recv() {
+                Ok(Ok(())) => Ok(Self {
+                    stop_requested,
+                    stop_event,
                     worker: Some(worker),
                 }),
-                Err(err) => {
+                Ok(Err(err)) => {
                     let _ = worker.join();
                     Err(err)
+                }
+                Err(err) => {
+                    let _ = worker.join();
+                    Err(err.to_string())
                 }
             }
         }
     }
 
-    impl super::EnforcementCleanup for WindowsShortcutHookGuard {
-        fn stop(&mut self) -> Result<(), String> {
-            let _ = unsafe { PostThreadMessageW(self.thread_id, WM_QUIT, WPARAM(0), LPARAM(0)) };
-            if let Some(worker) = self.worker.take() {
-                worker
-                    .join()
-                    .map_err(|_| "Windows shortcut hook thread panicked".to_string())?;
+    fn run_shortcut_hook(
+        stop_event: OwnedHandle,
+        stop_requested: Arc<AtomicBool>,
+        ready_tx: SyncSender<Result<(), String>>,
+    ) -> Result<(), String> {
+        MODIFIER_BITS.store(initial_modifier_bits(), Ordering::Relaxed);
+        // SAFETY: A null module name requests the current executable module. The
+        // module remains loaded for the process lifetime and contains the callback.
+        let module = match unsafe { GetModuleHandleW(PCWSTR::null()) } {
+            Ok(module) => module,
+            Err(error) => {
+                let _ = ready_tx.send(Err(error.to_string()));
+                return Ok(());
             }
-            Ok(())
+        };
+        // SAFETY: The callback has the required system ABI and process lifetime.
+        // `module` identifies the loaded image containing it. WH_KEYBOARD_LL is
+        // delivered back to this installing thread, and Windows validates whether
+        // the image and desktop support this desktop-wide hook during installation.
+        let hook = match unsafe {
+            SetWindowsHookExW(
+                WH_KEYBOARD_LL,
+                Some(low_level_keyboard_proc),
+                Some(HINSTANCE(module.0)),
+                0,
+            )
+        } {
+            Ok(hook) => hook,
+            Err(error) => {
+                let _ = ready_tx.send(Err(error.to_string()));
+                return Ok(());
+            }
+        };
+        if ready_tx.send(Ok(())).is_err() {
+            // SAFETY: `hook` is the live handle returned above and has not been
+            // unhooked. This call releases it before the worker exits.
+            return unsafe { UnhookWindowsHookEx(hook) }.map_err(|error| error.to_string());
+        }
+
+        let handles = [HANDLE(stop_event.as_raw_handle())];
+        let wait_result = 'wait: loop {
+            if stop_requested.load(Ordering::SeqCst) {
+                break Ok(());
+            }
+            // SAFETY: `handles` borrows one live event for this call. The worker
+            // pumps all queued input messages whenever the message queue wakes.
+            // The timeout observes the atomic fallback if event signaling fails.
+            let result = unsafe {
+                MsgWaitForMultipleObjects(
+                    Some(&handles),
+                    false,
+                    SHORTCUT_HOOK_STOP_POLL_MS,
+                    QS_ALLINPUT,
+                )
+            };
+            if result == WAIT_OBJECT_0 {
+                break Ok(());
+            }
+            if result == WAIT_TIMEOUT {
+                continue;
+            }
+            if result == WAIT_FAILED {
+                break Err(windows::core::Error::from_win32().to_string());
+            }
+            if result.0 != WAIT_OBJECT_0.0 + handles.len() as u32 {
+                break Err(format!(
+                    "Windows keyboard hook wait returned status {}",
+                    result.0
+                ));
+            }
+
+            let mut message = MSG::default();
+            loop {
+                // SAFETY: `message` is writable for one MSG and the remaining
+                // arguments request removal of any message for this thread.
+                if !unsafe { PeekMessageW(&mut message, None, 0, 0, PM_REMOVE) }.as_bool() {
+                    break;
+                }
+                if message.message == WM_QUIT {
+                    break 'wait Ok(());
+                }
+                // SAFETY: `message` was initialized by PeekMessageW and remains
+                // live for the standard translation and dispatch calls.
+                unsafe {
+                    let _ = TranslateMessage(&message);
+                    DispatchMessageW(&message);
+                }
+            }
+        };
+
+        // SAFETY: `hook` is still the one live handle returned by installation.
+        // The message loop has stopped, so no later callback depends on it.
+        let unhook_result = unsafe { UnhookWindowsHookEx(hook) }
+            .map_err(|error| format!("Windows keyboard hook cleanup failed: {error}"));
+        match (wait_result, unhook_result) {
+            (Err(wait_error), Err(unhook_error)) => {
+                Err(format!("{wait_error}; additionally, {unhook_error}"))
+            }
+            (Err(error), Ok(())) | (Ok(()), Err(error)) => Err(error),
+            (Ok(()), Ok(())) => Ok(()),
         }
     }
 
+    impl super::EnforcementCleanup for WindowsShortcutHookGuard {
+        fn stop(&mut self) -> Result<(), String> {
+            if self.worker.is_none() {
+                return Ok(());
+            }
+            self.stop_requested.store(true, Ordering::SeqCst);
+            // SAFETY: `stop_event` owns a live event handle. Signaling does not
+            // transfer or close it, and it wakes the worker's message wait.
+            let signal_result = unsafe { SetEvent(HANDLE(self.stop_event.as_raw_handle())) };
+            if let Some(worker) = self.worker.take() {
+                worker
+                    .join()
+                    .map_err(|_| "Windows shortcut hook thread panicked".to_string())??;
+            }
+            signal_result.map_err(|e| e.to_string())
+        }
+    }
+
+    // SAFETY: Windows calls this function on the hook worker thread with
+    // callback-duration message pointers. Its body performs only nonblocking
+    // atomic and pure work, contains no panicking operations, and forwards every
+    // unconsumed event.
     unsafe extern "system" fn low_level_keyboard_proc(
         ncode: i32,
         wparam: WPARAM,
         lparam: LPARAM,
     ) -> LRESULT {
-        if ncode >= 0 && is_keyboard_message(wparam.0 as u32) {
-            let keyboard = unsafe { &*(lparam.0 as *const KBDLLHOOKSTRUCT) };
-            let event = WindowsOverlayShortcutEvent {
-                key_code: keyboard.vkCode,
-                modifiers: current_modifier_state(keyboard.vkCode, keyboard.flags),
-            };
-            if should_block_windows_overlay_shortcut(event) {
-                return LRESULT(1);
+        let message = wparam.0 as u32;
+        if ncode == HC_ACTION as i32 && is_keyboard_message(message) {
+            // SAFETY: For HC_ACTION keyboard messages, Windows guarantees lParam
+            // points to an aligned KBDLLHOOKSTRUCT for this callback invocation.
+            // `as_ref` also rejects a defensive null value before dereferencing.
+            if let Some(keyboard) = unsafe { (lparam.0 as *const KBDLLHOOKSTRUCT).as_ref() } {
+                let key_down = is_key_down_message(message);
+                let bits = update_windows_modifier_bits(
+                    MODIFIER_BITS.load(Ordering::Relaxed),
+                    keyboard.vkCode,
+                    key_down,
+                );
+                MODIFIER_BITS.store(bits, Ordering::Relaxed);
+                let event = WindowsOverlayShortcutEvent {
+                    key_code: keyboard.vkCode,
+                    modifiers: windows_modifiers_from_bits(
+                        bits,
+                        keyboard.flags.contains(LLKHF_ALTDOWN),
+                    ),
+                };
+                if should_block_windows_overlay_shortcut(event) {
+                    return LRESULT(1);
+                }
             }
         }
+        // SAFETY: These are the unchanged arguments supplied by Windows. Passing
+        // them onward is required whenever Ganbaru does not consume the event.
         unsafe { CallNextHookEx(None, ncode, wparam, lparam) }
     }
 
@@ -471,30 +774,31 @@ mod windows {
         matches!(message, WM_KEYDOWN | WM_KEYUP | WM_SYSKEYDOWN | WM_SYSKEYUP)
     }
 
-    fn current_modifier_state(
-        key_code: u32,
-        flags: windows::Win32::UI::WindowsAndMessaging::KBDLLHOOKSTRUCT_FLAGS,
-    ) -> WindowsOverlayShortcutModifiers {
-        WindowsOverlayShortcutModifiers {
-            alt: flags.contains(LLKHF_ALTDOWN)
-                || async_key_down(VK_MENU)
-                || async_key_down(VK_LMENU)
-                || async_key_down(VK_RMENU),
-            ctrl: async_key_down(VK_CONTROL)
-                || async_key_down(VK_LCONTROL)
-                || async_key_down(VK_RCONTROL),
-            shift: async_key_down(VK_SHIFT)
-                || async_key_down(VK_LSHIFT)
-                || async_key_down(VK_RSHIFT),
-            win: key_code == u32::from(VK_LWIN.0)
-                || key_code == u32::from(VK_RWIN.0)
-                || async_key_down(VK_LWIN)
-                || async_key_down(VK_RWIN),
-        }
+    fn is_key_down_message(message: u32) -> bool {
+        matches!(message, WM_KEYDOWN | WM_SYSKEYDOWN)
     }
 
-    fn async_key_down(key: windows::Win32::UI::Input::KeyboardAndMouse::VIRTUAL_KEY) -> bool {
-        unsafe { GetAsyncKeyState(i32::from(key.0)) < 0 }
+    fn initial_modifier_bits() -> u16 {
+        [
+            VK_LSHIFT_CODE,
+            VK_RSHIFT_CODE,
+            VK_LCONTROL_CODE,
+            VK_RCONTROL_CODE,
+            VK_LMENU_CODE,
+            VK_RMENU_CODE,
+            VK_LWIN_CODE,
+            VK_RWIN_CODE,
+        ]
+        .into_iter()
+        .fold(0, |bits, key_code| {
+            update_windows_modifier_bits(bits, key_code, async_key_down(key_code))
+        })
+    }
+
+    fn async_key_down(key_code: u32) -> bool {
+        // SAFETY: This query runs only while initializing the worker, outside the
+        // low-level hook callback where Windows documents async state as stale.
+        unsafe { GetAsyncKeyState(key_code as i32) < 0 }
     }
 
     pub(super) fn reinforce_overlay_windows(
@@ -509,6 +813,9 @@ mod windows {
                     continue;
                 };
                 let hwnd = window.hwnd().map_err(|e| e.to_string())?;
+                // SAFETY: Tauri returned a live HWND for `window`, which remains
+                // owned through this main-thread call. The flags ignore dimensions
+                // and request only topmost placement without ownership transfer.
                 unsafe {
                     SetWindowPos(
                         hwnd,
@@ -530,6 +837,7 @@ mod windows {
 #[cfg(target_os = "macos")]
 mod macos {
     use std::ffi::c_void;
+    use std::sync::Mutex;
 
     use objc2::MainThreadMarker;
     use objc2_app_kit::{
@@ -538,7 +846,9 @@ mod macos {
     use objc2_core_foundation::{CFRetained, CFString};
     use tauri::Manager;
 
-    use super::{mac_overlay_presentation_options_bits, run_main_thread_setup};
+    use super::{
+        mac_overlay_presentation_options_bits, run_main_thread_setup, MacPresentationLeaseState,
+    };
 
     type IOPMAssertionId = u32;
     type IOPMAssertionLevel = u32;
@@ -547,10 +857,19 @@ mod macos {
 
     const K_IOPM_ASSERTION_LEVEL_ON: IOPMAssertionLevel = 255;
 
+    const DISPLAY_SLEEP_ASSERTION_TYPE: &str = "PreventUserIdleDisplaySleep";
+    const SYSTEM_SLEEP_ASSERTION_TYPE: &str = "PreventUserIdleSystemSleep";
+
+    static PRESENTATION_LEASE_STATE: Mutex<MacPresentationLeaseState> =
+        Mutex::new(MacPresentationLeaseState {
+            active_guards: 0,
+            restore_options_bits: None,
+        });
+
+    // SAFETY: These declarations match IOKit's public C signatures. Assertion
+    // IDs returned successfully must be released once through the paired function.
     #[link(name = "IOKit", kind = "framework")]
-    extern "C" {
-        static kIOPMAssertionTypePreventUserIdleDisplaySleep: CFStringRef;
-        static kIOPMAssertionTypePreventUserIdleSystemSleep: CFStringRef;
+    unsafe extern "C" {
         fn IOPMAssertionCreateWithName(
             assertion_type: CFStringRef,
             assertion_level: IOPMAssertionLevel,
@@ -562,40 +881,54 @@ mod macos {
 
     pub(super) struct MacPresentationGuard {
         app: tauri::AppHandle,
-        previous_options_bits: u64,
+        active: bool,
     }
 
     impl MacPresentationGuard {
         pub(super) fn start(app: &tauri::AppHandle) -> Result<Self, String> {
             let app_for_setup = app.clone();
-            let previous_options_bits = run_main_thread_setup(app, move || {
+            run_main_thread_setup(app, move || {
                 let mtm = MainThreadMarker::new()
                     .ok_or_else(|| "macOS presentation options need the main thread".to_string())?;
                 let ns_app = NSApplication::sharedApplication(mtm);
-                let previous_options = ns_app.presentationOptions();
+                let previous_options_bits = ns_app.presentationOptions().0 as u64;
+                PRESENTATION_LEASE_STATE
+                    .lock()
+                    .unwrap_or_else(|poisoned| poisoned.into_inner())
+                    .acquire(previous_options_bits)?;
                 ns_app.setPresentationOptions(mac_overlay_presentation_options());
-                Ok(previous_options.0 as u64)
+                Ok(())
             })?;
 
             Ok(Self {
                 app: app_for_setup,
-                previous_options_bits,
+                active: true,
             })
         }
     }
 
     impl super::EnforcementCleanup for MacPresentationGuard {
         fn stop(&mut self) -> Result<(), String> {
-            let previous_options_bits = self.previous_options_bits;
+            if !self.active {
+                return Ok(());
+            }
             run_main_thread_setup(&self.app, move || {
                 let mtm = MainThreadMarker::new()
                     .ok_or_else(|| "macOS presentation options need the main thread".to_string())?;
-                let ns_app = NSApplication::sharedApplication(mtm);
-                ns_app.setPresentationOptions(mac_presentation_options_from_bits(
-                    previous_options_bits,
-                ));
+                let restore_options_bits = PRESENTATION_LEASE_STATE
+                    .lock()
+                    .unwrap_or_else(|poisoned| poisoned.into_inner())
+                    .release()?;
+                if let Some(restore_options_bits) = restore_options_bits {
+                    let ns_app = NSApplication::sharedApplication(mtm);
+                    ns_app.setPresentationOptions(mac_presentation_options_from_bits(
+                        restore_options_bits,
+                    ));
+                }
                 Ok(())
-            })
+            })?;
+            self.active = false;
+            Ok(())
         }
     }
 
@@ -606,11 +939,12 @@ mod macos {
     impl MacPowerAssertionGuard {
         pub(super) fn start() -> Result<Self, String> {
             let mut assertion_ids = Vec::new();
-            let display_id =
-                create_power_assertion(unsafe { kIOPMAssertionTypePreventUserIdleDisplaySleep })?;
+            let display_type = CFString::from_static_str(DISPLAY_SLEEP_ASSERTION_TYPE);
+            let display_id = create_power_assertion(&display_type)?;
             assertion_ids.push(display_id);
 
-            match create_power_assertion(unsafe { kIOPMAssertionTypePreventUserIdleSystemSleep }) {
+            let system_type = CFString::from_static_str(SYSTEM_SLEEP_ASSERTION_TYPE);
+            match create_power_assertion(&system_type) {
                 Ok(system_id) => assertion_ids.push(system_id),
                 Err(err) => eprintln!("failed to create macOS system sleep assertion: {err}"),
             }
@@ -621,23 +955,34 @@ mod macos {
 
     impl super::EnforcementCleanup for MacPowerAssertionGuard {
         fn stop(&mut self) -> Result<(), String> {
+            let mut failure = None;
             for assertion_id in self.assertion_ids.drain(..) {
+                // SAFETY: Every stored ID came from one successful create call and
+                // drain ensures it is submitted for release at most once.
                 let result = unsafe { IOPMAssertionRelease(assertion_id) };
-                if result != 0 {
-                    eprintln!("failed to release macOS power assertion {assertion_id}: {result}");
+                if result != 0 && failure.is_none() {
+                    failure = Some(format!(
+                        "macOS power assertion {assertion_id} release returned {result}"
+                    ));
                 }
             }
-            Ok(())
+            failure.map_or(Ok(()), Err)
         }
     }
 
-    fn create_power_assertion(assertion_type: CFStringRef) -> Result<IOPMAssertionId, String> {
+    fn create_power_assertion(
+        assertion_type: &CFRetained<CFString>,
+    ) -> Result<IOPMAssertionId, String> {
+        let assertion_type_ref = CFRetained::as_ptr(assertion_type).as_ptr().cast::<c_void>();
         let name = CFString::from_static_str("Ganbaru AI Pomodoro overlay");
         let name_ref = CFRetained::as_ptr(&name).as_ptr().cast::<c_void>();
         let mut assertion_id = 0;
+        // SAFETY: Both CFString pointers are non-null and remain alive for this
+        // synchronous call. `assertion_id` is valid writable output storage and
+        // is used only when IOKit reports success.
         let result = unsafe {
             IOPMAssertionCreateWithName(
-                assertion_type,
+                assertion_type_ref,
                 K_IOPM_ASSERTION_LEVEL_ON,
                 name_ref,
                 &mut assertion_id,
@@ -671,10 +1016,12 @@ mod macos {
                     continue;
                 };
                 let ns_window = window.ns_window().map_err(|e| e.to_string())?;
-                if ns_window.is_null() {
+                let Some(ns_window) = std::ptr::NonNull::new(ns_window.cast::<NSWindow>()) else {
                     continue;
-                }
-                let ns_window: &NSWindow = unsafe { &*ns_window.cast() };
+                };
+                // SAFETY: Tauri returned the live NSWindow belonging to `window`.
+                // The main-thread closure keeps that owner alive for this borrow.
+                let ns_window = unsafe { ns_window.as_ref() };
                 ns_window.setLevel(NSScreenSaverWindowLevel);
             }
             Ok(())
@@ -685,7 +1032,10 @@ mod macos {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::atomic::AtomicUsize;
+    use std::sync::{
+        atomic::{AtomicUsize, Ordering},
+        Arc,
+    };
 
     fn event(
         key_code: u32,
@@ -731,6 +1081,40 @@ mod tests {
             VK_LWIN_CODE,
             WindowsOverlayShortcutModifiers::default(),
         )));
+    }
+
+    #[test]
+    fn windows_modifier_tracking_preserves_independent_key_sides() {
+        let mut bits = 0;
+        bits = update_windows_modifier_bits(bits, VK_LCONTROL_CODE, true);
+        bits = update_windows_modifier_bits(bits, VK_RCONTROL_CODE, true);
+        bits = update_windows_modifier_bits(bits, VK_LCONTROL_CODE, false);
+        assert!(windows_modifiers_from_bits(bits, false).ctrl);
+
+        bits = update_windows_modifier_bits(bits, VK_RCONTROL_CODE, false);
+        assert!(!windows_modifiers_from_bits(bits, false).ctrl);
+        assert!(windows_modifiers_from_bits(bits, true).alt);
+    }
+
+    #[test]
+    fn windows_modifier_event_sequence_drives_shortcut_filtering() {
+        let mut bits = 0;
+        bits = update_windows_modifier_bits(bits, VK_LCONTROL_CODE, true);
+        bits = update_windows_modifier_bits(bits, VK_RSHIFT_CODE, true);
+        assert!(should_block_windows_overlay_shortcut(event(
+            VK_ESCAPE_CODE,
+            windows_modifiers_from_bits(bits, false),
+        )));
+
+        bits = update_windows_modifier_bits(bits, VK_LCONTROL_CODE, false);
+        bits = update_windows_modifier_bits(bits, VK_RSHIFT_CODE, false);
+        bits = update_windows_modifier_bits(bits, VK_LWIN_CODE, true);
+        assert!(should_block_windows_overlay_shortcut(event(
+            VK_D_CODE,
+            windows_modifiers_from_bits(bits, false),
+        )));
+        bits = update_windows_modifier_bits(bits, VK_LWIN_CODE, false);
+        assert!(!windows_modifiers_from_bits(bits, false).win);
     }
 
     #[test]
@@ -830,6 +1214,39 @@ mod tests {
     }
 
     #[test]
+    fn overlay_reconcile_stop_joins_an_in_flight_iteration() {
+        let runs = Arc::new(AtomicUsize::new(0));
+        let runs_for_worker = Arc::clone(&runs);
+        let (entered_tx, entered_rx) = std::sync::mpsc::sync_channel(1);
+        let (release_tx, release_rx) = std::sync::mpsc::sync_channel(1);
+        let mut guard = OverlayReconcileGuard::start_with_interval(
+            move || {
+                runs_for_worker.fetch_add(1, Ordering::SeqCst);
+                entered_tx
+                    .send(())
+                    .expect("test should observe the reconcile iteration");
+                release_rx
+                    .recv()
+                    .expect("test should release the reconcile iteration");
+                true
+            },
+            std::time::Duration::from_millis(1),
+        )
+        .expect("reconcile worker should start");
+
+        entered_rx
+            .recv_timeout(std::time::Duration::from_secs(1))
+            .expect("reconcile worker should enter its callback");
+        guard.request_stop();
+        release_tx
+            .send(())
+            .expect("reconcile worker should still be waiting");
+        guard.stop().expect("reconcile worker should join");
+
+        assert_eq!(runs.load(Ordering::SeqCst), 1);
+    }
+
+    #[test]
     fn macos_presentation_options_use_only_kiosk_lite_bits() {
         let bits = mac_overlay_presentation_options_bits();
 
@@ -842,5 +1259,27 @@ mod tests {
         assert_ne!(bits & MAC_PRESENTATION_DISABLE_SESSION_TERMINATION, 0);
         assert_ne!(bits & MAC_PRESENTATION_DISABLE_HIDE_APPLICATION, 0);
         assert_ne!(bits & MAC_PRESENTATION_FULL_SCREEN, 0);
+    }
+
+    #[test]
+    fn macos_presentation_leases_restore_only_after_the_final_guard() {
+        let mut state = MacPresentationLeaseState::default();
+
+        state.acquire(7).expect("first lease should be acquired");
+        state
+            .acquire(MAC_APPROVED_PRESENTATION_BITS)
+            .expect("overlapping lease should be acquired");
+        assert_eq!(state.release().expect("newer lease should release"), None);
+        assert_eq!(
+            state.release().expect("final lease should release"),
+            Some(7)
+        );
+
+        state.acquire(11).expect("later lease should be acquired");
+        assert_eq!(
+            state.release().expect("later lease should release"),
+            Some(11)
+        );
+        assert!(state.release().is_err());
     }
 }

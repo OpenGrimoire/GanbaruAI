@@ -542,6 +542,10 @@ pub fn filesystem_identity(path: &Path, domain: &[u8]) -> ChatResult<String> {
         return Err(folder_identity_error());
     }
     let mut information = BY_HANDLE_FILE_INFORMATION::default();
+    // SAFETY: `directory` owns a live directory handle for the call and
+    // `information` is an initialized, exclusively borrowed output buffer of
+    // the exact type required. The API neither retains the pointer nor closes
+    // or otherwise assumes ownership of the handle.
     unsafe { GetFileInformationByHandle(HANDLE(directory.as_raw_handle()), &mut information) }
         .map_err(|_| folder_identity_error())?;
     let file_index =

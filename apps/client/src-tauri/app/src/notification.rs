@@ -281,6 +281,8 @@ impl PomodoroOverlayVisualState {
 
 pub(crate) struct PomodoroOverlayState {
     active: AtomicBool,
+    shutting_down: AtomicBool,
+    lifecycle: Mutex<()>,
     cleanup: Mutex<Option<PomodoroOverlayCleanup>>,
 }
 
@@ -288,6 +290,8 @@ impl Default for PomodoroOverlayState {
     fn default() -> Self {
         Self {
             active: AtomicBool::new(false),
+            shutting_down: AtomicBool::new(false),
+            lifecycle: Mutex::new(()),
             cleanup: Mutex::new(None),
         }
     }
@@ -324,13 +328,16 @@ impl PomodoroOverlayState {
         }
     }
 
-    fn begin(
+    fn begin_locked(
         &self,
         app: &tauri::AppHandle,
         kind: PomodoroOverlayKind,
         visual_state: PomodoroOverlayVisualState,
-    ) {
-        self.close(app);
+    ) -> Result<(), String> {
+        if self.shutting_down.load(Ordering::SeqCst) {
+            return Err("the application is shutting down".to_string());
+        }
+        self.close_locked(app);
 
         let mut enforcement = start_overlay_enforcement(app, &[], POMODORO_OVERLAY_MAIN_LABEL);
 
@@ -367,6 +374,7 @@ impl PomodoroOverlayState {
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner()) = Some(cleanup);
         self.active.store(true, Ordering::SeqCst);
+        Ok(())
     }
 
     fn set_overlay_session(
@@ -379,6 +387,9 @@ impl PomodoroOverlayState {
             .cleanup
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
+        if !self.active.load(Ordering::SeqCst) {
+            return;
+        }
         if let Some(cleanup) = cleanup.as_mut() {
             cleanup
                 .enforcement
@@ -438,6 +449,14 @@ impl PomodoroOverlayState {
     }
 
     fn reconcile(&self, app: &tauri::AppHandle) {
+        let _lifecycle = match self.lifecycle.try_lock() {
+            Ok(lifecycle) => lifecycle,
+            Err(std::sync::TryLockError::Poisoned(poisoned)) => poisoned.into_inner(),
+            Err(std::sync::TryLockError::WouldBlock) => return,
+        };
+        if !self.is_active() {
+            return;
+        }
         let Some(snapshot) = self.snapshot() else {
             return;
         };
@@ -493,19 +512,44 @@ impl PomodoroOverlayState {
     }
 
     fn close(&self, app: &tauri::AppHandle) {
+        let _lifecycle = self
+            .lifecycle
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        self.close_locked(app);
+    }
+
+    pub(crate) fn shutdown(&self, app: &tauri::AppHandle) {
+        self.shutting_down.store(true, Ordering::SeqCst);
+        let _lifecycle = self
+            .lifecycle
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        self.close_locked(app);
+    }
+
+    fn close_locked(&self, app: &tauri::AppHandle) {
         self.active.store(false, Ordering::SeqCst);
+        let reconcile_guard = self
+            .cleanup
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .as_mut()
+            .and_then(|cleanup| cleanup.reconcile_guard.take());
+        if let Some(mut reconcile_guard) = reconcile_guard {
+            if let Err(err) = reconcile_guard.stop() {
+                eprintln!("failed to stop Pomodoro overlay monitor reconciler: {err}");
+            }
+        }
         let cleanup = self
             .cleanup
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner())
             .take();
-        let Some(mut cleanup) = cleanup else {
+        let Some(cleanup) = cleanup else {
             return;
         };
 
-        if let Some(reconcile_guard) = cleanup.reconcile_guard.take() {
-            reconcile_guard.stop();
-        }
         destroy_overlay_windows(app, &cleanup.labels);
         restore_overlay_cleanup(cleanup);
     }
@@ -515,24 +559,26 @@ fn destroy_overlay_windows(app: &tauri::AppHandle, labels: &[String]) {
     let labels = labels.to_vec();
     let app_for_setup = app.clone();
     if let Err(err) = run_main_thread_setup(app, move || {
-        #[cfg(target_os = "linux")]
-        destroy_linux_native_blocker_windows();
-
-        for label in labels {
-            if let Some(window) = app_for_setup.get_webview_window(&label) {
-                let _ = window.destroy();
-            }
-        }
+        destroy_overlay_windows_on_main_thread(&app_for_setup, &labels);
         Ok(())
     }) {
         eprintln!("failed to destroy pomodoro overlay windows: {err}");
     }
 }
 
+fn destroy_overlay_windows_on_main_thread(app: &tauri::AppHandle, labels: &[String]) {
+    #[cfg(target_os = "linux")]
+    destroy_linux_native_blocker_windows();
+
+    for label in labels {
+        if let Some(window) = app.get_webview_window(label) {
+            let _ = window.destroy();
+        }
+    }
+}
+
 fn restore_overlay_cleanup(mut cleanup: PomodoroOverlayCleanup) {
-    std::thread::spawn(move || {
-        cleanup.enforcement.stop();
-    });
+    cleanup.enforcement.stop();
 }
 
 fn overlay_url(kind: PomodoroOverlayKind) -> WebviewUrl {
@@ -938,8 +984,12 @@ fn reconcile_overlay_windows(
 
 fn show_pomodoro_overlay(app: tauri::AppHandle, kind: PomodoroOverlayKind) -> Result<(), String> {
     let overlay_state = app.state::<PomodoroOverlayState>();
+    let _lifecycle = overlay_state
+        .lifecycle
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
     let visual_state = kind.initial_visual_state();
-    overlay_state.begin(&app, kind, visual_state);
+    overlay_state.begin_locked(&app, kind, visual_state)?;
     let background_color = visual_state.background_color();
 
     let app_for_setup = app.clone();
@@ -993,7 +1043,7 @@ fn show_pomodoro_overlay(app: tauri::AppHandle, kind: PomodoroOverlayKind) -> Re
             background_color,
             true,
         ) {
-            destroy_overlay_windows(&app_for_setup, &labels);
+            destroy_overlay_windows_on_main_thread(&app_for_setup, &labels);
             return Err(err);
         }
         labels.push(POMODORO_OVERLAY_MAIN_LABEL.to_string());
@@ -1003,11 +1053,10 @@ fn show_pomodoro_overlay(app: tauri::AppHandle, kind: PomodoroOverlayKind) -> Re
     match setup_result {
         Ok((labels, signature)) => {
             reinforce_overlay_windows(&app, &labels, POMODORO_OVERLAY_MAIN_LABEL);
-            app.state::<PomodoroOverlayState>()
-                .set_overlay_session(&app, labels, signature);
+            overlay_state.set_overlay_session(&app, labels, signature);
         }
         Err(err) => {
-            app.state::<PomodoroOverlayState>().close(&app);
+            overlay_state.close_locked(&app);
             return Err(err);
         }
     }
@@ -1015,17 +1064,24 @@ fn show_pomodoro_overlay(app: tauri::AppHandle, kind: PomodoroOverlayKind) -> Re
     Ok(())
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn close_pomodoro_overlay(app: tauri::AppHandle, overlays: State<'_, PomodoroOverlayState>) {
     overlays.close(&app);
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn set_pomodoro_overlay_state(
     app: tauri::AppHandle,
     overlays: State<'_, PomodoroOverlayState>,
     state: String,
 ) -> Result<(), String> {
+    let _lifecycle = overlays
+        .lifecycle
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    if overlays.shutting_down.load(Ordering::SeqCst) {
+        return Err("the application is shutting down".to_string());
+    }
     let visual_state = PomodoroOverlayVisualState::from_id(&state)?;
     overlays.set_visual_state(visual_state);
     let background_color = visual_state.background_color();
@@ -1058,7 +1114,7 @@ pub fn set_pomodoro_overlay_state(
     Ok(())
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn show_break_overlay(
     app: tauri::AppHandle,
     break_ends_at_ms: u64,
@@ -1091,7 +1147,7 @@ fn normalize_break_extension_limit(value: Option<u32>) -> Option<u32> {
     }
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn show_idle_overlay(app: tauri::AppHandle, idle_seconds: u32) -> Result<bool, String> {
     show_pomodoro_overlay(
         app,
@@ -1111,7 +1167,7 @@ fn completion_visual_state_from_kind(kind: &str) -> Result<PomodoroOverlayVisual
     }
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn show_pomodoro_completion_overlay(
     app: tauri::AppHandle,
     kind: String,

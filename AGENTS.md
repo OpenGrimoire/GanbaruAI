@@ -359,6 +359,7 @@ After the relevant gate passes, finish the task without extra dev-server, Tauri 
 
 ### Security
 
+- Treat any introduction or material change to first-party unsafe Rust as security-sensitive work. Read and follow `docs/data/security/unsafe-rust.md`. Prefer safe APIs that preserve the required guarantees, keep retained unsafe operations in minimal wrappers with concrete local `// SAFETY:` proofs, add focused boundary tests, validate affected native targets, and update the documented inventory and replacement trigger.
 - This app handles sensitive personal data. Treat supply chain security seriously.
   - Prefer official packages from standards bodies or well-known maintainers over popular but unofficial alternatives.
   - Prefer native browser APIs (Intl, Temporal, fetch) over libraries when the implementation effort is similar.

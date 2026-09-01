@@ -709,11 +709,12 @@ fn managed_worktree_identity(local_data_root: &Path, candidate: &Path) -> ChatRe
 
 #[cfg(unix)]
 fn open_directory_at(parent: &fs::File, name: impl AsRef<std::ffi::OsStr>) -> ChatResult<fs::File> {
-    use std::ffi::CString;
     use std::os::fd::{AsRawFd, FromRawFd};
-    use std::os::unix::ffi::OsStrExt;
 
-    let name = CString::new(name.as_ref().as_bytes()).map_err(|_| worktree_ownership_error())?;
+    let name = validated_relative_directory_name(name.as_ref())?;
+    // SAFETY: `parent` owns a valid directory descriptor for this call, and
+    // `name` is a live NUL-terminated C string. These flags require no variadic
+    // mode argument, and `openat` does not retain either borrowed value.
     let descriptor = unsafe {
         libc::openat(
             parent.as_raw_fd(),
@@ -724,7 +725,20 @@ fn open_directory_at(parent: &fs::File, name: impl AsRef<std::ffi::OsStr>) -> Ch
     if descriptor < 0 {
         return Err(worktree_ownership_error());
     }
+    // SAFETY: A nonnegative `openat` result is a newly owned descriptor. Its
+    // ownership is transferred exactly once to `File`, which closes it on drop.
     Ok(unsafe { fs::File::from_raw_fd(descriptor) })
+}
+
+#[cfg(unix)]
+fn validated_relative_directory_name(name: &std::ffi::OsStr) -> ChatResult<std::ffi::CString> {
+    use std::os::unix::ffi::OsStrExt;
+
+    let bytes = name.as_bytes();
+    if bytes.is_empty() || bytes == b"." || bytes == b".." || bytes.contains(&b'/') {
+        return Err(worktree_ownership_error());
+    }
+    std::ffi::CString::new(bytes).map_err(|_| worktree_ownership_error())
 }
 
 #[cfg(windows)]
@@ -759,6 +773,9 @@ fn managed_worktree_identity(local_data_root: &Path, candidate: &Path) -> ChatRe
         }
         if path == candidate {
             let mut information = BY_HANDLE_FILE_INFORMATION::default();
+            // SAFETY: `file` owns a valid open directory handle for this call,
+            // and `information` is initialized writable storage of the exact
+            // type expected by Windows. The API does not retain either pointer.
             unsafe { GetFileInformationByHandle(HANDLE(file.as_raw_handle()), &mut information) }
                 .map_err(|_| worktree_ownership_error())?;
             return Ok((
@@ -972,5 +989,18 @@ mod tests {
         std::os::unix::fs::symlink(&real, &substituted)
             .expect("substituted worktree should be created");
         assert!(managed_worktree_identity(&directory.0, &substituted).is_err());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn descriptor_relative_directory_names_are_single_components() {
+        use std::ffi::OsStr;
+        use std::os::unix::ffi::OsStrExt;
+
+        assert!(validated_relative_directory_name(OsStr::new("managed")).is_ok());
+        for invalid in ["", ".", "..", "/absolute", "nested/path"] {
+            assert!(validated_relative_directory_name(OsStr::new(invalid)).is_err());
+        }
+        assert!(validated_relative_directory_name(OsStr::from_bytes(b"nul\0byte")).is_err());
     }
 }

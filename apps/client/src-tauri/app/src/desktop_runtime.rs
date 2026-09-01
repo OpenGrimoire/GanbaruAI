@@ -10,6 +10,23 @@ static MAIN_WINDOW_FRONTEND_READY: std::sync::atomic::AtomicBool =
 const DELAYED_RELAUNCH_MS_ENV: &str = "GANBARU_AI_DELAYED_RELAUNCH_MS";
 const DELAYED_RELAUNCH_MAX_MS: u64 = 10 * 60 * 1000;
 const MAIN_WINDOW_REVEAL_FALLBACK_MS: u64 = 15_000;
+const EXIT_CLEANUP_IDLE: u8 = 0;
+const EXIT_CLEANUP_RUNNING: u8 = 1;
+const EXIT_CLEANUP_COMPLETE: u8 = 2;
+
+struct DeferredExitCompletion {
+    app: tauri::AppHandle,
+    state: std::sync::Arc<std::sync::atomic::AtomicU8>,
+    exit_code: i32,
+}
+
+impl Drop for DeferredExitCompletion {
+    fn drop(&mut self) {
+        self.state
+            .store(EXIT_CLEANUP_COMPLETE, std::sync::atomic::Ordering::Release);
+        self.app.exit(self.exit_code);
+    }
+}
 
 #[cfg(any(target_os = "linux", target_os = "macos", windows))]
 fn focus_main_window_for_second_launch(app: &tauri::AppHandle) {
@@ -200,14 +217,15 @@ fn clear_benchmark_state(app: tauri::AppHandle) -> Result<(), String> {
     Ok(())
 }
 
-/// Replace the running process with a fresh launch of the same binary.
-/// `app.restart()` returns `!`, so this command never returns to the JS
-/// caller. The frontend must fire-and-forget (no `await` on the IPC
-/// response).
-#[tauri::command]
-fn restart_app(app: tauri::AppHandle) {
+/// Request a fresh launch after completing native overlay cleanup.
+#[tauri::command(async)]
+fn restart_app(
+    app: tauri::AppHandle,
+    overlays: tauri::State<'_, notification::PomodoroOverlayState>,
+) {
+    overlays.shutdown(&app);
     clear_doomscrolling_enforcement_state_best_effort(&app, "before restart");
-    app.restart();
+    app.request_restart();
 }
 
 /// Exit this process and let a short-lived helper reopen the app after a
@@ -522,7 +540,8 @@ fn get_memory_report() -> MemoryReport {
     #[cfg(target_os = "windows")]
     {
         use std::mem::size_of;
-        use windows::Win32::Foundation::CloseHandle;
+        use windows::core::{Owned, HRESULT};
+        use windows::Win32::Foundation::ERROR_NO_MORE_FILES;
         use windows::Win32::System::Diagnostics::ToolHelp::{
             CreateToolhelp32Snapshot, Process32FirstW, Process32NextW, PROCESSENTRY32W,
             TH32CS_SNAPPROCESS,
@@ -537,8 +556,10 @@ fn get_memory_report() -> MemoryReport {
         let my_pid = std::process::id();
 
         let snapshot = {
-            // SAFETY: This call only asks Windows for a read-only process snapshot.
-            match unsafe { CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0) } {
+            // SAFETY: The flags request a system-wide process snapshot and do
+            // not require any caller-provided pointers. Windows returns a fresh
+            // owning handle on success.
+            let snapshot = match unsafe { CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0) } {
                 Ok(snapshot) => snapshot,
                 Err(_) => {
                     return MemoryReport {
@@ -552,7 +573,10 @@ fn get_memory_report() -> MemoryReport {
                         ),
                     };
                 }
-            }
+            };
+            // SAFETY: The successful call above returned a fresh owning handle.
+            // Ownership is transferred exactly once and released on drop.
+            unsafe { Owned::new(snapshot) }
         };
 
         let mut proc_list: Vec<(u32, u32, String)> = Vec::new();
@@ -562,9 +586,10 @@ fn get_memory_report() -> MemoryReport {
         };
 
         // SAFETY: `entry` is a valid PROCESSENTRY32W with dwSize initialized as
-        // required by Process32FirstW and Process32NextW.
-        if unsafe { Process32FirstW(snapshot, &mut entry) }.is_ok() {
-            loop {
+        // required by Process32FirstW and Process32NextW. `snapshot` owns a live
+        // process snapshot for the duration of enumeration.
+        match unsafe { Process32FirstW(*snapshot, &mut entry) } {
+            Ok(()) => loop {
                 let end = entry
                     .szExeFile
                     .iter()
@@ -575,14 +600,21 @@ fn get_memory_report() -> MemoryReport {
 
                 // SAFETY: The snapshot handle is still open and `entry` remains a
                 // valid output buffer for the next process entry.
-                if unsafe { Process32NextW(snapshot, &mut entry) }.is_err() {
-                    break;
+                entry.dwSize = size_of::<PROCESSENTRY32W>() as u32;
+                match unsafe { Process32NextW(*snapshot, &mut entry) } {
+                    Ok(()) => {}
+                    Err(error) if error.code() == HRESULT::from_win32(ERROR_NO_MORE_FILES.0) => {
+                        break;
+                    }
+                    Err(error) => {
+                        eprintln!("Windows process snapshot enumeration failed: {error}");
+                        break;
+                    }
                 }
-            }
+            },
+            Err(error) if error.code() == HRESULT::from_win32(ERROR_NO_MORE_FILES.0) => {}
+            Err(error) => eprintln!("Windows process snapshot initialization failed: {error}"),
         }
-
-        // SAFETY: `snapshot` is an open handle returned by CreateToolhelp32Snapshot.
-        let _ = unsafe { CloseHandle(snapshot) };
 
         // Recursively collect all descendant PIDs (handles WebView2 grandchildren)
         let mut pids = vec![my_pid];
@@ -601,17 +633,22 @@ fn get_memory_report() -> MemoryReport {
         let mut webview_idx = 0u32;
         for &pid in &pids {
             // SAFETY: The process ID comes from the current process or the Windows
-            // process snapshot. The returned handle is closed before continuing.
+            // process snapshot. No pointers are passed, handle inheritance is
+            // disabled, and Windows returns a fresh owning handle on success.
             if let Ok(handle) =
                 unsafe { OpenProcess(PROCESS_QUERY_INFORMATION | PROCESS_VM_READ, false, pid) }
             {
+                // SAFETY: `OpenProcess` returned a fresh owning handle above.
+                // Ownership is transferred exactly once and released on drop.
+                let handle = unsafe { Owned::new(handle) };
                 let mut pmc = PROCESS_MEMORY_COUNTERS {
                     cb: size_of::<PROCESS_MEMORY_COUNTERS>() as u32,
                     ..Default::default()
                 };
                 // SAFETY: `handle` is an open process handle and `pmc` is a valid
-                // output buffer whose cb field matches its struct size.
-                if unsafe { GetProcessMemoryInfo(handle, &mut pmc, pmc.cb) }.is_ok() {
+                // writable output buffer whose cb field matches its struct size.
+                // Windows does not retain the handle or output pointer.
+                if unsafe { GetProcessMemoryInfo(*handle, &mut pmc, pmc.cb) }.is_ok() {
                     let mb = pmc.WorkingSetSize as f64 / (1024.0 * 1024.0);
                     let name = if pid == my_pid {
                         "Backend".to_string()
@@ -630,9 +667,6 @@ fn get_memory_report() -> MemoryReport {
                     };
                     processes.push(ProcessMemory { name, mb });
                 }
-                // SAFETY: `handle` was returned by OpenProcess above and is not
-                // used after this point.
-                let _ = unsafe { CloseHandle(handle) };
             }
         }
 
@@ -1400,8 +1434,45 @@ pub fn run(context: tauri::Context<tauri::Wry>) {
         .build(context)
         .expect("error while building tauri application");
 
-    app.run(|app_handle, event| {
-        if let tauri::RunEvent::ExitRequested { .. } = event {
+    let exit_cleanup_state =
+        std::sync::Arc::new(std::sync::atomic::AtomicU8::new(EXIT_CLEANUP_IDLE));
+    app.run(move |app_handle, event| {
+        if let tauri::RunEvent::ExitRequested { code, api, .. } = event {
+            let cleanup_state = exit_cleanup_state.load(std::sync::atomic::Ordering::Acquire);
+            if code != Some(tauri::RESTART_EXIT_CODE) && cleanup_state != EXIT_CLEANUP_COMPLETE {
+                api.prevent_exit();
+                if exit_cleanup_state
+                    .compare_exchange(
+                        EXIT_CLEANUP_IDLE,
+                        EXIT_CLEANUP_RUNNING,
+                        std::sync::atomic::Ordering::AcqRel,
+                        std::sync::atomic::Ordering::Acquire,
+                    )
+                    .is_ok()
+                {
+                    let app = app_handle.clone();
+                    let state = std::sync::Arc::clone(&exit_cleanup_state);
+                    // Detach cleanup so this callback returns to the event loop,
+                    // which must process the main-thread work cleanup requests.
+                    std::mem::drop(tauri::async_runtime::spawn_blocking(move || {
+                        let _completion = DeferredExitCompletion {
+                            app: app.clone(),
+                            state,
+                            exit_code: code.unwrap_or(0),
+                        };
+                        app.state::<notification::PomodoroOverlayState>()
+                            .shutdown(&app);
+                    }));
+                }
+                return;
+            }
+
+            let overlays = app_handle.state::<notification::PomodoroOverlayState>();
+            if overlays.is_active() {
+                eprintln!(
+                    "Pomodoro overlay remained active during an exit request that cannot be delayed"
+                );
+            }
             let terminals = app_handle.state::<chat::terminal::ChatTerminalRegistry>();
             if let Err(error) = terminals.shutdown_all() {
                 eprintln!("Chat terminal shutdown failed with code {:?}", error.code);

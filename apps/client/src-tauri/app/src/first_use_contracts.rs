@@ -1,6 +1,7 @@
 use serde::Serialize;
 use sqlx::{SqliteConnection, SqlitePool};
 use std::ffi::{c_char, c_int, c_uint, c_void, CStr};
+use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::sync::{Arc, Mutex};
 
 use crate::{db::run_migrations, notes, projects};
@@ -14,6 +15,8 @@ const EMPTY_NOTES_SQL_READS: usize = 7;
 const EMPTY_NOTES_SQL_WRITES: usize = 0;
 const EMPTY_NOTES_RESPONSE_BYTES: usize = 323;
 
+// SAFETY: This declaration matches SQLite's public C ABI. SQLx links the same
+// SQLite library, and callers below pass the locked connection's native handle.
 unsafe extern "C" {
     fn sqlite3_trace_v2(
         database: *mut c_void,
@@ -59,6 +62,10 @@ impl FirstUseContractMetrics {
     }
 }
 
+// Test-only async owner for the SQLite trace registration. Callers must use
+// `finish` before dropping it. Cancellation intentionally leaves the raw Arc
+// reference live because SQLite may still hold the callback context; leaking in
+// that exceptional test path is safer than reclaiming a potentially live pointer.
 struct SqlTrace {
     pool: SqlitePool,
     state: Arc<Mutex<SqlTraceState>>,
@@ -93,8 +100,10 @@ impl SqlTrace {
         install_trace(&mut connection, None, std::ptr::null_mut()).await;
         drop(connection);
 
-        // SAFETY: `context` came from `Arc::into_raw` in `start`. The callback has
-        // been removed from SQLite, so balancing that strong reference is safe.
+        // SAFETY: `context` came from `Arc::into_raw` in `start`. This fixture's
+        // pool has one connection, SQLite invokes trace callbacks synchronously,
+        // and tracing was disabled while that connection was locked. No callback
+        // can still borrow the context, so this balances the raw strong reference.
         unsafe {
             drop(Arc::from_raw(self.context));
         }
@@ -111,8 +120,10 @@ async fn install_trace(
     context: *mut c_void,
 ) {
     let mut handle = connection.lock_handle().await.expect("lock SQLite handle");
-    // SAFETY: SQLx has locked the connection's native handle. SQLite retains only
-    // the callback and context pointer, whose lifetime is managed by `SqlTrace`.
+    // SAFETY: SQLx has locked the connection's live native handle for this call.
+    // When installing, `context` is backed by a raw Arc strong reference retained
+    // by `SqlTrace`; when removing, both callback and context are null. SQLite
+    // copies those two values but neither retains the database pointer itself.
     let result = unsafe {
         sqlite3_trace_v2(
             handle.as_raw_handle().as_ptr().cast(),
@@ -128,31 +139,130 @@ async fn install_trace(
     assert_eq!(result, SQLITE_OK, "install SQLite statement trace");
 }
 
+fn run_sql_trace_callback_body(callback: impl FnOnce()) {
+    if let Err(payload) = catch_unwind(AssertUnwindSafe(callback)) {
+        // A panic payload can have a destructor that also panics. This callback
+        // is test-only and panic is already exceptional, so leak the payload
+        // instead of risking a second unwind across SQLite's C ABI.
+        std::mem::forget(payload);
+    }
+}
+
+// SAFETY: SQLite invokes this function only for the installed trace mask and
+// supplies callback-duration pointers. The body checks nullable inputs and catches
+// Rust panics so no unwind can cross the C ABI boundary.
 unsafe extern "C" fn sql_trace_callback(
     event: c_uint,
     context: *mut c_void,
-    _statement: *mut c_void,
+    statement: *mut c_void,
     sql: *mut c_void,
 ) -> c_int {
-    if event != SQLITE_TRACE_STMT || context.is_null() || sql.is_null() {
+    if event != SQLITE_TRACE_STMT || context.is_null() || statement.is_null() || sql.is_null() {
         return SQLITE_OK;
     }
-    // SAFETY: SQLite supplies a null-terminated SQL string for SQLITE_TRACE_STMT.
-    let sql = unsafe { CStr::from_ptr(sql.cast::<c_char>()) }.to_string_lossy();
-    let Some(kind) = statement_kind(&sql) else {
-        return SQLITE_OK;
-    };
-    // SAFETY: `context` points to the `Arc` allocation held alive by `SqlTrace`.
-    let state = unsafe { &*context.cast::<Mutex<SqlTraceState>>() };
-    let mut state = state
-        .lock()
-        .expect("trace counter lock should not be poisoned");
-    state.statements.push(sql.into_owned());
-    match kind {
-        StatementKind::Read => state.counts.reads += 1,
-        StatementKind::Write => state.counts.writes += 1,
-    }
+    run_sql_trace_callback_body(|| {
+        // SAFETY: For SQLITE_TRACE_STMT, SQLite supplies the original SQL as a
+        // NUL-terminated string that remains valid for this callback invocation.
+        let sql = unsafe { CStr::from_ptr(sql.cast::<c_char>()) }.to_string_lossy();
+        let Some(kind) = statement_kind(&sql) else {
+            return;
+        };
+        // SAFETY: `context` is the pointer created by `Arc::into_raw` in
+        // `SqlTrace::start`. That strong reference is retained until tracing is
+        // disabled, so the allocation remains live throughout this callback.
+        let state = unsafe { &*context.cast::<Mutex<SqlTraceState>>() };
+        let Ok(mut state) = state.lock() else {
+            return;
+        };
+        state.statements.push(sql.into_owned());
+        match kind {
+            StatementKind::Read => state.counts.reads += 1,
+            StatementKind::Write => state.counts.writes += 1,
+        }
+    });
     SQLITE_OK
+}
+
+#[test]
+fn sql_trace_callback_rejects_invalid_inputs_and_poisoned_state() {
+    let mut marker = ();
+    let marker_pointer = (&mut marker as *mut ()).cast::<c_void>();
+    // SAFETY: Each call has an invalid event or a null required pointer, so the
+    // callback returns before borrowing any supplied address.
+    unsafe {
+        assert_eq!(
+            sql_trace_callback(0, marker_pointer, marker_pointer, marker_pointer),
+            SQLITE_OK
+        );
+        assert_eq!(
+            sql_trace_callback(
+                SQLITE_TRACE_STMT,
+                std::ptr::null_mut(),
+                marker_pointer,
+                marker_pointer,
+            ),
+            SQLITE_OK
+        );
+        assert_eq!(
+            sql_trace_callback(
+                SQLITE_TRACE_STMT,
+                marker_pointer,
+                std::ptr::null_mut(),
+                marker_pointer,
+            ),
+            SQLITE_OK
+        );
+        assert_eq!(
+            sql_trace_callback(
+                SQLITE_TRACE_STMT,
+                marker_pointer,
+                marker_pointer,
+                std::ptr::null_mut(),
+            ),
+            SQLITE_OK
+        );
+    }
+
+    let state = Arc::new(Mutex::new(SqlTraceState::default()));
+    let _ = catch_unwind(AssertUnwindSafe(|| {
+        let _guard = state.lock().expect("fixture state should lock once");
+        panic!("poison trace state fixture");
+    }));
+    let context = Arc::into_raw(Arc::clone(&state));
+    let sql = std::ffi::CString::new("SELECT 1").expect("fixture SQL should be valid");
+    // SAFETY: `context` is backed by a retained raw Arc reference, `marker_pointer`
+    // is non-null but never dereferenced, and `sql` is a live NUL-terminated string.
+    // The callback is synchronous and returns without panicking on the poisoned lock.
+    unsafe {
+        assert_eq!(
+            sql_trace_callback(
+                SQLITE_TRACE_STMT,
+                context.cast_mut().cast(),
+                marker_pointer,
+                sql.as_ptr().cast_mut().cast(),
+            ),
+            SQLITE_OK
+        );
+        drop(Arc::from_raw(context));
+    }
+    assert!(state.lock().is_err());
+}
+
+#[test]
+fn sql_trace_callback_barrier_forgets_panicking_payloads() {
+    struct PanicOnDrop(Arc<std::sync::atomic::AtomicBool>);
+
+    impl Drop for PanicOnDrop {
+        fn drop(&mut self) {
+            self.0.store(true, std::sync::atomic::Ordering::SeqCst);
+            panic!("panic payload drop fixture");
+        }
+    }
+
+    let dropped = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let payload = PanicOnDrop(Arc::clone(&dropped));
+    run_sql_trace_callback_body(|| std::panic::panic_any(payload));
+    assert!(!dropped.load(std::sync::atomic::Ordering::SeqCst));
 }
 
 #[derive(Clone, Copy)]
@@ -219,11 +329,11 @@ async fn traced_projects_workspace(
         preferred_project_id,
         projects::ProjectViewId::List,
     )
-    .await
-    .expect("load Projects workspace");
+    .await;
+    let trace = trace.finish().await;
+    let response = response.expect("load Projects workspace");
     metrics.record_response(FirstUseIpcCommand::ProjectsLoadWorkspace, &response);
     let response = serde_json::to_value(response).expect("serialize Projects workspace");
-    let trace = trace.finish().await;
     metrics.sql = trace.counts;
     (response, metrics, trace.statements)
 }
@@ -364,14 +474,14 @@ fn project_refresh_does_not_run_built_in_repair() {
             .await
             .expect("remove built-in Reading project");
         let trace = SqlTrace::start(&pool).await;
-        projects::refresh_projects_workspace_for_first_use_contract(
+        let refresh = projects::refresh_projects_workspace_for_first_use_contract(
             &pool,
             Some("project-routine-learning"),
             projects::ProjectViewId::List,
         )
-        .await
-        .expect("refresh Projects workspace");
+        .await;
         let trace = trace.finish().await;
+        refresh.expect("refresh Projects workspace");
 
         let restored: i64 = sqlx::query_scalar(
             "SELECT COUNT(*) FROM projects WHERE id = 'project-routine-reading'",
@@ -439,11 +549,10 @@ fn empty_notes_first_use_has_a_fixed_backend_contract() {
 
         let trace = SqlTrace::start(&pool).await;
         let mut metrics = FirstUseContractMetrics::default();
-        let shell = notes::load_workspace_shell_for_first_use_contract(&pool)
-            .await
-            .expect("load Notes workspace shell");
-        metrics.record_response(FirstUseIpcCommand::NotesLoadWorkspaceShell, &shell);
+        let shell = notes::load_workspace_shell_for_first_use_contract(&pool).await;
         let trace = trace.finish().await;
+        let shell = shell.expect("load Notes workspace shell");
+        metrics.record_response(FirstUseIpcCommand::NotesLoadWorkspaceShell, &shell);
         metrics.sql = trace.counts;
         for optional_table in [
             "notes_blocks",

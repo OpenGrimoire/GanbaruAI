@@ -634,12 +634,23 @@ fn normalized_identity(value: &str) -> Option<String> {
 #[cfg(unix)]
 fn system_hostname() -> Option<String> {
     let mut buffer = [0_u8; 256];
-    // SAFETY: The writable buffer is valid for the exact length passed to libc.
+    // SAFETY: `buffer` remains alive and writable for the full length passed to
+    // libc. `gethostname` writes at most that many bytes, and the return value is
+    // checked before any bytes are decoded.
     let result =
         unsafe { libc::gethostname(buffer.as_mut_ptr().cast::<libc::c_char>(), buffer.len()) };
-    if result != 0 {
-        return None;
-    }
+    hostname_from_call(result, &buffer)
+}
+
+#[cfg(unix)]
+fn hostname_from_call(result: libc::c_int, buffer: &[u8]) -> Option<String> {
+    (result == 0)
+        .then(|| hostname_from_buffer(buffer))
+        .flatten()
+}
+
+#[cfg(unix)]
+fn hostname_from_buffer(buffer: &[u8]) -> Option<String> {
     let length = buffer
         .iter()
         .position(|byte| *byte == 0)
@@ -808,5 +819,25 @@ mod tests {
             normalized_identity(" victor \n"),
             Some("victor".to_string())
         );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn hostname_decoding_accepts_terminated_and_full_buffers() {
+        assert_eq!(
+            hostname_from_buffer(b"workstation\0ignored"),
+            Some("workstation".to_string())
+        );
+        assert_eq!(
+            hostname_from_buffer(b"full-buffer-name"),
+            Some("full-buffer-name".to_string())
+        );
+        assert_eq!(hostname_from_buffer(b"\0"), None);
+        assert_eq!(
+            hostname_from_buffer(&[b'w', b'o', b'r', b'k', 0xff, 0]),
+            Some("work�".to_string())
+        );
+        assert_eq!(hostname_from_buffer(b"invalid\nname\0"), None);
+        assert_eq!(hostname_from_call(-1, b"ignored\0"), None);
     }
 }

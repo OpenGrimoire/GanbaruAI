@@ -187,23 +187,45 @@ fn run_async(future: impl std::future::Future<Output = ()>) {
 }
 
 fn process_is_running(process_id: u32) -> bool {
-    use windows::Win32::Foundation::{CloseHandle, WAIT_TIMEOUT};
+    use windows::core::{Owned, HRESULT};
+    use windows::Win32::Foundation::{
+        ERROR_INVALID_PARAMETER, WAIT_FAILED, WAIT_OBJECT_0, WAIT_TIMEOUT,
+    };
     use windows::Win32::System::Threading::{
         OpenProcess, WaitForSingleObject, PROCESS_QUERY_LIMITED_INFORMATION, PROCESS_SYNCHRONIZE,
     };
 
-    let Ok(process) = (unsafe {
+    // SAFETY: No pointers are passed, inheritance is disabled, and Windows
+    // returns a fresh owning process handle on success.
+    let process = match unsafe {
         OpenProcess(
             PROCESS_QUERY_LIMITED_INFORMATION | PROCESS_SYNCHRONIZE,
             false,
             process_id,
         )
-    }) else {
-        return false;
+    } {
+        Ok(process) => process,
+        Err(error) if error.code() == HRESULT::from_win32(ERROR_INVALID_PARAMETER.0) => {
+            return false;
+        }
+        Err(error) => panic!("open provider process for state query: {error}"),
     };
-    let status = unsafe { WaitForSingleObject(process, 0) };
-    unsafe {
-        let _ = CloseHandle(process);
+    // SAFETY: `OpenProcess` returned a fresh owning handle above. Ownership is
+    // transferred exactly once and released on every return or panic path.
+    let process = unsafe { Owned::new(process) };
+    // SAFETY: `process` owns a live handle with synchronization access. A zero
+    // timeout only queries its current signaled state.
+    let status = unsafe { WaitForSingleObject(*process, 0) };
+    if status == WAIT_TIMEOUT {
+        true
+    } else if status == WAIT_OBJECT_0 {
+        false
+    } else if status == WAIT_FAILED {
+        panic!(
+            "query provider process state: {}",
+            windows::core::Error::from_win32()
+        );
+    } else {
+        panic!("unexpected provider process wait status: {}", status.0);
     }
-    status == WAIT_TIMEOUT
 }

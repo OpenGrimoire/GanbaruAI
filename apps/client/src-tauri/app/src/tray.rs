@@ -1,7 +1,5 @@
 use serde::{Deserialize, Serialize};
 use std::sync::{LazyLock, Mutex};
-#[cfg(target_os = "linux")]
-use tauri::Manager;
 use tauri::{
     image::Image,
     menu::{Menu, MenuBuilder, MenuItem, MenuItemBuilder, PredefinedMenuItem},
@@ -19,8 +17,6 @@ const PAUSED_PULSE_AMOUNTS: [f64; 22] = [
     0.75, 0.5, 0.25, 0.067, 0.0,
 ];
 const MUSIC_TRAY_STATUS_MAX_CHARS: usize = 25;
-#[cfg(target_os = "linux")]
-const LINUX_TRAY_ICON_VERSION: u8 = 6;
 
 #[derive(Debug, Clone)]
 struct PomodoroTrayState {
@@ -459,84 +455,7 @@ fn build_menu(app: &AppHandle, state: &TrayState) -> Result<Menu<tauri::Wry>, St
         .map_err(|e| e.to_string())
 }
 
-#[cfg(target_os = "linux")]
-fn linux_tray_icon_dir(app: &AppHandle) -> Result<std::path::PathBuf, String> {
-    let mut path = app.path().app_cache_dir().map_err(|e| e.to_string())?;
-    path.push("tray-icons");
-    std::fs::create_dir_all(&path).map_err(|e| format!("create tray icon cache: {e}"))?;
-    Ok(path)
-}
-
-#[cfg(target_os = "linux")]
-fn linux_tray_icon_name(icon_key: TrayIconKey) -> String {
-    match icon_key {
-        TrayIconKey::Empty => format!("ganbaru-ai-tray-v{LINUX_TRAY_ICON_VERSION}-empty.png"),
-        TrayIconKey::Progress(step) => {
-            format!("ganbaru-ai-tray-v{LINUX_TRAY_ICON_VERSION}-progress-{step:03}.png")
-        }
-        TrayIconKey::PausedProgress { step, frame } => {
-            format!(
-                "ganbaru-ai-tray-v{LINUX_TRAY_ICON_VERSION}-progress-{step:03}-pause-{frame}.png"
-            )
-        }
-    }
-}
-
-#[cfg(target_os = "linux")]
-fn write_linux_tray_icon(path: &std::path::Path, pixels: Vec<u8>) -> Result<(), String> {
-    use gtk::gdk_pixbuf::{Colorspace, Pixbuf};
-
-    if path.exists() {
-        return Ok(());
-    }
-
-    let pixbuf = Pixbuf::from_mut_slice(
-        pixels,
-        Colorspace::Rgb,
-        true,
-        8,
-        ICON_SIZE as i32,
-        ICON_SIZE as i32,
-        (ICON_SIZE * 4) as i32,
-    );
-    pixbuf
-        .savev(path, "png", &[])
-        .map_err(|e| format!("write tray icon png: {e}"))
-}
-
-#[cfg(target_os = "linux")]
-fn set_tray_icon(
-    app: &AppHandle,
-    tray: &tauri::tray::TrayIcon<tauri::Wry>,
-    icon_key: TrayIconKey,
-    pixels: Vec<u8>,
-) -> Result<(), String> {
-    let dir = linux_tray_icon_dir(app)?;
-    let path = dir.join(linux_tray_icon_name(icon_key));
-    write_linux_tray_icon(&path, pixels)?;
-
-    let parent_path = dir.to_string_lossy().into_owned();
-    let icon_path = path.to_string_lossy().into_owned();
-    tray.with_inner_tray_icon(move |inner| {
-        // Tauri's Linux set_icon path removes the current PNG before
-        // publishing the next one. Updating AppIndicator after the next PNG
-        // exists avoids Ubuntu showing its missing-icon placeholder.
-        unsafe {
-            let indicator = &mut *inner.app_indicator().cast_mut();
-            indicator.set_icon_theme_path(&parent_path);
-            indicator.set_icon_full(&icon_path, "tray icon");
-        }
-    })
-    .map_err(|e| e.to_string())
-}
-
-#[cfg(not(target_os = "linux"))]
-fn set_tray_icon(
-    _app: &AppHandle,
-    tray: &tauri::tray::TrayIcon<tauri::Wry>,
-    _icon_key: TrayIconKey,
-    pixels: Vec<u8>,
-) -> Result<(), String> {
+fn set_tray_icon(tray: &tauri::tray::TrayIcon<tauri::Wry>, pixels: Vec<u8>) -> Result<(), String> {
     let icon = Image::new_owned(pixels, ICON_SIZE, ICON_SIZE);
     tray.set_icon(Some(icon)).map_err(|e| e.to_string())
 }
@@ -553,7 +472,7 @@ fn apply_tray_state(app: &AppHandle, state: &TrayState) -> Result<(), String> {
         if *last != icon_key {
             *last = icon_key;
             let pixels = render_progress_icon_with_pause(progress, active, paused_pulse_frame);
-            set_tray_icon(app, &tray, icon_key, pixels)?;
+            set_tray_icon(&tray, pixels)?;
         }
     }
 
