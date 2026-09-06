@@ -17,6 +17,7 @@ flate2 = { workspace = true }
 ganbaru-chat-contracts = { path = "../../../../crates/ganbaru-chat-contracts" }
 ganbaru-chat = { path = "../../../../crates/ganbaru-chat", default-features = false }
 ganbaru-db = { path = "../../../../crates/ganbaru-db" }
+ganbaru-focus = { path = "../../../../crates/ganbaru-focus" }
 ganbaru-notes = { path = "../../../../crates/ganbaru-notes" }
 ganbaru-working-folders = { path = "../../../../crates/ganbaru-working-folders" }
 reqwest = { workspace = true }

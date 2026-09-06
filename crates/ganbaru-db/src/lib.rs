@@ -1,14 +1,16 @@
 use sqlx::{
-    sqlite::{SqliteConnectOptions, SqlitePoolOptions},
+    sqlite::{SqliteConnectOptions, SqliteJournalMode, SqlitePoolOptions, SqliteSynchronous},
     SqlitePool,
 };
 use std::{
     collections::HashMap,
     path::{Path, PathBuf},
     sync::{Arc, Mutex},
+    time::Duration,
 };
 
 static MIGRATOR: sqlx::migrate::Migrator = sqlx::migrate!("../../apps/client/src-tauri/migrations");
+const WRITE_CONTENTION_TIMEOUT: Duration = Duration::from_secs(5);
 
 /// Shared registry for SQLite pools keyed by their authorized filesystem path.
 #[derive(Clone, Default)]
@@ -32,13 +34,16 @@ impl DatabasePoolRegistry {
 
         let options = SqliteConnectOptions::new()
             .filename(&path)
-            .create_if_missing(true);
+            .create_if_missing(true)
+            .foreign_keys(true)
+            .journal_mode(SqliteJournalMode::Wal)
+            .synchronous(SqliteSynchronous::Full)
+            .busy_timeout(WRITE_CONTENTION_TIMEOUT);
         let pool = SqlitePoolOptions::new()
             .max_connections(1)
             .connect_with(options)
             .await
             .map_err(|error| format!("connect: {error}"))?;
-        configure_connection(&pool).await?;
         run_migrations(&pool).await?;
         sqlx::raw_sql("PRAGMA optimize")
             .execute(&pool)
@@ -90,21 +95,6 @@ impl DatabasePoolRegistry {
         }
         Ok(())
     }
-}
-
-async fn configure_connection(pool: &SqlitePool) -> Result<(), String> {
-    for (name, statement) in [
-        ("foreign_keys", "PRAGMA foreign_keys=ON"),
-        ("journal_mode", "PRAGMA journal_mode=WAL"),
-        ("busy_timeout", "PRAGMA busy_timeout=5000"),
-        ("synchronous", "PRAGMA synchronous=NORMAL"),
-    ] {
-        sqlx::raw_sql(statement)
-            .execute(pool)
-            .await
-            .map_err(|error| format!("pragma {name}: {error}"))?;
-    }
-    Ok(())
 }
 
 /// Applies the embedded Ganbaru AI migration chain to a SQLite pool.

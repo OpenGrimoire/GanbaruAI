@@ -77,9 +77,10 @@ export function createPomodoroRunRepository(
 ): PomodoroRunRepository {
   let writeQueue: Promise<void> = Promise.resolve();
 
-  function enqueueWrite(operation: () => Promise<void>): Promise<void> {
+  /** Preserve command order while returning each failure to its calling operation. */
+  function enqueueWrite<Result>(operation: () => Promise<Result>): Promise<Result> {
     const queued = writeQueue.then(operation, operation);
-    writeQueue = queued.catch(() => undefined);
+    writeQueue = queued.then(() => undefined, () => undefined);
     return queued;
   }
 
@@ -144,7 +145,10 @@ export function createPomodoroRunRepository(
           segments: persisted.map(buildPomodoroSegmentWrite),
         });
         dependencies.completeWrite();
-      }).catch((e) => console.warn("Failed to insert segments:", e));
+      }).catch((error: unknown) => {
+        console.warn("Failed to insert segments:", error);
+        throw error;
+      });
     },
 
     async insertSegmentWithAdaptiveDecision(segment, adaptiveDecision) {
@@ -155,7 +159,10 @@ export function createPomodoroRunRepository(
           adaptiveDecision,
         });
         dependencies.completeWrite();
-      }).catch((e) => console.warn("Failed to insert adaptive boundary segment:", e));
+      }).catch((error: unknown) => {
+        console.warn("Failed to insert adaptive boundary segment:", error);
+        throw error;
+      });
     },
 
     async startRun(run, segment, options = {}) {
@@ -240,22 +247,14 @@ export function createPomodoroRunRepository(
     },
 
     async recoverMobileRun() {
-      const nativeState = await invoke<unknown>(
-        "plugin:ganbaru-mobile-notifications|pomodoroNotificationState",
-      ).catch(() => null);
-      const nativeProjection = typeof nativeState === "object"
-        && nativeState !== null
-        && "active" in nativeState
-        && nativeState.active === true
-        ? nativeState
-        : null;
-      const response = await invoke<unknown>("pomodoro_recover_mobile_run", {
-        dbUrl: dbUrl(),
-        nativeProjection,
+      return enqueueWrite(async () => {
+        const response = await invoke<unknown>("pomodoro_recover_mobile_run", {
+          dbUrl: dbUrl(),
+        });
+        const result = parsePomodoroMobileRecoveryResult(response);
+        if (result.kind === "closed") dependencies.completeWrite();
+        return result;
       });
-      const result = parsePomodoroMobileRecoveryResult(response);
-      if (result.kind === "closed") dependencies.completeWrite();
-      return result;
     },
   };
 }

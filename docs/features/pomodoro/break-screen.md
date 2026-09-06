@@ -40,7 +40,7 @@ Packaged sounds follow [audio asset rules](../../development/audio-assets.md).
 
 When the countdown reaches zero, the screen waits for acknowledgement and counts overtime. The immediate completion sound plays, then repeats at the configured cadence.
 
-Only the first ten seconds after the planned break end count as official break allowance on the Calendar rail. Later waiting time is empty, matching pause and away time. Overtime is capped at 30 minutes, after which the state machine advances so an unattended screen cannot wait indefinitely.
+Only the first ten seconds after the planned break end count as official break allowance on the Calendar rail. Later waiting time is empty, matching pause and away time. The prompt says “Ready to return.” Waiting, including more than 30 minutes, never authorizes another focus interval. The user must accept the return, or the event deadline closes the session.
 
 The break segment's effective completed end remains capped to the official allowance plus grace. This preserves honest break history even if the user returns much later.
 

@@ -127,7 +127,8 @@ Configuration is 25 minute focus, 5 minute short break, 15 minute long break eve
 | --- | --- |
 | 09:00 | Run and active focus segment at position 1 are created. |
 | 09:25 | Focus segment completes. Short-break segment at position 1 starts. |
-| 09:30 | Short break completes. Focus segment at position 2 starts. |
+| 09:30 | Short break reaches its deadline. The timer waits for return and creates no focus interval. |
+| 09:32 | User accepts the return. Focus segment at position 2 starts at the actual acceptance time. |
 
 The position 3 and 4 plan remains derived until those phases start.
 
@@ -164,7 +165,7 @@ Idle is detected and backdated to 13:15. The overlay remains unresolved for 60 s
 
 ## Recovery
 
-Desktop cold recovery uses heartbeat and persisted rows as a conservative bound. Android may use valid native lifecycle evidence when JavaScript was suspended. Both paths preserve open manual or idle pauses and write terminal state idempotently.
+Desktop cold recovery uses heartbeat and persisted rows as a conservative bound. Android uses a previously committed phase and its accepted deadline when JavaScript was suspended. Native reminders and notification projections do not authorize execution. Both paths preserve open manual or idle pauses and write terminal state idempotently.
 
 Recovery never materializes an entire missed future plan. It closes or resumes the one active phase, then later projection derives what remains. See [Pomodoro state machine](state-machine.md).
 

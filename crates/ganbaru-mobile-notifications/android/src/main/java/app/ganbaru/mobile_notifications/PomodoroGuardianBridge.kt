@@ -36,10 +36,10 @@ internal class PomodoroGuardianClient(private val context: Context) {
       ?: error("Guardian returned an invalid Pomodoro projection")
   }
 
-  fun reconcile(schedule: List<PomodoroNotificationProjection>) {
+  fun reconcile(schedule: List<PomodoroReminder>) {
     val encoded = encodeSchedule(schedule)
     require(encoded.toByteArray().size <= MAX_SCHEDULE_IPC_BYTES) {
-      "Pomodoro activation schedule exceeds the Android IPC limit"
+      "Focus reminder schedule exceeds the Android IPC limit"
     }
     call(METHOD_RECONCILE, Bundle().apply { putString(KEY_SCHEDULE, encoded) })
   }
@@ -54,24 +54,23 @@ internal class PomodoroGuardianClient(private val context: Context) {
       .authority(context.packageName + GUARDIAN_AUTHORITY_SUFFIX)
       .build()
 
-    internal fun encodeSchedule(schedule: List<PomodoroNotificationProjection>): String =
+    internal fun encodeSchedule(schedule: List<PomodoroReminder>): String =
       JSONArray().apply {
         schedule.forEach { projection ->
-          put(JSONObject(PomodoroNotificationScheduler.encode(projection)))
+          put(JSONObject(projection.encode()))
         }
       }.toString()
 
-    internal fun decodeSchedule(encoded: String): List<PomodoroNotificationProjection> {
+    internal fun decodeSchedule(encoded: String): List<PomodoroReminder> {
       require(encoded.toByteArray().size <= MAX_SCHEDULE_IPC_BYTES) {
-        "Pomodoro activation schedule exceeds the Android IPC limit"
+        "Focus reminder schedule exceeds the Android IPC limit"
       }
       val values = JSONArray(encoded)
       require(values.length() <= 128) {
-        "Pomodoro activation schedule must contain at most 128 events"
+        "Focus reminder schedule must contain at most 128 events"
       }
       return (0 until values.length()).map { index ->
-        PomodoroNotificationScheduler.decode(values.getJSONObject(index).toString())
-          ?: error("Pomodoro activation schedule contains an invalid projection")
+        PomodoroReminder.decode(values.getJSONObject(index).toString())
       }
     }
   }
@@ -103,7 +102,7 @@ class PomodoroGuardianProvider : ContentProvider() {
         }
         METHOD_RECONCILE -> {
           val schedule = PomodoroGuardianClient.decodeSchedule(extras.requireString(KEY_SCHEDULE))
-          PomodoroActivationScheduler.reconcile(appContext, schedule)
+          PomodoroReminderScheduler.reconcile(appContext, schedule)
           Bundle.EMPTY
         }
         else -> error("Unknown Pomodoro guardian operation")

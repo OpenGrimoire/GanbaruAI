@@ -1,11 +1,7 @@
 import type { PomodoroPhase } from "@ganbaru-ai/shared-types";
 import type { PersistedSegment } from "$lib/components/calendar/types";
-import {
-  phaseDurationMinutesAtPosition,
-  type PomodoroConfig,
-} from "$lib/pomodoro/rhythm";
+import type { PomodoroConfig } from "$lib/pomodoro/rhythm";
 
-const MAX_NATIVE_PHASES = 128;
 const MAX_NATIVE_EVENT_TITLE_LENGTH = 160;
 
 export interface MobilePomodoroNotificationPhase {
@@ -78,7 +74,7 @@ function notificationEventTitle(value: string | null): string | null {
   return result;
 }
 
-/** Build the bounded native phase projection used by Android alarms and cold recovery. */
+/** Publish only the accepted phase for Android display and deadline reminders. */
 export function buildMobilePomodoroNotificationState(
   input: BuildMobilePomodoroNotificationStateInput,
 ): MobilePomodoroNotificationState | null {
@@ -96,10 +92,9 @@ export function buildMobilePomodoroNotificationState(
     || input.activeBlockEndMs <= nowMs
     || !Number.isInteger(input.remainingSeconds)
     || !Number.isInteger(input.totalSeconds)
-    || input.remainingSeconds < 0
+    || input.remainingSeconds <= 0
     || input.totalSeconds <= 0
     || input.remainingSeconds > input.totalSeconds
-    || input.skipNextBreak
   ) return null;
 
   const activeStartMs = timestamp(current.actualStart ?? "");
@@ -137,35 +132,6 @@ export function buildMobilePomodoroNotificationState(
     startsAtEpochMs: activeStartMs,
     endsAtEpochMs: currentEndMs,
   }];
-  let nextStartMs = currentEndMs;
-
-  for (
-    let index = input.currentSegmentIndex + 1;
-    index < input.segments.length && phases.length < MAX_NATIVE_PHASES;
-    index += 1
-  ) {
-    const segment = input.segments[index];
-    if (segment.status !== "planned" || segment.runId !== input.activeRunId) continue;
-    const durationMs = phaseDurationMinutesAtPosition(
-      segment.phase,
-      input.config,
-      segment.rhythmPosition,
-    ) * 60_000;
-    if (durationMs <= 0) return null;
-    const nextEndMs = Math.min(nextStartMs + durationMs, input.activeBlockEndMs);
-    if (nextEndMs <= nextStartMs) break;
-    phases.push({
-      id: segment.id,
-      phase: segment.phase,
-      rhythmPosition: segment.rhythmPosition,
-      startsAtEpochMs: nextStartMs,
-      endsAtEpochMs: nextEndMs,
-    });
-    nextStartMs = nextEndMs;
-    if (nextStartMs >= input.activeBlockEndMs) break;
-  }
-
-  if (phases.at(-1)?.endsAtEpochMs !== input.activeBlockEndMs) return null;
   return {
     runId: input.activeRunId,
     eventId: input.activeBlockId,

@@ -1,5 +1,5 @@
 use super::super::*;
-use crate::db::run_migrations;
+use ganbaru_db::run_migrations;
 
 pub(super) async fn migrated_pool_with_event() -> sqlx::SqlitePool {
     let pool = sqlx::sqlite::SqlitePoolOptions::new()

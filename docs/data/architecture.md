@@ -18,7 +18,7 @@ Keeping canonical documents as files provides three long-term properties:
 
 ### Structured data and document graphs
 
-Calendar events, Pomodoro state, projects and tasks, Notes pages and blocks, Quick notes, themes, playlist definitions, and organizational Chat state are structured data. SQLite is authoritative because these domains require transactions, foreign keys, stable identities, ordering, and relational queries.
+Calendar events, Pomodoro state, projects and tasks, Notes pages and blocks, Quick notes, themes, playlist definitions, and organizational Chat state are structured data. SQLite is authoritative because these domains require transactions, foreign keys, stable identities, ordering, and relational queries. Authoritative pools configure every connection with WAL, `synchronous=FULL`, foreign keys, and a bounded busy timeout. Recycled connections retain those settings.
 
 Notes is intentionally included here. A Notes page is a graph of blocks, properties, links, comments, history, collaboration operations, database rows, and assets. Markdown cannot preserve that graph without lossy conventions. Notes Markdown is therefore import, export, or bridge output, not the canonical page.
 
@@ -92,3 +92,7 @@ Before adding persisted data, answer:
 6. Will it synchronize? Give it stable identity, deterministic merge semantics, and explicit authorization before treating sync as an implementation detail.
 
 These questions are more durable than a table inventory. Exact current schema relationships are indexed in [Schema](schema/README.md).
+
+## Planned replication boundary
+
+[Device linking and synchronization](sync.md) defines portable and device-local field ownership. Shared defaults will move into transactional SQLite preferences; current `config.json` consumers have not migrated. No field can synchronize before its classification, validation, mutation journal, and conflict semantics exist.

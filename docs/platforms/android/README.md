@@ -18,7 +18,7 @@ The current source is substantially implemented but the Android product is not y
 | --- | --- |
 | App-private vault, first use, import, portable backup, and restore | Implemented in source |
 | Calendar, Projects, Notes, Quick notes, Settings, Themes, and localization | Implemented through shared responsive surfaces |
-| Pomodoro background service, native phase alarms, ongoing notification, and recovery | Implemented in source |
+| Explicit Pomodoro starts, commitment reminders, accepted-phase service and recovery | Implemented in source |
 | Music library and selected-tree local audio through Media3 | Implemented in source |
 | Provider-free Chat channels, messages, replies, search, drafts, and scheduling | Implemented through the shared responsive workspace |
 | Local coding-agent processes, PTYs, Git, terminals, and working folders | Intentionally unavailable |

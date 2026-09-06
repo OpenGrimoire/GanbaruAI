@@ -46,7 +46,7 @@ Loopback servers use random bearer tokens, bounded requests, narrow registries, 
 
 ## Planned sync and collaboration
 
-Yjs-compatible operations, a self-hosted Hocuspocus server, end-to-end encryption, and human collaboration are planned. They are not current runtime dependencies. The future transport must preserve local canonical storage and enforce resource visibility for derived data as well as direct reads.
+Typed domain operations, Yrs/Yjs collaborative text, secure local device linking, and an optional user-hosted Rust relay for encrypted records are planned. Multi-person collaboration follows personal device sync. They are not current runtime dependencies. The future transport must preserve local canonical storage and enforce resource visibility for derived data as well as direct reads.
 
 See [Sync and collaboration](../data/sync.md).
 

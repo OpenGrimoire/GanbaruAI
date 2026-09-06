@@ -19,36 +19,27 @@ function focusEvent(overrides: Partial<CalendarEvent> = {}): CalendarEvent {
   };
 }
 
-describe("mobile Pomodoro activation schedule", () => {
-  it("projects a full deterministic phase plan at the calendar event boundary", () => {
+describe("mobile focus commitment reminders", () => {
+  it("schedules a reminder without run or phase state", () => {
     const [projection] = buildMobilePomodoroSchedule(
       [focusEvent()],
       t,
       new Date(2026, 7, 28, 9, 0).getTime(),
     );
 
-    expect(projection).toMatchObject({
+    expect(projection).toEqual({
+      id: expect.stringMatching(/^reminder-/),
       eventId: "focus-a",
-      eventTitle: "Write release notes",
-      isRunning: true,
-      totalSeconds: 25 * 60,
-      remainingSeconds: 25 * 60,
+      title: "Write release notes",
+      body: "pomodoroNotification.commitmentDueText",
+      channelName: "pomodoroNotification.alertsChannelName",
+      channelDescription: "pomodoroNotification.alertsChannelDescription",
+      startsAtEpochMs: new Date(2026, 7, 28, 10, 0).getTime(),
+      endsAtEpochMs: new Date(2026, 7, 28, 11, 0).getTime(),
     });
-    expect(projection?.phases.map((phase) => phase.phase)).toEqual([
-      "focus",
-      "short_break",
-      "focus",
-      "short_break",
-    ]);
-    expect(projection?.phases[0]?.startsAtEpochMs).toBe(
-      new Date(2026, 7, 28, 10, 0).getTime(),
-    );
-    expect(projection?.phases.at(-1)?.endsAtEpochMs).toBe(
-      new Date(2026, 7, 28, 11, 0).getTime(),
-    );
   });
 
-  it("keeps an ongoing event for cold-start catch-up and excludes expired events", () => {
+  it("keeps an ongoing commitment for a due reminder and excludes expired events", () => {
     const schedule = buildMobilePomodoroSchedule(
       [
         focusEvent({ id: "ongoing" }),
@@ -68,4 +59,14 @@ describe("mobile Pomodoro activation schedule", () => {
       focusEvent({ id: "ordinary", pomodoroConfig: undefined }),
     ], t, new Date(2026, 7, 28, 9, 0).getTime())).toEqual([]);
   });
+});
+
+it("keeps a reminder identity through end edits and deduplicates repeated occurrences", () => {
+  const now = new Date(2026, 7, 28, 9, 0).getTime();
+  const original = focusEvent();
+  const changed = focusEvent({ end: "2026-08-28 12:00" });
+  expect(buildMobilePomodoroSchedule([original], t, now)[0]?.id)
+    .toBe(buildMobilePomodoroSchedule([changed], t, now)[0]?.id);
+  expect(buildMobilePomodoroSchedule([original, original], t, now)).toHaveLength(1);
+  expect(buildMobilePomodoroSchedule([original], t, Number.NaN)).toEqual([]);
 });

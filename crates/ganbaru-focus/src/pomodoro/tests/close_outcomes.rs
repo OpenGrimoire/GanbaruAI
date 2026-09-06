@@ -4,7 +4,7 @@ use sqlx::Row;
 
 #[test]
 fn close_run_rolls_back_earlier_writes_after_late_event_failure() {
-    tauri::async_runtime::block_on(async {
+    super::block_on(async {
         let pool = migrated_pool_with_event().await;
         let run = run_write(PomodoroRunRhythm::Count {
             focus_duration_minutes: 40,
@@ -76,7 +76,7 @@ fn close_run_rolls_back_earlier_writes_after_late_event_failure() {
 
 #[test]
 fn close_run_records_adaptive_outcomes_and_context_state() {
-    tauri::async_runtime::block_on(async {
+    super::block_on(async {
         let pool = migrated_pool_with_event().await;
         let mut run = run_write(PomodoroRunRhythm::Count {
             focus_duration_minutes: 40,
@@ -217,7 +217,7 @@ fn close_run_records_adaptive_outcomes_and_context_state() {
 
 #[test]
 fn close_run_links_adaptive_outcomes_to_assignment() {
-    tauri::async_runtime::block_on(async {
+    super::block_on(async {
         let pool = migrated_pool_with_event().await;
         let mut run = run_write(PomodoroRunRhythm::Count {
             focus_duration_minutes: 45,
@@ -276,7 +276,7 @@ fn close_run_links_adaptive_outcomes_to_assignment() {
 
 #[test]
 fn close_run_records_boundary_phase_outcomes() {
-    tauri::async_runtime::block_on(async {
+    super::block_on(async {
         let pool = migrated_pool_with_event().await;
         let mut run = run_write(PomodoroRunRhythm::Count {
             focus_duration_minutes: 40,

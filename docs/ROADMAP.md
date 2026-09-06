@@ -28,11 +28,17 @@ These domains already have useful implementations but still need hardening or mi
 
 ### Calendar and Pomodoro correctness
 
-- Unify overlapping-event ownership so auto-start, the running timer, and Calendar timeline projection use one active-first policy with stable tie-breakers.
+- Move live Calendar transition and reconfiguration decisions into Rust. Scheduler and rail selection now share an active-first policy with stable tie-breakers.
 - Align TypeScript and Rust recurrence behavior through shared fixtures, then resolve COUNT with exclusions and the relationship between RDATE and RRULE termination.
 - Expose idle-source availability and apply bounded retry or backoff instead of silently treating adapter errors as zero idle duration.
 
 See [Calendar](features/calendar/README.md), [Pomodoro](features/pomodoro/README.md), [recurrence expansion](algorithms/calendar/recurrence-expansion.md), and [time-conflict detection](algorithms/calendar/time-conflict-detection.md).
+
+### Local device linking and synchronization
+
+Implement the accepted one-person device-linking design with typed domain operations, SQLite-persisted Yrs/Yjs text, secure local enrollment, and an optional user-hosted Rust relay for opaque encrypted records. Hocuspocus is no longer the relay candidate.
+
+The synchronization mechanisms remain unimplemented. Prerequisites are partial: focus persistence and recovery live in Rust, Android uses explicit starts and commitment reminders, desktop automatic admission requires fresh activity, and authoritative SQLite connections use durable commits. Scoped preferences, the transactional operation journal, domain convergence, cryptographic enrollment, explicit focus-controller ownership, native runtime bridges, and relay delivery remain required. The [sync milestone table](data/sync.md#delivery-and-acceptance) tracks the implemented boundary and remaining work.
 
 ### Android release readiness
 
@@ -94,11 +100,9 @@ See [Project management](features/projects/management.md) and [Agent coordinatio
 
 ## Later outcomes
 
-### Permission-aware sync and human collaboration
+### Human collaboration
 
-Design typed synchronization operations for each domain, a self-hosted transport, end-to-end encrypted resource scopes, participant identity, invitations, revocation, offline behavior, and permission-safe derived data.
-
-Yjs-compatible operations and Hocuspocus remain proposed mechanisms, not current runtime dependencies. The local SQLite and file ownership model remains canonical.
+Extend the one-person synchronization foundation to multiple participants with resource-scoped authorization, invitations, history visibility, revocation, offline behavior, and permission-safe derived data. This remains later work and is separate from linking one person's devices.
 
 See [Sync and collaboration](data/sync.md).
 

@@ -46,7 +46,7 @@ function segment(overrides: Partial<PersistedSegment> = {}): PersistedSegment {
 }
 
 describe("Android Pomodoro notification projection", () => {
-  it("shifts future phases from the live deadline and clips the final phase to the event", () => {
+  it("publishes the accepted phase only even when future focus and breaks are planned", () => {
     const state = buildMobilePomodoroNotificationState({
       activeRunId: "run-1",
       activeBlockId: "event-1",
@@ -87,16 +87,6 @@ describe("Android Pomodoro notification projection", () => {
         id: "focus-1",
         endsAtEpochMs: Date.parse("2026-08-28T16:45:00.000Z"),
       }),
-      expect.objectContaining({
-        id: "break-1",
-        startsAtEpochMs: Date.parse("2026-08-28T16:45:00.000Z"),
-        endsAtEpochMs: Date.parse("2026-08-28T16:50:00.000Z"),
-      }),
-      expect.objectContaining({
-        id: "focus-2",
-        startsAtEpochMs: Date.parse("2026-08-28T16:50:00.000Z"),
-        endsAtEpochMs: Date.parse("2026-08-28T17:00:00.000Z"),
-      }),
     ]);
   });
 
@@ -123,7 +113,18 @@ describe("Android Pomodoro notification projection", () => {
     expect(state?.phases[0]?.endsAtEpochMs).toBe(Date.parse("2026-08-28T17:00:00.000Z"));
   });
 
-  it("does not publish an incomplete or stale native projection", () => {
+  it("does not publish a finished break awaiting return as an accepted paused phase", () => {
+    expect(buildMobilePomodoroNotificationState({
+      activeRunId: "run-1", activeBlockId: "event-1", activeBlockTitle: null,
+      activeBlockEndMs: Date.parse("2026-08-28T17:00:00.000Z"),
+      phaseEndTime: null, remainingSeconds: 0, totalSeconds: 300, isRunning: false,
+      skipNextBreak: false, config, currentSegmentIndex: 0,
+      nowMs: Date.parse("2026-08-28T16:20:00.000Z"), copy,
+      segments: [{ ...segment(), phase: "short_break" }],
+    })).toBeNull();
+  });
+
+  it("publishes a committed phase without requiring a full event projection", () => {
     const state = buildMobilePomodoroNotificationState({
       activeRunId: "run-1",
       activeBlockId: "event-1",
@@ -141,10 +142,10 @@ describe("Android Pomodoro notification projection", () => {
       segments: [segment()],
     });
 
-    expect(state).toBeNull();
+    expect(state?.phases).toHaveLength(1);
   });
 
-  it("extends a stale clipped final segment to the current event deadline", () => {
+  it("does not extend a current phase or publish later phases from a changed event plan", () => {
     const state = buildMobilePomodoroNotificationState({
       activeRunId: "run-1",
       activeBlockId: "event-1",
@@ -190,9 +191,9 @@ describe("Android Pomodoro notification projection", () => {
     });
 
     expect(state?.phases.at(-1)).toMatchObject({
-      id: "break-2",
-      startsAtEpochMs: Date.parse("2026-08-28T16:58:43.670Z"),
-      endsAtEpochMs: Date.parse("2026-08-28T17:00:00.000Z"),
+      id: "focus-1",
+      startsAtEpochMs: Date.parse("2026-08-28T16:00:00.000Z"),
+      endsAtEpochMs: Date.parse("2026-08-28T16:13:43.670Z"),
     });
   });
 

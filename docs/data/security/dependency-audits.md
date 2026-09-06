@@ -2,10 +2,12 @@
 
 This file records reviewed Rust advisory exceptions and the most recent known audit snapshot. Lockfiles and current command output are authoritative. Re-run the audits before relying on this snapshot.
 
-Snapshot checked on 2026-08-30:
+Snapshot checked on 2026-09-06:
 
 - pnpm -w run audit:deps reports no known npm vulnerabilities at the low advisory level.
 - pnpm -w run audit:rust exits successfully with three configured vulnerability ignores and 20 allowed warnings.
+
+The `ganbaru-focus` extraction uses existing workspace dependencies and adds no third-party package. The findings below remain unresolved; this extraction does not change their disposition or the audit protections.
 
 The Rust command's successful exit does not mean warning-free. The current cargo-audit output policy allows warnings, so maintainers must review new unsound, unmaintained, and yanked findings separately.
 

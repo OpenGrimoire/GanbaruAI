@@ -1,6 +1,6 @@
 # Pomodoro state machine
 
-The Pomodoro state machine separates pure decisions from persistence, native effects, and presentation. A decision receives a complete snapshot and current time, then returns one semantic action. Controllers apply that action in an ordered transaction and update notifications, overlays, media, windows, and the tray only after canonical state succeeds.
+The Pomodoro state machine separates pure decisions from persistence, native effects, and presentation. A decision receives a complete snapshot and current time, then returns one semantic action. The target controller boundary applies that action in one transaction before native effects. Initial starts now wait for persistence; complete atomic transition orchestration still requires migration from Svelte to Rust. See [Focus authority](focus-authority.md).
 
 ## Why decisions are pure
 
@@ -49,9 +49,9 @@ After a focus phase:
 
 After a short or long break, the rhythm advances to the next focus position. Count rhythms use their long-break cadence. Sequence rhythms use their normalized bounded position sequence.
 
-The outgoing segment closes before the incoming segment starts. The transition, run event, adaptive boundary decision if any, and new active segment commit together.
+The outgoing segment closes before the incoming segment starts. The target Rust transition service must commit the transition, run event, adaptive decision and incoming segment together. Current Svelte phase transitions still use separate persistence calls.
 
-Break completion may enter the user-visible finished or overtime flow rather than silently beginning focus, according to the feature policy. The pure phase decision still identifies the next logical focus position.
+Break completion enters the user-visible return or overtime flow. Another focus interval requires acceptance. The pure phase decision still identifies the next logical focus position.
 
 ## Calendar block activation
 
@@ -139,9 +139,9 @@ Idle detection is suppressed during this flow so one away interval does not crea
 
 ## Android cold recovery
 
-Android cannot rely on JavaScript heartbeats while the WebView is backgrounded. Native lifecycle state and scheduled notification evidence are therefore interpreted separately.
+Android cannot rely on JavaScript heartbeats while the WebView is backgrounded. An accepted phase and its pauses can be reconstructed from SQLite without a JavaScript heartbeat. Scheduled notifications do not supply execution evidence.
 
-Recovery validates the active vault and run, event window, phase deadline, pause state, and native persisted lifecycle record. Only a valid compatible record may resume toward current time. Expired or ambiguous state is closed conservatively.
+Recovery validates the active vault and committed run, event window, phase deadline, rhythm, and pauses. A valid phase may resume toward current time. Expired or ambiguous state closes conservatively. Recovery has no notification projection argument and cannot create a scheduled run or future phases.
 
 Legacy suspend pauses created by earlier WebView-throttling behavior may be normalized according to the compatibility rule. A genuine open manual or idle pause remains paused and time away does not count.
 
@@ -149,7 +149,7 @@ Desktop and Android recovery must not be collapsed into one now-minus-heartbeat 
 
 ## Scheduler behavior
 
-Visual countdown updates occur regularly while running. Calendar auto-start is deadline-driven: it schedules the next relevant event start or end, and reruns on calendar or lifecycle invalidation. Error retry uses a separate bounded delay.
+Visual countdown updates occur regularly while running. Calendar auto-start is deadline-driven: it schedules the next relevant event start or end, and reruns on calendar or lifecycle invalidation. While a due desktop commitment awaits fresh local activity, admission is retried every 15 seconds. Android requires explicit starts. Error retry uses a separate bounded delay.
 
 There is no AUTO_START_POLL_MS constant and no one-second calendar polling contract.
 

@@ -4,7 +4,7 @@ use sqlx::Row;
 
 #[test]
 fn insert_run_snapshots_count_rhythm() {
-    tauri::async_runtime::block_on(async {
+    super::block_on(async {
         let pool = migrated_pool_with_event().await;
         let run = run_write(PomodoroRunRhythm::Count {
             focus_duration_minutes: 40,
@@ -33,7 +33,7 @@ fn insert_run_snapshots_count_rhythm() {
 
 #[test]
 fn insert_run_snapshots_sequence_rhythm() {
-    tauri::async_runtime::block_on(async {
+    super::block_on(async {
         let pool = migrated_pool_with_event().await;
         let run = run_write(PomodoroRunRhythm::Sequence {
             steps: vec![
@@ -76,7 +76,7 @@ fn insert_run_snapshots_sequence_rhythm() {
 
 #[test]
 fn insert_run_snapshots_adaptive_decision() {
-    tauri::async_runtime::block_on(async {
+    super::block_on(async {
         let pool = migrated_pool_with_event().await;
         let mut run = run_write(PomodoroRunRhythm::Count {
             focus_duration_minutes: 40,
@@ -134,7 +134,7 @@ fn insert_run_snapshots_adaptive_decision() {
 
 #[test]
 fn insert_run_snapshots_records_adaptive_candidate_id() {
-    tauri::async_runtime::block_on(async {
+    super::block_on(async {
         let pool = migrated_pool_with_event().await;
         let mut run = run_write(PomodoroRunRhythm::Count {
             focus_duration_minutes: 40,
@@ -187,7 +187,7 @@ fn insert_run_snapshots_records_adaptive_candidate_id() {
 
 #[test]
 fn reject_invalid_adaptive_snapshot_before_insert() {
-    tauri::async_runtime::block_on(async {
+    super::block_on(async {
         let pool = migrated_pool_with_event().await;
         let mut run = run_write(PomodoroRunRhythm::Count {
             focus_duration_minutes: 40,
@@ -215,7 +215,7 @@ fn reject_invalid_adaptive_snapshot_before_insert() {
 
 #[test]
 fn insert_run_persists_provided_adaptive_planned_blocks() {
-    tauri::async_runtime::block_on(async {
+    super::block_on(async {
         let pool = migrated_pool_with_event().await;
         let mut run = run_write(PomodoroRunRhythm::Count {
             focus_duration_minutes: 40,
@@ -253,7 +253,7 @@ fn insert_run_persists_provided_adaptive_planned_blocks() {
 
 #[test]
 fn reject_invalid_adaptive_planned_block_before_insert() {
-    tauri::async_runtime::block_on(async {
+    super::block_on(async {
         let pool = migrated_pool_with_event().await;
         let mut run = run_write(PomodoroRunRhythm::Count {
             focus_duration_minutes: 40,

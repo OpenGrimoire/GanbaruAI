@@ -20,12 +20,12 @@ internal const val POMODORO_ALERTS_CHANNEL_ID = "pomodoro-alerts-v1"
 internal const val POMODORO_NOTIFICATION_ID = 1_500_000_001
 internal const val POMODORO_ALERT_NOTIFICATION_ID = 1_500_000_002
 private const val POMODORO_NOTIFICATION_STORE = "GANBARU_POMODORO_NOTIFICATION_STORE"
-private const val POMODORO_NOTIFICATION_KEY = "activeProjection"
+private const val POMODORO_NOTIFICATION_KEY = "acceptedPhaseV2"
 private const val POMODORO_ALARM_REQUEST_CODE = 1_500_000_003
 private const val EXTRA_RUN_ID = "ganbaruPomodoroRunId"
 private const val EXTRA_PHASE_ID = "ganbaruPomodoroPhaseId"
 private const val EXTRA_BOUNDARY_EPOCH_MS = "ganbaruPomodoroBoundaryEpochMs"
-private const val MAX_PHASES = 128
+private const val MAX_PHASES = 1
 private const val ACTION_SYNCHRONIZE =
   "app.ganbaru.mobile_notifications.action.SYNCHRONIZE_POMODORO"
 private const val ACTION_DELIVER_BOUNDARY =
@@ -68,6 +68,19 @@ internal data class PomodoroNotificationProjection(
   val copy: PomodoroNotificationCopy,
 )
 
+/** Return only the accepted current phase, never a future scheduled phase. */
+internal fun acceptedPomodoroPhase(
+  projection: PomodoroNotificationProjection,
+  now: Long,
+): PomodoroNotificationPhase? {
+  if (projection.remainingSeconds <= 0) return null
+  val phase = projection.phases.singleOrNull() ?: return null
+  if (projection.generatedAtEpochMs > now || phase.startsAtEpochMs > now) return null
+  if (now >= projection.eventEndsAtEpochMs) return null
+  if (projection.isRunning && now >= phase.endsAtEpochMs) return null
+  return phase
+}
+
 internal object PomodoroNotificationScheduler {
   fun update(context: Context, projection: PomodoroNotificationProjection) {
     validate(projection)
@@ -82,7 +95,6 @@ internal object PomodoroNotificationScheduler {
   }
 
   fun cancel(context: Context) {
-    PomodoroActivationScheduler.dismissCurrent(context)
     alarmManager(context).cancel(boundaryIntent(context, null, null))
     check(store(context).edit().remove(POMODORO_NOTIFICATION_KEY).commit()) {
       "Pomodoro notification state could not be cleared"
@@ -139,21 +151,15 @@ internal object PomodoroNotificationScheduler {
       if (alertBoundary) postBoundaryAlert(context, projection, completedPhase, null)
       clearCurrent(context)
       DoomscrollingPhaseBridge.clear(context)
-      if (PomodoroActivationScheduler.activateEligible(context) == null) service.finishSession()
+      service.finishSession()
       return
     }
 
-    if (!projection.isRunning) {
-      DoomscrollingPhaseBridge.publish(context, projection, projection.phases.first())
-      postOngoing(service, projection, projection.phases.first(), now)
-      scheduleBoundary(context, projection, projection.phases.first())
-      return
-    }
-
-    val activePhase = projection.phases.firstOrNull { now < it.endsAtEpochMs }
+    val activePhase = acceptedPomodoroPhase(projection, now)
     if (alertBoundary) postBoundaryAlert(context, projection, completedPhase, activePhase)
     if (activePhase == null) {
       alarmManager(context).cancel(boundaryIntent(context, null, null))
+      clearCurrent(context)
       DoomscrollingPhaseBridge.clear(context)
       service.finishSession()
       return
@@ -293,7 +299,6 @@ internal object PomodoroNotificationScheduler {
       "Pomodoro phase projection must contain 1 to $MAX_PHASES phases"
     }
     val ids = mutableSetOf<String>()
-    var previousEnd: Long? = null
     for (phase in projection.phases) {
       require(phase.id.isNotBlank() && phase.id.length <= 128 && ids.add(phase.id)) {
         "Pomodoro phase IDs must be bounded and unique"
@@ -308,20 +313,8 @@ internal object PomodoroNotificationScheduler {
       require(phase.endsAtEpochMs <= projection.eventEndsAtEpochMs) {
         "Pomodoro phase exceeds the event deadline"
       }
-      if (previousEnd != null) {
-        require(phase.startsAtEpochMs == previousEnd) {
-          "Pomodoro phases must be contiguous"
-        }
-      }
-      previousEnd = phase.endsAtEpochMs
-    }
-    if (projection.isRunning) {
-      require(previousEnd == projection.eventEndsAtEpochMs) {
-        "Running Pomodoro projection must cover the event window"
-      }
-    } else {
-      require(projection.phases.size == 1) {
-        "Paused Pomodoro projection must contain only its current phase"
+      require(phase.startsAtEpochMs <= projection.generatedAtEpochMs) {
+        "Pomodoro phase must have been accepted before publication"
       }
     }
     validateCopy(projection.copy)
@@ -511,7 +504,7 @@ class PomodoroNotificationRestoreReceiver : BroadcastReceiver() {
   override fun onReceive(context: Context, intent: Intent) {
     if (!isNotificationRestoreAction(intent.action)) return
     synchronized(POMODORO_GUARDIAN_LOCK) {
-      PomodoroActivationScheduler.restore(context)
+      PomodoroReminderScheduler.restore(context)
       PomodoroNotificationScheduler.restore(context)
     }
   }

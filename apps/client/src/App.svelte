@@ -835,6 +835,9 @@
   const activeBlockScheduler = createPomodoroCalendarScheduler({
     calendar,
     pomodoro,
+    canStartAutomatically: (boundaryEpochMs) => invoke<boolean>("pomodoro_can_start_automatically", {
+      boundaryEpochMs,
+    }),
     isBlocked: () => showStopConfirm || reverting || Boolean(suspendInfo) || Boolean(idleInfo),
     onBeforeNaturalCompletion: () => {
       savedBlockState = null;

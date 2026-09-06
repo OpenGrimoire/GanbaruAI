@@ -4,7 +4,7 @@ use sqlx::Row;
 
 #[test]
 fn insert_run_records_adaptive_experiment_assignment() {
-    tauri::async_runtime::block_on(async {
+    super::block_on(async {
         let pool = migrated_pool_with_event().await;
         let mut run = run_write(PomodoroRunRhythm::Count {
             focus_duration_minutes: 45,
@@ -63,7 +63,7 @@ fn insert_run_records_adaptive_experiment_assignment() {
 
 #[test]
 fn insert_run_records_adaptive_bundle_experiment_assignment() {
-    tauri::async_runtime::block_on(async {
+    super::block_on(async {
         let pool = migrated_pool_with_event().await;
         let mut run = run_write(PomodoroRunRhythm::Count {
             focus_duration_minutes: 45,
@@ -139,7 +139,7 @@ fn insert_run_records_adaptive_bundle_experiment_assignment() {
 
 #[test]
 fn insert_run_records_adaptive_experiment_status_update_without_assignment() {
-    tauri::async_runtime::block_on(async {
+    super::block_on(async {
         let pool = migrated_pool_with_event().await;
         let mut run = run_write(PomodoroRunRhythm::Count {
             focus_duration_minutes: 45,
@@ -185,7 +185,7 @@ fn insert_run_records_adaptive_experiment_status_update_without_assignment() {
 
 #[test]
 fn insert_segment_with_adaptive_decision_records_boundary_decision() {
-    tauri::async_runtime::block_on(async {
+    super::block_on(async {
         let pool = migrated_pool_with_event().await;
         let mut tx = pool.begin().await.unwrap();
         let run = run_write(PomodoroRunRhythm::Count {

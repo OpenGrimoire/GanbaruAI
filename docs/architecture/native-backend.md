@@ -13,6 +13,7 @@ The application library has separate desktop and mobile composition roots. Targe
 The Cargo workspace extracts domains that benefit from Tauri-free contracts and tests:
 
 - `ganbaru-db` owns pool configuration, migrations, and database test support.
+- `ganbaru-focus` owns focus persistence, history, validation, recovery, and local activity admission. Live phase orchestration remains in Svelte until the Rust transition service is completed.
 - `ganbaru-notes` owns the Notes graph, persistence, transfers, history, assets, and bounded file operations.
 - `ganbaru-chat-contracts` defines provider-neutral identifiers, commands, events, read models, and errors.
 - `ganbaru-chat-providers` owns provider processes, transports, normalization, cancellation, and registry behavior.

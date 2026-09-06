@@ -28,7 +28,7 @@ These cases require different evidence:
 
 - During a live suspend, the frontend and native lifecycle create or normalize suspend state and block ordinary ticking until the return decision is complete.
 - On desktop cold startup, stale open state is bounded by the last valid heartbeat and persisted pause evidence. Orphaned work is interrupted rather than extended to the current time.
-- On Android cold startup, recovery may use the current time only after native lifecycle evidence proves that the event and phase remained valid. Otherwise it closes stale state conservatively.
+- On Android cold startup, recovery may use the current time only within a previously committed phase and its accepted deadline. A native reminder or projection supplies no execution evidence. Expired state closes conservatively.
 - An open manual or idle pause remains paused after valid recovery. Time away does not become focus time.
 
 Recovery writes must be transactional and idempotent. Repeating startup recovery cannot create another segment, pause, or terminal run event.
@@ -41,7 +41,7 @@ Recovery writes must be transactional and idempotent. Repeating startup recovery
 
 The already-active eligible event must remain the owner. Switching merely because another candidate starts would split one real session into artificial fragments. When there is no active owner, selection must be deterministic and the calendar rail must not show competing bands for the same time.
 
-There is a current implementation gap. Auto-start prefers shortest remaining duration, then creation time and ID. The rail removes contained events, prefers the outer range, and uses the shorter first focus duration for equal windows. It also filters containment before finding the active event, so an active nested event can disappear from the rail. These policies must converge rather than being documented as equivalent.
+The scheduler and rail now share the same selector: keep the eligible current owner, then use earliest end, creation identity and occurrence identity. Containment no longer removes an accepted owner. Future proposals preserve their selected owner to its end, while recorded history remains visible even when older runs overlap. Full transactional migration of the live transition controller to Rust remains pending.
 
 **Governed by:** [Time conflict detection](../algorithms/calendar/time-conflict-detection.md) and invariant 4.
 
@@ -146,3 +146,7 @@ A message in a restricted channel may be referenced from a broader channel whose
 The destination receives an opaque unavailable reference unless strict audience and history checks pass. Explicit declassification creates a new destination-owned statement and retains provenance for audit; it does not silently relax the source.
 
 **Governed by:** [Chat access control](access-control.md) and invariant 14.
+
+## Planned work mistaken for execution
+
+A scheduled phone event or cached phase projection must not generate running state, focus history, or phase-dependent enforcement while a desktop is unavailable. Native reminders have a separate contract with no run or phase fields. Recovery accepts only committed execution and caps history at the accepted phase deadline. Linked-device silence will mean unavailable status, never inferred focus or idle. See [Focus authority](../algorithms/pomodoro/focus-authority.md).

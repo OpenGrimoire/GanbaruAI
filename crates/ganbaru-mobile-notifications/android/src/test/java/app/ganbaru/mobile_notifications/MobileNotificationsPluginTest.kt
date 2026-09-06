@@ -94,71 +94,42 @@ class MobileNotificationsPluginTest {
   }
 
   @Test
-  fun activationSelectionKeepsCurrentThenChoosesShortestEligibleEvent() {
-    val later = projection("later", startsAt = 1_000, endsAt = 9_000)
-    val shorter = projection("shorter", startsAt = 2_000, endsAt = 7_000)
-    val future = projection("future", startsAt = 6_000, endsAt = 8_000)
-
-    assertTrue(
-      PomodoroActivationSelection.select(
-        listOf(later, shorter, future),
-        emptySet(),
-        5_000,
-        later,
-      )?.runId == "later",
+  fun remindersAreDueOnlyWithinTheirWindowAndDoNotRepeatAfterDelivery() {
+    val reminder = PomodoroReminder(
+      "reminder-a", "event-a", 1_000, 5_000, "Focus due", "Open the app to start", "Focus", "Reminders",
     )
-    assertTrue(
-      PomodoroActivationSelection.select(
-        listOf(later, shorter, future),
-        emptySet(),
-        5_000,
-        null,
-      )?.runId == "shorter",
-    )
-    assertTrue(
-      PomodoroActivationSelection.select(
-        listOf(later, shorter),
-        setOf("shorter"),
-        5_000,
-        null,
-      )?.runId == "later",
-    )
+    reminder.validate()
+    assertFalse(reminder.isDue(999, emptySet()))
+    assertTrue(reminder.isDue(1_000, emptySet()))
+    assertTrue(reminder.isDue(4_999, emptySet()))
+    assertFalse(reminder.isDue(5_000, emptySet()))
+    assertFalse(reminder.isDue(2_000, setOf(reminder.id)))
   }
 
-  private fun projection(
-    runId: String,
-    startsAt: Long,
-    endsAt: Long,
-  ): PomodoroNotificationProjection = PomodoroNotificationProjection(
-    runId = runId,
-    eventId = runId,
-    eventTitle = runId,
-    eventDate = "2026-08-28",
-    eventEndsAtEpochMs = endsAt,
-    generatedAtEpochMs = 0,
-    isRunning = true,
-    remainingSeconds = 1,
-    totalSeconds = 1,
-    configJson = """{"rhythm":{"kind":"count","focusDurationMinutes":25,"shortBreakMinutes":5,"longBreakMinutes":15,"longBreakAfterFocusCount":4},"rhythmSource":"preset","presetKey":"creative","idleTimeoutMinutes":null}""",
-    phases = listOf(PomodoroNotificationPhase(
-      id = "$runId-phase",
-      phase = "focus",
-      rhythmPosition = 1,
-      startsAtEpochMs = startsAt,
-      endsAtEpochMs = endsAt,
-    )),
+  @Test
+  fun acceptedPhaseCannotAdvanceFromHistoryOrAStaleOrFutureProjection() {
+    val current = projection()
+    assertEquals("phase-a", acceptedPomodoroPhase(current, 2_000)?.id)
+    assertEquals(null, acceptedPomodoroPhase(current, 500))
+    assertEquals(null, acceptedPomodoroPhase(current, 5_000))
+    val future = current.phases.single().copy(id = "future", startsAtEpochMs = 5_000, endsAtEpochMs = 8_000)
+    assertEquals(null, acceptedPomodoroPhase(current.copy(phases = current.phases + future), 6_000))
+    assertEquals(null, acceptedPomodoroPhase(current.copy(phases = listOf(future)), 2_000))
+    assertEquals(null, acceptedPomodoroPhase(current.copy(generatedAtEpochMs = 3_000), 2_000))
+    assertEquals("phase-a", acceptedPomodoroPhase(current.copy(isRunning = false), 6_000)?.id)
+    assertEquals(null, acceptedPomodoroPhase(current.copy(isRunning = false), 10_000))
+    assertEquals(null, acceptedPomodoroPhase(current.copy(isRunning = false, remainingSeconds = 0), 6_000))
+    assertEquals(null, acceptedPomodoroPhase(current.copy(isRunning = false, generatedAtEpochMs = 7_000), 6_000))
+  }
+
+  private fun projection(): PomodoroNotificationProjection = PomodoroNotificationProjection(
+    runId = "run-a", eventId = "event-a", eventTitle = "Focus", eventDate = "2026-09-06",
+    eventEndsAtEpochMs = 10_000, generatedAtEpochMs = 1_000, isRunning = true,
+    remainingSeconds = 4, totalSeconds = 4, configJson = "{}",
+    phases = listOf(PomodoroNotificationPhase("phase-a", "focus", 1, 1_000, 5_000)),
     copy = PomodoroNotificationCopy(
-      channelName = "Focus",
-      channelDescription = "Focus",
-      alertsChannelName = "Alerts",
-      alertsChannelDescription = "Alerts",
-      focusTitle = "Focus",
-      shortBreakTitle = "Short break",
-      longBreakTitle = "Long break",
-      pausedText = "Paused",
-      focusCompleteTitle = "Focus complete",
-      breakCompleteTitle = "Break complete",
-      sessionCompleteText = "Session complete",
+      "Focus", "Focus", "Alerts", "Alerts", "Focus", "Short break", "Long break", "Paused",
+      "Focus interval ended", "Ready to return", "Open the app to continue",
     ),
   )
 }

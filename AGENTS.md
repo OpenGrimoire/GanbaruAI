@@ -4,8 +4,8 @@ Ganbaru AI is an anti-procrastination + anti-burnout productivity app. Free, loc
 
 Features are highly interconnected. Current status:
 
-- Calendar (work in progress; the main views and workflows exist, while recurrence and overlapping Pomodoro ownership need correctness hardening)
-- Pomodoro (work in progress; the timer lifecycle and platform surfaces exist, while Calendar ownership alignment and idle-source failure handling need hardening)
+- Calendar (work in progress; the main views and workflows exist, while recurrence and Pomodoro transition persistence need correctness hardening)
+- Pomodoro (work in progress; the timer lifecycle and platform surfaces exist, while transition persistence and idle-source failure handling need hardening)
 - Quick notes and themes
 - Doomscrolling (work in progress; browser, desktop, and selected Android application enforcement exist)
 - Music player (work in progress; desktop and Android local playback, playlists, source parsing, controls, and platform integrations exist)
@@ -140,7 +140,7 @@ apps/
             tests/: Tauri integration tests
           chat_mobile.rs: mobile-compatible Chat configuration and vault contract surface
           notes.rs, notes/: Notes Tauri command adapters, working-Markdown composition, dialogs, and asset authorization
-          pomodoro.rs, pomodoro/: timer commands, DTOs, persistence, validation, reads, and tests
+          pomodoro.rs: authorized Tauri focus command adapters over ganbaru-focus
           projects.rs, projects/: project commands, DTOs, persistence, validation, history, custom fields, and templates
           quick_notes/: Quick notes commands, normalized text runs, lifecycle, search, and tests
           notification.rs, notification/: notification commands, scheduling, and platform delivery
@@ -168,6 +168,7 @@ crates/
   ganbaru-mobile-notifications/: Android Calendar notification scheduling, channel, tap, exact-alarm, and settings adapter
   ganbaru-working-folders/: Tauri-free working-folder IDs, repository kinds, timestamps, bindings, and device-state operations
   ganbaru-db/: Tauri-free SQLite pool registry, connection configuration, migrations, row macro, and schema tests
+  ganbaru-focus/: Tauri-free focus persistence, history, validation, recovery, and local activity admission
   ganbaru-chat-contracts/: stable provider-neutral Chat IDs, commands, events, DTOs, errors, and Serde contracts
   ganbaru-chat-providers/: provider processes, transports, drivers, event sinks, cancellation, and registry
   ganbaru-chat/: Chat persistence, runtime, Git workspaces, checkpoints, review, source control, and application services
@@ -237,7 +238,8 @@ Tauri's platform app config directory stores device-local bootstrap and runtime 
 - **Branching and releases:** normal work uses topic branches from `dev` and PRs back to `dev`. Direct pushes to `dev` or `main` are not normal workflow. `main`, `app-v*` tags, release environment approval, published GitHub Releases, package repositories, and AUR publication are controlled by organization admins for supply-chain safety. Releases are promoted through a PR from `dev` to `main`, merged through `main` merge queue, then published from explicit `app-v*` tags that build draft GitHub Releases. Publishing the GitHub Release updates the apt, RPM, and AUR package paths. See `CONTRIBUTING.md`, `docs/operations/release/README.md`, and `docs/operations/repository-policy.md`.
 - **Pull request workflow:** for review work, create a neutral topic branch from current `dev` before committing. Branch names describe the work, such as `docs/github-templates` or `fix/calendar-import`; never use tool names, assistant names, or vanity prefixes in branches, commits, or PR titles. Open PRs into `dev` unless the user explicitly asks for a release PR. Creating a PR does not imply merging it. Merge only when the user explicitly asks to merge, or explicitly asks to complete the whole PR flow after checks pass. Before merging, confirm the PR is mergeable, required checks passed, and the branch is up to date with its base. For release PRs from `dev` to `main`, do not update `dev` with `main`; add the PR to `main` merge queue after pull request checks pass. If `gh pr merge` attempts auto-merge instead of queueing a `main` PR, use GitHub's queue action or the GraphQL `enqueuePullRequest` mutation; do not enable auto-merge. If a non-release PR branch is out of date, update it once, then merge if merging was already authorized after checks pass. After opening a PR, do not wait or poll repeatedly for GitHub Actions. Check status once immediately when useful, or when the user reports checks are complete. When a PR into `dev` is merged, fetch `origin/dev`, switch back to `dev`, sync local `dev` to `origin/dev`, and delete merged topic branches locally and remotely. When a PR into `main` is merged, fetch `origin/main`, switch back to `main`, and sync local `main` to `origin/main`. Do not keep backup branches unless the user explicitly asks.
 - **Commit signing:** commits should be signed with the configured SSH signing key. If signing fails, stop and report it instead of creating an unsigned commit.
-- **Sync:** planned Yjs + Hocuspocus architecture (CRDT-based, E2E encrypted, and self-hosted by the user); sync is not implemented yet
+- **Sync:** planned typed domain operations with SQLite-persisted Yrs/Yjs text, local device enrollment, end-to-end encryption, and an optional user-hosted Rust relay for opaque encrypted records. Sync and device linking are not implemented yet. See `docs/data/sync.md`.
+- **Focus evidence:** Android Calendar alarms are reminders and cannot start runs or record later phases. Recovery uses only committed SQLite execution. Desktop automatic admission requires fresh local activity; explicit starts remain available. Device controller ownership and live companion status are planned separately from window coordination.
 - **Build tool:** Vite (default with Tauri + Svelte scaffold)
 
 ## Testing
@@ -276,7 +278,7 @@ Read `docs/testing/README.md` when changing tests, validation scripts, task orde
 - `pnpm -w run editor-check`: editor-style diagnostics, including Tailwind canonical class checks.
 - `pnpm -w run test`: all tests, with serialized Rust execution followed by sequential one-worker Vitest shards. Use after changes to tested code.
 - `pnpm --dir apps/client exec vitest run path/to/file.test.ts --maxWorkers=1`: focused frontend test file.
-- `cargo test -p ganbaru-chat --lib -j 1 test_name -- --test-threads=1`: focused Chat service test by name. Substitute `ganbaru-notes`, `ganbaru-db`, `ganbaru-chat-contracts`, `ganbaru-chat-providers`, or `ganbaru-working-folders` for the relevant core crate.
+- `cargo test -p ganbaru-chat --lib -j 1 test_name -- --test-threads=1`: focused Chat service test by name. Substitute `ganbaru-notes`, `ganbaru-db`, `ganbaru-chat-contracts`, `ganbaru-chat-providers`, `ganbaru-focus`, or `ganbaru-working-folders` for the relevant core crate.
 - `cargo test -p ganbaru-tauri-app --lib -j 1 test_name -- --test-threads=1`: focused Tauri composition or command-adapter test.
 - `cargo test -p ganbaru-native-messaging --bin ganbaru-ai-native-messaging -j 1 test_name -- --test-threads=1`: focused native messaging host test.
 - `cargo check -p ganbaru-ai --bin ganbaru-ai -j 1`: focused desktop composition check.

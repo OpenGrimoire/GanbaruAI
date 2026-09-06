@@ -27,6 +27,8 @@
   const pomodoro = getPomodoro();
   const musicPlayer = getMusicPlayer();
   const { t } = getLocalization();
+  let starting = $state(false);
+  let startMessage = $state("");
   const MENU_ICON_SIZE = 14;
   const MENU_ICON_STROKE_WIDTH = 1.8;
   const volumeStep = 0.05;
@@ -93,16 +95,50 @@
     onDismiss();
     onOpenMusic();
   }
+
+  /** Start an eligible commitment only after native persistence acknowledges it. */
+  async function startScheduledSession(): Promise<void> {
+    if (starting) return;
+    starting = true;
+    startMessage = "";
+    try {
+      const [{ getCalendar }, { startScheduledPomodoro }] = await Promise.all([
+        import("$lib/stores/calendar.svelte"),
+        import("$lib/stores/pomodoro-calendar-scheduler"),
+      ]);
+      if (await startScheduledPomodoro(getCalendar(), pomodoro)) onDismiss();
+      else startMessage = t("pomodoroNotification.noCommitmentDue");
+    } catch (error) {
+      console.warn("Failed to accept scheduled focus session:", error);
+      startMessage = t("pomodoroNotification.startFailed");
+    } finally {
+      starting = false;
+    }
+  }
 </script>
 
 {#if isActive}
   <div class={cn("px-3 text-xs text-muted-foreground", touch ? "py-3" : "py-1.5")}>
-    {t("titleBar.pomodoro.left", pomodoro.formattedTime)}
+    {pomodoro.phase !== "focus" && pomodoro.remainingSeconds === 0
+      ? t("pomodoroNotification.breakCompleteTitle")
+      : t("titleBar.pomodoro.left", pomodoro.formattedTime)}
   </div>
 {:else}
   <div class={cn("px-3 text-xs text-muted-foreground", touch ? "py-3" : "py-1.5")}>
     {t("titleBar.pomodoro.noActiveSession")}
   </div>
+  <button
+    type="button"
+    disabled={starting}
+    onclick={() => { void startScheduledSession(); }}
+    class={itemClass(!starting)}
+  >
+    <span>{t("pomodoroNotification.startScheduledSession")}</span>
+    <PlayIcon class="shrink-0 opacity-70" size={MENU_ICON_SIZE} strokeWidth={MENU_ICON_STROKE_WIDTH} />
+  </button>
+  {#if startMessage}
+    <p class="px-3 py-2 text-xs text-muted-foreground" role="status">{startMessage}</p>
+  {/if}
 {/if}
 
 <button

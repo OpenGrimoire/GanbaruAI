@@ -34,6 +34,8 @@ Pages created after the selected version leave the restored project but remain r
 
 Collaboration operation sequence history is never rewound or deleted. Restore appends new operations describing restored comment and suggestion state. Historical pending notifications do not become newly deliverable.
 
+**Planned for device synchronization:** restoration must create a safety version and new operations against the current replica, including text and structural changes. It cannot rewind causal history or peer acknowledgements. Tombstones and incompatible concurrent changes remain recoverable, and compaction must retain state required by enrolled offline devices. The current comment and suggestion operation log does not provide that general replication boundary. See [Synchronization](../../data/sync.md).
+
 ## Page templates
 
 Page templates are global reusable Notes templates, distinct from database item templates. A template snapshots page properties, icon, cover, and root block tree.

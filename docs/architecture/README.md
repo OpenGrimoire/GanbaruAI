@@ -54,7 +54,7 @@ See [Integration boundaries](integrations.md).
 - **SQLx with SQLite** provides the canonical structured store and embedded timestamped migrations.
 - **Turborepo over pnpm workspaces** coordinates frontend tasks. Cargo owns the Rust workspace.
 
-Dependencies are added for an implemented boundary, not speculative future use. Planned Yjs, Hocuspocus, BYOK, external MCP, diary, sleep, and gamification work does not belong in current dependency manifests until implementation starts.
+Dependencies are added for an implemented boundary, not speculative future use. Planned Yrs/Yjs, encrypted relay, BYOK, external MCP, diary, sleep, and gamification work does not belong in current dependency manifests until implementation starts.
 
 ## Detailed documents
 

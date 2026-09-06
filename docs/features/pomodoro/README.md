@@ -2,13 +2,13 @@
 
 Pomodoro turns a calendar commitment into an adaptive sequence of focus and recovery phases. It protects attention without rewarding exhaustion or treating one fixed interval as universally correct.
 
-**Status: Partial.** The timer lifecycle and platform surfaces are implemented. Calendar ownership alignment and explicit idle-source failure handling remain active correctness work.
+**Status: Partial.** The local timer and platform surfaces are implemented. Focus persistence and recovery live in `ganbaru-focus`. Android reminders cannot create execution history, and desktop automatic starts require fresh local activity. The scheduler and Calendar rail share an active-first ownership selector. Full Rust transition orchestration, linked-device control, and idle-source failure visibility remain active work.
 
 ## Current scope
 
 | Capability | Status |
 | --- | --- |
-| Manual and Calendar-linked runs | Implemented with Calendar ownership hardening pending |
+| Manual and Calendar-linked runs | Implemented with shared Calendar ownership selection; Rust transition migration pending |
 | Focus, short-break, long-break, pause, resume, stop, and recovery | Implemented |
 | Presets and custom count rhythms | Implemented |
 | Adaptive focus rhythm | Implemented with ongoing tuning |
@@ -40,9 +40,9 @@ Detailed pure logic belongs in:
 
 ## Run lifecycle
 
-A run can be started manually or from a Pomodoro-enabled Calendar event. It records one coherent configuration snapshot so later preference edits do not rewrite an active or historical run.
+A run can be started explicitly from a currently due Pomodoro-enabled Calendar event using “Start scheduled session.” Desktop automatic starts additionally require fresh local activity after the admission boundary. Android never starts a run from a Calendar alarm. It records one coherent configuration snapshot so later preference edits do not rewrite an active or historical run.
 
-The state machine advances by persisted deadlines. UI countdowns render those deadlines but are not the correctness boundary. Resume, process restart, device wake, and Android native recovery reconcile elapsed transitions from canonical state.
+UI countdowns render the accepted phase. Android recovery resumes or closes only committed execution and cannot replay a projected rhythm as completed work. A missed event or break return creates no later focus interval. See [Focus authority and evidence](../../algorithms/pomodoro/focus-authority.md) for current behavior and planned controller ownership.
 
 Only one active run owns the global focus surfaces. Starting another requires an explicit stop or handoff.
 
@@ -72,7 +72,7 @@ See [Progress displays](progress-displays.md).
 
 ## Notifications
 
-Native notifications identify the current transition and provide only actions that the platform and state can perform truthfully. Desktop delivery depends on the running app lifecycle; Android native scheduling maintains phase boundaries while the Activity is absent.
+Native notifications identify the current transition and provide only actions that the platform and state can perform truthfully. Desktop delivery depends on the running app lifecycle; Android native scheduling delivers commitment and accepted-phase deadline reminders while the Activity is absent. It does not create later execution.
 
 Notification permission denial does not prevent timer use. Exact-alarm denial on Android uses the documented less-precise fallback and explains the consequence.
 

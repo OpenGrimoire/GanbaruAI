@@ -185,7 +185,7 @@
     }
     // Include drag previews if they have pomodoro config.
     for (const preview of dragPreviewList) {
-      if (!preview.event.pomodoroConfig) continue;
+      if (!preview.event.pomodoroConfig || preview.event.allDay || preview.event.status === "cancelled") continue;
       const { startMinute, endMinute } = effectiveMinuteRange(preview.event, dateStr);
       ranges.push({ start: startMinute, end: endMinute });
     }
@@ -219,7 +219,7 @@
 
     const nowMinuteOfDay = (nowMs - dayStartMs) / 60000;
     const pomodoroEvents = positioned
-      .filter((p) => p.event.pomodoroConfig && !(draggingEventId && p.event.id === draggingEventId))
+      .filter((p) => p.event.pomodoroConfig && !p.event.allDay && p.event.status !== "cancelled" && !(draggingEventId && p.event.id === draggingEventId))
       .map((p) => {
         const { startMinute, endMinute } = effectiveMinuteRange(p.event, dateStr);
         let evStartMs = parseCalendarDate(p.event.start).getTime();
@@ -234,6 +234,7 @@
 
         return {
           id: p.event.id,
+          createdAt: p.event.createdAt,
           config: p.event.pomodoroConfig!,
           startMs: evStartMs,
           endMs: parseCalendarDate(p.event.end).getTime(),
@@ -243,10 +244,11 @@
       });
     // Include drag previews for rail band previsualization.
     for (const preview of dragPreviewList) {
-      if (!preview.event.pomodoroConfig) continue;
+      if (!preview.event.pomodoroConfig || preview.event.allDay || preview.event.status === "cancelled") continue;
       const { startMinute, endMinute } = effectiveMinuteRange(preview.event, dateStr);
       pomodoroEvents.push({
         id: preview.event.id,
+        createdAt: preview.event.createdAt,
         config: preview.event.pomodoroConfig,
         startMs: parseCalendarDate(preview.event.start).getTime(),
         endMs: parseCalendarDate(preview.event.end).getTime(),

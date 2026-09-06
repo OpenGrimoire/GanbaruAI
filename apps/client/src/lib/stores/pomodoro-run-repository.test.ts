@@ -16,7 +16,7 @@ describe("Pomodoro run repository mobile recovery", () => {
     invokeMock.mockReset();
   });
 
-  it("uses the native clock and validates the response", async () => {
+  it("recovers only committed state using the native clock without querying notification projections", async () => {
     invokeMock.mockResolvedValue({ kind: "none" });
     const completeWrite = vi.fn();
     const repository = createPomodoroRunRepository({
@@ -26,37 +26,10 @@ describe("Pomodoro run repository mobile recovery", () => {
 
     await expect(repository.recoverMobileRun())
       .resolves.toEqual({ kind: "none" });
-    expect(invokeMock).toHaveBeenNthCalledWith(
-      1,
-      "plugin:ganbaru-mobile-notifications|pomodoroNotificationState",
-    );
-    expect(invokeMock).toHaveBeenNthCalledWith(2, "pomodoro_recover_mobile_run", {
+    expect(invokeMock).toHaveBeenCalledExactlyOnceWith("pomodoro_recover_mobile_run", {
       dbUrl: "sqlite:ganbaru-ai.sqlite",
-      nativeProjection: null,
     });
     expect(completeWrite).not.toHaveBeenCalled();
-  });
-
-  it("forwards an active native projection to transactional recovery", async () => {
-    const nativeProjection = {
-      active: true,
-      runId: "run-1",
-      phases: [],
-    };
-    invokeMock
-      .mockResolvedValueOnce(nativeProjection)
-      .mockResolvedValueOnce({ kind: "none" });
-    const repository = createPomodoroRunRepository({
-      endReasonForSegment: () => null,
-      completeWrite: vi.fn(),
-    });
-
-    await expect(repository.recoverMobileRun())
-      .resolves.toEqual({ kind: "none" });
-    expect(invokeMock).toHaveBeenNthCalledWith(2, "pomodoro_recover_mobile_run", {
-      dbUrl: "sqlite:ganbaru-ai.sqlite",
-      nativeProjection,
-    });
   });
 
   it("bumps persisted segment readers after recovery closes a run", async () => {
@@ -74,6 +47,26 @@ describe("Pomodoro run repository mobile recovery", () => {
     await expect(repository.recoverMobileRun())
       .resolves.toMatchObject({ kind: "closed", reason: "invalid_state" });
     expect(completeWrite).toHaveBeenCalledOnce();
+  });
+
+  it("waits for pending local writes before recovering their phase window", async () => {
+    let releaseWrite: (() => void) | undefined;
+    const write = new Promise<void>((resolve) => { releaseWrite = resolve; });
+    invokeMock.mockImplementation((command: string) => command === "pomodoro_update_run_window"
+      ? write
+      : Promise.resolve({ kind: "none" }));
+    const repository = createPomodoroRunRepository({
+      endReasonForSegment: () => null,
+      completeWrite: vi.fn(),
+    });
+    repository.updateRunWindow({ runId: "run-1", plannedEnd: "2026-05-29T11:00:00.000Z" });
+    const recovery = repository.recoverMobileRun();
+    await vi.waitFor(() => expect(invokeMock).toHaveBeenCalledOnce());
+    expect(invokeMock.mock.calls[0][0]).toBe("pomodoro_update_run_window");
+
+    releaseWrite?.();
+    await expect(recovery).resolves.toEqual({ kind: "none" });
+    expect(invokeMock.mock.calls[1][0]).toBe("pomodoro_recover_mobile_run");
   });
 
   it("rejects malformed native recovery data before state can consume it", async () => {

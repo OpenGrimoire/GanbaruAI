@@ -1,9 +1,8 @@
 use std::collections::{HashMap, HashSet};
 
+use ganbaru_db::impl_sqlite_from_row;
 use sqlx::Row;
-use tauri::{AppHandle, Runtime};
-
-use crate::db_path::connect_sqlite;
+use sqlx::SqlitePool;
 
 use super::validation::{
     require_non_empty, validate_adaptive_history_limit, validate_adaptive_replay_limit,
@@ -62,9 +61,9 @@ impl_sqlite_from_row!(PomodoroAdaptiveHistorySegmentRow {
     end_reason,
 });
 
-pub(super) async fn pomodoro_load_segments_for_events<R: Runtime>(
-    app: AppHandle<R>,
-    db_url: String,
+/// Read executed segments and pauses for the requested Calendar event identities.
+pub async fn pomodoro_load_segments_for_events(
+    pool: SqlitePool,
     event_ids: Vec<String>,
 ) -> Result<Vec<PomodoroSegmentRead>, String> {
     if event_ids.is_empty() {
@@ -85,7 +84,6 @@ pub(super) async fn pomodoro_load_segments_for_events<R: Runtime>(
            AND (status = 'completed' OR status = 'active' OR status = 'interrupted')
          ORDER BY planned_start ASC"
     );
-    let pool = connect_sqlite(app, db_url).await?;
     let mut q = sqlx::query_as::<_, PomodoroSegmentRow>(&query);
     for event_id in event_ids {
         q = q.bind(event_id);
@@ -157,9 +155,9 @@ pub(super) async fn pomodoro_load_segments_for_events<R: Runtime>(
         .collect())
 }
 
-pub(super) async fn pomodoro_load_adaptive_history<R: Runtime>(
-    app: AppHandle<R>,
-    db_url: String,
+/// Read bounded local execution history for an adaptive policy decision.
+pub async fn pomodoro_load_adaptive_history(
+    pool: SqlitePool,
     before: String,
     policy_id: String,
     segment_limit: i64,
@@ -167,13 +165,12 @@ pub(super) async fn pomodoro_load_adaptive_history<R: Runtime>(
     require_non_empty(&before, "before")?;
     require_non_empty(&policy_id, "policy_id")?;
     validate_adaptive_history_limit(segment_limit)?;
-    let pool = connect_sqlite(app, db_url).await?;
     load_adaptive_history_from_pool(&pool, &before, &policy_id, segment_limit).await
 }
 
-pub(super) async fn pomodoro_load_adaptive_replay_dataset<R: Runtime>(
-    app: AppHandle<R>,
-    db_url: String,
+/// Read a bounded replay dataset with the policy history needed for each decision.
+pub async fn pomodoro_load_adaptive_replay_dataset(
+    pool: SqlitePool,
     before: String,
     policy_id: String,
     limit: i64,
@@ -185,7 +182,6 @@ pub(super) async fn pomodoro_load_adaptive_replay_dataset<R: Runtime>(
     let history_segment_limit =
         history_segment_limit.unwrap_or(DEFAULT_ADAPTIVE_REPLAY_HISTORY_SEGMENT_LIMIT);
     validate_adaptive_history_limit(history_segment_limit)?;
-    let pool = connect_sqlite(app, db_url).await?;
     load_adaptive_replay_dataset_from_pool(&pool, &before, &policy_id, limit, history_segment_limit)
         .await
 }

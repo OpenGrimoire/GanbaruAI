@@ -38,11 +38,5 @@ internal object DoomscrollingPhaseBridge {
 
   private fun activePhase(
     projection: PomodoroNotificationProjection,
-  ): PomodoroNotificationPhase? {
-    if (!projection.isRunning) return projection.phases.firstOrNull()
-    val now = System.currentTimeMillis()
-    return projection.phases.firstOrNull { phase ->
-      now >= phase.startsAtEpochMs && now < phase.endsAtEpochMs
-    } ?: projection.phases.firstOrNull { phase -> now < phase.endsAtEpochMs }
-  }
+  ): PomodoroNotificationPhase? = acceptedPomodoroPhase(projection, System.currentTimeMillis())
 }

@@ -23,7 +23,7 @@ Provider network behavior follows the selected provider and its own policy. Ganb
 
 These are not implemented:
 
-- Yjs and Hocuspocus remote synchronization;
+- encrypted local device linking and optional remote synchronization through a user-hosted Rust relay;
 - a hosted or local BYOK chat widget separate from coding-agent Chat;
 - a separately authorized external MCP service;
 - a ganbaru-ai CLI with external integration commands.
@@ -61,9 +61,11 @@ Provider credentials and similar secrets are different. They live behind operati
 
 ## Future synchronization encryption
 
-Remote sync must use end-to-end encryption in addition to transport encryption. The proposed design uses encrypted resource-scoped operations routed by a self-hosted Hocuspocus service. Exact key hierarchy, device enrollment, recovery, rotation, revocation, and cryptographic library choices remain deferred until implementation.
+Remote sync must use end-to-end encryption in addition to transport encryption. The accepted design uses signed, encrypted resource-scoped operations and immutable asset chunks, delivered directly or through an optional user-hosted Rust relay that stores opaque records. Hocuspocus is no longer the proposed backend.
 
-The server should not receive plaintext application content. It will still observe some metadata, including account connection, timing, ciphertext size, and routing identifiers unless later padding or privacy work reduces it.
+The target composition uses pinned TLS 1.3 device identities, XChaCha20-Poly1305 records, and HPKE with X25519 and HKDF-SHA256 for resource keys. Enrollment requires a single-use invitation and confirmation by the administration device. A separate recovery identity, signed membership history, key rotation on revocation, fresh writer generations on rejoin, replay protection, and downgrade rejection are required. These mechanisms and their implementation libraries remain unimplemented; audit success is not protocol security review.
+
+The relay must not receive plaintext application content. It can still observe connection metadata, timing, ciphertext size, and routing identifiers unless later padding or privacy work reduces them. Local network linking does not require an account or relay.
 
 Revocation prevents future authorized operations and key distribution. It cannot erase plaintext already materialized on an offline device or external provider. See [Synchronization](../sync.md).
 

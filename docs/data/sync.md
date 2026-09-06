@@ -1,99 +1,109 @@
-# Synchronization
+# Device linking and synchronization
 
-Remote synchronization and remote collaboration are not implemented. This document defines the intended local-first contract and the constraints that any implementation must satisfy. Yjs, Hocuspocus, and encrypted operation envelopes are the current proposed architecture, not deployed services.
+**Status: Planned.** Device enrollment, replication, encryption, conflicts, and the optional relay are not implemented. The first prerequisite work separates Android reminders from recorded execution, extracts focus persistence and recovery into `ganbaru-focus`, and configures authoritative SQLite connections for durable commits. Those changes do not enable device linking.
 
-## Principles
+This contract links one person's devices. Multi-person sharing is later work. The phone must provide full offline access to portable Notes, Projects, Calendar, and other synchronized content. Focus execution has its own controller and evidence rules in [Focus authority](../algorithms/pomodoro/focus-authority.md).
 
-- Local writes remain available without a server or network connection.
-- The active local vault remains usable and authoritative for the device's current state.
-- The server stores and routes encrypted operations. It does not become the plaintext source of truth.
-- Authorization is resource-scoped and evaluated before decrypting, applying, or deriving content.
-- Device-local paths, secrets, process state, and native credential material never synchronize.
-- Backup and synchronization remain separate features.
+## Architecture
 
-## Proposed architecture
+SQLite remains the durable local store. Replicas exchange validated domain operations and immutable assets, never raw database pages, arbitrary SQL, or unclassified application configuration. Foreground saves do not wait for a network.
 
-Clients will maintain typed local operations and CRDT state for synchronizable resources. A self-hostable Hocuspocus service is the current candidate for durable encrypted update routing, presence, and account or device authentication.
+Collaborative text uses Rust Yrs with a compatible Yjs editor adapter. Binary CRDT state is canonical in SQLite; rich-text payloads and plain-text columns are deterministic query and rendering projections. Text document identities are independent of block placement. Active documents use a bounded lazy cache.
 
-Yjs is suitable for collaborative documents and ordered shared state, but it does not by itself define safe relational synchronization. SQLite domains need explicit resource boundaries, typed operations, referential validation, migration compatibility, and deterministic projection into local tables. Raw database pages or arbitrary SQL statements never synchronize.
+Local network linking works without an account or server. An optional user-hosted Rust relay stores opaque encrypted records for cross-network and asynchronous delivery. Hocuspocus is no longer the proposed relay: its normal persistence loads and stores server-side Yjs documents, which does not match this encrypted record boundary. See [Hocuspocus persistence](https://tiptap.dev/docs/hocuspocus/guides/persistence).
 
-End-to-end encryption uses per-resource keys or envelopes so the server cannot read ordinary content. Transport encryption remains required in addition to payload encryption. Exact key hierarchy, recovery, rotation, and multi-device enrollment remain deferred design work.
+The intended crates are `ganbaru-sync-contracts`, `ganbaru-sync`, and an optional `ganbaru-sync-relay` binary. They have not been created. Domain services retain validation and projection ownership; the sync engine owns delivery and calls those adapters. Durable replication, live presence, and executable commands are distinct protocols.
 
-## Identity and membership
+## Storage ownership
 
-Synchronized resources use stable vault, project, channel, document, participant, and device identities. Membership grants are explicit and revisioned. An AI teammate identity has no authority until it receives the relevant membership and resource grants.
+Every persisted field requires an explicit replication classification before it can leave a device. Unknown fields fail closed. This table is the target ownership contract, not a claim that existing mixed configuration has already migrated.
 
-The local owner may operate without a remote account. Enabling sync introduces device enrollment and recovery choices without changing ownership of the local vault.
+| Domain | Portable data | Device-local data |
+| --- | --- | --- |
+| Notes, Projects, Calendar, Quick notes | Content, relationships, templates, archive, Trash, retained history, favorites | Recents, current selection, navigation, viewport layout |
+| Preferences | Profile, themes, language, time format, rhythm defaults | Font scale, layout, shortcuts, notification delivery, explicit presentation overrides |
+| Doomscrolling | Rule definitions and device-attributed history | Permissions, application bindings, enforcement state |
+| Music | Library identities, playlists, assignments, portable preferences | Source bindings, media bytes, current playback, volume, routing |
+| Chat | Organizational content, portable review history, origin-attributed drafts | Execution processes, credentials, provider homes, terminals, native trust, paths, caches |
+| Managed assets | Immutable content and metadata | Transfer staging, local availability, caches |
+| Focus | Committed history, explicit controller ownership history | Live presence, local activity sources, native alarms and effects |
 
-Device-local external-folder bindings do not synchronize. Another device may bind the same portable working-folder identity to a separately selected and validated local directory.
+Unsent Chat drafts retain their origin and can be explicitly continued on another device. Sending clears only the revision sent. Arbitrary project source trees and external music files keep their existing device boundaries.
 
-## What may synchronize
+Shared preferences move into SQLite so preference changes and outbound records can commit atomically. Device preferences stay in application configuration storage. Remove canonical `config.json` and the unused `.yjs` vault skeleton only after their consumers migrate. Both still exist today.
 
-Subject to product and privacy settings, synchronizable data may include:
+## Transactional operation boundary
 
-- calendar and project structured data;
-- Notes pages, blocks, databases, comments, and collaboration operations;
-- organizational Chat channels, memberships, messages, and canonical coordination history;
-- portable preferences and themes;
-- managed assets through separately bounded encrypted blobs;
-- file-authoritative documents as file operations with explicit conflict handling.
+Every synchronizable mutation, including imports, restores, scheduled jobs, and native background writes, must commit these together:
 
-Pomodoro history is private by default. Sharing aggregate availability or a user-authored status must not expose detailed focus, pause, idle, or avoidance history unless the user explicitly changes that scope.
+- Canonical changes and required relational projections.
+- Stable operation identity, cryptographic device identity, writer generation, causal dependencies, resource scope, authorization revision, and protocol version.
+- The operation receipt and durable outbound record.
+- Required history and asset references.
 
-Provider credentials, provider homes, executable paths, external absolute folder paths, active process state, and native diagnostic caches do not synchronize.
+UI invalidations and native effects follow commit. Incoming operations use the same validators and transaction boundary. Missing dependencies remain pending. Malformed or unauthorized records receive bounded diagnostics. A relay receipt means delivery to the relay; it does not mean another device committed the change.
 
-The storage distinctions in [Data architecture](architecture.md) remain intact. Sync does not make exported Notes Markdown or the server database canonical.
+Authoritative connections use WAL and `synchronous=FULL`, including replacement connections in a pool. SQLite documents that WAL with `NORMAL` can lose committed transactions on power failure; `FULL` synchronizes the WAL at each commit. Hardware and filesystem behavior still require failure testing. See [SQLite synchronous](https://www.sqlite.org/pragma.html#pragma_synchronous).
 
-## Permission-safe derivation
+The UI distinguishes saved on this device, received by relay, and confirmed on another device.
 
-Incoming operations are applied only within their authorized resource envelope. Search indexes, summaries, unread state, context packages, and other derivatives are rebuilt under the recipient's effective access. A client must not download a broader plaintext dataset and rely on UI filtering.
+## Conflict semantics
 
-Cross-channel references remain audience-safe. A synchronized reference does not carry the source content or its authority into the destination.
+Valid concurrent operations converge regardless of delivery order. Rejecting the second operation to arrive is insufficient.
 
-Key access, membership, and history cutoffs are revisioned. Cached derivatives include the authorization revision that produced them and are invalidated by a stricter revision.
+- Independent fields merge. Concurrent values for the same scalar retain alternatives, a deterministic displayed value, and a visible resolution action.
+- Calendar start, end, timezone, and recurrence form one coupled value. Conflicts suspend automatic occurrence activation until resolved.
+- Notes and project placement use stable identities and a cycle-safe replicated tree move algorithm. Stable ordering identifiers replace floating positions. Validate against a simple reference model of the [replicated move algorithm](https://martin.kleppmann.com/papers/move-op.pdf).
+- Deletion creates tombstones. Concurrent edits remain recoverable in Trash or conflict recovery. Old operations cannot silently restore deleted content.
+- Database property type changes retain incompatible values for resolution.
+- History restore writes a safety version and new operations against current state. It never rewinds causal history.
+- Cross-feature actions such as task scheduling form one operation group.
+- Scheduled messages and other executable jobs have an execution device and stable execution receipts. Receiving their records cannot execute them.
 
-## Conflict handling
+## Notes editing
 
-Collaborative text and ordered structures may use CRDT semantics. Domain operations still validate invariants after merge. A merge that would create a Notes cycle, two active Pomodoro segments, an invalid project relationship, or a widened audience cannot be accepted merely because the underlying CRDT converged.
+Whole-block replacement is not a collaborative text protocol. The editor must submit incremental operations, preserve relative selections and comment anchors, and keep locally authored undo separate from concurrent remote changes. TypeScript and Rust use UTF-16 positions. Composition, autocorrect, paste, marks, mentions, and Unicode need adapter-level tests.
 
-File-authoritative documents require visible file conflict behavior. Silent last-writer-wins replacement is unacceptable for user-authored Markdown or binary assets. The implementation must preserve both versions or request resolution when automatic merging is unsafe.
+Prepare incoming changes in isolated working state. Validate and atomically commit binary updates and SQL projections before publishing them to the active cache. Discard the working state on failed persistence. Preserve unsaved input and show saving until native acknowledgement. Writer IDs must be unique across installations, restored copies, and simultaneous windows. See [Yrs](https://docs.rs/yrs/latest/yrs/).
 
-Schema versions and operation versions are explicit. A client that cannot understand an operation fails safely and retains the encrypted operation for later upgrade rather than partially applying it.
+Current Notes writes still replace complete block payloads. Their collaboration log covers comments and suggestions, not general replica synchronization.
 
-## Revocation and offline devices
+## Enrollment and key lifecycle
 
-Revocation prevents new key distribution and new authorized operations. It cannot erase plaintext already materialized on an offline or external device. The product must state this limitation clearly.
+The first desktop is the administration device. A short-lived, single-use QR invitation contains its identity fingerprint and a high-entropy enrollment secret. Manual entry accepts the complete invitation. Both devices show a verification code; the existing device explicitly confirms enrollment before releasing vault keys.
 
-On reconnect, a revoked device cannot submit operations under an obsolete membership revision. Key rotation limits future access. High-risk revocation may require discarding continuations, scratch state, and cached derivatives on still-controlled devices.
+Direct connections use TLS 1.3 with pinned device identity. Operations are signed. Records and asset chunks use XChaCha20-Poly1305. Resource-key distribution uses HPKE with X25519 and HKDF-SHA256. Secrets use native desktop credential storage or Android Keystore wrapping. Review maintained implementations, minimal features, pinned versions, advisories, and the protocol composition before enabling transport. [HPKE](https://www.rfc-editor.org/rfc/rfc9180.html) does not provide application authorization, replay protection, or downgrade protection by itself.
 
-## Privacy-safe capacity
+Enrollment and revocation follow signed administration history. A separate owner recovery identity and recovery kit receive resource-key envelopes alongside authorized devices. Revocation rotates affected keys and rejects new operations from the removed device once revocation is known. Preserve rejected pending content for explicit recovery. Removal cannot erase copies already held by that device.
 
-Future coordination features may expose availability or workload capacity. Share the smallest useful claim, such as available, busy, or user-entered capacity, instead of raw Pomodoro sessions, idle intervals, private calendar titles, or health-related inferences.
+## Bootstrap, assets, backup, and compaction
 
-Aggregates must have explicit audiences and provenance. They remain subject to the same revocation and derivative-data rules as their source.
+Bootstrap transfers a consistent typed snapshot and causal checkpoint followed by incremental operations. Stage, validate references and integrity, then activate atomically. If a phone has a different vault, retain it as a recoverable local vault. Combining vaults requires an explicit import preview.
 
-## Self-hosting
+Managed assets use immutable identities, encrypted manifests, authenticated hashes, bounded resumable chunks, and atomic publication. Native code transfers bytes. Filenames remain metadata and cannot choose destination paths. Structured data synchronizes automatically; managed attachments default to unmetered transfer with explicit download and offline controls.
 
-The synchronization server must be self-hostable with documented storage, backup, upgrade, and key-management requirements. A hosted option may be added later, but local-only use remains a first-class mode.
+Backups capture a consistent database and pinned asset set using authenticated encryption. Restore defaults to an isolated recovery copy. Rejoining the original vault requires current membership reconciliation and a fresh writer generation. Do not restore credentials, rewind acknowledgements, or resurrect tombstoned resources.
 
-Server operators can observe connection metadata, timing, ciphertext size, and account-level routing unless additional padding or privacy work is introduced. End-to-end encryption does not hide those facts.
+Offline enrolled devices retain the causal state and tombstones they need. Compaction requires acknowledged checkpoints; retirement is explicit. Asset collection considers live references, retained history, pending transfers, and backup pins.
 
-## Backups
+Vault replacement must fence the generation across processes, pause native work, close pools, swap staging, and restart against the new generation. The existing process-local replacement guard is not sufficient for this target.
 
-Sync propagates changes, including mistakes and deletions. A backup captures recoverable state at a point in time and is written to a user-selected destination outside the active vault. Enabling sync does not enable backup, and restoring a backup requires an explicit reconciliation policy before reconnecting.
+## Settings and Android delivery
 
-## Deferred decisions
+Onboarding and Settings will provide device linking, linked-device identity, connection method, last successful synchronization, pending changes, unavailable assets, conflicts, recovery status, focus controller, pause, retry, removal, recovery export, and optional relay configuration.
 
-Implementation must resolve, document, and test:
+Android uses WorkManager for deferred synchronization and a visible, user-enabled connected-device service for live companion status. Alarms deliver scheduled reminders. Permission denial, process death, reboot, network changes, and background restrictions must expose degraded connectivity truthfully. Background service availability never establishes focus or idle activity.
 
-- device enrollment and owner recovery;
-- resource-key hierarchy, rotation, and removal;
-- exact typed operation formats for relational domains;
-- asset chunking, deduplication, and size limits;
-- file conflict UX;
-- server authentication and abuse limits;
-- protocol and schema compatibility windows;
-- encrypted backup interaction;
-- metadata minimization and optional padding.
+## Delivery and acceptance
 
-These choices may change the proposed mechanism, but they must not weaken the principles above.
+| Milestone | Status | Remaining work |
+| --- | --- | --- |
+| Focus correctness and contracts | Partial | Move all transition decisions and command receipts into Rust, add durable device controller ownership and native runtime bridge |
+| Durable mutation and storage boundaries | Partial | WAL durability is configured; scoped preferences, cryptographic writers, journal and domain-wide atomic mutation coverage remain |
+| Local replica convergence | Planned | Notes text and tree merging, all portable domain adapters, two- and three-replica failure tests |
+| Secure local linking | Planned | Enrollment, key storage, staged bootstrap, assets, recovery, onboarding and Settings |
+| Relay and Android sync | Planned | Encrypted relay, native background runtime, encrypted backup, measurements and physical acceptance |
+
+Required tests include reordered, duplicated, delayed and interrupted delivery; text and tree convergence; deletion, undo and history restore; crashes at persistence and acknowledgement boundaries; full disks, corrupt staging and missing assets; invalid identity, signature, invitation replay, revocation, key epochs, payload bounds and protocol versions; controller handoff failure and expired commands; duplicate jobs; long-offline replicas, compaction, restored backups and cloned writers.
+
+Measure bootstrap, input and save latency, bandwidth, memory, battery, and database contention. Queues and caches remain bounded, with lazy loading, incremental indexing, and background backoff. Run the serialized `validate:full` gate for the complete dependency and security changes. Pairing, key lifecycle, native bridges and remote capabilities require a separate security review. Physical Android and desktop acceptance is mandatory for sleep, force-stop, reboot, permissions, manufacturer restrictions, clock changes, and disconnected use.

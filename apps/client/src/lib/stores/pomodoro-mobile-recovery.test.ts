@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { createPomodoroRuntimeFixture } from "./pomodoro-runtime.test-helpers";
 import {
   applyRecoveredMobileRun,
+  applyMobileRecoveryResult,
   parsePomodoroMobileRecoveryResult,
   type PomodoroRecoveredMobileRun,
 } from "./pomodoro-mobile-recovery";
@@ -57,6 +58,9 @@ function recoveryContext(run = recoveredRun()) {
     stopPausedOpportunityCountdown: vi.fn(),
     stopOvertime: vi.fn(),
     stopIdleChecking: vi.fn(),
+    stopHeartbeat: vi.fn(),
+    clearBreakEndWarning: vi.fn(),
+    closeOverlay: vi.fn(),
     initListeners: vi.fn(),
     refreshFutureSegments: vi.fn(),
     startHeartbeat: vi.fn(),
@@ -81,6 +85,42 @@ function recoveryContext(run = recoveredRun()) {
 }
 
 describe("mobile pomodoro recovery", () => {
+  it.each(["none", "closed"] as const)("clears cached execution after a %s recovery result", (kind) => {
+    const { run, runtime, callbacks, context } = recoveryContext();
+    applyRecoveredMobileRun(run, context);
+    vi.clearAllMocks();
+
+    applyMobileRecoveryResult(kind === "none"
+      ? { kind }
+      : { kind, reason: "phase_expired", closedRunIds: [run.runId] }, context);
+
+    expect(runtime.isRunning).toBe(false);
+    expect(runtime.activeRunId).toBeNull();
+    expect(runtime.activeBlockId).toBeNull();
+    expect(runtime.phaseEndTime).toBeNull();
+    expect(runtime.segments).toEqual([]);
+    expect(callbacks.stopHeartbeat).toHaveBeenCalledOnce();
+    expect(callbacks.startVisualTick).not.toHaveBeenCalled();
+    expect(callbacks.refreshFutureSegments).not.toHaveBeenCalled();
+    expect(callbacks.publishWindowSnapshot).toHaveBeenCalledOnce();
+  });
+
+  it("keeps the accepted deadline when a recovery response is delayed", () => {
+    const { run, runtime, context } = recoveryContext();
+    applyRecoveredMobileRun(run, { ...context, nowMs: () => Date.parse(run.recoveredAt) + 20_000 });
+    expect(runtime.phaseEndTime).toBe(Date.parse(run.segment.plannedEnd));
+    expect(runtime.remainingSeconds).toBe(1_780);
+    expect(runtime.phaseElapsedSeconds).toBe(620);
+  });
+
+  it("does not activate a recovery response that expires before delivery", () => {
+    const { run, runtime, callbacks, context } = recoveryContext();
+    applyRecoveredMobileRun(run, { ...context, nowMs: () => Date.parse(run.segment.plannedEnd) });
+    expect(runtime.isRunning).toBe(false);
+    expect(runtime.activeRunId).toBeNull();
+    expect(callbacks.startVisualTick).not.toHaveBeenCalled();
+  });
+
   it("validates and maps a resumed backend response", () => {
     const run = recoveredRun();
 

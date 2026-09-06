@@ -56,7 +56,7 @@
             android:exported="false"
             android:process=":guardian" />
         <receiver
-            android:name=".PomodoroActivationReceiver"
+            android:name=".PomodoroReminderReceiver"
             android:exported="false"
             android:process=":guardian" />
         <receiver

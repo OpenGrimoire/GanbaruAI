@@ -167,7 +167,7 @@ for (const expected of [
   "android.intent.action.BOOT_COMPLETED",
   "android.intent.action.MY_PACKAGE_REPLACED",
   ".PomodoroNotificationReceiver",
-  ".PomodoroActivationReceiver",
+  ".PomodoroReminderReceiver",
   ".PomodoroNotificationService",
   'android:foregroundServiceType="specialUse"',
   'android:stopWithTask="false"',

@@ -238,21 +238,35 @@ export function createPomodoroActiveBlockController(
         runtime.completedPomodoros = 0;
         runtime.skipNextBreak = false;
         context.resetFocusNotificationState();
-        runtime.isRunning = true;
+        runtime.isRunning = false;
         const nowMs = currentMs();
         runtime.phaseEndTime = nowMs + runtime.remainingSeconds * 1000;
         runtime.sessionStartTime = currentIso();
-        context.startVisualTick();
-        runtime.lastTickMs = nowMs;
-        context.startIdleChecking();
-        if (eventEnd && eventDate) {
-          await context.segments.createSegments(
-            blockId,
-            eventEnd,
-            eventDate,
-            adaptivePlannedBlocks,
-          );
+        try {
+          if (eventEnd && eventDate) {
+            await context.segments.createSegments(
+              blockId,
+              eventEnd,
+              eventDate,
+              adaptivePlannedBlocks,
+            );
+          }
+        } catch (error) {
+          runtime.activeBlockId = null;
+          runtime.activeBlockTitle = null;
+          runtime.activeBlockEndMs = null;
+          runtime.activeRunId = null;
+          runtime.phaseEndTime = null;
+          runtime.sessionStartTime = null;
+          runtime.lastTickMs = null;
+          context.setActiveTimeoutMs(null);
+          context.publishWindowSnapshot();
+          throw error;
         }
+        runtime.isRunning = true;
+        context.startVisualTick();
+        runtime.lastTickMs = currentMs();
+        context.startIdleChecking();
         context.updateTray();
       }
     }

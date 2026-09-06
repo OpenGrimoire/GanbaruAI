@@ -41,7 +41,7 @@ import { createPomodoroOvertimeController } from "./pomodoro-overtime-controller
 import { createPomodoroPhaseController } from "./pomodoro-phase-controller";
 import { createPomodoroTickController } from "./pomodoro-tick-controller";
 import {
-  applyRecoveredMobileRun,
+  applyMobileRecoveryResult,
   type PomodoroMobileRecoveryResult,
 } from "./pomodoro-mobile-recovery";
 import { getLocalization } from "$lib/i18n/translator.svelte";
@@ -610,15 +610,6 @@ const overtimeController = createPomodoroOvertimeController({
   playBreakFinishedAlert: effects.playBreakFinishedAlert,
   startConfiguredAlertInterval:
     effects.startConfiguredBreakFinishedAlertInterval,
-  completeOvertimeBreak: async () => {
-    await segmentController.markSegment(
-      currentSegmentIndex,
-      "completed",
-      true,
-      cappedActiveBreakEndIso(),
-    );
-    await startFocusSession();
-  },
 });
 
 const extensionController = createPomodoroExtensionController({
@@ -1017,14 +1008,16 @@ async function cleanupOrphansInternal(): Promise<void> {
 
 async function recoverMobileRunInternal(): Promise<PomodoroMobileRecoveryResult> {
   const result = await runRepository.recoverMobileRun();
-  if (result.kind !== "resumed") return result;
-  applyRecoveredMobileRun(result.run, {
+  applyMobileRecoveryResult(result, {
     runtime,
     nativeIdleDetectionAvailable: desktopPomodoroEffectsAvailable,
     stopVisualTick,
     stopPausedOpportunityCountdown,
     stopOvertime,
     stopIdleChecking: idleController.stopChecking,
+    stopHeartbeat,
+    clearBreakEndWarning: effects.clearBreakEndWarning,
+    closeOverlay: effects.closePomodoroOverlay,
     initListeners,
     refreshFutureSegments: (blockId, eventDate) =>
       segmentController.refreshFutureSegmentsForActiveWindow(blockId, eventDate),
@@ -1042,6 +1035,9 @@ async function recoverMobileRunInternal(): Promise<PomodoroMobileRecoveryResult>
 function prepareForMobileBackground(): void {
   if (BUILD_PLATFORM_PROFILE.shell !== "mobile") return;
   stopVisualTick();
+  stopPausedOpportunityCountdown();
+  stopOvertime();
+  stopHeartbeat();
 }
 
 // Public API

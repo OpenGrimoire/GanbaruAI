@@ -1,99 +1,45 @@
 # Time conflict detection
 
-Several Pomodoro-enabled calendar events may overlap the current instant. The application still has one global timer and must choose one owner for automation and one non-duplicated visual projection.
-
-Current auto-start and timeline-band code do not use one policy. This document records both current behaviors and the invariants they must satisfy while the implementation gap remains open.
+**Status: Implemented locally.** The Calendar scheduler and timeline rail share one owner selector. Selecting a scheduled commitment does not authorize execution. Linked-device control and conflict suspension during replication remain planned.
 
 ## Interval model
 
-Timed event eligibility uses a half-open instant interval:
+Eligible timed events have a Pomodoro configuration, a finite valid range, and are neither all-day nor cancelled. The interval includes its start and excludes its end. At exactly 10:00, an event ending at 10:00 is no longer eligible and an event starting at 10:00 becomes eligible.
 
-- start is inclusive;
-- end is exclusive.
+## Owner selection
 
-At exactly 10:00, an event from 09:00 to 10:00 is no longer eligible and an event from 10:00 to 11:00 is eligible.
+At the current instant:
 
-An event participates only when it has a valid Pomodoro configuration and a finite valid range. All-day and imported event behavior follows the calendar feature policy before reaching this selector.
+1. Preserve the currently executing owner if it remains eligible.
+2. Otherwise choose the eligible event with the earliest end.
+3. Break equal-end ties by creation identity, then occurrence ID, using stable string ordering independent of device locale.
 
-## Required invariants
+Missing creation identities use the empty string for deterministic legacy ordering. Rhythm settings, containing another event, and recently interrupted status confer no priority. Permuting candidate input order does not change the result.
 
-Regardless of final tie-breakers:
+The scheduler wakes at event boundaries and on Calendar or lifecycle invalidation. Desktop automatic admission additionally requests fresh local activity; while waiting for that evidence, it retries at a bounded interval. Android schedules reminders and requires an explicit start. See [Focus authority and evidence](../pomodoro/focus-authority.md).
 
-1. An already-active event remains the owner while it is still eligible.
-2. One time range does not display competing active or planned Pomodoro bands.
-3. Equal inputs produce the same owner independent of input array order.
-4. A visual projection does not imply that a different event owns the running timer.
-5. Event edits and boundary crossings trigger prompt re-evaluation without a permanent poll loop.
+## Timeline projection
 
-## Current auto-start selection
+The rail retains recorded history for every event, including interrupted or older overlapping runs. Historical evidence is never removed merely because another event now owns that window.
 
-Auto-start builds candidates that contain now, then applies:
+For the future proposal, the rail uses the same selector, preserves the selected owner until it ends, and then selects another eligible event. There is at most one proposed rhythm for a given instant. A gap clears inherited rhythm. A containing event can take over the remaining window after a nested owner ends. Planned bands are proposals and do not create recorded focus or breaks.
 
-1. Keep the active block when it remains a candidate.
-2. Choose the candidate with the shortest remaining time until event end.
-3. On equal remaining time, choose the earliest creation timestamp.
-4. On another tie, choose the lexicographically earlier stable event ID.
+An accepted active phase uses its recorded start, remaining duration, pauses, and current configuration for projection. An untracked commitment begins its proposed rhythm at the current instant when its scheduled start has already passed. It does not fill the missed interval as completed work.
 
-Shortest remaining time prioritizes the event that will expire soonest. Creation time and ID exist only to make exact ties deterministic.
+## Examples
 
-The helper also accepts a set of recently interrupted block IDs and can prefer those candidates before ordinary tie-breakers. The production calendar scheduler does not currently provide that set, so recently interrupted priority is not current runtime behavior.
+Event A spans 09:00 to 12:00. Event B spans 10:00 to 11:00.
 
-The scheduler calculates the next relevant event start or end boundary and wakes at that deadline, with lifecycle and calendar invalidation as additional triggers. It does not use a one-second auto-start poll.
+- At 10:15 with no active run, both scheduler and rail select B because it ends first.
+- If A already owns an accepted run when B begins, both retain A while it is eligible.
+- If B owns the run, its recorded evidence and projection remain visible despite containment by A.
+- At B's end, the remaining A window becomes eligible for selection. A new executing interval still requires admission.
+- In a proposal made before 09:00, A is selected first and retains its proposed window when B begins. This is a forecast conditional on that earlier start, not evidence that A executed.
 
-## Current timeline-band selection
+For equal windows, creation identity and occurrence ID decide; shorter focus duration does not affect ownership.
 
-The timeline projection first removes fully contained events:
+## Event changes and limits
 
-- a longer containing range is retained over a nested range;
-- for an equal range, the event with the shorter first focus duration is retained;
-- remaining events are processed in start order;
-- partial overlaps therefore give earlier ranges visual priority for already occupied time.
+Moving, resizing, archiving, deleting, or changing eligibility invalidates selection. The running timer still handles reconfiguration and run closure through its transition controller. Full migration of those transitions into Rust remains active work. A real gap starts a fresh run; inheritance across a configurable small gap is not implemented.
 
-This behavior reduces duplicate bands but differs from auto-start. It can display the outer event while auto-start chooses a shorter nested event.
-
-There is also an ordering defect: containment filtering occurs before lookup of the active event. An active nested event may be removed, so the later active-priority logic cannot recover it.
-
-## Containment examples
-
-### No active session
-
-Event A spans 09:00 to 12:00. Event B spans 10:00 to 10:30.
-
-- At 10:15, current auto-start chooses B because it has less remaining time.
-- Current timeline filtering retains A because A contains B.
-
-The UI and timer can therefore disagree. This is an implementation gap, not an intentional two-owner model.
-
-### Active outer event
-
-If A already owns the timer when B begins, A remains the auto-start owner while A is eligible. The visual projection must also preserve A as active.
-
-### Active nested event
-
-If B already owns the timer, B must remain the owner while eligible. Current timeline filtering may remove B before checking active identity. This violates the required invariant.
-
-### Equal windows
-
-Two events both span 10:00 to 11:00.
-
-- Auto-start uses creation timestamp, then ID.
-- Timeline filtering may use the first focus duration.
-
-Input order must not decide the result, but the two consumers still need a shared semantic tie-breaker.
-
-## Event changes
-
-Moving, resizing, archiving, deleting, or changing Pomodoro eligibility invalidates selection. If the active event remains eligible, it stays stable. If it becomes ineligible, the current run closes or transitions according to the [Pomodoro state machine](../pomodoro/state-machine.md), then the selector evaluates remaining candidates.
-
-A real gap between events starts a fresh run. Inheritance across a configurable small-gap threshold is not implemented.
-
-## Resolution requirement
-
-The durable goal is one shared ownership decision consumed by both auto-start and timeline projection. Resolving the gap requires an explicit product choice for:
-
-- nested ranges when no event is active;
-- equal ranges with different rhythm configuration;
-- whether recently interrupted events receive priority;
-- how partial overlaps are clipped for display after ownership is selected.
-
-Whichever policy is selected must keep active ownership first, use stable deterministic tie-breakers, and be tested through both automation and projection fixtures. Until then, do not describe the current consumers as equivalent.
+Fixtures cover nested owners, late arrivals, equal windows, input permutations, cancellation, exact end boundaries, retained recorded history, and sequential inheritance. Cross-device schedule conflicts will suspend automatic activation once replication is implemented.

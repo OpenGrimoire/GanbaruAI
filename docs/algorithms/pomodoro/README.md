@@ -21,3 +21,5 @@ Durable rows and relationships are summarized in [Pomodoro schema](../../data/sc
 - Keep one globally active segment at most.
 
 Algorithm names describe responsibilities, not current file or helper names. Source may be reorganized without changing these contracts.
+
+- [Focus authority and evidence](focus-authority.md): local admission, truthful Android reminders, and planned device ownership.

@@ -7,7 +7,7 @@ Android requests access in context, only after the user enables a feature that n
 | Access | Purpose | Denied behavior |
 | --- | --- | --- |
 | Notification runtime permission | Calendar reminders, Pomodoro state, Music media, and selected-app explanations on Android 13 or newer | Feature remains usable without delivery; settings explain how to enable notifications later. |
-| Exact alarm special access | Precise Calendar focus activation and documented deadline cases on Android 12 or newer | Use the documented inexact idle-aware fallback and explain that delivery can be late. |
+| Exact alarm special access | Precise Calendar focus reminders and documented deadline cases on Android 12 or newer | Use the documented inexact idle-aware fallback and explain that delivery can be late. |
 | Foreground service declarations | Active Pomodoro and Media3 playback | Service-backed background behavior is unavailable when the corresponding feature cannot start truthfully. |
 | Usage Access | Count explicitly selected packages and reconcile selected-app limits | No Android usage counting or limit enforcement; configuration remains readable. |
 | Accessibility Service | Observe selected package transitions and perform Home for matching rules | No selected-app blocking; usage counting may remain if Usage Access is granted. |

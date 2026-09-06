@@ -91,9 +91,24 @@ internal class PomodoroNotificationUpdateArgs {
   lateinit var state: PomodoroNotificationStateArgs
 }
 
+internal class PomodoroReminderArgs {
+  lateinit var id: String
+  lateinit var eventId: String
+  var startsAtEpochMs: Long = 0
+  var endsAtEpochMs: Long = 0
+  lateinit var title: String
+  lateinit var body: String
+  lateinit var channelName: String
+  lateinit var channelDescription: String
+
+  fun toReminder(): PomodoroReminder = PomodoroReminder(
+    id, eventId, startsAtEpochMs, endsAtEpochMs, title, body, channelName, channelDescription,
+  ).also { it.validate() }
+}
+
 @InvokeArg
 internal class PomodoroScheduleReconcileArgs {
-  var schedule: List<PomodoroNotificationStateArgs> = listOf()
+  var schedule: List<PomodoroReminderArgs> = listOf()
 }
 
 internal object ExactAlarmCapability {
@@ -252,12 +267,11 @@ class MobileNotificationsPlugin(private val activity: Activity) : Plugin(activit
   fun reconcilePomodoroSchedule(invoke: Invoke) {
     val args = invoke.parseArgs(PomodoroScheduleReconcileArgs::class.java)
     try {
-      val schedule = args.schedule.map(PomodoroNotificationStateArgs::toProjection)
-      schedule.firstOrNull()?.let { ensurePomodoroChannels(it.copy) }
+      val schedule = args.schedule.map(PomodoroReminderArgs::toReminder)
       PomodoroGuardianClient(activity).reconcile(schedule)
       invoke.resolve()
     } catch (error: Exception) {
-      invoke.reject(error.message ?: "Failed to reconcile Pomodoro activation schedule")
+      invoke.reject(error.message ?: "Failed to reconcile focus reminder schedule")
     }
   }
 

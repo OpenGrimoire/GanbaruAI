@@ -1706,6 +1706,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "ganbaru-focus"
+version = "0.1.5"
+dependencies = [
+ "chrono",
+ "ganbaru-db",
+ "serde",
+ "sqlx",
+ "tokio",
+]
+
+[[package]]
 name = "ganbaru-mobile-documents"
 version = "0.1.0"
 dependencies = [
@@ -1786,6 +1797,7 @@ dependencies = [
  "ganbaru-chat-contracts",
  "ganbaru-chat-providers",
  "ganbaru-db",
+ "ganbaru-focus",
  "ganbaru-mobile-documents",
  "ganbaru-mobile-doomscrolling",
  "ganbaru-mobile-media",

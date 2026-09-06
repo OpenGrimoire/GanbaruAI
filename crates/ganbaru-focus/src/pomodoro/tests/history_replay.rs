@@ -3,7 +3,7 @@ use super::helpers::*;
 
 #[test]
 fn load_adaptive_history_reads_recent_signals() {
-    tauri::async_runtime::block_on(async {
+    super::block_on(async {
         let pool = migrated_pool_with_event().await;
         sqlx::query(
             "INSERT INTO pomodoro_runs
@@ -109,7 +109,7 @@ fn load_adaptive_history_reads_recent_signals() {
 
 #[test]
 fn load_adaptive_history_reads_experiment_outcome_summaries() {
-    tauri::async_runtime::block_on(async {
+    super::block_on(async {
         let pool = migrated_pool_with_event().await;
         sqlx::query(
             "INSERT INTO pomodoro_runs
@@ -300,7 +300,7 @@ fn load_adaptive_history_reads_experiment_outcome_summaries() {
 
 #[test]
 fn load_adaptive_replay_dataset_reads_run_start_decisions_and_outcomes() {
-    tauri::async_runtime::block_on(async {
+    super::block_on(async {
         let pool = migrated_pool_with_event().await;
         sqlx::query(
             "INSERT INTO pomodoro_runs

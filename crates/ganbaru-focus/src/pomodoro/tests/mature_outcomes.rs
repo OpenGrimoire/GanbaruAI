@@ -3,7 +3,7 @@ use super::helpers::*;
 
 #[test]
 fn records_matured_day_outcomes_for_run_start_decisions() {
-    tauri::async_runtime::block_on(async {
+    super::block_on(async {
         let pool = migrated_pool_with_event().await;
         let mut run = run_write(PomodoroRunRhythm::Count {
             focus_duration_minutes: 40,
@@ -134,7 +134,7 @@ fn records_matured_day_outcomes_for_run_start_decisions() {
 
 #[test]
 fn records_matured_next_day_outcomes_for_run_start_decisions() {
-    tauri::async_runtime::block_on(async {
+    super::block_on(async {
         let pool = migrated_pool_with_event().await;
         let mut run = run_write(PomodoroRunRhythm::Count {
             focus_duration_minutes: 40,

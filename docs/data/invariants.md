@@ -44,7 +44,7 @@ These conditions must remain true across UI actions, imports, migrations, recove
 
 **Tests.** Partial overlap, full containment, equal windows, active nested events, and identical configuration.
 
-Current rail and auto-start tie-breakers are not fully aligned. See [Time conflict detection](../algorithms/calendar/time-conflict-detection.md).
+The scheduler and rail share an active-first selector, followed by earliest end, creation identity and occurrence identity. Recorded older runs remain visible as historical evidence. See [Time conflict detection](../algorithms/calendar/time-conflict-detection.md).
 
 ### 5. Persisted evidence owns the past
 
@@ -163,3 +163,7 @@ Current rail and auto-start tie-breakers are not fully aligned. See [Time confli
 ## Adding an invariant
 
 A new invariant must include a rule, rationale, enforcement boundary, and meaningful failure tests. Prefer one durable assertion over a list of current helper or table names. If the assertion belongs to authorization, make [Chat access control](access-control.md) normative and reference it here.
+
+## Focus evidence and replication
+
+A Calendar commitment, notification projection, or replicated history record cannot authorize execution. Android recovery consumes committed SQLite state only and never creates projected runs or later phases. Desktop automatic admission requires a fresh local activity observation after the relevant boundary. [Focus authority](../algorithms/pomodoro/focus-authority.md) specifies the remaining device-controller and command fencing requirements.

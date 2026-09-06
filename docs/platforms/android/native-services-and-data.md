@@ -40,11 +40,11 @@ The event panel can post a real test reminder. If the result is silent, the app 
 
 ## Pomodoro service and alarms
 
-An active run owns a special-use foreground service and silent ongoing progress notification. Persisted native phase projections and alarms maintain deadlines while the Activity and WebView are absent.
+An explicitly started run owns a special-use foreground service and silent ongoing progress notification. Native state describes only the currently accepted phase. Its alarm delivers a boundary reminder and ends the projection; it cannot advance to later focus or break phases while the WebView is absent.
 
-Opening the app reconciles native state with canonical SQLite run state. Matching identifiers, event, rhythm, phase order, timestamps, and event deadline are validated before replaying elapsed boundaries.
+Opening the app invokes `ganbaru-focus` recovery against committed SQLite state. Notification projections cannot materialize a run or additional phases. Recovery resumes a valid accepted phase and its pauses, or closes it at its bounded deadline.
 
-Calendar can project future Pomodoro-enabled occurrence activation so a run can begin at an event boundary according to user settings. The ordinary scheduler becomes canonical when the app opens.
+Calendar maintains separate durable commitment reminders. A due event while the Activity is absent creates no run, focus minutes, or phase-dependent blocking. The phone starts a due session from the explicit “Start scheduled session” action. Reconciliation preserves reminder receipts to avoid repeated alerts. Missing notification permission leaves local explicit starts available.
 
 Manufacturer task cleaners can still override standard behavior. The app offers truthful autostart and battery-setting guidance without claiming it can grant those controls.
 

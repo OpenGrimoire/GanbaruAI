@@ -217,17 +217,14 @@ export function createPomodoroSegmentController(
     );
   }
 
-  function activateSegment(index: number): Promise<void> {
-    if (index < 0 || index >= context.segments.length) return Promise.resolve();
-    const segment = context.segments[index];
-    segment.status = "active";
-    segment.actualStart = nowIso();
+  async function activateSegment(index: number): Promise<void> {
+    const planned = context.segments[index];
+    if (!planned) throw new Error("The next focus or break segment is unavailable");
+    const segment: PersistedSegment = { ...planned, status: "active", actualStart: nowIso() };
+    await repository.insertSegments([segment]);
+    context.segments = context.segments.map((existing, position) => position === index ? segment : existing);
     context.currentSegmentIndex = index;
-
-    const persisted = repository.insertSegments([segment])
-      .catch((e) => console.warn("Failed to activate segment:", e));
     context.publishWindowSnapshot();
-    return persisted;
   }
 
   async function activateBoundarySegment(
@@ -237,9 +234,6 @@ export function createPomodoroSegmentController(
     const kept = context.currentSegmentIndex >= 0
       ? context.segments.slice(0, context.currentSegmentIndex + 1)
       : [];
-    context.segments = [...kept, segment];
-    context.currentSegmentIndex = kept.length;
-
     const persisted = adaptiveDecision && context.activeRunId
       ? repository.insertSegmentWithAdaptiveDecision(
           segment,
@@ -249,8 +243,9 @@ export function createPomodoroSegmentController(
           }),
         )
       : repository.insertSegments([segment]);
-    context.publishWindowSnapshot();
     await persisted;
+    context.segments = [...kept, segment];
+    context.currentSegmentIndex = kept.length;
     refreshFutureSegmentsForActiveWindow(segment.eventId, segment.eventDate);
     context.publishWindowSnapshot();
   }
@@ -380,6 +375,7 @@ export function createPomodoroSegmentController(
     }));
 
     const firstSegment = newSegments.find((segment) => segment.status === "active");
+    if (!firstSegment) throw new Error("The focus commitment ended before it could start");
     if (firstSegment) {
       const startedAt = firstSegment.actualStart ?? baseIso;
       const adaptiveSnapshot = runStartAdaptiveDecision
@@ -410,8 +406,7 @@ export function createPomodoroSegmentController(
         );
       } catch (e) {
         console.warn("Failed to start pomodoro run:", e);
-        void context.stopSession();
-        return;
+        throw e;
       }
       context.activeRunId = runId;
       context.startHeartbeat();

@@ -1001,6 +1001,7 @@ pub fn run(context: tauri::Context<tauri::Wry>) {
             notification::close_pomodoro_overlay,
             notification::set_pomodoro_overlay_state,
             notification::idle::get_idle_status,
+            pomodoro::pomodoro_can_start_automatically,
             notification::commands::play_app_sound,
             notification::commands::play_alert_sound,
             notification::show_idle_overlay,

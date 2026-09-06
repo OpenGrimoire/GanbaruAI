@@ -54,7 +54,10 @@ Android testing distinguishes source checks, emulator coverage, physical-device 
 - Exact-alarm granted and denied fallback.
 - Calendar test notification and channel behavior.
 - Event edits cancel and rebuild native deliveries.
-- Native activation while the Activity is absent.
+- Due commitment while the Activity is absent or the PC is off produces a reminder and no run or focus history.
+- A late explicit start records its actual start, not the Calendar boundary.
+- Native phase deadline, missed break return, and repeated recovery create no additional focus phases.
+- Denied notification access, process death, reboot, and clock changes preserve reminder versus execution semantics.
 - Foreground-service start, ongoing notification, pause, resume, stop, process recreation, and event deadline.
 - Tap routing validates identifiers and opens the correct context.
 - Manufacturer battery or autostart guidance never claims an unobservable enabled state.

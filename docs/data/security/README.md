@@ -38,6 +38,10 @@ The active vault is user-owned durable storage. The platform app config director
 
 ## Status discipline
 
+Device linking remains planned. The accepted enrollment, encrypted relay, key lifecycle,
+revocation and recovery boundaries are recorded in [Synchronization](../sync.md). No sync
+endpoint or key store is enabled by the local focus and SQLite durability prerequisites.
+
 Current local features, proposed architecture, and future security requirements must be labeled separately. Remote synchronization, hosted BYOK chat, an external MCP service, and the ganbaru-ai CLI are not implemented. Security requirements for them remain normative design constraints, not claims about current traffic or capability.
 
 ## Required properties

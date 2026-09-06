@@ -40,6 +40,8 @@ An undo failure never prevents the canonical page from loading. See [Notes edito
 
 Typing and common structural edits update local state immediately. Per-block saves remain ordered. A save acknowledgement replaces local state only when no newer local revision exists.
 
+**Planned for device synchronization:** text fields will use SQLite-persisted Yrs state and incremental Yjs-compatible editor operations. Current full-block payload writes are not a merge protocol. The adapter must preserve relative selections and comment anchors, composition and Unicode using UTF-16 offsets, local undo, and pending input after persistence failures. Canonical binary updates and deterministic rendering projections must commit together before acknowledging a save. See [Device linking and synchronization](../../data/sync.md).
+
 Dependent operations such as rapid row creation, paste, and deletion preserve ordering without reloading the complete page after every write. A failed write leaves a visible recoverable state and never silently discards the local draft.
 
 ## Comments and suggestions

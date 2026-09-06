@@ -1,15 +1,10 @@
-use std::collections::HashSet;
-
-use chrono::{DateTime, Duration, SecondsFormat, TimeZone, Utc};
+use chrono::{DateTime, Duration, SecondsFormat, Utc};
 use sqlx::{Row, Sqlite, SqlitePool, Transaction};
 
-use super::validation::{validate_run_write, validate_segment_write};
-use super::writes::{close_run_tx, insert_run_tx};
+use super::writes::close_run_tx;
 use super::{
-    PomodoroMobileRecoveryRead, PomodoroNativeConfigWrite, PomodoroNativeProjectionPhaseWrite,
-    PomodoroNativeProjectionWrite, PomodoroPauseWrite, PomodoroRecoveredRunRead,
+    PomodoroMobileRecoveryRead, PomodoroPauseWrite, PomodoroRecoveredRunRead,
     PomodoroRecoveredSegmentRead, PomodoroRunClosure, PomodoroRunRhythm, PomodoroRunSequenceStep,
-    PomodoroRunWrite, PomodoroSegmentWrite,
 };
 
 const RECOVERY_REASON_MULTIPLE_OPEN_RUNS: &str = "multiple_open_runs";
@@ -46,7 +41,6 @@ struct ActiveSegmentRow {
 
 enum CandidateDecision {
     Resume(Box<PomodoroRecoveredRunRead>),
-    Recheck,
     Close {
         reason: &'static str,
         ended_at: String,
@@ -57,7 +51,6 @@ enum CandidateDecision {
 pub(super) async fn recover_mobile_run_from_pool(
     pool: &SqlitePool,
     now_at: &str,
-    native_projection: Option<&PomodoroNativeProjectionWrite>,
 ) -> Result<PomodoroMobileRecoveryRead, String> {
     let now = parse_timestamp(now_at, "recovery now")?;
     let recovered_at = canonical_timestamp(now);
@@ -65,15 +58,7 @@ pub(super) async fn recover_mobile_run_from_pool(
         .begin()
         .await
         .map_err(|error| format!("begin mobile pomodoro recovery: {error}"))?;
-    let mut open_runs = load_open_runs(&mut tx).await?;
-
-    if open_runs.is_empty() {
-        if let Some(projection) = native_projection {
-            if materialize_scheduled_native_run(&mut tx, now, projection).await? {
-                open_runs = load_open_runs(&mut tx).await?;
-            }
-        }
-    }
+    let open_runs = load_open_runs(&mut tx).await?;
 
     if open_runs.is_empty() {
         tx.commit()
@@ -99,13 +84,7 @@ pub(super) async fn recover_mobile_run_from_pool(
     }
 
     let run = &open_runs[0];
-    let mut projection = native_projection;
-    let decision = loop {
-        match decide_candidate(&mut tx, run, now, &recovered_at, projection).await? {
-            CandidateDecision::Recheck => projection = None,
-            decision => break decision,
-        }
-    };
+    let decision = decide_candidate(&mut tx, run, now, &recovered_at).await?;
     match decision {
         CandidateDecision::Resume(recovered_run) => {
             tx.commit()
@@ -127,143 +106,7 @@ pub(super) async fn recover_mobile_run_from_pool(
                 closed_run_ids: vec![run.id.clone()],
             })
         }
-        CandidateDecision::Recheck => unreachable!("recheck decisions are consumed above"),
     }
-}
-
-async fn materialize_scheduled_native_run(
-    tx: &mut Transaction<'_, Sqlite>,
-    now: DateTime<Utc>,
-    projection: &PomodoroNativeProjectionWrite,
-) -> Result<bool, String> {
-    if !projection.is_running || !projection.run_id.starts_with("scheduled-") {
-        return Ok(false);
-    }
-    let Ok(config) = serde_json::from_str::<PomodoroNativeConfigWrite>(&projection.config_json)
-    else {
-        return Ok(false);
-    };
-    let Some((started_at, planned_end)) =
-        validate_scheduled_projection_plan(projection, &config.rhythm, now)
-    else {
-        return Ok(false);
-    };
-    let canonical_event_id = projection
-        .event_id
-        .split_once("::")
-        .map_or(projection.event_id.as_str(), |(parent, _)| parent);
-    let event_exists =
-        sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM calendar_events WHERE id = ?")
-            .bind(canonical_event_id)
-            .fetch_one(&mut **tx)
-            .await
-            .map_err(|error| format!("check scheduled Pomodoro event: {error}"))?
-            == 1;
-    if !event_exists {
-        return Ok(false);
-    }
-
-    let first = &projection.phases[0];
-    let first_end = canonical_timestamp(epoch_millis(first.ends_at_epoch_ms).unwrap());
-    let started_at = canonical_timestamp(started_at);
-    let planned_end = canonical_timestamp(planned_end);
-    let run = PomodoroRunWrite {
-        id: projection.run_id.clone(),
-        event_id: projection.event_id.clone(),
-        event_date: projection.event_date.clone(),
-        planned_start: started_at.clone(),
-        planned_end,
-        started_at: started_at.clone(),
-        rhythm: config.rhythm,
-        rhythm_source: config.rhythm_source,
-        preset_key: config.preset_key,
-        idle_timeout_minutes: config.idle_timeout_minutes,
-        event_title_snapshot: projection.event_title.clone(),
-        inherited_focus_minutes: 0,
-        inherited_rhythm_position: 1,
-        inherited_from_run_id: None,
-        start_trigger: "block_auto".to_string(),
-        adaptive_snapshot: None,
-    };
-    let segment = PomodoroSegmentWrite {
-        id: first.id.clone(),
-        event_id: projection.event_id.clone(),
-        event_date: projection.event_date.clone(),
-        run_id: projection.run_id.clone(),
-        rhythm_position: first.rhythm_position,
-        phase: first.phase.clone(),
-        planned_start: started_at.clone(),
-        planned_end: first_end,
-        actual_start: Some(started_at),
-        actual_end: None,
-        pauses: Vec::new(),
-        status: "active".to_string(),
-        end_reason: None,
-    };
-    if validate_run_write(&run).is_err() || validate_segment_write(&segment).is_err() {
-        return Ok(false);
-    }
-    insert_run_tx(tx, &run, &segment).await?;
-    Ok(true)
-}
-
-fn validate_scheduled_projection_plan(
-    projection: &PomodoroNativeProjectionWrite,
-    rhythm: &PomodoroRunRhythm,
-    now: DateTime<Utc>,
-) -> Option<(DateTime<Utc>, DateTime<Utc>)> {
-    if projection.event_id.trim().is_empty()
-        || projection.event_id.len() > 256
-        || projection.event_date.len() != 10
-        || projection.phases.is_empty()
-        || projection.phases.len() > 128
-        || projection.total_seconds <= 0
-        || projection.remaining_seconds < 0
-        || projection.remaining_seconds > projection.total_seconds
-    {
-        return None;
-    }
-    if projection
-        .event_title
-        .as_ref()
-        .is_some_and(|title| title.trim().is_empty() || title.len() > 160)
-    {
-        return None;
-    }
-    let event_end = epoch_millis(projection.event_ends_at_epoch_ms)?;
-    let generated_at = epoch_millis(projection.generated_at_epoch_ms)?;
-    let first_start = epoch_millis(projection.phases.first()?.starts_at_epoch_ms)?;
-    if generated_at > now || first_start > now || now >= event_end {
-        return None;
-    }
-    let mut identifiers = HashSet::with_capacity(projection.phases.len());
-    let mut previous: Option<&PomodoroNativeProjectionPhaseWrite> = None;
-    for phase in &projection.phases {
-        let starts_at = epoch_millis(phase.starts_at_epoch_ms)?;
-        let ends_at = epoch_millis(phase.ends_at_epoch_ms)?;
-        let duration = rhythm_phase_duration(rhythm, phase)?;
-        if phase.id.trim().is_empty()
-            || phase.id.len() > 128
-            || !identifiers.insert(phase.id.as_str())
-            || starts_at >= ends_at
-            || ends_at != (starts_at + duration).min(event_end)
-            || !rhythm_phase_is_valid(rhythm, phase.rhythm_position, &phase.phase)
-        {
-            return None;
-        }
-        if let Some(previous) = previous {
-            if previous.ends_at_epoch_ms != phase.starts_at_epoch_ms
-                || !valid_native_phase_transition(rhythm, previous, phase)
-            {
-                return None;
-            }
-        }
-        previous = Some(phase);
-    }
-    if epoch_millis(projection.phases.last()?.ends_at_epoch_ms)? != event_end {
-        return None;
-    }
-    Some((first_start, event_end))
 }
 
 async fn load_open_runs(tx: &mut Transaction<'_, Sqlite>) -> Result<Vec<OpenRunRow>, String> {
@@ -331,7 +174,6 @@ async fn decide_candidate(
     run: &OpenRunRow,
     now: DateTime<Utc>,
     recovered_at: &str,
-    native_projection: Option<&PomodoroNativeProjectionWrite>,
 ) -> Result<CandidateDecision, String> {
     let invalid_end = || CandidateDecision::Close {
         reason: RECOVERY_REASON_INVALID_STATE,
@@ -417,49 +259,23 @@ async fn decide_candidate(
     if work_duration <= Duration::zero() || work_elapsed < Duration::zero() {
         return Ok(invalid_end());
     }
+    // A recovery can account for the accepted phase only, even when the whole
+    // calendar window elapsed while the app was absent.
+    let open_pause_duration = pause_timing
+        .open_started_at
+        .map_or(Duration::zero(), |start| now - start);
+    let accepted_phase_end =
+        actual_start + work_duration + pause_timing.closed_duration + open_pause_duration;
     if now >= planned_end {
-        if pause_timing.open_started_at.is_none()
-            && reconcile_native_projection(
-                tx,
-                run,
-                segment,
-                &rhythm,
-                actual_start,
-                work_duration,
-                pause_timing.closed_duration,
-                planned_end,
-                now,
-                native_projection,
-            )
-            .await?
-        {
-            return Ok(CandidateDecision::Recheck);
-        }
         return Ok(CandidateDecision::Close {
             reason: RECOVERY_REASON_RUN_WINDOW_EXPIRED,
-            ended_at: canonical_timestamp(planned_end),
+            ended_at: canonical_timestamp(accepted_phase_end.min(planned_end)),
             expired_window: true,
         });
     }
     if work_elapsed >= work_duration {
         if pause_timing.open_started_at.is_some() {
             return Ok(invalid_end());
-        }
-        if reconcile_native_projection(
-            tx,
-            run,
-            segment,
-            &rhythm,
-            actual_start,
-            work_duration,
-            pause_timing.closed_duration,
-            planned_end,
-            now,
-            native_projection,
-        )
-        .await?
-        {
-            return Ok(CandidateDecision::Recheck);
         }
         let phase_end = actual_start + work_duration + pause_timing.closed_duration;
         return Ok(CandidateDecision::Close {
@@ -703,276 +519,6 @@ fn validate_pause_timing(
         closed_duration,
         open_started_at,
     })
-}
-
-#[allow(clippy::too_many_arguments)]
-async fn reconcile_native_projection(
-    tx: &mut Transaction<'_, Sqlite>,
-    run: &OpenRunRow,
-    segment: &ActiveSegmentRow,
-    rhythm: &PomodoroRunRhythm,
-    actual_start: DateTime<Utc>,
-    work_duration: Duration,
-    closed_pause_duration: Duration,
-    planned_end: DateTime<Utc>,
-    now: DateTime<Utc>,
-    projection: Option<&PomodoroNativeProjectionWrite>,
-) -> Result<bool, String> {
-    let Some(projection) = projection else {
-        return Ok(false);
-    };
-    if !projection.is_running
-        || projection.run_id != run.id
-        || projection.event_id != run.original_event_id
-        || projection.event_date != run.event_date
-        || projection.phases.is_empty()
-        || projection.phases.len() > 128
-        || projection.total_seconds <= 0
-        || projection.remaining_seconds < 0
-        || projection.remaining_seconds > projection.total_seconds
-    {
-        return Ok(false);
-    }
-    let Some(projected_event_end) = epoch_millis(projection.event_ends_at_epoch_ms) else {
-        return Ok(false);
-    };
-    let Some(generated_at) = epoch_millis(projection.generated_at_epoch_ms) else {
-        return Ok(false);
-    };
-    if projected_event_end != planned_end || generated_at > now {
-        return Ok(false);
-    }
-
-    let phases = &projection.phases;
-    let first = &phases[0];
-    let expected_first_end = actual_start + work_duration + closed_pause_duration;
-    if first.id != segment.id
-        || first.phase != segment.phase
-        || first.rhythm_position != segment.rhythm_position
-        || epoch_millis(first.starts_at_epoch_ms) != Some(actual_start)
-        || epoch_millis(first.ends_at_epoch_ms) != Some(expected_first_end.min(planned_end))
-    {
-        return Ok(false);
-    }
-
-    let mut ids = HashSet::with_capacity(phases.len());
-    let mut previous: Option<&PomodoroNativeProjectionPhaseWrite> = None;
-    for phase in phases {
-        let Some(starts_at) = epoch_millis(phase.starts_at_epoch_ms) else {
-            return Ok(false);
-        };
-        let Some(ends_at) = epoch_millis(phase.ends_at_epoch_ms) else {
-            return Ok(false);
-        };
-        if phase.id.trim().is_empty()
-            || phase.id.len() > 128
-            || !ids.insert(phase.id.as_str())
-            || starts_at >= ends_at
-            || ends_at > planned_end
-            || !rhythm_phase_is_valid(rhythm, phase.rhythm_position, &phase.phase)
-        {
-            return Ok(false);
-        }
-        if let Some(previous) = previous {
-            if previous.ends_at_epoch_ms != phase.starts_at_epoch_ms
-                || !valid_native_phase_transition(rhythm, previous, phase)
-            {
-                return Ok(false);
-            }
-            let Some(full_duration) = rhythm_phase_duration(rhythm, phase) else {
-                return Ok(false);
-            };
-            if ends_at != (starts_at + full_duration).min(planned_end) {
-                return Ok(false);
-            }
-        }
-        previous = Some(phase);
-    }
-    if phases
-        .last()
-        .and_then(|phase| epoch_millis(phase.ends_at_epoch_ms))
-        != Some(planned_end)
-    {
-        return Ok(false);
-    }
-
-    let target_index = phases
-        .iter()
-        .position(|phase| phase.ends_at_epoch_ms > now.timestamp_millis())
-        .unwrap_or(phases.len() - 1);
-    if target_index == 0 {
-        return Ok(false);
-    }
-
-    let first_end = canonical_timestamp(epoch_millis(first.ends_at_epoch_ms).unwrap());
-    sqlx::query(
-        "UPDATE pomodoro_segments
-         SET status = 'completed', actual_end = ?, end_reason = 'completed'
-         WHERE id = ? AND run_id = ? AND status = 'active'",
-    )
-    .bind(&first_end)
-    .bind(&segment.id)
-    .bind(&run.id)
-    .execute(&mut **tx)
-    .await
-    .map_err(|error| format!("complete native Pomodoro recovery segment: {error}"))?;
-    insert_native_run_event(
-        tx,
-        &run.id,
-        &first.id,
-        "phase_complete",
-        &first_end,
-        &first.phase,
-    )
-    .await?;
-
-    for (index, phase) in phases.iter().enumerate().take(target_index + 1).skip(1) {
-        let starts_at = canonical_timestamp(epoch_millis(phase.starts_at_epoch_ms).unwrap());
-        let ends_at = canonical_timestamp(epoch_millis(phase.ends_at_epoch_ms).unwrap());
-        let completed = index < target_index;
-        sqlx::query(
-            "INSERT INTO pomodoro_segments
-                (id, event_id, event_date, run_id, rhythm_position, phase,
-                 planned_start, planned_end, actual_start, actual_end, status, end_reason)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-        )
-        .bind(&phase.id)
-        .bind(&run.event_id)
-        .bind(&run.event_date)
-        .bind(&run.id)
-        .bind(phase.rhythm_position)
-        .bind(&phase.phase)
-        .bind(&starts_at)
-        .bind(&ends_at)
-        .bind(&starts_at)
-        .bind(completed.then_some(ends_at.as_str()))
-        .bind(if completed { "completed" } else { "active" })
-        .bind(completed.then_some("completed"))
-        .execute(&mut **tx)
-        .await
-        .map_err(|error| format!("insert native Pomodoro recovery segment: {error}"))?;
-        insert_native_run_event(
-            tx,
-            &run.id,
-            &phase.id,
-            "phase_start",
-            &starts_at,
-            &phase.phase,
-        )
-        .await?;
-        if completed {
-            insert_native_run_event(
-                tx,
-                &run.id,
-                &phase.id,
-                "phase_complete",
-                &ends_at,
-                &phase.phase,
-            )
-            .await?;
-        }
-    }
-
-    sqlx::query("UPDATE pomodoro_runs SET last_heartbeat = ? WHERE id = ? AND ended_at IS NULL")
-        .bind(canonical_timestamp(now.min(planned_end)))
-        .bind(&run.id)
-        .execute(&mut **tx)
-        .await
-        .map_err(|error| format!("update native Pomodoro recovery heartbeat: {error}"))?;
-    Ok(true)
-}
-
-fn epoch_millis(value: i64) -> Option<DateTime<Utc>> {
-    Utc.timestamp_millis_opt(value).single()
-}
-
-fn rhythm_phase_duration(
-    rhythm: &PomodoroRunRhythm,
-    phase: &PomodoroNativeProjectionPhaseWrite,
-) -> Option<Duration> {
-    let minutes = match rhythm {
-        PomodoroRunRhythm::Count {
-            focus_duration_minutes,
-            short_break_minutes,
-            long_break_minutes,
-            ..
-        } => match phase.phase.as_str() {
-            "focus" => *focus_duration_minutes,
-            "short_break" => *short_break_minutes,
-            "long_break" => *long_break_minutes,
-            _ => return None,
-        },
-        PomodoroRunRhythm::Sequence { steps } => {
-            let step = usize::try_from(phase.rhythm_position - 1)
-                .ok()
-                .and_then(|index| steps.get(index))?;
-            if phase.phase == "focus" {
-                step.focus_duration_minutes
-            } else if phase.phase == step.break_phase {
-                step.break_duration_minutes
-            } else {
-                return None;
-            }
-        }
-    };
-    Some(Duration::minutes(minutes))
-}
-
-fn valid_native_phase_transition(
-    rhythm: &PomodoroRunRhythm,
-    previous: &PomodoroNativeProjectionPhaseWrite,
-    next: &PomodoroNativeProjectionPhaseWrite,
-) -> bool {
-    if previous.phase == "focus" {
-        return next.phase != "focus" && next.rhythm_position == previous.rhythm_position;
-    }
-    if next.phase != "focus" {
-        return false;
-    }
-    let next_position = match rhythm {
-        PomodoroRunRhythm::Count {
-            long_break_after_focus_count,
-            ..
-        } => {
-            if previous.rhythm_position >= *long_break_after_focus_count {
-                1
-            } else {
-                previous.rhythm_position + 1
-            }
-        }
-        PomodoroRunRhythm::Sequence { steps } => {
-            if usize::try_from(previous.rhythm_position).ok() == Some(steps.len()) {
-                1
-            } else {
-                previous.rhythm_position + 1
-            }
-        }
-    };
-    next.rhythm_position == next_position
-}
-
-async fn insert_native_run_event(
-    tx: &mut Transaction<'_, Sqlite>,
-    run_id: &str,
-    segment_id: &str,
-    event_type: &str,
-    occurred_at: &str,
-    phase: &str,
-) -> Result<(), String> {
-    sqlx::query(
-        "INSERT INTO pomodoro_run_events
-            (id, run_id, segment_id, event_type, occurred_at, phase)
-         VALUES (lower(hex(randomblob(16))), ?, ?, ?, ?, ?)",
-    )
-    .bind(run_id)
-    .bind(segment_id)
-    .bind(event_type)
-    .bind(occurred_at)
-    .bind(phase)
-    .execute(&mut **tx)
-    .await
-    .map_err(|error| format!("insert native Pomodoro recovery event: {error}"))?;
-    Ok(())
 }
 
 async fn load_rhythm(

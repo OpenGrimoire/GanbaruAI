@@ -151,7 +151,8 @@ export function createPomodoroPhaseController(
         && segment.phase === "focus"
         && segment.status === "planned",
     );
-    if (nextFocus !== -1) await context.segments.activateSegment(nextFocus);
+    if (nextFocus === -1) throw new Error("No further focus interval fits in the current commitment");
+    await context.segments.activateSegment(nextFocus);
   }
 
   async function activateBoundaryOrFallback(
@@ -197,16 +198,18 @@ export function createPomodoroPhaseController(
       ) * TIME_MULTIPLIER,
     );
     context.extensions.resetFocusNotificationState();
-    runtime.isRunning = true;
+    runtime.isRunning = false;
     const startedAt = currentIso();
     const nowMs = currentMs();
     runtime.phaseEndTime = nowMs + runtime.remainingSeconds * 1000;
     runtime.sessionStartTime = startedAt;
-    context.startVisualTick();
-    runtime.lastTickMs = nowMs;
     if (!await activateBoundaryOrFallback("focus", startedAt, adaptiveDecision)) {
       await activateNextPlannedFocus();
     }
+    runtime.isRunning = true;
+    runtime.lastTickMs = currentMs();
+    context.startVisualTick();
+    context.startIdleChecking();
     context.updateTray();
   }
 
@@ -456,10 +459,27 @@ export function createPomodoroPhaseController(
           if (!await activateBoundaryOrFallback("focus", occurredAt, adaptiveDecision)) {
             await activateNextPlannedFocus();
           }
+          context.stopOvertime();
+          context.stopPausedOpportunityCountdown();
+          context.closeOverlay();
+          context.clearBreakEndWarning();
+          runtime.sessionStartTime = occurredAt;
+          runtime.isRunning = true;
+          runtime.lastTickMs = currentMs();
+          context.startVisualTick();
+          context.startIdleChecking();
           break;
         }
       }
       context.updateTray();
+    } catch (error) {
+      runtime.isRunning = false;
+      runtime.phaseEndTime = null;
+      runtime.lastTickMs = null;
+      context.stopVisualTick();
+      context.stopOvertime();
+      context.updateTray();
+      throw error;
     } finally {
       advanceInFlight = false;
     }

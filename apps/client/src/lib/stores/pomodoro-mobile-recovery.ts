@@ -59,6 +59,9 @@ interface PomodoroMobileRecoveryContext {
   stopPausedOpportunityCountdown(): void;
   stopOvertime(): void;
   stopIdleChecking(): void;
+  stopHeartbeat(): void;
+  clearBreakEndWarning(): void;
+  closeOverlay(): void;
   initListeners(): void;
   refreshFutureSegments(blockId: string, eventDate: string): void;
   startHeartbeat(): void;
@@ -359,7 +362,58 @@ export function parsePomodoroMobileRecoveryResult(
   throw new Error("Unknown mobile pomodoro recovery response kind");
 }
 
-/** Restore a backend-validated mobile run into the existing timer controllers. */
+/** Clear obsolete runtime state after recovery without rewriting committed history. */
+function clearMobileExecution(context: PomodoroMobileRecoveryContext): void {
+  const runtime = context.runtime;
+  context.stopVisualTick();
+  context.stopPausedOpportunityCountdown();
+  context.stopOvertime();
+  context.stopIdleChecking();
+  context.stopHeartbeat();
+  context.clearBreakEndWarning();
+  context.closeOverlay();
+  runtime.dismissedBlockId = runtime.activeBlockId ?? runtime.dismissedBlockId;
+  runtime.isRunning = false;
+  runtime.activeRunId = null;
+  runtime.activeBlockId = null;
+  runtime.activeBlockTitle = null;
+  runtime.activeBlockEndMs = null;
+  runtime.phaseEndTime = null;
+  runtime.lastTickMs = null;
+  runtime.sessionStartTime = null;
+  runtime.phase = "focus";
+  runtime.remainingSeconds = 0;
+  runtime.phaseElapsedSeconds = 0;
+  runtime.phaseWorkDurationSeconds = 0;
+  runtime.phaseTotalSeconds = 0;
+  runtime.currentRhythmPosition = 1;
+  runtime.completedPomodoros = 0;
+  runtime.skipNextBreak = false;
+  runtime.notificationShown = false;
+  runtime.focusExtensionUsed = false;
+  runtime.segments = [];
+  runtime.currentSegmentIndex = -1;
+  runtime.segmentEndReasons.clear();
+  runtime.segmentVersion += 1;
+  runtime.breakOvertimeSeconds = 0;
+  runtime.blockExpired = false;
+  runtime.suspendedAway = null;
+  runtime.idlePaused = null;
+  runtime.idleTimeoutMs = null;
+  context.publishWindowSnapshot();
+  context.updateTray();
+}
+
+/** Apply the authoritative recovery outcome, including removal of expired runtime state. */
+export function applyMobileRecoveryResult(
+  result: PomodoroMobileRecoveryResult,
+  context: PomodoroMobileRecoveryContext,
+): void {
+  if (result.kind === "resumed") applyRecoveredMobileRun(result.run, context);
+  else clearMobileExecution(context);
+}
+
+/** Restore a backend-validated mobile run without extending it by IPC delivery latency. */
 export function applyRecoveredMobileRun(
   recovered: PomodoroRecoveredMobileRun,
   context: PomodoroMobileRecoveryContext,
@@ -367,6 +421,16 @@ export function applyRecoveredMobileRun(
   const runtime = context.runtime;
   const nowMs = context.nowMs?.() ?? Date.now();
   const blockEndMs = Date.parse(recovered.plannedEnd);
+  const phaseEndMs = Math.min(
+    blockEndMs, Date.parse(recovered.recoveredAt) + recovered.remainingSeconds * 1_000,
+  );
+  if (nowMs >= blockEndMs || (recovered.isRunning && nowMs >= phaseEndMs)) {
+    clearMobileExecution(context);
+    return;
+  }
+  const remainingSeconds = recovered.isRunning
+    ? Math.min(recovered.remainingSeconds, Math.ceil((phaseEndMs - nowMs) / 1_000))
+    : recovered.remainingSeconds;
 
   context.stopVisualTick();
   context.stopPausedOpportunityCountdown();
@@ -375,8 +439,8 @@ export function applyRecoveredMobileRun(
   context.initListeners();
 
   runtime.phase = recovered.segment.phase;
-  runtime.remainingSeconds = recovered.remainingSeconds;
-  runtime.phaseElapsedSeconds = recovered.phaseElapsedSeconds;
+  runtime.remainingSeconds = remainingSeconds;
+  runtime.phaseElapsedSeconds = recovered.phaseElapsedSeconds + recovered.remainingSeconds - remainingSeconds;
   runtime.phaseWorkDurationSeconds = recovered.phaseWorkDurationSeconds;
   runtime.phaseTotalSeconds = recovered.phaseElapsedSeconds + recovered.remainingSeconds;
   runtime.currentRhythmPosition = recovered.segment.rhythmPosition;
@@ -392,9 +456,7 @@ export function applyRecoveredMobileRun(
   runtime.skipNextBreak = false;
   runtime.notificationShown = false;
   runtime.focusExtensionUsed = recovered.focusExtensionUsed;
-  runtime.phaseEndTime = recovered.isRunning
-    ? nowMs + recovered.remainingSeconds * 1_000
-    : null;
+  runtime.phaseEndTime = recovered.isRunning ? phaseEndMs : null;
   runtime.activeBlockId = recovered.blockId;
   runtime.activeBlockTitle = recovered.eventTitle;
   runtime.activeRunId = recovered.runId;

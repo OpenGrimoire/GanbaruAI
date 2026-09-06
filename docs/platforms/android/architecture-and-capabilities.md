@@ -35,7 +35,7 @@ This exclusion reduces artifact size and prevents dormant desktop authority from
 | Projects | Full local planning and task views | Responsive UI, no local coding working-folder execution |
 | Notes | Pages, blocks, databases, history, links, assets | Responsive UI, document picker for bounded files, no working-folder Markdown |
 | Chat | Channels, messages, replies, search, drafts, scheduling | Provider-free communication only; no local execution or workspace tools |
-| Pomodoro | Canonical runs, plans, phase state | Foreground service, native phase alarms, ongoing notification |
+| Pomodoro | Canonical accepted runs, history and recovery in `ganbaru-focus` | Commitment reminders, accepted-phase deadline alarms and ongoing notification |
 | Music | Canonical library, playlists, assignments, player state | Selected document tree and Media3 local audio; no desktop soundscape engine |
 | Doomscrolling | Shared rule and usage-limit intent | Selected packages, Usage Access, Accessibility Home action, native journal |
 | Settings | Shared portable preferences | Platform equivalents and direct special-access recovery |
