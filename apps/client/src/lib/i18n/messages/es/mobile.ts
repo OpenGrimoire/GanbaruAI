@@ -44,7 +44,8 @@ export const mobile = {
     privateStorage: "Privado",
     privateStorageDescription:
       "Android conserva estos datos en el almacenamiento privado de Ganbaru AI. Desinstalar la app los elimina.",
-    androidUpdatesDescription: "Android instala actualizaciones desde el origen de distribución de la app",
+    androidUpdatesDescription: "Android se actualiza manualmente desde los lanzamientos de GitHub. Abre la página de lanzamientos e instala el APK correspondiente.",
+    androidLatestPublished: (date: string) => `Publicado ${date}`,
     viewReleases: "Ver",
   },
 } as const satisfies MessageShape<typeof enMobile>;

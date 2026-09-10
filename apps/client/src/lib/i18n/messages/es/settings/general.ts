@@ -165,6 +165,8 @@ export const general = {
       "Descarga e instala la actualización disponible de Ganbaru AI.",
     manualInstallUpdateDescription:
       "Usa tu gestor de paquetes para instalar la actualización disponible de Ganbaru AI.",
+    manualInstallUpdateDescriptionMobile:
+      "Usa la página de versión para descargar e instalar el APK para esta actualización.",
     updateAndRestart: "Actualizar y reiniciar",
     copyCommand: "Copiar comando",
     commandCopied: "Copiado",
