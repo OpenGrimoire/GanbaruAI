@@ -22,7 +22,7 @@
 
 import { invoke } from "@tauri-apps/api/core";
 import { THEME_TOKEN_ROW_ORDER } from "$lib/stores/themes";
-import { ensureDbUrl } from "./db";
+import { ensureDbUrl } from "$lib/api/db";
 
 export type TokenKind = "source" | "app" | "calendar";
 

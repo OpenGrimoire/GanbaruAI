@@ -14,6 +14,9 @@ extensions/chrome-dev/
 .env.*
 !.env.example
 apps/client/src-tauri/tauri.release.conf.json
+apps/client/src-tauri/gen/android/keystore.properties
+apps/client/src-tauri/gen/android/*.jks
+apps/client/src-tauri/gen/android/*.keystore
 
 # IDE
 .vscode/
@@ -40,11 +43,13 @@ coverage/
 # local scripts
 /scripts/
 
-# Claude
+# Local AI tool configuration
+.codex/
 .claude/
 
 # Goal
-goal/
+goal/*
+goal/goal.md
 
 # Sample data
 sample/

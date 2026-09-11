@@ -1,0 +1,33 @@
+import type { common as enCommon } from "../en/common";
+import type { MessageShape } from "../types";
+
+export const common = {
+  appName: "Ganbaru AI",
+  cancel: "Cancelar",
+  close: "Cerrar",
+  confirm: "Confirmar",
+  save: "Guardar",
+  reset: "Restablecer",
+  delete: "Eliminar",
+  archive: "Archivar",
+  edit: "Editar",
+  done: "Listo",
+  loading: "Cargando",
+  loadMore: "Cargar más",
+  retry: "Reintentar",
+  viewLoadFailed: (label: string) => `No se pudo cargar ${label}.`,
+  none: "Ninguno",
+  disabled: "Desactivado",
+  enabled: "Activado",
+  yes: "Sí",
+  no: "No",
+  enterKey: "Enter",
+  escapeKey: "Esc",
+  system: "Sistema",
+  english: "Inglés",
+  spanish: "Español",
+  minimize: "Minimizar",
+  maximize: "Maximizar",
+  restore: "Restaurar",
+  horizontalScrollTooltip: "Mayús + rueda abajo / arriba",
+} as const satisfies MessageShape<typeof enCommon>;

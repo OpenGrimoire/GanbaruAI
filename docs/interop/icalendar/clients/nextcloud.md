@@ -36,16 +36,9 @@ Expected handling:
 - Project supported `VEVENT` rows.
 - Keep scheduling metadata inert unless future transport is configured.
 
-## Export from Ganbaru AI into Nextcloud
+## Manual test
 
-Manual checks:
-
-1. Create a disposable Nextcloud calendar.
-2. Import Ganbaru AI-generated fixtures from `apps/client/test-fixtures/ics/rfc5545/`.
-3. Verify all-day, timed, recurrence, alarms, and attendees.
-4. Export events or the calendar from Nextcloud.
-5. Import back into Ganbaru AI.
-6. Compare semantic results and preserved fields.
+Use the [shared client procedure](./README.md#shared-procedure). Record the Nextcloud server, Calendar app, and Tasks app versions where relevant.
 
 ## Behavior to verify
 
@@ -59,13 +52,3 @@ Manual checks:
 ## Observed behavior log
 
 No manual Ganbaru AI compatibility run recorded yet.
-
-Record:
-
-- Nextcloud server version
-- Calendar app version
-- Tasks app version if relevant
-- timezone
-- fixture name
-- import result
-- export result

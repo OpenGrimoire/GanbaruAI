@@ -760,28 +760,3 @@
     </div>
   {/if}
 </div>
-
-<style>
-  /*
-    Themed thin scrollbar for the diagnostics list. Matches the app's other
-    in-popover scrollables by overlaying the theme's border color instead
-    of the OS default.
-  */
-  .perf-scroll {
-    scrollbar-width: thin;
-    scrollbar-color: var(--border) transparent;
-  }
-  .perf-scroll::-webkit-scrollbar {
-    width: 6px;
-  }
-  .perf-scroll::-webkit-scrollbar-track {
-    background: transparent;
-  }
-  .perf-scroll::-webkit-scrollbar-thumb {
-    background-color: var(--border);
-    border-radius: 3px;
-  }
-  .perf-scroll::-webkit-scrollbar-thumb:hover {
-    background-color: var(--muted-foreground);
-  }
-</style>

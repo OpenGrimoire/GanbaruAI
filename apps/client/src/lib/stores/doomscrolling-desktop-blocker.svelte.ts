@@ -1,6 +1,7 @@
 import {
   closeDoomscrollingDesktopApp,
   listBlockedDoomscrollingDesktopAppMatches,
+  recordDoomscrollingDesktopBlockEvent,
   showDoomscrollingDesktopBlockNotification,
   type DoomscrollingDesktopAppRulePayload,
   type DoomscrollingRunningDesktopAppMatch,
@@ -13,16 +14,22 @@ const CLOSED_NOTIFICATION_WINDOW_MS = 60_000;
 let checkRunning = false;
 const closingProcessIds = new Set<number>();
 const closedNotificationTimes: number[] = [];
+let cachedRules: readonly DoomscrollingAppRule[] | null = null;
+let cachedPayload: DoomscrollingDesktopAppRulePayload[] = [];
 
 function payloadFromRules(
   rules: readonly DoomscrollingAppRule[],
 ): DoomscrollingDesktopAppRulePayload[] {
-  return rules
+  if (rules === cachedRules) return cachedPayload;
+  cachedRules = rules;
+  cachedPayload = rules
     .filter((rule) => rule.enabled)
     .map((rule) => ({
+      ruleIdentity: { kind: "desktop-app" as const, ruleId: rule.name },
       name: rule.name,
       matchNames: rule.matchNames,
     }));
+  return cachedPayload;
 }
 
 function clearAlert(): void {
@@ -46,7 +53,19 @@ async function enforceBlockedMatch(match: DoomscrollingRunningDesktopAppMatch): 
   if (closingProcessIds.has(match.processId)) return;
   closingProcessIds.add(match.processId);
   try {
-    await closeDoomscrollingDesktopApp(match.processId);
+    recordDoomscrollingDesktopBlockEvent({
+      appName: match.appName,
+      processName: match.processName,
+      processId: match.processId,
+    }).catch((err) => {
+      console.warn(`Failed to record blocked desktop app ${match.appName}:`, err);
+    });
+    await closeDoomscrollingDesktopApp({
+      processId: match.processId,
+      processName: match.processName,
+      processIdentity: match.processIdentity,
+      ruleIdentity: match.ruleIdentity,
+    });
     if (shouldNotifyClosedApp()) {
       await showDoomscrollingDesktopBlockNotification(match.appName);
     }
@@ -57,16 +76,20 @@ async function enforceBlockedMatch(match: DoomscrollingRunningDesktopAppMatch): 
   }
 }
 
-async function checkBlockedApps(rules: readonly DoomscrollingAppRule[]): Promise<void> {
+async function checkBlockedApps(
+  rules: readonly DoomscrollingAppRule[],
+  isCurrent: () => boolean,
+): Promise<void> {
   if (checkRunning) return;
   const apps = payloadFromRules(rules);
-  if (apps.length === 0) {
+  if (!isCurrent() || apps.length === 0) {
     clearAlert();
     return;
   }
   checkRunning = true;
   try {
     const matches = await listBlockedDoomscrollingDesktopAppMatches(apps);
+    if (!isCurrent()) return;
     await Promise.all(matches.map((match) => enforceBlockedMatch(match)));
   } catch (err) {
     console.warn("Failed to check blocked desktop apps:", err);
@@ -80,8 +103,11 @@ export function getDoomscrollingDesktopBlocker() {
     clear(): void {
       clearAlert();
     },
-    check(rules: readonly DoomscrollingAppRule[]): Promise<void> {
-      return checkBlockedApps(rules);
+    check(
+      rules: readonly DoomscrollingAppRule[],
+      isCurrent: () => boolean = () => true,
+    ): Promise<void> {
+      return checkBlockedApps(rules, isCurrent);
     },
   };
 }

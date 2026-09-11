@@ -11,6 +11,7 @@ Free, local, open-source, privacy-first, lightweight with opt-in AI.
 <p align="center">
   <a href="#download">Download</a>&nbsp;&nbsp;&nbsp;&nbsp;
   <a href="#features">Features</a>&nbsp;&nbsp;&nbsp;&nbsp;
+  <a href="docs/README.md">Documentation</a>&nbsp;&nbsp;&nbsp;&nbsp;
   <a href="#building-from-source">Building from source</a>&nbsp;&nbsp;&nbsp;&nbsp;
   <a href="#contributing">Contributing</a>&nbsp;&nbsp;&nbsp;&nbsp;
   <a href="#license">License</a>&nbsp;&nbsp;&nbsp;&nbsp;
@@ -41,7 +42,7 @@ Download the latest release from [GitHub Releases](https://github.com/opengrimoi
 | **Other Linux x64 desktops** | `.AppImage` |
 | **Windows 10 or Windows 11 x64** | `.msi` installer, or the `.exe` setup if preferred |
 | **macOS** | Not available yet. macOS builds are planned, but they need Apple hardware and signing before release. |
-| **Android** | Not available yet. Android support is planned soon after the current desktop release path settles. |
+| **Android** | Not available yet. A substantial Android implementation exists in source, but release validation and signing are incomplete. |
 | **iOS** | Not available yet. iOS depends on the same Apple build and signing path as macOS. |
 
 Arch-based distro users can install with `yay -S ganbaru-ai-bin` or another AUR helper.
@@ -50,24 +51,25 @@ Use `SHA256SUMS` if you want to check that your downloaded installer matches the
 
 ## Features
 
+These statuses describe the current repository head. The latest published release can lag behind them.
+
 | Feature | Description | Status |
 |---|---|---|
-| **Calendar** | 100% custom-built with Svelte 5. Session blocks with drag-and-drop creation/resizing, day/week/month views, full RFC 5545 RRULE recurrence, auto-environment activation on block start | Available |
-| **Pomodoro timer** | Focus/break phases, configurable cycle durations, timeline rail visualization, idle detection, suspend/wake handling, pre-break notifications | Available |
-| **Kanban board** | Backlog/planned/in-progress/done columns, priority tiers (easy/medium/hard/epic), estimated pomodoro count, task-to-session linking | Planned |
-| **Note-taking** | Tiptap block editor with slash commands, markdown storage on disk, bidirectional backlinks indexed in SQLite | Planned |
-| **Daily diary** | Morning and evening entry forms, mood/energy/sleep tracking, personal baselines for AI suggestions | Planned |
-| **Doomscrolling** | Chromium-based development extension that blocks configured websites and category stacks during selected Pomodoro phases; desktop app blocking includes a blocklist, an on-demand app picker, and automatic Linux app closing, while Firefox, richer rules, and mobile app-level blocking are planned | Early desktop slice |
-| **Work environments** | Saved configs per session block: apps to open/close, browser tabs, playlist, blocker rules. Auto-activated by the calendar | Planned |
-| **Edge panel** | Always-on-top sidebar with live pomodoro timer, quick-add tasks, music controls, active environment name | Planned |
-| **Music player** | Local file playback (Symphonia/FFmpeg), YouTube via IFrame API, playlists tied to session blocks and environments | Available |
-| **AI panel** | Embedded terminal (xterm.js) for Codex or another CLI coding agent, BYOK chat widget (OpenAI API, OpenAI-compatible providers, Ollama), calendar-driven session switching, context injection from app state | Planned |
-| **Project management** | Lifecycle templates (brainstorming, evaluation, planning, execution), requirement version control, date cascade, report generation | Planned |
-| **Sync** | Yjs CRDTs with self-hosted Hocuspocus server, E2E encryption, collaborative workspaces with live presence | Planned |
-| **Mobile** | Tauri v2 Android and iOS builds, sleep alarm with diary integration, notification-based pomodoro | Planned |
-| **Gamification** | Skill tree, XP system, Will metrics, self-imposed contracts, NPC-guided project workflows | Planned |
+| **Calendar** | Day, week, and month planning; event editing; recurrence; iCalendar transfer; notifications; and project links | Partial |
+| **Pomodoro** | Configurable focus rhythms, persisted runs, progress displays, idle and suspend handling, and platform scheduling | Partial |
+| **Projects** | SQLite-backed tasks, planning views, dependencies, tags, custom fields, templates, scheduling, and history | Partial |
+| **Notes** | SQLite-backed pages, blocks, databases, templates, links, comments, assets, history, and transfer workflows | Partial |
+| **Quick notes** | Lightweight rich-text capture with search, colors, and synchronized windows | Implemented |
+| **Chat** | Durable project channels with optional local Codex, Claude, Cursor, Grok, and OpenCode sessions, workspace tools, terminals, checkpoints, and review | Partial |
+| **Doomscrolling** | Chromium website blocking through a registered local host, desktop application blocking, and consent-based selected-application enforcement on Android | Partial |
+| **Music** | Local libraries and playlists, desktop and Android playback, platform media controls, assignments, and YouTube integration | Partial |
+| **Themes and localization** | Custom themes plus typed English and Spanish interface catalogs | Partial |
+| **Android** | Adaptive Calendar, Projects, Notes, Chat, Pomodoro, Music, Settings, backup, notifications, and Doomscrolling surfaces | Pre-release |
+| **Diary, sleep, and work environments** | Missing parts of the planned anti-burnout and context-preparation loop | Planned |
+| **Sync and BYOK assistants** | User-provisioned collaboration, external assistants, and explicit external access | Planned |
+| **Gamification** | Ethical progress systems that protect recovery and avoid paid chance mechanics | Deferred |
 
-See [docs/ROADMAP.md](docs/ROADMAP.md) for the full phased development plan.
+See the [documentation index](docs/README.md), [feature index](docs/features/README.md), and [roadmap](docs/ROADMAP.md) for detailed status and product direction.
 
 ## Building from source
 
@@ -90,15 +92,40 @@ pnpm install
 ### Development
 
 ```bash
-cd apps/client
-pnpm tauri dev              # desktop app with hot reload
-pnpm tauri android dev      # Android (planned)
-pnpm tauri ios dev          # iOS (planned)
+pnpm --dir apps/client run tauri dev
 ```
+
+### Android development on a physical device
+
+Android development requires [Tauri's mobile prerequisites](https://v2.tauri.app/start/prerequisites/#android), Android Studio or an equivalent SDK installation, and JDK 21. Install Android SDK Platform 36, Platform Tools, Build Tools 35.0.0, Command-line Tools, and NDK 30.0.15729638. Set `ANDROID_HOME` and `NDK_HOME`, and make `adb` from Platform Tools available on `PATH`. The repository wrapper resolves JDK 21 through `GANBARU_AI_ANDROID_JAVA_HOME`, `JAVA_HOME`, or a supported system installation.
+
+For the usual ARM64 physical-device workflow, install the Rust target once:
+
+```bash
+rustup target add aarch64-linux-android
+```
+
+Use an Android 10 or newer device and a data-capable USB cable. Enable Developer options and USB debugging, connect the device, unlock it, and approve the computer's debugging key. See Android's [hardware-device guide](https://developer.android.com/studio/run/device) for operating-system-specific USB setup.
+
+Confirm that ADB reports the device with the state `device`, not `unauthorized` or `offline`:
+
+```bash
+adb devices
+```
+
+Then run from the repository root:
+
+```bash
+pnpm --dir apps/client run tauri android dev --host 127.0.0.1
+```
+
+This installs the separate `.dev` application identity and keeps the frontend development server on the USB and ADB loopback path instead of exposing it to the local network. Keep the terminal running for logs and hot reload. Native Rust or Android changes may trigger a rebuild and reinstall.
+
+For an ordinary contribution, test the changed flow on the physical device, including Android Back, background and resume, rotation or responsive layout, and relevant permission denial or recovery. A debug launch is not release acceptance. Use the complete [Android testing matrix](docs/testing/android.md) for lifecycle, storage, notifications, media, Doomscrolling, artifact, and release validation.
 
 ### Browser extension local testing
 
-The Doomscrolling extension is tested as an unpacked Chromium extension during development. The same flow applies to Chrome, Chromium, Brave, and Edge. The browser-specific parts are the extensions page URL and the last argument passed to the native host registration script.
+The Doomscrolling extension is tested as an unpacked Chromium extension during development. The registration helper below supports Linux and macOS and applies to Chrome, Chromium, Brave, and Edge. It does not create the native-host manifest and registry key required on Windows, so Windows registration remains a manual tooling gap.
 
 From the repo root, build the native messaging host and generate the dev extension folder:
 
@@ -150,7 +177,7 @@ pnpm --dir apps/client test:watch
 Contributions are welcome, but keep in mind:
 
 - The app is in heavy early development. Architecture, APIs, and data models are still changing.
-- Active testing is limited to **Ubuntu Linux** and **Windows 10**. macOS and iOS builds are untested since no Apple hardware is available for development, so contributions for those platforms are especially valuable.
+- Primary desktop testing uses **Ubuntu Linux** and **Windows 10**, with Android physical-device validation in progress. macOS and iOS builds remain untested because Apple build hardware and signing are not available.
 - If you are considering a large change, open an issue first to discuss the approach.
 - Before contributing, read [CONTRIBUTING.md](CONTRIBUTING.md).
 - Participation in project spaces is governed by the [code of conduct](.github/CODE_OF_CONDUCT.md).
@@ -168,7 +195,7 @@ Ganbaru AI is donation-funded. Sponsorship will be set up after a minimum stable
 
 ### Sound effects
 
-Sound effects live in `apps/client/static/sfx/`. App assets are stored as 48 kHz stereo 16-bit PCM WAV files and are sourced from [Freesound](https://freesound.org/) under Attribution 4.0 and CC0 licenses. See `docs/features/app-sounds.md` for the asset format and playback rules.
+Sound effects live in `apps/client/static/sfx/`. App assets are stored as 48 kHz stereo 16-bit PCM WAV files and are sourced from [Freesound](https://freesound.org/) under Attribution 4.0 and CC0 licenses. See [audio assets](docs/development/audio-assets.md) for the asset format and playback rules.
 
 <table>
   <thead>

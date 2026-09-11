@@ -241,7 +241,7 @@
   {#if expanded}
     <div transition:slide={{ duration: 180, easing: cubicOut }} data-section="meeting" class="flex flex-col gap-2.5 px-3.5 pb-3 pt-3" style="background-color: var(--panel-bg);">
       <!-- URL -->
-      <div class="flex items-center gap-3 text-[0.8rem] leading-none">
+      <div class="meeting-detail-row flex items-center gap-3 text-[0.8rem] leading-none">
         <Video size={14} class="shrink-0 text-foreground" />
         <input bind:this={urlInput} type="url" bind:value={url} placeholder={t("calendar.meeting.addCallLink")}
           disabled={readOnly}
@@ -249,7 +249,7 @@
           oninput={onchange} onkeydown={panelInputKeydown} />
       </div>
       <!-- Location -->
-      <div class="flex items-center gap-3 text-[0.8rem] leading-none">
+      <div class="meeting-detail-row flex items-center gap-3 text-[0.8rem] leading-none">
         <MapPin size={14} class="shrink-0 text-foreground" />
         <input type="text" bind:value={location} placeholder={t("calendar.meeting.addLocation")}
           disabled={readOnly}
@@ -260,7 +260,11 @@
         {/if}
       </div>
       <!-- Description -->
-      <DescriptionEditor {description} {readOnly} onchange={ondescriptionchange} />
+      <div class="meeting-detail-row flex items-center">
+        <div class="min-w-0 flex-1">
+          <DescriptionEditor {description} {readOnly} onchange={ondescriptionchange} />
+        </div>
+      </div>
       <!-- Guests divider -->
       <div class="-mx-3.5 border-t border-border/40"></div>
       <!-- Guests -->
@@ -382,7 +386,7 @@
           <!-- svelte-ignore a11y_no_static_element_interactions -->
           <div bind:this={scrollEl} onscroll={updateFade} onwheel={onWheel}
             use:observeResize
-            class="relative max-h-18 overflow-y-auto scrollbar-thin"
+            class="relative max-h-18 overflow-y-auto"
             style:mask-image={fadeTop && fadeBottom ? 'linear-gradient(to bottom, transparent, black 10px, black calc(100% - 10px), transparent)' : fadeTop ? 'linear-gradient(to bottom, transparent, black 10px)' : fadeBottom ? 'linear-gradient(to bottom, black calc(100% - 10px), transparent)' : 'none'}
             style:-webkit-mask-image={fadeTop && fadeBottom ? 'linear-gradient(to bottom, transparent, black 10px, black calc(100% - 10px), transparent)' : fadeTop ? 'linear-gradient(to bottom, transparent, black 10px)' : fadeBottom ? 'linear-gradient(to bottom, black calc(100% - 10px), transparent)' : 'none'}>
             {#each guestAttendees as att (att.id)}
@@ -443,9 +447,3 @@
     </div>
   {/if}
 </div>
-
-<style>
-  .scrollbar-thin {
-    scrollbar-width: thin;
-  }
-</style>

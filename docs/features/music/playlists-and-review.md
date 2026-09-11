@@ -1,0 +1,48 @@
+# Music playlists and review
+
+## Playlist identity
+
+A playlist has a stable identity, localized or user-authored name, icon or emoji, order, shuffle setting, repeat mode, and ordered memberships. Built-in playlists have protected identity but user-controlled ordering and membership.
+
+Fresh vaults provide practical starter playlists for common focus, break, meditation, exercise, hygiene, chores, cooking, and commute contexts. Built-in names and icons are localized and cannot be deleted or renamed. Custom playlists can be created, renamed, reordered, and deleted.
+
+## Membership settings
+
+A playlist membership connects one canonical media item to one playlist. It can define:
+
+- Enabled state and stored order.
+- Weighted selection frequency.
+- Start and end positions.
+- Skip ranges.
+- Volume and playback rate overrides.
+- Snooze behavior through the item's applicable playlist scope.
+
+These settings belong to membership, not Calendar event assignment. The same item can behave differently in different playlists without duplicating media identity.
+
+## Review workflow
+
+Newly discovered items enter an explicit review state. Review presents source hierarchy, current item, metadata, artwork, availability, playlist choices, and repair actions without requiring the user to finish the entire queue before using Music.
+
+Review state distinguishes unreviewed, reviewed, deferred, and ignored. Deferring or ignoring does not delete the item or its source. A playlist can remain usable while review is incomplete.
+
+The current preview continues when the user visits another builder destination unless explicit playback elsewhere takes ownership. Returning to Review restores the active item and durable draft state.
+
+## Playlist management
+
+Playlist management presents built-in and custom playlists in one stored order. Reordering starts from an explicit handle and supports pointer, touch, and keyboard operation. A failed save restores the prior order and reports the error.
+
+Built-in edit and delete actions remain visibly unavailable with an explanation. Custom deletion explains what happens to memberships and never deletes the underlying library items or media files.
+
+## Playlist item lists
+
+Lists support bounded loading, search, sort, source and availability filters, snooze state, playback, concise metadata, membership settings, file location where supported, and removal from the current playlist.
+
+Stored playlist order and selected sort are distinct. Sorting the view does not silently rewrite membership order.
+
+## Snooze
+
+Snooze temporarily excludes an item from one playlist or all playlists until a specified boundary. The UI explains the scope and end. Snooze is reversible and does not alter review state or source availability.
+
+## Accessibility
+
+Review, playlist navigation, membership selection, reorder, filters, item menus, and playback are keyboard reachable. Drag operations have equivalent keyboard commands and live announcements. Responsive layouts preserve destination labels and do not rely on unlabeled icons.

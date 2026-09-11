@@ -1,5 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { translate, type Translate } from "$lib/i18n/translator.svelte";
+import { setActiveVaultIdentity } from "$lib/vault/active-vault";
 
 export interface VaultAppState {
   activeVaultPath: string | null;
@@ -23,7 +24,19 @@ export interface DataFolderDefaultLocation {
   developmentBuild: boolean;
 }
 
-export type DataFolderErrorAction = "startup" | "default" | "change" | "import" | "general";
+export interface VaultBackupOutcome {
+  fileName: string;
+  destination: "downloads";
+}
+
+export type DataFolderErrorAction =
+  | "startup"
+  | "default"
+  | "change"
+  | "import"
+  | "backup"
+  | "restore"
+  | "general";
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -81,6 +94,22 @@ function parseOptionalVaultInfo(value: unknown): VaultInfo | null {
   return value === null ? null : parseVaultInfo(value);
 }
 
+function parseVaultBackupOutcome(value: unknown): VaultBackupOutcome {
+  if (!isRecord(value)) throw new Error("backup response is not an object");
+  const fileName = readString(value.fileName);
+  if (!fileName || value.destination !== "downloads") {
+    throw new Error("backup response is incomplete");
+  }
+  return { fileName, destination: "downloads" };
+}
+
+function activateVaultInfo(info: VaultInfo): VaultInfo;
+function activateVaultInfo(info: VaultInfo | null): VaultInfo | null;
+function activateVaultInfo(info: VaultInfo | null): VaultInfo | null {
+  setActiveVaultIdentity(info?.vaultId ?? null);
+  return info;
+}
+
 function errorMessage(value: unknown, t: Translate): string {
   const message = value instanceof Error ? value.message : String(value);
   const trimmed = message.trim();
@@ -104,6 +133,10 @@ function fallbackForAction(
       return t("dataFolderError.change");
     case "import":
       return t("dataFolderError.import");
+    case "backup":
+      return t("dataFolderError.backup");
+    case "restore":
+      return t("dataFolderError.restore");
     case "general":
       return t("dataFolderError.general");
   }
@@ -185,7 +218,7 @@ export async function readVaultAppState(): Promise<VaultAppState> {
 }
 
 export async function getActiveVaultInfo(): Promise<VaultInfo | null> {
-  return parseOptionalVaultInfo(await invoke<unknown>("vault_active_info"));
+  return activateVaultInfo(parseOptionalVaultInfo(await invoke<unknown>("vault_active_info")));
 }
 
 export async function getDefaultDataFolderLocation(): Promise<DataFolderDefaultLocation> {
@@ -193,15 +226,17 @@ export async function getDefaultDataFolderLocation(): Promise<DataFolderDefaultL
 }
 
 export async function useDefaultDataFolder(): Promise<DataFolderInfo> {
-  return parseVaultInfo(await invoke<unknown>("vault_use_default_folder"));
+  return activateVaultInfo(parseVaultInfo(await invoke<unknown>("vault_use_default_folder")));
 }
 
 export async function pickCreateVault(): Promise<VaultInfo | null> {
-  return parseOptionalVaultInfo(await invoke<unknown>("vault_pick_create"));
+  const info = parseOptionalVaultInfo(await invoke<unknown>("vault_pick_create"));
+  return info ? activateVaultInfo(info) : null;
 }
 
 export async function pickOpenVault(): Promise<VaultInfo | null> {
-  return parseOptionalVaultInfo(await invoke<unknown>("vault_pick_open"));
+  const info = parseOptionalVaultInfo(await invoke<unknown>("vault_pick_open"));
+  return info ? activateVaultInfo(info) : null;
 }
 
 export async function pickDataFolderLocation(): Promise<DataFolderInfo | null> {
@@ -213,9 +248,22 @@ export async function importDataFolder(): Promise<DataFolderInfo | null> {
 }
 
 export async function selectRecentVault(path: string): Promise<VaultInfo> {
-  return parseVaultInfo(await invoke<unknown>("vault_select_recent", { path }));
+  return activateVaultInfo(
+    parseVaultInfo(await invoke<unknown>("vault_select_recent", { path })),
+  );
 }
 
 export async function revealActiveVault(): Promise<void> {
   await invoke("vault_reveal_active");
+}
+
+/** Save a consistent, portable copy of the active Android vault to Downloads. */
+export async function backupActiveVault(): Promise<VaultBackupOutcome> {
+  return parseVaultBackupOutcome(await invoke<unknown>("vault_backup_to_downloads"));
+}
+
+/** Pick and transactionally restore a portable Android vault backup. */
+export async function restoreVaultBackup(): Promise<VaultInfo | null> {
+  const info = parseOptionalVaultInfo(await invoke<unknown>("vault_pick_and_restore_backup"));
+  return info ? activateVaultInfo(info) : null;
 }

@@ -1,78 +1,98 @@
 # Data architecture
 
-The app stores two categories of data with deliberately different mechanisms. Mixing them, or storing one as the other, creates friction every time. Keeping them separate keeps each tool used for what it is good at.
+Ganbaru AI uses three storage classes with deliberately different authority: user documents, structured application data, and device-local runtime state. Treating one class as another causes ambiguous recovery, unsafe sync, and data that cannot be inspected outside the app.
 
-## The split
+## Sources of truth
 
-**Documents.** Notes, diary entries, project working documents. These are markdown files on disk inside the user's Ganbaru AI folder. The file is the source of truth. SQLite holds an index for fast search, tag lookups, backlinks, and modified-at queries, but the index is rebuildable from the files. If the database is deleted, no document is lost.
+### User documents
 
-Why markdown on disk and not in SQLite as text columns:
+Diary entries, project working documents, generated reports, and attachments are files inside the active Ganbaru AI folder. When a document format is canonical, the file is the source of truth. SQLite may index its path, metadata, extracted text, tags, or links, but that index must be rebuildable.
 
-- Users can open, edit, sync, and back up their documents with any tool they already trust (a text editor, git, rsync, Obsidian, Syncthing).
-- The Ganbaru AI folder remains useful if the app stops being maintained. AGPL plus a plain-file format means the user is never trapped.
-- Conflict resolution during sync uses the same file-level tools the user already understands.
+Project working-folder Markdown remains ordinary user-owned Markdown. Managed project folders live below the vault. External working folders stay at user-selected paths and are represented in the vault by durable logical identities, never by portable absolute paths.
 
-**Structured data.** Calendar events, kanban tasks, work environment configs, pomodoro runs, segments, pauses, playlist definitions, project metadata. These live in SQLite. The database is the source of truth. There is no "underlying file" to fall back to.
+Keeping canonical documents as files provides three long-term properties:
 
-Why SQLite and not markdown:
+- The user can inspect, edit, back up, version, and migrate them with ordinary tools.
+- The folder remains useful if Ganbaru AI is unavailable.
+- Import and synchronization conflicts can be resolved at a visible document boundary.
 
-- Structured data needs relational integrity (foreign keys, cascades, atomic transactions). Markdown does not enforce this.
-- Aggregations that drive analytics (focus score, break adherence, idle patterns) are SQL queries, not markdown text searches.
-- The data model evolves. A schema migration is a known, scoped operation. Re-parsing a thousand markdown files of varying shape is not.
+### Structured data and document graphs
 
-The rule is one-directional: structured data may be exported as markdown for collaborators or AI agents that read repos, but those exports are views, not source. They can be regenerated at any time. The reverse, treating an exported markdown file as authoritative, is forbidden.
+Calendar events, Pomodoro state, projects and tasks, Notes pages and blocks, Quick notes, themes, playlist definitions, and organizational Chat state are structured data. SQLite is authoritative because these domains require transactions, foreign keys, stable identities, ordering, and relational queries. Authoritative pools configure every connection with WAL, `synchronous=FULL`, foreign keys, and a bounded busy timeout. Recycled connections retain those settings.
 
-## Ganbaru AI folder layout
+Notes is intentionally included here. A Notes page is a graph of blocks, properties, links, comments, history, collaboration operations, database rows, and assets. Markdown cannot preserve that graph without lossy conventions. Notes Markdown is therefore import, export, or bridge output, not the canonical page.
 
-Everything portable that the app produces lives under one folder. First launch defaults to `Documents/Ganbaru AI` in production and `Documents/Ganbaru AI Dev` in development builds, with secondary actions to choose another folder or import an existing Ganbaru AI folder from another installation. Development setup warns the user to use the dev default or a copied production folder so test data does not mix with real production data. Tauri's platform app config directory stores only device-local bootstrap and runtime state, such as the active folder pointer, benchmark state, and transient doomscrolling snapshots.
+Organizational Chat is also structured data. A project channel can outlive any provider session. Replacing or deleting a provider continuation cannot replace, merge, or delete the surrounding channel, membership, approval, decision, checkpoint, or execution history.
 
-Folder setup errors are blocking and remain visible until the user starts another folder action, successfully selects a usable folder, or closes the app. The UI translates backend validation failures into user-facing guidance for non-empty unrelated folders, missing or damaged `vault.json`, unsupported folder schema versions, permission problems, missing folders, and database-open failures for `ganbaru-ai.sqlite`.
+### Device-local state
 
-```
-Ganbaru AI/
-  vault.json                         # internal Ganbaru AI folder marker, id, display name, schema version
-  config.json                        # user settings, environment definitions, blocker rulesets
-  ganbaru-ai.sqlite                  # SQLite source of truth for structured data and indexes
-  notes/daily/                      # daily notes (markdown)
-  notes/projects/                   # per-project notes and working documents (markdown)
-  diary/morning/, diary/evening/    # dated diary entries (markdown plus indexed fields)
-  projects/{project-id}/            # per-project file attachments (PDFs, references)
-  reports/                          # generated project status reports (markdown, PDF)
-  assets/                           # user assets (images embedded in notes, attachments)
-  templates/                        # phase templates, methodology templates (SWOT, BMC)
-  .yjs/                             # Yjs document state cache (binary)
-```
+The platform application config directory stores state that is meaningful only on one installation, including the active-vault pointer, device identity, external folder bindings, executable paths, provider homes, process state, probe caches, benchmark state, and transient runtime snapshots.
 
-Music files stay wherever the user keeps them. The Ganbaru AI folder stores playlist definitions only, with paths or URIs into the user's music library. This avoids duplicating large audio files into the app folder and respects existing collections.
+Portable rows may refer to a logical working-folder ID. Resolving that ID to an external absolute path requires a current device-local binding and filesystem identity check. A portable database must never acquire authority merely because it contains a path copied from another device.
 
-Backups go to a user-specified path **outside** the Ganbaru AI folder. Backing up the folder into itself defeats the purpose if disk corruption takes the folder.
+## The active Ganbaru AI folder
 
-## Database files
+The active folder contains the vault marker, portable configuration, SQLite database, managed project folders, reserved document directories, and managed assets. The canonical current tree is maintained in [AGENTS.md](../../AGENTS.md). This document does not duplicate that tree.
 
-The user database is always `ganbaru-ai.sqlite` at the active Ganbaru AI folder root. Development and production builds keep separate Tauri app config directories and separate `app-state.json` files, so each build can point at a different folder. The benchmark harness uses device-local `benchmark.sqlite` in `app_config_dir`; it is not portable user data.
+Production and development builds use separate default folders and separate platform config directories. A user may choose another folder or import a valid existing vault. Folder validation must reject an unrelated non-empty folder, an invalid marker, unsupported schema versions, permission failures, and a database that cannot be opened. The application must never delete or silently recreate a configured vault to recover from one of these errors.
 
-Lazy initialization: the database connection is opened on first use after a Ganbaru AI folder has been selected, not at process startup. This keeps cold start time low and allows the folder to be on a slower-than-disk path, such as an encrypted volume, without delaying the setup UI.
+Music bytes remain wherever the user stores them. The vault owns playlist definitions, canonical library metadata, source identities, and managed playback state, not the external music library itself. Backups are written to a user-selected location outside the active folder.
 
-The Tauri integration owns SQLite in Rust through focused `sqlx` commands. Higher-level ORMs were considered and rejected: they add code to maintain, do not earn enough productivity for an app this small, and obscure the actual queries that show up in performance profiles. Plain SQL with typed command wrappers keeps the call sites direct.
+## Portable configuration
 
-## External tools and the CLI bridge
+Portable preferences that should follow the vault live in config.json. Writes use a Rust-owned read, validate, merge, and atomic-replace flow so independent windows do not overwrite unrelated settings. Unknown or obsolete fields are handled by explicit validation and migration rules, not silently preserved forever.
 
-The app is not the only thing that needs to read this data. AI agents (Codex or another CLI coding agent in the integrated terminal, MCP clients), backup tools, scripts, and human collaborators all interact with the same store.
+The maintainer-approved pre-user reset on 2026-08-30 established the current SQLite, portable configuration, and device-local state shapes together. Earlier development vaults and platform app-state files are intentionally unsupported and must be removed before creating a fresh vault. After a user-capable release can persist these shapes, later changes require explicit migration or compatibility rules.
 
-The bridge is the `ganbaru-ai` CLI (Rust binary, reads the same SQLite). It exposes structured commands (`task list`, `event get`, `export kanban`) that AI agents call via Bash. This keeps three properties:
+Device-only values do not belong in config.json. Examples include external absolute paths, native credential material, executable discovery, provider process state, and the active-folder pointer.
 
-1. One source of truth. The CLI reads what the app writes. There is no duplicate authoritative store for agents.
-2. Markdown exports stay derivative. The CLI can write kanban snapshots or generated reports to a git repo for collaborators who never install the app, but those files are regenerated from the database; editing them by hand is supported only via an explicit import command where the export type supports imports.
-3. External readers handle dirty state. If the app crashed and a run is mid-write, the CLI applies the same recovery semantics as the app on startup (see `algorithms/pomodoro-state-machine.md`). Aggregations always operate on a consistent view.
+## Notes import and export
 
-The MCP server is for external clients only (ChatGPT, teammate agents, and other MCP-compatible clients). Internal agent flows use the CLI directly. This keeps MCP a thin, documented surface and avoids two parallel paths to the same data.
+An exported Notes Markdown file is a derivative view. Editing it does not mutate the canonical page until the user performs an explicit import or transfer operation. Import validates and converts external content into a new or selected canonical graph. Export may be regenerated at any time.
 
-## Source-of-truth checks
+Project working-folder Markdown is different. It is already file-authoritative and appears beside linked Notes content without being copied into the Notes graph.
 
-When designing a new feature, ask:
+Assets use managed relative identities. Import copies validated bytes into a feature-owned asset directory and records the relationship transactionally. Exports may copy or rewrite asset references, but an export never becomes a second canonical asset store.
 
-- Is this content the user would expect to exist as a file they can open without the app? If yes, it is a document.
-- Does it have relational structure (foreign keys, aggregations, cross-record queries)? If yes, it is structured data.
-- Could it be regenerated from another source? If yes, it is a cache (e.g. the `.yjs/` directory, the search index part of `ganbaru-ai.sqlite`).
+## Chat separation
 
-If the answer is unclear, the default is structured data in SQLite. Promoting a value to a markdown file later is easy. Demoting a markdown file with subtle structure to SQLite later is painful.
+The durable organization layer owns projects, channels, memberships, messages, ordered provider-session links, canonical events, projections, drafts, attachments, checkpoints, access revisions, and cleanup records. Provider-native thread IDs are continuation handles within that organization layer.
+
+One organizational run may be targetless while it performs planning or discussion. Before native filesystem, terminal, Git, preview, or process work begins, the run must resolve exactly one authorized execution target: a project working folder or a private scratch generation. Provider-native trust does not widen that target.
+
+The current local coding-agent Chat uses Rust application services and an ephemeral assignment-scoped internal MCP endpoint for narrowly scoped host tools. A separately authorized external MCP service and a ganbaru-ai CLI are future integrations. They must reuse service-layer validation but do not exist as current authorization paths.
+
+## Transactions and filesystem work
+
+SQLite transactions protect relational changes. Filesystem operations cannot participate in a SQLite transaction, so commands that affect both layers use an explicit staged workflow:
+
+1. Validate authority and all input before mutation.
+2. Prepare filesystem work using bounded paths and sibling temporary files where appropriate.
+3. Commit the canonical database relationship at a defined point.
+4. Finalize or compensate the filesystem step.
+5. Persist retryable cleanup when immediate compensation is unsafe or incomplete.
+
+Blocking filesystem, process, and operating-system work must not hold a database transaction or shared async lock. The detailed runtime boundary is documented in [Native work](../architecture/native-work.md).
+
+## Derived data and caches
+
+Search indexes, projections, thumbnails, diagnostic summaries, and exported Markdown are derived. Every derived store needs a declared canonical input, invalidation rule, rebuild path, and size bound. A cache must not become the only remaining copy of user-authored information.
+
+Chat projections and Notes search indexes may be persisted for speed, but canonical events and canonical Notes rows remain authoritative. Rebuilding a projection must preserve authorization and audience filtering.
+
+## Storage decision checklist
+
+Before adding persisted data, answer:
+
+1. Is this user-authored content with a useful canonical external format? Prefer a file.
+2. Does it require relational integrity, transactional multi-row updates, or graph identity? Prefer SQLite.
+3. Is it meaningful only on one device or tied to a native path or process? Keep it device-local.
+4. Is it derivable? Define the canonical input and rebuild path instead of granting the derivative equal authority.
+5. Does it contain a secret? Store only an opaque credential reference in ordinary configuration and keep secret material in the native credential store.
+6. Will it synchronize? Give it stable identity, deterministic merge semantics, and explicit authorization before treating sync as an implementation detail.
+
+These questions are more durable than a table inventory. Exact current schema relationships are indexed in [Schema](schema/README.md).
+
+## Planned replication boundary
+
+[Device linking and synchronization](sync.md) defines portable and device-local field ownership. Shared defaults will move into transactional SQLite preferences; current `config.json` consumers have not migrated. No field can synchronize before its classification, validation, mutation journal, and conflict semantics exist.

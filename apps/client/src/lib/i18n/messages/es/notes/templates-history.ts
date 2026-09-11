@@ -1,0 +1,46 @@
+import type { templatesHistory as enTemplatesHistory } from "../../en/notes/templates-history";
+import type { MessageShape } from "../../types";
+
+export const templatesHistory = {
+  expandPage: "Expandir nota",
+  collapsePage: "Contraer nota",
+  parentMissing: "La nota principal no está disponible",
+  parentInTrash: "La nota principal está en la papelera",
+  newSubpage: "Nueva nota anidada",
+  favorites: "Favoritos",
+  recents: "Recientes",
+  pages: "Notas",
+  pageTemplates: "Plantillas",
+  createPageTemplate: "Guardar nota actual como plantilla",
+  createPageTemplateUnavailable: "Abre una nota para guardarla como plantilla",
+  pageTemplateName: (title: string) => `Plantilla de ${title}`,
+  duplicatePageTemplateName: (title: string) => `Copia de ${title}`,
+  loadingPageTemplates: "Cargando plantillas",
+  loadPageTemplatesFailed: (message: string) => `No se pudieron cargar las plantillas: ${message}`,
+  noPageTemplates: "No hay plantillas",
+  pageTemplateBlockCount: (count: number) => `${count} ${count === 1 ? "bloque" : "bloques"}`,
+  pageTemplateActions: "Acciones de plantilla",
+  applyPageTemplate: (name: string) => `Crear nota desde ${name}`,
+  applyTemplate: "Crear nota",
+  renamePageTemplate: "Renombrar plantilla",
+  updatePageTemplate: "Actualizar desde nota actual",
+  duplicatePageTemplate: "Duplicar plantilla",
+  deletePageTemplate: "Eliminar plantilla",
+  deletePageTemplateConfirmTitle: (name: string) => `¿Eliminar ${name}?`,
+  deletePageTemplateConfirmMessage:
+    "Esto elimina solo la plantilla guardada. Las notas creadas desde ella no cambian.",
+  deletePageTemplateConfirm: "Eliminar plantilla",
+  pageHistory: "Historial",
+  loadPageHistoryFailed: (message: string) => `No se pudo cargar el historial: ${message}`,
+  noPageHistory: "No hay historial",
+  pageHistoryVersionLabel: (time: string) => `Versión de ${time}`,
+  loadPageHistoryVersionFailed: (message: string) => `No se pudo cargar la versión: ${message}`,
+  pageHistoryActionFailed: (message: string) =>
+    `No se pudo actualizar el historial de nota: ${message}`,
+  copyPageHistoryBlocks: "Copiar bloques",
+  restorePageHistoryVersion: "Restaurar",
+  restorePageHistoryConfirmTitle: "¿Restaurar esta versión?",
+  restorePageHistoryConfirmMessage: (time: string) =>
+    `La nota actual se guardará primero en el historial. Después, la versión de ${time} reemplazará detalles y bloques de la nota.`,
+  restorePageHistoryConfirm: "Restaurar versión",
+} as const satisfies MessageShape<typeof enTemplatesHistory>;

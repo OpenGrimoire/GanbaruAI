@@ -4,13 +4,15 @@ import {
   getForegroundDoomscrollingDesktopApp,
   listBlockedDoomscrollingDesktopAppMatches,
   listDoomscrollingUsageSamples,
-  recordDoomscrollingUsageSample,
+  recordDoomscrollingUsageSamples,
   showDoomscrollingDesktopLimitNotification,
   writeDoomscrollingLimitState,
   type DoomscrollingDesktopAppRulePayload,
+  type DoomscrollingDesktopRuleIdentity,
   type DoomscrollingForegroundDesktopAppStatus,
   type DoomscrollingRunningDesktopAppMatch,
   type DoomscrollingUsageSampleRow,
+  type DoomscrollingUsageSamplePayload,
 } from "$lib/api/doomscrolling";
 import { ensureDbUrl } from "$lib/api/db";
 import {
@@ -23,9 +25,11 @@ import {
   type DoomscrollingUsageSample,
 } from "$lib/doomscrolling";
 import { getDoomscrolling } from "$lib/stores/doomscrolling.svelte";
+import {
+  type SchedulerRunContext,
+} from "$lib/scheduling/lifecycle-scheduler";
+import { createDoomscrollingUsageBatch } from "./doomscrolling-usage-batch";
 
-const REFRESH_INTERVAL_MS = 5_000;
-const FOREGROUND_USAGE_INTERVAL_MS = 5_000;
 const DESKTOP_LIMIT_CLOSE_THROTTLE_MS = 60_000;
 
 interface ForegroundUsageSnapshot {
@@ -44,6 +48,8 @@ interface OpenAppUsageSnapshot {
   sourceKey: string;
   displayName: string;
   processId: number;
+  processName: string;
+  processIdentity: string;
   startedAt: number;
   localDate: string;
 }
@@ -65,6 +71,13 @@ let foregroundUsageSnapshot: ForegroundUsageSnapshot | null = null;
 let openAppUsageSnapshots = new Map<string, OpenAppUsageSnapshot>();
 let foregroundUsageRunning = false;
 const desktopLimitCloseAttempts = new Map<string, number>();
+const usageBatch = createDoomscrollingUsageBatch<DoomscrollingUsageSamplePayload>(async (samples) => {
+  await recordDoomscrollingUsageSamples(await ensureDbUrl(), samples);
+});
+
+async function flushUsageSamples(): Promise<void> {
+  await usageBatch.flush();
+}
 
 function todayLocalDate(): string {
   const date = new Date();
@@ -85,7 +98,7 @@ function rowToSample(row: DoomscrollingUsageSampleRow): DoomscrollingUsageSample
   };
 }
 
-async function refreshUsage(): Promise<void> {
+async function refreshUsage(context?: SchedulerRunContext): Promise<void> {
   if (refreshRunning) return;
   refreshRunning = true;
   try {
@@ -100,6 +113,7 @@ async function refreshUsage(): Promise<void> {
       nextSamples,
       nextLocalDate,
     );
+    if (context && !context.isCurrent()) return;
     localDate = nextLocalDate;
     weekStartLocalDate = nextWeekStartLocalDate;
     samples = nextSamples;
@@ -157,8 +171,7 @@ async function recordForegroundUsageUntil(endedAt: number): Promise<boolean> {
   if (!snapshot) return false;
   const elapsedSeconds = Math.floor((endedAt - snapshot.startedAt) / 1000);
   if (elapsedSeconds < 1) return false;
-  const dbUrl = await ensureDbUrl();
-  await recordDoomscrollingUsageSample(dbUrl, {
+  usageBatch.enqueue({
     sourceType: "desktop-app",
     sourceKey: snapshot.sourceKey,
     displayName: snapshot.displayName,
@@ -175,8 +188,7 @@ async function recordOpenAppUsageSnapshot(
 ): Promise<boolean> {
   const elapsedSeconds = Math.floor((endedAt - snapshot.startedAt) / 1000);
   if (elapsedSeconds < 1) return false;
-  const dbUrl = await ensureDbUrl();
-  await recordDoomscrollingUsageSample(dbUrl, {
+  usageBatch.enqueue({
     sourceType: "desktop-app",
     sourceKey: snapshot.sourceKey,
     displayName: snapshot.displayName,
@@ -215,7 +227,12 @@ function exhaustedForegroundLimit(
   source: ForegroundUsageSource,
   startedAt: number,
   sampleLocalDate: string,
-): { limitId: string; limitName: string; period: DoomscrollingLimitPeriod } | null {
+): {
+  limitId: string;
+  limitName: string;
+  entryId: string;
+  period: DoomscrollingLimitPeriod;
+} | null {
   const doomscrolling = getDoomscrolling();
   if (!doomscrolling.limitsEnabled) return null;
   const sample = foregroundLimitSample(source, startedAt, sampleLocalDate);
@@ -227,8 +244,16 @@ function exhaustedForegroundLimit(
       && item.usedSeconds >= item.limitSeconds
     );
     if (!total) continue;
-    if (!limit.entries.some((entry) => matchesDoomscrollingLimitEntry(entry, sample))) continue;
-    return { limitId: limit.id, limitName: limit.name, period: total.period ?? "day" };
+    const entry = limit.entries.find((candidate) =>
+      matchesDoomscrollingLimitEntry(candidate, sample)
+    );
+    if (!entry) continue;
+    return {
+      limitId: limit.id,
+      limitName: limit.name,
+      entryId: entry.id,
+      period: total.period ?? "day",
+    };
   }
   return null;
 }
@@ -247,10 +272,17 @@ async function enforceForegroundLimit(
   if (now - previousAttempt < DESKTOP_LIMIT_CLOSE_THROTTLE_MS) return;
   desktopLimitCloseAttempts.set(closeKey, now);
   await closeCurrentForegroundDoomscrollingDesktopApp({
-    appName: status.appName,
-    processName: status.processName,
-    processId: status.processId,
-    matchNames: status.matchNames,
+    expected: {
+      appName: status.appName,
+      processName: status.processName,
+      processId: status.processId,
+      matchNames: status.matchNames,
+    },
+    ruleIdentity: {
+      kind: "usage-limit",
+      ruleId: exhausted.limitId,
+      entryId: exhausted.entryId,
+    },
   });
   await showDoomscrollingDesktopLimitNotification(source.displayName, exhausted.limitName);
 }
@@ -268,6 +300,11 @@ function openAppLimitPayloads(): DoomscrollingDesktopAppRulePayload[] {
         ? entry.desktopAppMatchNames
         : [entry.desktopAppName];
       byKey.set(entry.desktopAppName.toLowerCase(), {
+        ruleIdentity: {
+          kind: "usage-limit",
+          ruleId: limit.id,
+          entryId: entry.id,
+        },
         name: entry.desktopAppName,
         matchNames: [...matchNames],
       });
@@ -291,6 +328,8 @@ function openAppSourcesFromMatches(
       sourceKey,
       displayName: match.appName,
       processId: match.processId,
+      processName: match.processName,
+      processIdentity: match.processIdentity,
       startedAt: now,
       localDate: sampleLocalDate,
     });
@@ -313,16 +352,30 @@ async function enforceOpenAppLimit(snapshot: OpenAppUsageSnapshot): Promise<void
   const previousAttempt = desktopLimitCloseAttempts.get(closeKey) ?? 0;
   if (now - previousAttempt < DESKTOP_LIMIT_CLOSE_THROTTLE_MS) return;
   desktopLimitCloseAttempts.set(closeKey, now);
-  await closeDoomscrollingDesktopApp(snapshot.processId);
+  const ruleIdentity: DoomscrollingDesktopRuleIdentity = {
+    kind: "usage-limit",
+    ruleId: exhausted.limitId,
+    entryId: exhausted.entryId,
+  };
+  await closeDoomscrollingDesktopApp({
+    processId: snapshot.processId,
+    processName: snapshot.processName,
+    processIdentity: snapshot.processIdentity,
+    ruleIdentity,
+  });
   await showDoomscrollingDesktopLimitNotification(snapshot.displayName, exhausted.limitName);
 }
 
-async function updateOpenAppUsage(endedAt: number): Promise<boolean> {
+async function updateOpenAppUsage(
+  endedAt: number,
+  context?: SchedulerRunContext,
+): Promise<boolean> {
   const payloads = openAppLimitPayloads();
   if (payloads.length === 0) {
     return await recordOpenAppUsageUntil(endedAt);
   }
   const matches = await listBlockedDoomscrollingDesktopAppMatches(payloads);
+  if (context && !context.isCurrent()) return false;
   const nextSnapshots = openAppSourcesFromMatches(matches);
   const activeKeys = new Set(nextSnapshots.map((snapshot) => snapshot.sourceKey.toLowerCase()));
   const staleSnapshots = [...openAppUsageSnapshots.values()]
@@ -337,12 +390,13 @@ async function updateOpenAppUsage(endedAt: number): Promise<boolean> {
       }
       : snapshot;
   });
-  const recordedStale = await Promise.all(
+  await Promise.all(
     staleSnapshots.map((snapshot) => recordOpenAppUsageSnapshot(snapshot, endedAt)),
   );
-  const recordedContinuing = await Promise.all(
+  await Promise.all(
     continuingSnapshots.map((snapshot) => recordOpenAppUsageSnapshot(snapshot, endedAt)),
   );
+  if (context && !context.isCurrent()) return false;
   openAppUsageSnapshots = new Map(
     nextSnapshots.map((snapshot) => [
       snapshot.sourceKey.toLowerCase(),
@@ -353,10 +407,6 @@ async function updateOpenAppUsage(endedAt: number): Promise<boolean> {
       },
     ]),
   );
-  const recorded = [...recordedStale, ...recordedContinuing].some(Boolean);
-  if (recorded) {
-    await refreshUsage();
-  }
   await Promise.all(
     nextSnapshots.map((snapshot) =>
       enforceOpenAppLimit(snapshot).catch((err) => {
@@ -367,21 +417,25 @@ async function updateOpenAppUsage(endedAt: number): Promise<boolean> {
   return false;
 }
 
-async function updateForegroundUsage(): Promise<void> {
+async function updateForegroundUsage(context?: SchedulerRunContext): Promise<void> {
   if (foregroundUsageRunning) return;
   foregroundUsageRunning = true;
   const startedAt = Date.now();
   const sampleLocalDate = todayLocalDate();
   try {
     const status = await getForegroundDoomscrollingDesktopApp();
+    if (context && !context.isCurrent()) return;
     foregroundStatus = status;
     const source = foregroundUsageSourceFromStatus(status);
-    const recorded = await recordForegroundUsageUntil(startedAt);
-    const recordedOpenApps = status.available
-      ? await recordOpenAppUsageUntil(startedAt)
-      : shouldUseOpenAppCounting(status)
-        ? await updateOpenAppUsage(startedAt)
-        : await recordOpenAppUsageUntil(startedAt);
+    await recordForegroundUsageUntil(startedAt);
+    if (status.available) {
+      await recordOpenAppUsageUntil(startedAt);
+    } else if (shouldUseOpenAppCounting(status)) {
+      await updateOpenAppUsage(startedAt, context);
+    } else {
+      await recordOpenAppUsageUntil(startedAt);
+    }
+    if (context && !context.isCurrent()) return;
     if (source) {
       foregroundUsageSnapshot = {
         ...source,
@@ -389,15 +443,13 @@ async function updateForegroundUsage(): Promise<void> {
         localDate: sampleLocalDate,
       };
     }
-    if (recorded || recordedOpenApps) {
-      await refreshUsage();
-    }
     if (source) {
       await enforceForegroundLimit(status, source, startedAt, sampleLocalDate).catch((err) => {
         console.warn("Failed to enforce doomscrolling foreground limit:", err);
       });
     }
   } catch (err) {
+    if (context && !context.isCurrent()) return;
     foregroundStatus = {
       available: false,
       appName: null,
@@ -412,6 +464,24 @@ async function updateForegroundUsage(): Promise<void> {
   } finally {
     foregroundUsageRunning = false;
   }
+}
+
+let usageEnabled = false;
+
+function setUsageSchedulerEnabled(enabled: boolean): void {
+  const wasEnabled = usageEnabled;
+  usageEnabled = enabled;
+  if (!wasEnabled || enabled) return;
+  const endedAt = Date.now();
+  void recordForegroundUsageUntil(endedAt).catch((err) => {
+    console.warn("Failed to record final doomscrolling foreground usage sample:", err);
+  });
+  void recordOpenAppUsageUntil(endedAt).catch((err) => {
+    console.warn("Failed to record final doomscrolling open app usage sample:", err);
+  });
+  void flushUsageSamples().catch((err) => {
+    console.warn("Failed to flush final doomscrolling usage samples:", err);
+  });
 }
 
 export function getDoomscrollingUsage() {
@@ -440,25 +510,28 @@ export function getDoomscrollingUsage() {
     refresh(): Promise<void> {
       return refreshUsage();
     },
-    start(): () => void {
-      void refreshUsage();
-      void updateForegroundUsage();
-      const refreshInterval = setInterval(() => {
-        void refreshUsage();
-      }, REFRESH_INTERVAL_MS);
-      const foregroundInterval = setInterval(() => {
-        void updateForegroundUsage();
-      }, FOREGROUND_USAGE_INTERVAL_MS);
-      return () => {
-        void recordForegroundUsageUntil(Date.now()).catch((err) => {
-          console.warn("Failed to record final doomscrolling foreground usage sample:", err);
-        });
-        void recordOpenAppUsageUntil(Date.now()).catch((err) => {
-          console.warn("Failed to record final doomscrolling open app usage sample:", err);
-        });
-        clearInterval(refreshInterval);
-        clearInterval(foregroundInterval);
-      };
+    isEnabled(): boolean {
+      return usageEnabled;
+    },
+    setEnabled(enabled: boolean): void {
+      setUsageSchedulerEnabled(enabled);
+    },
+    invalidate(): void {
+      // The app-level observation coordinator owns invalidation.
+    },
+    resume(): void {
+      // The app-level observation coordinator owns lifecycle resume.
+    },
+    flush(): Promise<void> {
+      return flushUsageSamples();
+    },
+    async runOnce(context: SchedulerRunContext): Promise<void> {
+      if (!usageEnabled) return;
+      await updateForegroundUsage(context);
+      if (!context.isCurrent()) return;
+      await flushUsageSamples();
+      if (!context.isCurrent()) return;
+      await refreshUsage(context);
     },
   };
 }

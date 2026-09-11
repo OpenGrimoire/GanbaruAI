@@ -7,7 +7,7 @@
   import { getDoomscrolling } from "$lib/stores/doomscrolling.svelte";
   import { cn } from "$lib/utils";
   import ConfirmDialog from "$lib/components/ui/ConfirmDialog.svelte";
-  import DoomscrollingAppSelector from "./DoomscrollingAppSelector.svelte";
+  import DoomscrollingAppSelector from "$lib/components/settings/doomscrolling-desktop-selector";
   import DoomscrollingConfigurationSection from "./DoomscrollingConfigurationSection.svelte";
   import DoomscrollingRuleList from "./DoomscrollingRuleList.svelte";
 
@@ -221,12 +221,12 @@
   function pendingActionConfirmLabel(action: PendingAction): string {
     if (action.target === "desktopConfiguration") {
       return action.action.toggle === "enabled"
-        ? t("settings.doomscrolling.shared.turnOffShortcut")
-        : t("settings.doomscrolling.shared.allowShortcut");
+        ? t("settings.doomscrolling.shared.turnOffAction")
+        : t("settings.doomscrolling.shared.allowAction");
     }
     return action.action.type === "disable"
-      ? t("settings.doomscrolling.shared.allowShortcut")
-      : t("settings.doomscrolling.shared.removeShortcut");
+      ? t("settings.doomscrolling.shared.allowAction")
+      : t("settings.doomscrolling.shared.removeAction");
   }
 </script>
 
@@ -256,7 +256,7 @@
       !doomscrolling.desktopEnabled && "opacity-50",
     )}
   >
-    <div class="h-px bg-border/70" aria-hidden="true"></div>
+    <div class="h-px shrink-0 scale-y-50 bg-border" aria-hidden="true"></div>
 
     <section class="flex flex-col gap-4">
       <h2 class="px-1 text-[0.866667rem] font-semibold text-foreground">{t("settings.doomscrolling.desktop.blocklist")}</h2>
@@ -294,7 +294,7 @@
     title={pendingActionTitle(pendingAction)}
     message={pendingActionMessage(pendingAction)}
     confirmLabel={pendingActionConfirmLabel(pendingAction)}
-    cancelLabel={t("settings.doomscrolling.shared.cancelShortcut")}
+    cancelLabel={t("settings.doomscrolling.shared.cancelAction")}
     onConfirm={confirmPendingAction}
     onCancel={cancelPendingAction}
   />

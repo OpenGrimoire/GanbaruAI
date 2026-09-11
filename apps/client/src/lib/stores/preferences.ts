@@ -29,7 +29,7 @@ export {
  * the theme system (font family, font scale, density). Themes may ship a
  * recommended pair of these, but the active values stay user-controlled.
  *
- * See `docs/features/themes.md`, section "Typography and density".
+ * See `docs/features/themes/README.md`, section "Typography and density".
  */
 
 export type FontFamilyId = string;
@@ -98,6 +98,18 @@ export type CalendarTimeFormat = "24h" | "12h";
 export const DEFAULT_CALENDAR_TIME_FORMAT: CalendarTimeFormat = "24h";
 export const DEFAULT_CALENDAR_DIM_PAST_EVENTS = true;
 export const DEFAULT_MUSIC_PAUSE_ON_POMODORO_PAUSE = true;
+export const DEFAULT_PROFILE_DISPLAY_NAME = "";
+export const DEFAULT_PROFILE_FULL_NAME = "";
+export const DEFAULT_PROFILE_IMAGE_PATH: string | null = null;
+export const PROFILE_DISPLAY_NAME_FALLBACK = "You";
+export const PROFILE_DISPLAY_NAME_MAX_CHARS = 25;
+export const PROFILE_FULL_NAME_MAX_CHARS = 50;
+const PROFILE_IMAGE_PATH_PATTERN = /^profile\/[a-f0-9]{64}\.(?:png|jpe?g|webp)$/i;
+export const DEFAULT_NOTES_MENTION_NOTIFICATIONS_ENABLED = true;
+export const DEFAULT_NOTES_REMINDER_NOTIFICATIONS_ENABLED = true;
+export const DEFAULT_NOTES_USER_MENTION_NOTIFICATIONS_ENABLED = true;
+export const DEFAULT_NOTES_TASK_MENTION_NOTIFICATIONS_ENABLED = true;
+export const DEFAULT_NOTES_NOTIFICATION_INCLUDE_CONTENT = false;
 export const FOCUS_IDLE_THRESHOLD_MINUTES_OPTIONS = Object.freeze(
   [1, 2, 3, 4, 5, 10, 15] as const,
 );
@@ -181,6 +193,52 @@ export function resolveFontFamilyStack(id: FontFamilyId | undefined | null): str
   // DEFAULT_FONT_FAMILY_ID is guaranteed to be in FONT_FAMILIES, so option is
   // never undefined; the non-null assertion is a type-system formality.
   return option!.cssStack;
+}
+
+export type ProfileDisplayNameValidation =
+  | { ok: true; value: string }
+  | { ok: false; reason: "too_long" | "control_characters" };
+
+export type ProfileFullNameValidation =
+  | { ok: true; value: string }
+  | { ok: false; reason: "too_long" | "control_characters" };
+
+/** Returns true when a profile image points to one managed raster asset. */
+export function isProfileImagePath(value: unknown): value is string {
+  return typeof value === "string" && PROFILE_IMAGE_PATH_PATTERN.test(value.trim());
+}
+
+function normalizeProfileTextField(
+  value: string,
+  maxCharacters: number,
+): ProfileDisplayNameValidation {
+  const trimmed = value.trim();
+  if ([...trimmed].length > maxCharacters) {
+    return { ok: false, reason: "too_long" };
+  }
+  if ([...trimmed].some((character) => {
+    const codePoint = character.codePointAt(0);
+    return codePoint !== undefined && codePoint < 32;
+  })) {
+    return { ok: false, reason: "control_characters" };
+  }
+  return { ok: true, value: trimmed };
+}
+
+/**
+ * Normalize the local profile display name. Empty names are valid because
+ * product surfaces can fall back to a contextual label when needed.
+ */
+export function normalizeProfileDisplayName(value: string): ProfileDisplayNameValidation {
+  return normalizeProfileTextField(value, PROFILE_DISPLAY_NAME_MAX_CHARS);
+}
+
+/**
+ * Normalize the local profile full name. Empty names are valid while profile
+ * completion remains optional.
+ */
+export function normalizeProfileFullName(value: string): ProfileFullNameValidation {
+  return normalizeProfileTextField(value, PROFILE_FULL_NAME_MAX_CHARS);
 }
 
 export function isTitleBarControlId(value: unknown): value is TitleBarControlId {
@@ -287,16 +345,4 @@ export function parseTitleBarVisibility(value: unknown): TitleBarVisibility {
     }
   }
   return visibility;
-}
-
-export function shouldNormalizeTitleBarVisibility(value: unknown): boolean {
-  if (value === undefined) return false;
-  if (typeof value !== "object" || value === null || Array.isArray(value)) return true;
-
-  const validIds = new Set<string>(TITLE_BAR_CONTROL_IDS);
-  const record = value as Record<string, unknown>;
-  for (const [key, stored] of Object.entries(record)) {
-    if (!validIds.has(key) || typeof stored !== "boolean") return true;
-  }
-  return false;
 }

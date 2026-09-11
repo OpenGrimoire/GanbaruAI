@@ -37,19 +37,23 @@ The dropdown menu should feel compact and calm:
 - Language rows use one-line labels.
 - The selected option uses a subtle inset rounded highlight aligned with the search box width, not a full-width block against the menu edge.
 
-This screen can appear before an active Ganbaru AI folder exists, so it cannot assume `config.json` is available. A language selected here is applied immediately with `persist: false`, then stored as a temporary local setup preference. After the user creates or imports a Ganbaru AI folder, the temporary value is copied into `preferences.language`, flushed to the new active folder's `config.json`, and cleared. Main boot also checks for that temporary value after `ensureConfigLoaded()` so the handoff still happens before the app mounts if the setup window reloads first.
+This screen can appear before an active Ganbaru AI folder exists, so it cannot assume `config.json` is available. A language selected here is loaded and applied with `persist: false`, then stored as a temporary local setup preference. After the user creates or imports a Ganbaru AI folder, the temporary value is copied into `preferences.language`, flushed to the new active folder's `config.json`, and cleared. Main boot also checks for that temporary value before mounting so the setup screen and the main app never paint in the previous language during the handoff.
 
 The setup trigger displays the resolved locale name for `system`, such as `Español` for `es-MX`, and falls back to `English` when the system language is unsupported.
 
 ## Runtime behavior
 
-`main.ts` loads the active config before mounting Svelte and initializes localization from that config. The localization store then exposes:
+The desktop and mobile platform bootstraps resolve the system or temporary setup language before mounting Svelte. They load active configuration, resolve the persisted preference, and await the selected catalog before mounting the platform shell. The shared `main.ts` module only selects the platform entry. English is the resident typed fallback. Every non-default catalog is a separate dynamic chunk with one cached catalog value and one in-flight import per locale.
+
+Language changes are atomic. The preference, active catalog, resolved locale, document language and direction, and persisted config value change together only after the requested catalog loads. A failed import retains the previous language and is retryable through the next selection. A slower obsolete import cannot replace a newer selection. System `languagechange` events follow the same load-before-commit path.
+
+The localization store exposes:
 
 - `languagePreference`: the persisted selector value.
 - `locale`: the resolved app locale.
 - `direction`: the resolved text direction.
 - `t`: the typed translator.
-- `setLanguagePreference`: the persistence-aware setter used by settings.
+- `setLanguagePreference`: the asynchronous persistence-aware setter used by settings.
 
 The translator reads from the resolved catalog first, then English. English is typed as the canonical `MessageCatalog`, and non-English catalogs must satisfy that shape partially. Adding a key to English therefore updates the allowed translation key space for every caller.
 
@@ -65,11 +69,13 @@ Storage and interoperability stay canonical:
 - All-day values remain floating dates.
 - SQLite and config keys stay stable English identifiers.
 - iCalendar import and export preserve standards-defined values, not translated UI labels.
-- Benchmark markdown copied for `docs/PERFORMANCE.md` stays in the canonical English format so historical rows remain comparable.
+- Benchmark markdown copied for [performance results](../performance/results.md) stays in the canonical English format so historical rows remain comparable.
 
 ## Translation scope
 
 Normal app chrome and main feature UI should use catalog keys directly or feature-local localization helpers. This includes settings, title bar controls, calendar panels, Pomodoro overlays, Music, doomscrolling, theme editor labels, diagnostics, and benchmark overlays.
+
+Shared confirmation dialogs append their standard keyboard hints at the render boundary. The cancel action shows the localized Escape key label and the confirm action shows the localized Enter key label. Feature catalogs provide only the action text, without embedding shortcut suffixes, so every shared confirmation stays consistent and translations do not duplicate interaction behavior. A specialized confirmation surface that cannot use the shared dialog must render the same localized hints and implement the matching keys.
 
 Internal ids, CSS tokens, config keys, SQL columns, benchmark result identity fields, generated benchmark markdown, and tests can remain English when they are not rendered as user-facing text. If an internal English value is rendered, localize at the render boundary instead of changing the stored identity unless the identity itself is obsolete.
 
@@ -79,7 +85,7 @@ To add a locale:
 
 1. Add the locale metadata in `apps/client/src/lib/i18n/locales.ts`.
 2. Add a catalog under `apps/client/src/lib/i18n/messages/`.
-3. Register the catalog in `translator.svelte.ts`.
+3. Register the non-default catalog importer in `catalog-loader.ts`.
 4. Add the option to `LANGUAGE_PREFERENCES` in `stores/preferences.ts`.
 5. Add the locale to setup language option generation in `apps/client/src/lib/i18n/pre-vault-language.ts` if it is not derived automatically.
 6. Add or update tests for locale resolution, translator fallback, setup search aliases, and any locale-specific formatter behavior.

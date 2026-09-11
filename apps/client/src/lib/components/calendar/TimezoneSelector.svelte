@@ -57,7 +57,7 @@
   const VIEWPORT_MARGIN = 8;
 
   let open = $state(false);
-  let triggerEl: HTMLDivElement | undefined = $state();
+  let triggerEl: HTMLButtonElement | undefined = $state();
   let popoverEl: HTMLDivElement | undefined = $state();
   let inputEl: HTMLInputElement | undefined = $state();
   let listEl: HTMLDivElement | undefined = $state();
@@ -140,11 +140,12 @@
     requestAnimationFrame(() => inputEl?.focus());
   }
 
-  function close() {
+  function close(source: "keyboard" | "pointer" = "pointer") {
     open = false;
+    if (source === "keyboard") requestAnimationFrame(() => triggerEl?.focus());
   }
 
-  function handleAdd(tz: string) {
+  function handleAdd(tz: string, source: "keyboard" | "pointer") {
     // Defensive: search excludes active tzs so this should be unreachable,
     // but a stale highlight or rapid-fire Enter could re-add otherwise.
     if (timezones.includes(tz)) return;
@@ -153,7 +154,7 @@
     query = "";
     highlightIndex = 0;
     if (willHitMax) {
-      close();
+      close(source);
     } else {
       requestAnimationFrame(() => inputEl?.focus());
     }
@@ -243,43 +244,43 @@
     item?.scrollIntoView({ block: "nearest" });
   }
 
-  // Capture-phase keydown so we intercept arrow keys before CalendarView's
-  // window-level navigation handler runs them through `navigate(...)`.
+  function handleSearchKeydown(e: KeyboardEvent) {
+    if (e.key === "ArrowDown") {
+      e.preventDefault();
+      e.stopPropagation();
+      if (filtered.length > 0) {
+        highlightIndex = Math.min(filtered.length - 1, highlightIndex + 1);
+        scrollHighlightIntoView();
+      }
+      return;
+    }
+    if (e.key === "ArrowUp") {
+      e.preventDefault();
+      e.stopPropagation();
+      if (filtered.length > 0) {
+        highlightIndex = Math.max(0, highlightIndex - 1);
+        scrollHighlightIntoView();
+      }
+      return;
+    }
+    if (e.key === "Enter") {
+      const candidate = filtered[highlightIndex];
+      if (candidate) {
+        e.preventDefault();
+        e.stopPropagation();
+        handleAdd(candidate, "keyboard");
+      }
+    }
+  }
+
+  // Escape closes the whole portaled popover from any control within it.
   $effect(() => {
     if (!open) return;
     function onKeydown(e: KeyboardEvent) {
-      if (e.key === "Escape") {
-        e.preventDefault();
-        e.stopPropagation();
-        close();
-        return;
-      }
-      if (e.key === "ArrowDown") {
-        e.preventDefault();
-        e.stopPropagation();
-        if (filtered.length > 0) {
-          highlightIndex = Math.min(filtered.length - 1, highlightIndex + 1);
-          scrollHighlightIntoView();
-        }
-        return;
-      }
-      if (e.key === "ArrowUp") {
-        e.preventDefault();
-        e.stopPropagation();
-        if (filtered.length > 0) {
-          highlightIndex = Math.max(0, highlightIndex - 1);
-          scrollHighlightIntoView();
-        }
-        return;
-      }
-      if (e.key === "Enter") {
-        const candidate = filtered[highlightIndex];
-        if (candidate) {
-          e.preventDefault();
-          e.stopPropagation();
-          handleAdd(candidate);
-        }
-      }
+      if (e.key !== "Escape") return;
+      e.preventDefault();
+      e.stopPropagation();
+      close("keyboard");
     }
     window.addEventListener("keydown", onKeydown, true);
     return () => window.removeEventListener("keydown", onKeydown, true);
@@ -338,15 +339,15 @@
 </script>
 
 <!-- Trigger: subgrid keeps each label aligned under its column's hour ticks. -->
-<!-- svelte-ignore a11y_click_events_have_key_events -->
-<!-- svelte-ignore a11y_no_static_element_interactions -->
-<div
+<button
   bind:this={triggerEl}
+  type="button"
   class="timezone-trigger relative grid cursor-pointer self-stretch rounded text-[0.866667rem] transition-colors hover:bg-accent"
   style="color: var(--foreground); grid-column: span {tzCount}; grid-template-columns: subgrid;"
   onclick={toggleOpen}
-  role="button"
-  tabindex="0"
+  aria-haspopup="dialog"
+  aria-expanded={open}
+  aria-label={t("calendar.timezone.title")}
 >
   {#each timezones as tz}
     {@const info = getTimezoneInfo(tz)}
@@ -354,7 +355,7 @@
       {triggerLabel(info)}
     </span>
   {/each}
-</div>
+</button>
 
 {#if open}
   <!-- svelte-ignore a11y_no_static_element_interactions -->
@@ -363,6 +364,8 @@
     use:portal
     class="tz-popover fixed z-80 flex flex-col rounded-lg border border-border bg-card text-card-foreground shadow-xl"
     style="top: {popoverPos.top}px; left: {popoverPos.left}px; width: {POPOVER_WIDTH}px; max-height: {POPOVER_HEIGHT}px; --foreground: var(--card-foreground);"
+    role="dialog"
+    aria-label={t("calendar.timezone.title")}
     onwheel={(e) => e.stopPropagation()}
   >
     <div class="flex items-center justify-between gap-2 px-3 pt-3 pb-1">
@@ -476,8 +479,10 @@
           type="text"
           bind:value={query}
           placeholder={t("calendar.timezone.searchPlaceholder")}
+          aria-label={t("calendar.timezone.searchPlaceholder")}
           class="w-full rounded border border-border bg-background px-2 py-1.5 text-xs text-foreground outline-none focus:ring-1 focus:ring-ring"
           onclick={(e: MouseEvent) => e.stopPropagation()}
+          onkeydown={handleSearchKeydown}
         />
       </div>
 
@@ -497,7 +502,7 @@
                 type="button"
                 class="block w-full rounded px-2 py-1.5 text-left text-xs transition-colors {idx === highlightIndex ? 'bg-accent' : 'hover:bg-accent'}"
                 onmouseenter={() => { highlightIndex = idx; }}
-                onclick={(e: MouseEvent) => { e.stopPropagation(); handleAdd(tz); }}
+                onclick={(e: MouseEvent) => { e.stopPropagation(); handleAdd(tz, "pointer"); }}
               >
                 <div class="truncate text-foreground">
                   <span class="inline-block w-18 font-medium tabular-nums">{info.offsetUtc}</span>

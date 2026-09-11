@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-openExactAlarmSettings"
+description = "Enables the openExactAlarmSettings command without any pre-configured scope."
+commands.allow = ["openExactAlarmSettings"]
+
+[[permission]]
+identifier = "deny-openExactAlarmSettings"
+description = "Denies the openExactAlarmSettings command without any pre-configured scope."
+commands.deny = ["openExactAlarmSettings"]

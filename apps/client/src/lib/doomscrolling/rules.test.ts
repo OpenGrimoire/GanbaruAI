@@ -10,6 +10,7 @@ import {
   normalizeDoomscrollingAppName,
   normalizeDoomscrollingConfig,
   normalizeDoomscrollingHost,
+  normalizeDoomscrollingMobilePackage,
   parseDoomscrollingHosts,
   type DoomscrollingAppRule,
   type DoomscrollingCategoryId,
@@ -138,8 +139,8 @@ describe("normalizeDoomscrollingAppName", () => {
   it("recognizes protected Ganbaru AI app names", () => {
     expect(isProtectedDoomscrollingDesktopAppName("Ganbaru AI")).toBe(true);
     expect(isProtectedDoomscrollingDesktopAppName("ganbaru-ai")).toBe(true);
-    expect(isProtectedDoomscrollingDesktopAppName("org.opengrimoire.ganbaru-ai")).toBe(true);
-    expect(isProtectedDoomscrollingDesktopAppName("org.opengrimoire.ganbaru-ai.dev")).toBe(true);
+    expect(isProtectedDoomscrollingDesktopAppName("org.opengrimoire.ganbaruai")).toBe(true);
+    expect(isProtectedDoomscrollingDesktopAppName("org.opengrimoire.ganbaruai.dev")).toBe(true);
     expect(isProtectedDoomscrollingDesktopAppName("Steam")).toBe(false);
   });
 
@@ -150,6 +151,20 @@ describe("normalizeDoomscrollingAppName", () => {
     expect(isProtectedDoomscrollingDesktopAppName("python3.12")).toBe(true);
     expect(isProtectedDoomscrollingDesktopAppName("explorer.exe")).toBe(true);
     expect(isProtectedDoomscrollingDesktopAppName("Discord")).toBe(false);
+  });
+});
+
+describe("normalizeDoomscrollingMobilePackage", () => {
+  it("accepts stable Android package identifiers", () => {
+    expect(normalizeDoomscrollingMobilePackage("  com.example.video_app  ")).toBe(
+      "com.example.video_app",
+    );
+  });
+
+  it("rejects labels, single segments, and malformed identifiers", () => {
+    expect(normalizeDoomscrollingMobilePackage("YouTube")).toBeNull();
+    expect(normalizeDoomscrollingMobilePackage("1com.example.video")).toBeNull();
+    expect(normalizeDoomscrollingMobilePackage("com.example-video")).toBeNull();
   });
 });
 
@@ -178,12 +193,31 @@ describe("normalizeDoomscrollingConfig", () => {
       pauseDuringFocusPause: true,
       blockedCategories: DEFAULT_DOOMSCROLLING_CONFIG.blockedCategories,
       customCategoryStacks: [],
-      blockedHosts: [hostRule("reddit.com"), hostRule("youtube.com")],
+      blockedHosts: [],
       exceptionHosts: [],
       allowedHosts: [],
+      mobile: DEFAULT_DOOMSCROLLING_CONFIG.mobile,
       desktop: DEFAULT_DOOMSCROLLING_CONFIG.desktop,
       limits: DEFAULT_DOOMSCROLLING_CONFIG.limits,
     });
+  });
+
+  it("drops scalar rule entries from predecessor config shapes", () => {
+    const normalized = normalizeDoomscrollingConfig({
+      blockedCategories: ["news"],
+      blockedHosts: ["reddit.com"],
+      exceptionHosts: ["youtube.com"],
+      allowedHosts: ["github.com"],
+      desktop: { blockedApps: ["Steam"] },
+    });
+
+    expect(normalized.blockedCategories.find((rule) => rule.id === "news")).toEqual(
+      categoryRule("news", false),
+    );
+    expect(normalized.blockedHosts).toEqual([]);
+    expect(normalized.exceptionHosts).toEqual([]);
+    expect(normalized.allowedHosts).toEqual([]);
+    expect(normalized.desktop.blockedApps).toEqual([]);
   });
 
   it("normalizes disabled host rules without dropping them", () => {
@@ -199,7 +233,7 @@ describe("normalizeDoomscrollingConfig", () => {
 
   it("keeps allowed hosts scoped to whitelist mode", () => {
     expect(normalizeDoomscrollingConfig({
-      allowedHosts: ["music.youtube.com"],
+      allowedHosts: [hostRule("music.youtube.com")],
     })).toMatchObject({
       mode: "blacklist",
       exceptionHosts: [],
@@ -210,8 +244,8 @@ describe("normalizeDoomscrollingConfig", () => {
   it("keeps whitelist allowed hosts separate from blacklist exceptions", () => {
     expect(normalizeDoomscrollingConfig({
       mode: "whitelist",
-      exceptionHosts: ["music.youtube.com"],
-      allowedHosts: ["github.com"],
+      exceptionHosts: [hostRule("music.youtube.com")],
+      allowedHosts: [hostRule("github.com")],
     })).toMatchObject({
       mode: "whitelist",
       exceptionHosts: [hostRule("music.youtube.com")],
@@ -234,7 +268,7 @@ describe("normalizeDoomscrollingConfig", () => {
   it("normalizes built-in categories and custom category stacks", () => {
     const normalized = normalizeDoomscrollingConfig({
       blockedCategories: [
-        "social-media",
+        categoryRule("social-media"),
         { id: "streaming", enabled: false },
         { id: "news", enabled: true },
         { id: "unknown", enabled: true },
@@ -244,12 +278,16 @@ describe("normalizeDoomscrollingConfig", () => {
           id: "research-traps",
           name: "  Research traps  ",
           enabled: false,
-          hosts: ["news.ycombinator.com", "https://reddit.com/r/programming", "*"],
+          hosts: [
+            hostRule("news.ycombinator.com"),
+            { host: "https://reddit.com/r/programming", enabled: true },
+            { host: "*", enabled: true },
+          ],
         },
         {
           id: "bad id",
           name: "Invalid",
-          hosts: ["example.com"],
+          hosts: [hostRule("example.com")],
         },
       ],
     });
@@ -278,8 +316,8 @@ describe("normalizeDoomscrollingConfig", () => {
         enabled: false,
         blockDuringFocus: false,
         blockedApps: [
-          "Steam",
-          "Ganbaru AI",
+          { name: "Steam" },
+          { name: "Ganbaru AI" },
           { name: " steam ", enabled: false },
           { name: "Discord", enabled: false },
           { name: "Calculator", matchNames: ["gnome-calculator"] },
@@ -296,6 +334,33 @@ describe("normalizeDoomscrollingConfig", () => {
           appRule("Steam"),
           appRule("Discord", false),
         ],
+      },
+    });
+  });
+
+  it("normalizes mobile app rules by stable package identity", () => {
+    expect(normalizeDoomscrollingConfig({
+      mobile: {
+        enabled: false,
+        blockDuringFocus: false,
+        blockedApps: [
+          { name: " YouTube ", packageName: "com.google.android.youtube" },
+          { name: "Duplicate", packageName: "COM.GOOGLE.ANDROID.YOUTUBE", enabled: false },
+          { name: "Invalid", packageName: "YouTube" },
+        ],
+      },
+    })).toMatchObject({
+      mobile: {
+        enabled: false,
+        blockDuringFocus: false,
+        blockDuringShortBreaks: true,
+        blockDuringLongBreaks: true,
+        pauseDuringFocusPause: true,
+        blockedApps: [{
+          name: "YouTube",
+          packageName: "com.google.android.youtube",
+          enabled: true,
+        }],
       },
     });
   });
@@ -318,6 +383,7 @@ describe("normalizeDoomscrollingConfig", () => {
                 desktopAppName: "FreeTube",
                 desktopAppMatchNames: [],
                 mobileAppName: "YouTube",
+                mobileAppPackage: "com.google.android.youtube",
               },
             ],
           },
@@ -337,6 +403,7 @@ describe("normalizeDoomscrollingConfig", () => {
             name: "YouTube main",
             websiteHost: "youtube.com",
             mobileAppName: "YouTube",
+            mobileAppPackage: "com.google.android.youtube",
             desktopAppName: "FreeTube",
             desktopAppMatchNames: ["FreeTube"],
           },
@@ -400,6 +467,25 @@ describe("Doomscrolling usage limit matching", () => {
     expect(matchesDoomscrollingLimitEntry(
       {
         id: "youtube",
+        name: null,
+        websiteHost: null,
+        mobileAppName: "YouTube",
+        mobileAppPackage: "com.google.android.youtube",
+        desktopAppName: null,
+        desktopAppMatchNames: [],
+      },
+      {
+        sourceType: "mobile-app",
+        sourceKey: "com.google.android.youtube",
+        displayName: "YouTube",
+        elapsedSeconds: 60,
+        startedAt: 1_779_923_600_000,
+        localDate: "2026-05-28",
+      },
+    )).toBe(true);
+    expect(matchesDoomscrollingLimitEntry(
+      {
+        id: "youtube-name-only",
         name: null,
         websiteHost: null,
         mobileAppName: "YouTube",

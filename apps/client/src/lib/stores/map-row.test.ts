@@ -21,6 +21,9 @@ function makeDbRow(overrides: Partial<DbCalendarEvent> = {}): DbCalendarEvent {
     end_time: "2026-03-15 10:00:00",
     timezone: "America/New_York",
     calendar_id: "local",
+    project_id: null,
+    environment_id: null,
+    playlist_id: null,
     color: null,
     rrule: null,
     notifications: null,
@@ -35,10 +38,14 @@ function makeDbRow(overrides: Partial<DbCalendarEvent> = {}): DbCalendarEvent {
     local_rsvp_status: null,
     created_at: "2026-03-15T08:00:00Z",
     rdate: null,
-    focus_duration_minutes: null,
-    short_break_minutes: null,
-    long_break_minutes: null,
-    pomodoro_count: null,
+    rhythm_kind: null,
+    rhythm_source: null,
+    preset_key: null,
+    count_focus_duration_minutes: null,
+    count_short_break_minutes: null,
+    count_long_break_minutes: null,
+    count_long_break_after_focus_count: null,
+    sequence_steps: null,
     idle_timeout_minutes: null,
     ...overrides,
   };
@@ -70,6 +77,17 @@ describe("mapRow", () => {
     expect(result.timezone).toBe("America/New_York");
     expect(result.calendarId).toBe("local");
     expect(result.createdAt).toBe("2026-03-15T08:00:00Z");
+  });
+
+  it("maps project automation identifiers", () => {
+    const result = mapRow(makeDbRow({
+      project_id: "project-a",
+      environment_id: "environment-a",
+      playlist_id: "playlist-a",
+    }));
+    expect(result.projectId).toBe("project-a");
+    expect(result.environmentId).toBe("environment-a");
+    expect(result.playlistId).toBe("playlist-a");
   });
 
   it("preserves non-zero seconds from canonical UTC event times", () => {
@@ -142,6 +160,17 @@ describe("mapRow", () => {
     expect(result.exceptions).toBeUndefined();
   });
 
+  it("rejects valid JSON with incorrect calendar field shapes", () => {
+    const result = mapRow(makeDbRow({
+      rdate: '"2026-04-01"',
+      notifications: '[15,"60"]',
+      exceptions: '{"date":"2026-04-01"}',
+    }));
+    expect(result.rdate).toBeUndefined();
+    expect(result.notifications).toBeUndefined();
+    expect(result.exceptions).toBeUndefined();
+  });
+
   it("maps all-day events", () => {
     const result = mapRow(makeDbRow({ all_day: 1 }));
     expect(result.allDay).toBe(true);
@@ -160,17 +189,25 @@ describe("mapRow", () => {
 
   it("maps pomodoro config when present", () => {
     const result = mapRow(makeDbRow({
-      focus_duration_minutes: 25,
-      short_break_minutes: 5,
-      long_break_minutes: 15,
-      pomodoro_count: 4,
+      rhythm_kind: "count",
+      rhythm_source: "preset",
+      preset_key: "deep",
+      count_focus_duration_minutes: 25,
+      count_short_break_minutes: 5,
+      count_long_break_minutes: 15,
+      count_long_break_after_focus_count: 4,
       idle_timeout_minutes: 1,
     }));
     expect(result.pomodoroConfig).toEqual({
-      focusDurationMinutes: 25,
-      shortBreakMinutes: 5,
-      longBreakMinutes: 15,
-      pomodoroCount: 4,
+      rhythm: {
+        kind: "count",
+        focusDurationMinutes: 25,
+        shortBreakMinutes: 5,
+        longBreakMinutes: 15,
+        longBreakAfterFocusCount: 4,
+      },
+      rhythmSource: "preset",
+      presetKey: "deep",
       idleTimeoutMinutes: 1,
     });
   });

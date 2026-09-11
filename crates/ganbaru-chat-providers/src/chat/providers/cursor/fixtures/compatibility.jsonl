@@ -1,0 +1,8 @@
+{"method":"session/update","params":{"sessionId":"cursor-session-fixture","update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"Implemented "}}}}
+{"method":"session/update","params":{"sessionId":"cursor-session-fixture","update":{"sessionUpdate":"agent_thought_chunk","content":{"type":"text","text":"Checking constraints"}}}}
+{"method":"session/update","params":{"sessionId":"cursor-session-fixture","update":{"sessionUpdate":"tool_call","toolCallId":"tool-edit-1","kind":"edit","title":"Edit source","status":"in_progress","locations":[{"path":"src/main.rs","line":4}],"rawInput":{"path":"src/main.rs"}}}}
+{"method":"session/update","params":{"sessionId":"cursor-session-fixture","update":{"sessionUpdate":"tool_call_update","toolCallId":"tool-edit-1","kind":"edit","status":"completed","content":[{"type":"diff","path":"src/main.rs","oldText":"old","newText":"new"}]}}}
+{"method":"session/update","params":{"sessionId":"cursor-session-fixture","update":{"sessionUpdate":"plan","entries":[{"id":"plan-1","content":"Inspect code","status":"completed"},{"id":"plan-2","content":"Apply change","status":"in_progress"}]}}}
+{"method":"session/update","params":{"sessionId":"cursor-session-fixture","update":{"sessionUpdate":"current_mode_update","currentModeId":"plan"}}}
+{"method":"session/update","params":{"sessionId":"cursor-session-fixture","update":{"sessionUpdate":"future_cursor_block","secret":"not-canonicalized"}}}
+{"method":"cursor/update_todos","params":{"toolCallId":"todo-tool-1","todos":[{"id":"todo-1","content":"Run checks","status":"pending"}],"merge":false}}

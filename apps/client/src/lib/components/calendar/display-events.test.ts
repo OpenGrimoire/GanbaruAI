@@ -283,6 +283,8 @@ describe("computeEditDisplay", () => {
     const storeEvents = [template, inst20, inst21];
     const session = { originalEvent: inst20, instanceEvent: inst20, templateId: template.id };
     const changes = { recurrence: undefined };
+    const currentDate = "2026-06-14";
+    const currentTime = "08:00";
 
     const thisResult = computeEditDisplay(
       [template],
@@ -291,6 +293,9 @@ describe("computeEditDisplay", () => {
       changes,
       "this",
       TEST_WINDOW,
+      undefined,
+      currentDate,
+      currentTime,
     );
     const followingResult = computeEditDisplay(
       [template],
@@ -299,6 +304,9 @@ describe("computeEditDisplay", () => {
       changes,
       "following",
       TEST_WINDOW,
+      undefined,
+      currentDate,
+      currentTime,
     );
     const allResult = computeEditDisplay(
       [template],
@@ -307,6 +315,9 @@ describe("computeEditDisplay", () => {
       changes,
       "all",
       TEST_WINDOW,
+      undefined,
+      currentDate,
+      currentTime,
     );
 
     expect(thisResult.events.find((event) => event.id === inst20.id)?.recurrence).toBeUndefined();

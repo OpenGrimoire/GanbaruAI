@@ -3,11 +3,11 @@
  *
  * The harness drives deterministic workloads against a baseline dataset and
  * one or more dense calendar datasets, then emits compact markdown ready for
- * `docs/PERFORMANCE.md`. Each scenario declares whether it measures startup,
+ * `docs/performance/results.md`. Each scenario declares whether it measures startup,
  * memory, or feature latency so the runner avoids unrelated waits. Both
  * passes run after a cold restart against an isolated
  * `benchmark.sqlite` so the user's real DB and Ganbaru AI folder are never
- * touched. The rationale lives in `docs/features/performance-benchmark.md`.
+ * touched. The rationale lives in `docs/performance/harness.md`.
  */
 import type { CalendarEvent } from "$lib/components/calendar/types";
 
@@ -156,7 +156,7 @@ export interface BenchmarkWorkload {
   memoryMode: BenchmarkMemoryMode;
 }
 
-export type BenchmarkMetricUnit = "ms" | "count";
+export type BenchmarkMetricUnit = "ms" | "count" | "percent";
 
 export interface BenchmarkMetric {
   /** Stable row label within a scenario, e.g. `click existing event`. */
@@ -243,7 +243,7 @@ export interface BenchmarkState {
   /** ISO 8601 from when the run was confirmed. Drives the stale TTL check. */
   startedAt: string;
   /** ISO 8601 from the last state write. Drives the pending-restart TTL check. */
-  updatedAt?: string;
+  updatedAt: string;
   /** Pinned `HARNESS_VERSION` at write time. Mismatch on read clears state. */
   harnessVersion: string;
   /** Dense dataset version pinned at seed time. Currently `v1`. */
@@ -313,7 +313,7 @@ export function benchmarkTotalAgeMs(state: BenchmarkStateTimeProbe, nowMs = Date
 }
 
 export function benchmarkPendingAgeMs(state: BenchmarkStateTimeProbe, nowMs = Date.now()): number {
-  return timestampAgeMs(state.updatedAt ?? state.startedAt, nowMs);
+  return timestampAgeMs(state.updatedAt, nowMs);
 }
 
 export function isFreshBenchmarkTotalAge(state: BenchmarkStateTimeProbe, nowMs = Date.now()): boolean {

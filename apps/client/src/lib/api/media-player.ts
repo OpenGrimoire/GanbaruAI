@@ -1,7 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 
-export type LocalPlayerStatus = "idle" | "ready" | "playing" | "paused" | "ended" | "error";
-export type LocalBackendKind = "none" | "rodio" | "webview";
+export type LocalPlayerStatus = "idle" | "loading" | "ready" | "playing" | "paused" | "ended" | "error";
+export type LocalBackendKind = "none" | "rodio" | "webview" | "media3";
 
 export interface LocalMediaSource {
   kind: "local-file";

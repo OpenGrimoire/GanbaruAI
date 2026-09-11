@@ -34,7 +34,7 @@
 
   let {
     date,
-    events,
+    positionedEvents,
     theme,
     isToday = false,
     isPast = false,
@@ -55,9 +55,11 @@
     persistedSegmentsByEvent = new Map<string, PersistedSegment[]>(),
     visibleStartMinute = 0,
     visibleEndMinute = 1440,
+    allowPointerEditing = true,
+    mobileLayout = false,
   }: {
     date: Date;
-    events: CalendarEvent[];
+    positionedEvents: PositionedEvent[];
     theme: Theme;
     isToday?: boolean;
     isPast?: boolean;
@@ -72,6 +74,8 @@
     persistedSegmentsByEvent?: ReadonlyMap<string, PersistedSegment[]>;
     visibleStartMinute?: number;
     visibleEndMinute?: number;
+    allowPointerEditing?: boolean;
+    mobileLayout?: boolean;
     onEventClick: (event: CalendarEvent, rect?: DOMRect) => void;
     onEventPrefetch?: (event: CalendarEvent) => void;
     onDragStart: (eventId: string, e: PointerEvent, forceEdge?: "resize-top" | "resize-bottom") => void;
@@ -87,10 +91,8 @@
   const panelOpen = $derived(!!editingId);
 
   const dateStr = $derived(formatDatePart(date));
-  // `events` arrives pre-bucketed per day from CalendarView, so the only
-  // remaining concern is to drop all-day rows which render in the banner.
-  const dayEvents = $derived(events.filter((e) => !e.allDay));
-  const positioned = $derived(layoutEventsForDay(dayEvents, dateStr));
+  const dayEvents = $derived(positionedEvents.map((positionedEvent) => positionedEvent.event));
+  const positioned = $derived(positionedEvents);
 
   // Layout-aware preview: include drag/create preview in layout computation
   // so overlapping events shift in real time to show the final result.
@@ -183,7 +185,7 @@
     }
     // Include drag previews if they have pomodoro config.
     for (const preview of dragPreviewList) {
-      if (!preview.event.pomodoroConfig) continue;
+      if (!preview.event.pomodoroConfig || preview.event.allDay || preview.event.status === "cancelled") continue;
       const { startMinute, endMinute } = effectiveMinuteRange(preview.event, dateStr);
       ranges.push({ start: startMinute, end: endMinute });
     }
@@ -217,7 +219,7 @@
 
     const nowMinuteOfDay = (nowMs - dayStartMs) / 60000;
     const pomodoroEvents = positioned
-      .filter((p) => p.event.pomodoroConfig && !(draggingEventId && p.event.id === draggingEventId))
+      .filter((p) => p.event.pomodoroConfig && !p.event.allDay && p.event.status !== "cancelled" && !(draggingEventId && p.event.id === draggingEventId))
       .map((p) => {
         const { startMinute, endMinute } = effectiveMinuteRange(p.event, dateStr);
         let evStartMs = parseCalendarDate(p.event.start).getTime();
@@ -232,6 +234,7 @@
 
         return {
           id: p.event.id,
+          createdAt: p.event.createdAt,
           config: p.event.pomodoroConfig!,
           startMs: evStartMs,
           endMs: parseCalendarDate(p.event.end).getTime(),
@@ -241,10 +244,11 @@
       });
     // Include drag previews for rail band previsualization.
     for (const preview of dragPreviewList) {
-      if (!preview.event.pomodoroConfig) continue;
+      if (!preview.event.pomodoroConfig || preview.event.allDay || preview.event.status === "cancelled") continue;
       const { startMinute, endMinute } = effectiveMinuteRange(preview.event, dateStr);
       pomodoroEvents.push({
         id: preview.event.id,
+        createdAt: preview.event.createdAt,
         config: preview.event.pomodoroConfig,
         startMs: parseCalendarDate(preview.event.start).getTime(),
         endMs: parseCalendarDate(preview.event.end).getTime(),
@@ -259,13 +263,7 @@
       remainingSeconds: pomodoro.remainingSeconds,
       phaseElapsedSeconds: pomodoro.phaseElapsedSeconds,
       phaseWorkDurationSeconds: pomodoro.phaseWorkDurationSeconds,
-      currentConfig: {
-        focusDurationMinutes: pomodoro.currentConfig.focusMinutes,
-        shortBreakMinutes: pomodoro.currentConfig.shortBreakMinutes,
-        longBreakMinutes: pomodoro.currentConfig.longBreakMinutes,
-        pomodoroCount: pomodoro.currentConfig.cyclesBeforeLongBreak,
-        idleTimeoutMinutes: null,
-      },
+      currentConfig: pomodoro.currentConfig,
       breakOvertimeSeconds: pomodoro.breakOvertimeSeconds,
     }, dayStartMs, nowMs, persistedSegmentsByEvent);
   });
@@ -430,14 +428,7 @@
     const hh = getRenderedHourHeight();
     const rawMinute = (offsetY / hh) * 60;
     const clickMinute = snapSimpleClickStartMinute(rawMinute);
-    let selectionMinute = clampMinute(snapToGrid(rawMinute, calZoom.gridMinutes));
-
-    if (isToday && currentTimeMinute >= 0) {
-      const currentTimeY = (currentTimeMinute / 60) * hh;
-      if (Math.abs(offsetY - currentTimeY) < getResizeThreshold()) {
-        selectionMinute = Math.floor(currentTimeMinute);
-      }
-    }
+    const selectionMinute = clampMinute(snapToGrid(rawMinute, calZoom.gridMinutes));
 
     return { selectionMinute, clickMinute };
   }
@@ -462,6 +453,7 @@
 
   // Get resize edge for a specific block from click coordinates
   function getBlockEdgeFromClick(eventId: string, e: PointerEvent): "resize-top" | "resize-bottom" | undefined {
+    if (mobileLayout) return undefined;
     if (!columnEl) return undefined;
     const colRect = columnEl.getBoundingClientRect();
     const colOffsetX = e.clientX - colRect.left;
@@ -474,7 +466,7 @@
   }
 
   function handleColumnAreaPointerDown(e: PointerEvent) {
-    if (e.button !== 0 || draggingEventId) return;
+    if (!allowPointerEditing || e.button !== 0 || draggingEventId) return;
 
     // Calculate position from actual click coordinates
     if (!columnEl) return;
@@ -532,7 +524,7 @@
   }
 
   function handleRailAreaPointerDown(e: PointerEvent) {
-    if (e.button !== 0 || !columnEl || draggingEventId || panelOpen) return;
+    if (!allowPointerEditing || e.button !== 0 || !columnEl || draggingEventId || panelOpen) return;
     const colRect = columnEl.getBoundingClientRect();
     // Only handle clicks in the rail zone (left of columnEl)
     if (e.clientX >= colRect.left) return;
@@ -627,14 +619,17 @@
       preview={previewedIds?.has(pos.event.id) === true}
       grabbing={pos.event.id === grabbingId}
       animateLayout={layoutAnimationActive}
-      canDrag={!panelOpen || pos.event.id === editingId}
+      canDrag={allowPointerEditing && (!panelOpen || pos.event.id === editingId)}
+      {mobileLayout}
       isPast={!isPendingCreateEventId(pos.event.id) && (
         isPast || (isToday && currentTimeMinute >= 0 && effectiveMinuteRange(pos.event, dateStr).endMinute <= currentTimeMinute)
       )}
       inResizeZone={hoverResizeBlockId === pos.event.id}
       onclick={(rect) => { if (!didDrag) onEventClick(pos.event, rect); }}
       onprefetch={() => onEventPrefetch?.(pos.event)}
-      onpointerdown={(e) => onDragStart(pos.event.id, e, getBlockEdgeFromClick(pos.event.id, e))}
+      onpointerdown={(e) => {
+        if (allowPointerEditing) onDragStart(pos.event.id, e, getBlockEdgeFromClick(pos.event.id, e));
+      }}
     />
   {/each}
 

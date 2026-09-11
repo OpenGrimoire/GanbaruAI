@@ -12,12 +12,14 @@
     stickyBottom = 0,
     onTimelineWheel,
     wheelPassthrough = false,
+    activeThumb = false,
   }: {
     scrollContainer: HTMLElement | undefined;
     stickyTop?: number;
     stickyBottom?: number;
     onTimelineWheel?: (e: WheelEvent) => void;
     wheelPassthrough?: boolean;
+    activeThumb?: boolean;
   } = $props();
 
   const calZoom = getCalendarZoom();
@@ -177,7 +179,7 @@
       style="
         top: {thumbTop}px;
         height: {thumbHeight}px;
-        background-color: {dragging || hovering
+        background-color: {activeThumb || dragging || hovering
           ? 'var(--cal-scrollbar-thumb-hover, var(--muted-foreground))'
           : 'var(--cal-scrollbar-thumb, var(--muted))'};
       "

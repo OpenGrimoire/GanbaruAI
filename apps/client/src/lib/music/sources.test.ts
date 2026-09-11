@@ -64,6 +64,18 @@ describe("parseMusicSourceInput", () => {
     });
   });
 
+  it("parses mobile YouTube links", () => {
+    const result = parseMusicSourceInput("https://m.youtube.com/watch?v=dQw4w9WgXcQ");
+    expect(result.error).toBeNull();
+    expect(result.source).toMatchObject({ kind: "youtube-video", videoId: "dQw4w9WgXcQ" });
+  });
+
+  it("rejects malformed YouTube identities", () => {
+    const result = parseMusicSourceInput("https://www.youtube.com/watch?v=bad!");
+    expect(result.source).toBeNull();
+    expect(result.error).toBe("The YouTube video ID is not valid.");
+  });
+
   it("parses local absolute paths", () => {
     const result = parseMusicSourceInput("/home/person/Music/focus.flac");
 

@@ -7,9 +7,24 @@
 // native API, the polyfill assignment in main.ts becomes a no-op and this
 // declaration can be replaced by the standard ES type once it is published.
 import type { Temporal as TemporalPolyfill } from "@js-temporal/polyfill";
+
 declare global {
+  interface GanbaruAndroidInsetsBridge {
+    systemBars(): string;
+  }
+
+  interface GanbaruAndroidAppearanceBridge {
+    setLightTheme(lightTheme: boolean): void;
+  }
+
+  interface Window {
+    GanbaruAndroidInsets?: GanbaruAndroidInsetsBridge;
+    GanbaruAndroidAppearance?: GanbaruAndroidAppearanceBridge;
+  }
+
   const __GANBARU_AI_BUILD_REF__: string;
   const __GANBARU_AI_GITHUB_REPOSITORY__: string;
+  const __GANBARU_AI_BUILD_PLATFORM__: "linux" | "windows" | "macos" | "android" | "ios";
 
   // eslint-disable-next-line no-var
   var Temporal: typeof TemporalPolyfill;

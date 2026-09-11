@@ -57,7 +57,7 @@ describe("data folder state api", () => {
     expect(
       formatDataFolderError("run database migrations: file is not a database", "startup"),
     ).toBe(
-      "The app found this Ganbaru AI folder, but ganbaru-ai.sqlite could not be opened. Restore a backup or choose another folder.",
+      "The app found this Ganbaru AI folder, but its local data file could not be opened. Restore a backup or choose another folder.",
     );
   });
 

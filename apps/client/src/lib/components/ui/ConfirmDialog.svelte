@@ -1,18 +1,33 @@
 <script lang="ts">
   import { onMount, tick } from "svelte";
   import { getLocalization } from "$lib/i18n/translator.svelte";
+  import {
+    activateModalFocus,
+    activateModalKeyboardLayer,
+    trapModalTabKey,
+  } from "$lib/modal-focus";
+  import { BUILD_PLATFORM_PROFILE, platformHasCapability } from "$lib/platform";
+  import { getMobileBackStack } from "$lib/stores/mobile-back-stack.svelte";
 
   const { t } = getLocalization();
+  const mobileBackStack = getMobileBackStack();
+  const androidSystemBackAvailable = platformHasCapability(
+    BUILD_PLATFORM_PROFILE,
+    "system.android-back",
+  );
+  const mobileShell = BUILD_PLATFORM_PROFILE.shell === "mobile";
 
   let {
     title,
     message,
-    confirmLabel = t("common.yesShortcut"),
-    cancelLabel = t("common.noShortcut"),
+    confirmLabel = t("common.yes"),
+    cancelLabel = t("common.no"),
     danger = true,
     extraConfirmShortcut,
+    element = $bindable(),
     onConfirm,
     onCancel,
+    onDismiss = onCancel,
   }: {
     title?: string;
     message: string;
@@ -20,20 +35,32 @@
     cancelLabel?: string;
     danger?: boolean;
     extraConfirmShortcut?: (e: KeyboardEvent) => boolean;
+    element?: HTMLDivElement;
     onConfirm: () => void;
     onCancel: () => void;
+    onDismiss?: () => void;
   } = $props();
 
-  let dialogEl: HTMLDivElement | undefined = $state();
   const displayMessage = $derived(message.replace(/\.\s*$/u, ""));
+  let cancelButtonElement = $state<HTMLButtonElement | null>(null);
 
   function handleKeydown(e: KeyboardEvent) {
-    if (e.key === "Enter") { e.preventDefault(); e.stopPropagation(); onConfirm(); return; }
+    if (e.key === "Tab" && element) {
+      trapModalTabKey(element, e);
+      e.stopPropagation();
+      return;
+    }
+    if (e.key === "Enter") {
+      e.preventDefault();
+      e.stopPropagation();
+      onConfirm();
+      return;
+    }
     if (e.key === "Escape") {
       e.preventDefault();
       e.stopPropagation();
       (document.activeElement as HTMLElement)?.blur();
-      onCancel();
+      onDismiss();
       return;
     }
     if (extraConfirmShortcut?.(e)) {
@@ -50,25 +77,34 @@
   }
 
   onMount(() => {
+    const deactivateMobileBack = androidSystemBackAvailable
+      ? mobileBackStack.activate({ handle: () => onDismiss() })
+      : () => undefined;
+    const deactivateKeyboard = activateModalKeyboardLayer(handleKeydown);
+    let deactivateModalFocus = (): void => undefined;
     void tick().then(() => {
-      dialogEl?.focus();
+      if (element) deactivateModalFocus = activateModalFocus(element, cancelButtonElement);
     });
-    window.addEventListener("keydown", handleKeydown, true);
-    return () => window.removeEventListener("keydown", handleKeydown, true);
+    return () => {
+      deactivateMobileBack();
+      deactivateKeyboard();
+      deactivateModalFocus();
+    };
   });
 </script>
 
 <!-- svelte-ignore a11y_click_events_have_key_events -->
 <!-- svelte-ignore a11y_no_static_element_interactions -->
 <div
-  class="fixed inset-0 z-90 flex items-center justify-center"
-  onclick={(e) => { e.stopPropagation(); onCancel(); }}
+  class="fixed z-90 flex items-center justify-center"
+  style="left: var(--visual-viewport-offset-left); top: var(--visual-viewport-offset-top); width: var(--visual-viewport-width); height: var(--visual-viewport-height); padding: calc(var(--safe-area-top) + 1rem) calc(var(--safe-area-right) + 1rem) calc(var(--safe-area-bottom) + 1rem) calc(var(--safe-area-left) + 1rem);"
+  onclick={(e) => { e.stopPropagation(); onDismiss(); }}
 >
   <div class="absolute inset-0 bg-black/50"></div>
   <!-- svelte-ignore a11y_no_static_element_interactions -->
   <div
-    bind:this={dialogEl}
-    class="confirm-dialog relative z-10 rounded-md border border-black/20 bg-card text-card-foreground px-8 py-5 outline-none dark:border-white/10 dark:bg-sidebar dark:text-sidebar-foreground"
+    bind:this={element}
+    class="confirm-dialog relative z-10 max-h-full w-full max-w-md overflow-y-auto rounded-md border border-black/20 bg-card px-5 py-5 text-card-foreground outline-none dark:border-white/10 dark:bg-sidebar dark:text-sidebar-foreground sm:px-8"
     style="--foreground: var(--card-foreground);"
     role="dialog"
     aria-modal="true"
@@ -84,18 +120,21 @@
         <p class="text-[1rem] font-semibold text-foreground whitespace-pre-line">{displayMessage}</p>
       {/if}
     </div>
-    <div class="flex items-center justify-start gap-2">
+    <div class="flex flex-wrap items-center justify-start gap-2">
       <button
+        type="button"
+        bind:this={cancelButtonElement}
         onclick={onCancel}
-        class="rounded-md border border-border bg-card px-3.5 py-2 text-[0.866667rem] font-medium text-foreground transition-colors hover:bg-accent"
+        class="min-h-12 rounded-md border border-border bg-card px-3.5 py-2 text-[0.866667rem] font-medium text-foreground transition-colors hover:bg-accent"
       >
-        {cancelLabel}
+        {#if mobileShell}{cancelLabel}{:else}{`${cancelLabel} (${t("common.escapeKey")})`}{/if}
       </button>
       <button
+        type="button"
         onclick={onConfirm}
-        class="rounded-md border border-border bg-primary px-3.5 py-2 text-[0.866667rem] font-medium text-primary-foreground transition-colors hover:bg-primary/90"
+        class="min-h-12 rounded-md border border-border bg-primary px-3.5 py-2 text-[0.866667rem] font-medium text-primary-foreground transition-colors hover:bg-primary/90"
       >
-        {confirmLabel}
+        {#if mobileShell}{confirmLabel}{:else}{`${confirmLabel} (${t("common.enterKey")})`}{/if}
       </button>
     </div>
   </div>

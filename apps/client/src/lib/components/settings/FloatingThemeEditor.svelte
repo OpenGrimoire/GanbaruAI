@@ -239,7 +239,7 @@
     <!-- svelte-ignore a11y_no_static_element_interactions -->
     <header
       class={cn(
-        "flex shrink-0 items-center gap-2 border-b border-border bg-sidebar px-3 py-2",
+        "flex shrink-0 items-center gap-2 border-b border-border/70 bg-sidebar px-3 py-2",
         editorGeometry.canDrag
           ? dragging
             ? "cursor-grabbing"
@@ -283,7 +283,7 @@
 
     <!-- Sticky footer -->
     <footer
-      class="theme-editor-footer flex shrink-0 flex-wrap items-center justify-between gap-2 border-t border-border bg-sidebar px-3 py-2"
+      class="theme-editor-footer flex shrink-0 flex-wrap items-center justify-between gap-2 border-t border-border/70 bg-sidebar px-3 py-2"
     >
       <div class="flex min-w-0 items-center gap-2">
         <button

@@ -10,16 +10,21 @@ export interface SelectPopoverRect {
 export interface SelectPopoverGeometry {
   top: number;
   left: number;
+  width: number | null;
   minWidth: number;
   maxWidth: number;
   maxHeight: number;
   placement: "above" | "below";
 }
 
+export type SelectPopoverHorizontalAlign = "start" | "end";
+
 interface SelectPopoverGeometryInput {
   triggerRect: SelectPopoverRect;
   boundaryRect: SelectPopoverRect;
   contentHeight: number;
+  contentWidth?: number;
+  horizontalAlign?: SelectPopoverHorizontalAlign;
   gap?: number;
   inset?: number;
 }
@@ -37,6 +42,8 @@ export function pickSelectPopoverGeometry({
   triggerRect,
   boundaryRect,
   contentHeight,
+  contentWidth,
+  horizontalAlign = "start",
   gap = 6,
   inset = 8,
 }: SelectPopoverGeometryInput): SelectPopoverGeometry {
@@ -63,17 +70,27 @@ export function pickSelectPopoverGeometry({
     : Math.max(topBound, aboveBottom - renderedHeight);
 
   const maxAvailableWidth = finiteOrZero(rightBound - leftBound);
-  const left = clamp(
-    triggerRect.left,
-    leftBound,
-    rightBound - Math.min(triggerRect.width, maxAvailableWidth),
-  );
-  const maxWidth = finiteOrZero(rightBound - left);
+  const triggerWidth = finiteOrZero(triggerRect.width);
+  const desiredWidth = Math.max(triggerWidth, finiteOrZero(contentWidth ?? triggerWidth));
+  const renderedWidth = Math.min(desiredWidth, maxAvailableWidth);
+  const left = horizontalAlign === "end"
+    ? clamp(
+        clamp(triggerRect.right, leftBound, rightBound) - renderedWidth,
+        leftBound,
+        rightBound - renderedWidth,
+      )
+    : clamp(
+        triggerRect.left,
+        leftBound,
+        rightBound - Math.min(triggerWidth, maxAvailableWidth),
+      );
+  const maxWidth = finiteOrZero(horizontalAlign === "end" ? renderedWidth : rightBound - left);
 
   return {
     top,
     left,
-    minWidth: Math.min(finiteOrZero(triggerRect.width), maxWidth),
+    width: horizontalAlign === "end" ? renderedWidth : null,
+    minWidth: Math.min(triggerWidth, maxWidth),
     maxWidth,
     maxHeight,
     placement,

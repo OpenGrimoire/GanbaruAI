@@ -1,0 +1,107 @@
+<script lang="ts">
+  import Folder from "@lucide/svelte/icons/folder";
+  import { getLocalization } from "$lib/i18n/translator.svelte";
+  import { getProjects } from "$lib/stores/projects.svelte";
+  import { cn } from "$lib/utils";
+  import ProjectNavigator from "./ProjectNavigator.svelte";
+  import ProjectPickerMobileDialog from "./ProjectPickerMobileDialog.svelte";
+
+  let {
+    selectedProjectId,
+    showInactiveProjects = $bindable<boolean>(),
+    mobileLayout = false,
+    onProjectSelected,
+  }: {
+    selectedProjectId: string | null;
+    showInactiveProjects: boolean;
+    mobileLayout?: boolean;
+    onProjectSelected: () => void;
+  } = $props();
+
+  const projects = getProjects();
+  const { t } = getLocalization();
+
+  let navigatorOpen = $state(false);
+
+  function closeNavigator(): void {
+    navigatorOpen = false;
+  }
+
+</script>
+
+<div
+  class="flex h-full flex-col items-center justify-center gap-3 p-4 text-center text-[0.866667rem] text-muted-foreground"
+  data-projects-first-use-state
+>
+  {#if projects.loadError}
+    <div role="alert">{t("projects.loadFailed", projects.loadError)}</div>
+    <button
+      type="button"
+      class={cn(
+        "rounded-md border border-border bg-background px-3 text-[0.8rem] font-medium text-foreground hover:bg-accent",
+        mobileLayout ? "min-h-12" : "min-h-9",
+      )}
+      aria-haspopup="dialog"
+      aria-expanded={navigatorOpen}
+      onclick={() => {
+        void projects.load().catch(() => undefined);
+      }}
+    >
+      {t("common.retry")}
+    </button>
+  {:else if projects.loaded}
+    <div>{t("projects.navigator.empty")}</div>
+    <button
+      type="button"
+      class={cn(
+        "flex items-center gap-1.5 rounded-md border border-border bg-background px-3 text-[0.8rem] font-medium text-foreground hover:bg-accent",
+        mobileLayout ? "min-h-12" : "min-h-9",
+      )}
+      onclick={() => {
+        navigatorOpen = !navigatorOpen;
+      }}
+    >
+      <Folder size={14} strokeWidth={1.75} />
+      <span>{t("projects.navigator.open")}</span>
+    </button>
+    {#if navigatorOpen}
+      {#if mobileLayout}
+        <ProjectPickerMobileDialog
+          label={t("projects.navigator.pickerLabel")}
+          closeLabel={t("projects.navigator.closePicker")}
+          onClose={closeNavigator}
+        >
+          <div class="h-full text-left">
+            <ProjectNavigator
+              {selectedProjectId}
+              {showInactiveProjects}
+              onShowInactiveProjectsChange={(value) => {
+                showInactiveProjects = value;
+              }}
+              onProjectSelected={() => {
+                closeNavigator();
+                onProjectSelected();
+              }}
+              mobileLayout
+              onClose={closeNavigator}
+            />
+          </div>
+        </ProjectPickerMobileDialog>
+      {:else}
+        <div class="h-[min(24rem,70vh)] w-[min(28rem,100%)] text-left">
+          <ProjectNavigator
+            {selectedProjectId}
+            {showInactiveProjects}
+            onShowInactiveProjectsChange={(value) => {
+              showInactiveProjects = value;
+            }}
+            onProjectSelected={() => {
+              closeNavigator();
+              onProjectSelected();
+            }}
+          />
+        </div>
+      {/if}
+    {/if}
+  {/if}
+</div>

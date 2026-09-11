@@ -89,7 +89,7 @@
             ]}
           >
             <h2 class="px-1 text-[0.866667rem] font-semibold text-foreground">{group.title}</h2>
-            <div class="flex flex-col divide-y divide-border/70">
+            <div class="flex flex-col divide-y divide-border">
               {#each group.items as item}
                 <div
                   class="grid grid-cols-[minmax(0,1fr)_minmax(8rem,13rem)] gap-x-3 gap-y-1 px-1 py-2.5 first:pt-0 max-[560px]:grid-cols-1"
@@ -128,7 +128,7 @@
             </div>
           </section>
           {#if index < filteredGroups.length - 1}
-            <div class="h-px bg-border/70" aria-hidden="true"></div>
+            <div class="h-px shrink-0 scale-y-50 bg-border" aria-hidden="true"></div>
           {/if}
         {/each}
       </div>

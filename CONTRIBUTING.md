@@ -15,9 +15,9 @@ Branch and release restrictions are supply-chain controls, not a judgment about 
 - Release preparation changes, such as version bumps, happen through normal pull requests into `dev` before `dev` is promoted to `main`.
 - Releases are created from `app-v*` tags on the release commit, not from every merge to `main`.
 
-Do not push directly to `main` or `dev` for normal feature, fix, or docs work. All normal changes must enter through pull requests. Use direct pushes only for exceptional repository maintenance where a project maintainer explicitly approves it.
+Do not push directly to `main` or `dev`. Changes enter through pull requests. Any emergency exception would first require a deliberate, reviewed ruleset change because neither protected branch has a bypass actor.
 
-Only organization admins may merge release pull requests into `main`, create or update `app-v*` tags, approve the protected release environment, or publish GitHub Releases. Today that means the organization owner unless release authority is explicitly delegated. The exact intended GitHub rulesets are documented in `docs/rulesets.md`.
+Only organization admins may merge release pull requests into `main`, create or update `app-v*` tags, approve the protected release environment, or publish GitHub Releases. Today that means the organization owner unless release authority is explicitly delegated. The exact intended GitHub rulesets are documented in [repository policy](docs/operations/repository-policy.md).
 
 ## Pull requests
 
@@ -54,4 +54,4 @@ After the merge queue lands the release PR in `main`, create and push the matchi
 
 Pull requests that target `main` and do not come from `dev` should be retargeted to `dev` or closed.
 
-See `docs/release.md` for the full release process.
+See the [release guide](docs/operations/release/README.md) for the full release process.

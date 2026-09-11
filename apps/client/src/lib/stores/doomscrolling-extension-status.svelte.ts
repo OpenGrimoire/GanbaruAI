@@ -2,6 +2,10 @@ import {
   getDoomscrollingExtensionStatus,
   type DoomscrollingExtensionStatus,
 } from "$lib/api/doomscrolling";
+import {
+  createLifecycleScheduler,
+  type SchedulerRunContext,
+} from "$lib/scheduling/lifecycle-scheduler";
 import { appSessionStartedAt } from "$lib/stores/app-session";
 
 const EXTENSION_STATUS_POLL_MS = 15_000;
@@ -9,41 +13,48 @@ const EXTENSION_STATUS_POLL_MS = 15_000;
 let status = $state<DoomscrollingExtensionStatus | null>(null);
 let loading = $state(true);
 let error = $state<string | null>(null);
-let refreshPromise: Promise<void> | null = null;
-let intervalId: ReturnType<typeof setInterval> | null = null;
+let refreshPromise: Promise<DoomscrollingExtensionStatus> | null = null;
 let subscriberCount = 0;
 
-async function refreshExtensionStatus(): Promise<void> {
-  if (refreshPromise) return refreshPromise;
+async function refreshExtensionStatus(context?: SchedulerRunContext): Promise<void> {
   if (!status) loading = true;
-  refreshPromise = (async () => {
-    try {
-      status = await getDoomscrollingExtensionStatus(appSessionStartedAt);
-      error = null;
-    } catch (err) {
-      console.warn("Failed to read browser extension connection status:", err);
-      error = err instanceof Error ? err.message : String(err);
-    } finally {
-      loading = false;
+  const request = refreshPromise
+    ?? getDoomscrollingExtensionStatus(appSessionStartedAt).finally(() => {
       refreshPromise = null;
-    }
-  })();
-  return refreshPromise;
+    });
+  refreshPromise = request;
+  try {
+    const nextStatus = await request;
+    if (context && !context.isCurrent()) return;
+    status = nextStatus;
+    error = null;
+  } catch (err) {
+    if (context && !context.isCurrent()) return;
+    console.warn("Failed to read browser extension connection status:", err);
+    error = err instanceof Error ? err.message : String(err);
+  } finally {
+    if (!context || context.isCurrent()) loading = false;
+  }
 }
+
+const extensionStatusScheduler = createLifecycleScheduler({
+  run: async (context) => {
+    await refreshExtensionStatus(context);
+    return context.isCurrent() ? context.now() + EXTENSION_STATUS_POLL_MS : null;
+  },
+  errorRetryMs: 60_000,
+  onError: (schedulerError) => {
+    console.warn("Failed to schedule browser extension connection status:", schedulerError);
+  },
+});
 
 function startExtensionStatusPolling(): () => void {
   subscriberCount += 1;
-  void refreshExtensionStatus();
-  if (!intervalId) {
-    intervalId = setInterval(() => {
-      void refreshExtensionStatus();
-    }, EXTENSION_STATUS_POLL_MS);
-  }
+  extensionStatusScheduler.setEnabled(true);
   return () => {
     subscriberCount = Math.max(0, subscriberCount - 1);
-    if (subscriberCount > 0 || !intervalId) return;
-    clearInterval(intervalId);
-    intervalId = null;
+    if (subscriberCount > 0) return;
+    extensionStatusScheduler.setEnabled(false);
   };
 }
 
@@ -63,6 +74,9 @@ export function getDoomscrollingExtensionConnection() {
     },
     start(): () => void {
       return startExtensionStatusPolling();
+    },
+    resume(): void {
+      extensionStatusScheduler.resume();
     },
   };
 }

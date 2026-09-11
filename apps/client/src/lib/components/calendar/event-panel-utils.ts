@@ -1,5 +1,6 @@
 import { hasOnlyShortcutModifier, hasShortcutModifier } from "$lib/keyboard-shortcuts";
 import type { CalendarTimeFormat } from "$lib/stores/preferences";
+import type { ProjectDefaultEventTimeMode } from "$lib/projects/project-settings-duration";
 
 export type RovingOrientation = "horizontal" | "vertical" | "grid";
 
@@ -16,6 +17,19 @@ export interface DraftCommit<T> {
   committed: boolean;
 }
 
+export interface ProjectDurationDefaultInput {
+  mode: "create" | "edit";
+  allDay: boolean;
+  activeEdit: boolean;
+  defaultEventTimeMode: ProjectDefaultEventTimeMode;
+  defaultEventDurationMinutes: number | null;
+}
+
+export interface ProjectDefaultEventTitleInput {
+  currentTitle: string;
+  defaultEventName: string | null;
+}
+
 /**
  * Local keydown handler for panel input/textarea elements.
  *
@@ -28,6 +42,25 @@ export function panelInputKeydown(e: KeyboardEvent): void {
   if ((e.key === "d" || e.key === "D") && hasOnlyShortcutModifier(e)) return;
   if (e.key === "Escape") return;
   e.stopPropagation();
+}
+
+export function projectDurationDefaultForSelection(
+  input: ProjectDurationDefaultInput,
+): number | null {
+  if (input.allDay || input.activeEdit || input.defaultEventTimeMode === "all_day") return null;
+  return input.defaultEventDurationMinutes;
+}
+
+export function projectAllDayDefaultForSelection(input: ProjectDurationDefaultInput): boolean {
+  if (input.allDay || input.activeEdit) return false;
+  return input.defaultEventTimeMode === "all_day";
+}
+
+export function projectDefaultEventTitleForSelection(
+  input: ProjectDefaultEventTitleInput,
+): string {
+  if (input.currentTitle.trim()) return input.currentTitle;
+  return input.defaultEventName ?? "";
 }
 
 function clamp(value: number, min: number, max: number): number {

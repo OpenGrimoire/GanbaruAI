@@ -5,6 +5,7 @@
   import Eye from "@lucide/svelte/icons/eye";
   import Trash2 from "@lucide/svelte/icons/trash-2";
   import Download from "@lucide/svelte/icons/download";
+  import LoaderCircle from "@lucide/svelte/icons/loader-circle";
   import Sun from "@lucide/svelte/icons/sun";
   import Moon from "@lucide/svelte/icons/moon";
   import { themeDisplayName } from "$lib/i18n/theme-labels";
@@ -22,6 +23,11 @@
     onDuplicate,
     onExport,
     onDelete,
+    showEditorActions = true,
+    showFileActions = true,
+    exporting = false,
+    exportDisabled = false,
+    mobileLayout = false,
   }: {
     theme: Theme;
     isActive: boolean;
@@ -31,6 +37,11 @@
     onDuplicate: () => void;
     onExport: () => void;
     onDelete: () => void;
+    showEditorActions?: boolean;
+    showFileActions?: boolean;
+    exporting?: boolean;
+    exportDisabled?: boolean;
+    mobileLayout?: boolean;
   } = $props();
 
   const { t } = getLocalization();
@@ -62,6 +73,7 @@
   onpointerdown={handlePointerDown}
   class={cn(
     "relative flex items-center justify-between gap-1 rounded-md px-1 py-1 transition-colors max-[520px]:flex-col max-[520px]:items-stretch",
+    mobileLayout && "min-h-14 gap-2 rounded-xl py-2",
     !isActive && "hover:text-foreground",
     hovering && !suppressHover && "bg-accent/25",
   )}
@@ -95,45 +107,81 @@
   </div>
 
   <div class="relative z-20 flex shrink-0 items-center justify-end gap-1">
-    <button
-      type="button"
-      onclick={onDuplicate}
-      aria-label={t("settings.theme.duplicateAndEditTheme")}
-      data-app-tooltip-disabled="true"
-      class="flex h-7 items-center gap-1.5 rounded-md border border-border bg-card px-2.5 text-[0.8rem] text-foreground transition-colors hover:bg-accent dark:bg-transparent"
-    >
-      <Copy size={13} strokeWidth={2} />
-      <span class="max-[380px]:hidden">{t("settings.theme.duplicateAndEdit")}</span>
-    </button>
-    <button
-      type="button"
-      onclick={onOpen}
-      aria-label={isBuiltin ? t("settings.theme.viewTheme") : t("settings.theme.editTheme")}
-      data-app-tooltip-disabled="true"
-      class="flex h-7 w-7 items-center justify-center rounded-md border border-border bg-card text-foreground transition-colors hover:bg-accent dark:bg-transparent"
-    >
-      {#if isBuiltin}
-        <Eye size={13} strokeWidth={2} />
-      {:else}
-        <Pencil size={13} strokeWidth={2} />
-      {/if}
-    </button>
-    <button
-      type="button"
-      onclick={onExport}
-      aria-label={t("settings.theme.exportJson")}
-      data-app-tooltip-disabled="true"
-      class="flex h-7 w-7 items-center justify-center rounded-md border border-border bg-card text-foreground transition-colors hover:bg-accent dark:bg-transparent"
-    >
-      <Download size={13} strokeWidth={2} />
-    </button>
+    {#if showEditorActions}
+      <button
+        type="button"
+        onclick={onDuplicate}
+        aria-label={t("settings.theme.duplicateAndEditTheme")}
+        data-app-tooltip-disabled="true"
+        class={cn(
+          "flex items-center gap-1.5 text-[0.8rem] text-foreground transition-colors",
+          mobileLayout
+            ? "h-8 rounded-lg border border-border bg-card px-2.5 active:bg-accent dark:bg-transparent"
+            : "h-7 rounded-md border border-border bg-card px-2.5 hover:bg-accent dark:bg-transparent",
+        )}
+      >
+        <Copy size={13} strokeWidth={2} />
+        <span class="max-[380px]:hidden">{t("settings.theme.duplicateAndEdit")}</span>
+      </button>
+      <button
+        type="button"
+        onclick={onOpen}
+        aria-label={isBuiltin ? t("settings.theme.viewTheme") : t("settings.theme.editTheme")}
+        data-app-tooltip-disabled="true"
+        class={cn(
+          "flex items-center justify-center text-foreground transition-colors",
+          mobileLayout
+            ? "size-8 rounded-lg border border-border bg-card active:bg-accent dark:bg-transparent"
+            : "h-7 w-7 rounded-md border border-border bg-card hover:bg-accent dark:bg-transparent",
+        )}
+      >
+        {#if isBuiltin}
+          <Eye size={13} strokeWidth={2} />
+        {:else}
+          <Pencil size={13} strokeWidth={2} />
+        {/if}
+      </button>
+    {/if}
+    {#if showFileActions}
+      <button
+        type="button"
+        onclick={onExport}
+        disabled={exporting || exportDisabled}
+        aria-busy={exporting}
+        aria-label={exporting
+          ? t("settings.theme.exportingJson")
+          : t("settings.theme.exportJson")}
+        data-app-tooltip-disabled="true"
+        class={cn(
+          "flex items-center justify-center text-foreground transition-colors disabled:cursor-wait disabled:opacity-55",
+          mobileLayout
+            ? "size-8 rounded-lg border border-border bg-card active:bg-accent dark:bg-transparent"
+            : "h-7 w-7 rounded-md border border-border bg-card hover:bg-accent dark:bg-transparent",
+        )}
+      >
+        {#if exporting}
+          <LoaderCircle
+            size={13}
+            strokeWidth={2}
+            class="animate-spin motion-reduce:animate-none"
+          />
+        {:else}
+          <Download size={13} strokeWidth={2} />
+        {/if}
+      </button>
+    {/if}
     <button
       type="button"
       onclick={onDelete}
       aria-label={t("settings.theme.deleteTheme")}
       data-app-tooltip-disabled="true"
       disabled={isBuiltin}
-      class="flex h-7 w-7 items-center justify-center rounded-md border border-border bg-card text-foreground transition-colors hover:bg-accent disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-card dark:bg-transparent dark:disabled:hover:bg-transparent"
+      class={cn(
+        "flex items-center justify-center text-foreground transition-colors disabled:cursor-not-allowed disabled:opacity-40",
+        mobileLayout
+          ? "size-8 rounded-lg border border-border bg-card active:bg-accent disabled:active:bg-transparent dark:bg-transparent"
+          : "h-7 w-7 rounded-md border border-border bg-card hover:bg-accent disabled:hover:bg-card dark:bg-transparent dark:disabled:hover:bg-transparent",
+      )}
     >
       <Trash2 size={13} strokeWidth={2} />
     </button>

@@ -20,6 +20,7 @@ export interface MediaFolderTrack {
 
 export interface MediaFolderSelection {
   folderPath: string;
+  displayName?: string | null;
   tracks: MediaFolderTrack[];
   truncated: boolean;
 }
@@ -35,12 +36,68 @@ export async function pickMediaFolder(): Promise<MediaFolderSelection | null> {
   return invoke("music_pick_media_folder");
 }
 
-export async function registerMediaFile(path: string): Promise<string> {
-  return invoke("music_register_media_file", { path });
+export async function detectDefaultMusicFolder(): Promise<MediaFolderSelection | null> {
+  return invoke("music_detect_default_folder");
 }
 
-export async function registerEmbeddedArtwork(path: string): Promise<string | null> {
-  return invoke("music_register_embedded_artwork", { path });
+export async function pickMusicRootBindingFolder(): Promise<string | null> {
+  return invoke<string | null>("music_pick_root_binding_folder");
+}
+
+export async function pickMediaFile(): Promise<string | null> {
+  return invoke("music_pick_media_file");
+}
+
+export async function pickSoundscapeFile(): Promise<string | null> {
+  return invoke("music_pick_soundscape_file");
+}
+
+export async function pickArtworkFile(): Promise<string | null> {
+  return invoke("music_pick_artwork_file");
+}
+
+export async function pickAndReadMusicInterchangeFile(): Promise<string | null> {
+  return invoke<string | null>("music_pick_and_read_interchange_file");
+}
+
+export async function pickAndWriteMusicInterchangeFile(
+  defaultName: string,
+  contents: string,
+  format: "json" | "m3u8",
+): Promise<boolean> {
+  return invoke<boolean>("music_pick_and_write_interchange_file", { defaultName, contents, format });
+}
+
+export async function loadArtworkDataUrl(path: string): Promise<string> {
+  return invoke("music_artwork_data_url", { path });
+}
+
+export async function loadEmbeddedArtworkDataUrl(path: string): Promise<string | null> {
+  return invoke("music_embedded_artwork_data_url", { path });
+}
+
+export async function registerMediaFile(path: string, generation: number): Promise<string> {
+  return invoke("music_register_media_file", { path, generation });
+}
+
+export async function registerEmbeddedArtwork(
+  path: string,
+  generation: number,
+): Promise<string | null> {
+  return invoke("music_register_embedded_artwork", { path, generation });
+}
+
+/** Retains only the hosted media URLs referenced by the current playback lifecycle. */
+export async function retainHostedMedia(mediaUrls: string[], generation: number): Promise<void> {
+  await invoke("music_retain_hosted_media", { mediaUrls, generation });
+}
+
+/** Removes registrations abandoned by one stale playback lifecycle. */
+export async function unregisterHostedMedia(
+  mediaUrls: string[],
+  generation: number,
+): Promise<void> {
+  await invoke("music_unregister_hosted_media", { mediaUrls, generation });
 }
 
 export async function revealLocalFile(path: string): Promise<void> {

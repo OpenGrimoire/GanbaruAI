@@ -13,6 +13,12 @@
   import ConfirmDialog from "$lib/components/ui/ConfirmDialog.svelte";
   import { getLocalization } from "$lib/i18n/translator.svelte";
 
+  let {
+    fileTransfersAvailable = true,
+  }: {
+    fileTransfersAvailable?: boolean;
+  } = $props();
+
   const calendarsStore = getCalendars();
   const calendarStore = getCalendar();
   const localization = getLocalization();
@@ -306,15 +312,17 @@
           </div>
         </div>
         <div class="flex shrink-0 items-center justify-end gap-1.5">
-          <button
-            type="button"
-            onclick={() => handleExport(cal)}
-            disabled={(counts[cal.id] ?? 0) === 0}
-            class="flex h-7 items-center gap-1.5 rounded-md border border-border bg-card px-2.5 text-[0.8rem] font-medium text-foreground transition-colors hover:bg-accent disabled:cursor-not-allowed disabled:opacity-50 dark:bg-transparent"
-          >
-            <Download size={12} strokeWidth={2.25} />
-            <span>{t("settings.calendars.export")}</span>
-          </button>
+          {#if fileTransfersAvailable}
+            <button
+              type="button"
+              onclick={() => handleExport(cal)}
+              disabled={(counts[cal.id] ?? 0) === 0}
+              class="flex h-7 items-center gap-1.5 rounded-md border border-border bg-card px-2.5 text-[0.8rem] font-medium text-foreground transition-colors hover:bg-accent disabled:cursor-not-allowed disabled:opacity-50 dark:bg-transparent"
+            >
+              <Download size={12} strokeWidth={2.25} />
+              <span>{t("settings.calendars.export")}</span>
+            </button>
+          {/if}
           {#if cal.id === "local"}
             <button
               type="button"
@@ -339,21 +347,23 @@
         </div>
       </div>
     {/each}
-    <div class="px-1 py-1">
-      <button
-        type="button"
-        onclick={handleImport}
-        disabled={isImporting}
-        class="flex h-7 min-w-0 max-w-full items-center gap-2 rounded-md px-1 text-[0.8rem] font-medium text-foreground transition-colors hover:text-primary focus:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-60"
-      >
-        {#if isImporting}
-          <LoaderCircle size={13} strokeWidth={2.25} class="shrink-0 animate-spin" />
-        {:else}
-          <Upload size={13} strokeWidth={2.25} class="shrink-0" />
-        {/if}
-        <span class="truncate">{importButtonLabel()}</span>
-      </button>
-    </div>
+    {#if fileTransfersAvailable}
+      <div class="px-1 py-1">
+        <button
+          type="button"
+          onclick={handleImport}
+          disabled={isImporting}
+          class="flex h-7 min-w-0 max-w-full items-center gap-2 rounded-md px-1 text-[0.8rem] font-medium text-foreground transition-colors hover:text-primary focus:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-60"
+        >
+          {#if isImporting}
+            <LoaderCircle size={13} strokeWidth={2.25} class="shrink-0 animate-spin" />
+          {:else}
+            <Upload size={13} strokeWidth={2.25} class="shrink-0" />
+          {/if}
+          <span class="truncate">{importButtonLabel()}</span>
+        </button>
+      </div>
+    {/if}
   </div>
 
   {#if toast}
@@ -369,8 +379,8 @@
       calendarDisplayName(pendingDelete),
       counts[pendingDelete.id] ?? 0,
     )}
-    confirmLabel={t("settings.calendars.deleteShortcut")}
-    cancelLabel={t("common.cancelShortcut")}
+    confirmLabel={t("settings.calendars.deleteConfirm")}
+    cancelLabel={t("common.cancel")}
     onConfirm={confirmDelete}
     onCancel={cancelDelete}
   />

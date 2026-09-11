@@ -1,0 +1,19 @@
+{
+  "minimumOpenCodeVersion": "1.14.19",
+  "installedLocalVersionSupported": false,
+  "transport": "rust_http_sse",
+  "sourceCommit": "27db54c859be74aa4caed3e58ae14ecc8bc34b30",
+  "requiredCases": {
+    "localLifecycle": true,
+    "externalOwnership": true,
+    "authentication": true,
+    "sessionResume": true,
+    "nativePlan": true,
+    "directoryFork": true,
+    "permissions": true,
+    "structuredQuestions": true,
+    "eventReconnect": true,
+    "abort": true,
+    "revert": true
+  }
+}

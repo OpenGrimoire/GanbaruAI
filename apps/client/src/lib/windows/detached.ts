@@ -126,7 +126,6 @@ export async function openDetachedViewWindow(view: DetachableTabView): Promise<v
     minHeight: 180,
     center: true,
     decorations: false,
-    transparent: true,
     visible: true,
     focus: true,
   });

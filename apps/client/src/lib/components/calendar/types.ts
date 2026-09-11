@@ -1,3 +1,5 @@
+import type { MusicContextAssignmentDraft } from "$lib/music/music-context-assignment";
+
 export const CALENDAR_VIEW_MODES = ["day", "workweek", "week", "month"] as const;
 export type CalendarViewMode = (typeof CALENDAR_VIEW_MODES)[number];
 export const DEFAULT_CALENDAR_VIEW_MODE: CalendarViewMode = "week";
@@ -39,7 +41,7 @@ export interface OrdinalWeekday {
 export interface RecurrenceConfig {
   frequency: RecurrenceFrequency;
   interval: number;
-  /** Simple BYDAY weekdays for weekly recurrence (backward compat). */
+  /** Simple BYDAY weekdays for weekly recurrence. */
   weekdays?: Weekday[];
   /** BYDAY with ordinal prefixes (2TU, -1FR) for monthly/yearly. */
   ordinalWeekdays?: OrdinalWeekday[];
@@ -60,14 +62,7 @@ export interface RecurrenceConfig {
 
 export type RecurringScope = "this" | "following" | "all";
 
-export interface PomodoroConfig {
-  focusDurationMinutes: number;
-  shortBreakMinutes: number;
-  longBreakMinutes: number;
-  pomodoroCount: number;
-  /** Minutes of idle (no mouse/keyboard) before auto-pausing. null = disabled. */
-  idleTimeoutMinutes: number | null;
-}
+export type { PomodoroConfig } from "$lib/pomodoro/rhythm";
 
 export type EventTransparency = "opaque" | "transparent";
 export type EventStatus = "confirmed" | "tentative" | "cancelled";
@@ -189,6 +184,11 @@ export interface CalendarEvent {
   /** IANA zone (e.g. "America/New_York") used for recurrence math and ICS re-export. */
   timezone: string;
   calendarId: string;
+  projectId?: string;
+  environmentId?: string;
+  playlistId?: string;
+  musicSnapshotAssignments?: MusicContextAssignmentDraft[];
+  musicOverrideAssignments?: MusicContextAssignmentDraft[];
   color?: EventColor;
   description?: string;
   recurrence?: RecurrenceConfig;
@@ -228,6 +228,8 @@ export interface CalendarEvent {
   sequence?: number;
   /** Database creation timestamp. Used for deterministic scheduler tiebreakers. */
   createdAt?: string;
+  /** Frontend-only event panel metadata for project task links. */
+  linkedTaskIds?: string[];
   /** RFC 5545 RDATE: additional recurrence dates beyond the RRULE pattern. */
   rdate?: string[];
   /** Arbitrary extended properties (X-* from iCalendar). */
@@ -303,7 +305,7 @@ export type SegmentPhase = "focus" | "short_break" | "long_break";
 export type SegmentStatus = "planned" | "active" | "completed" | "skipped" | "interrupted";
 
 export interface PlannedSegment {
-  cycleNumber: number;
+  rhythmPosition: number;
   phase: SegmentPhase;
   startOffsetMinutes: number;
   endOffsetMinutes: number;
@@ -322,7 +324,7 @@ export interface PersistedSegment {
   eventId: string;
   eventDate: string;
   runId: string;
-  cycleNumber: number;
+  rhythmPosition: number;
   phase: SegmentPhase;
   plannedStart: string;
   plannedEnd: string;
@@ -352,3 +354,4 @@ export interface DragState {
   columnWidth: number;
   startColumnIndex: number;
 }
+import type { PomodoroConfig } from "$lib/pomodoro/rhythm";

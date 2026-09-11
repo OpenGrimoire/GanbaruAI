@@ -7,11 +7,40 @@
     },
     "build": {
       "dependsOn": ["^build"],
-      "outputs": ["dist/**", "src-tauri/target/**"]
+      "env": ["GANBARU_AI_RELEASE_REPOSITORY", "TAURI_ENV_PLATFORM"],
+      "outputs": ["dist/**"]
     },
     "check": {
       "dependsOn": ["^build"]
     },
-    "test": {}
+    "test": {},
+    "editor-check": {
+      "inputs": [
+        "index.html",
+        "package.json",
+        "scripts/check-tailwind-diagnostics.mjs",
+        "src/**/*.css",
+        "src/**/*.html",
+        "src/**/*.js",
+        "src/**/*.mjs",
+        "src/**/*.svelte",
+        "src/**/*.ts",
+        "svelte.config.js",
+        "vite.config.ts"
+      ]
+    },
+    "bundle-contracts": {
+      "dependsOn": ["build"],
+      "env": ["GANBARU_AI_RELEASE_REPOSITORY"],
+      "inputs": [
+        "package.json",
+        "scripts/android-bundle-baseline.json",
+        "scripts/build-android-bundle-contract.mjs",
+        "scripts/check-android-bundle.mjs",
+        "scripts/check-first-use-bundle.mjs",
+        "scripts/first-use-bundle-baseline.json"
+      ],
+      "outputs": [".bundle-contracts/android/**"]
+    }
   }
 }

@@ -33,6 +33,10 @@
     ontoggle,
     onexpand,
     onchange,
+    deliveryNotice = null,
+    deliveryActionLabel = null,
+    deliveryActionBusy = false,
+    ondeliveryaction,
   }: {
     enabled: boolean;
     selected: Set<number>;
@@ -41,6 +45,10 @@
     ontoggle: () => void;
     onexpand: () => void;
     onchange: () => void;
+    deliveryNotice?: string | null;
+    deliveryActionLabel?: string | null;
+    deliveryActionBusy?: boolean;
+    ondeliveryaction?: () => void;
   } = $props();
 
   const localization = getLocalization();
@@ -153,12 +161,7 @@
 
   function handleDropdownButtonKeydown(e: KeyboardEvent, idx: number) {
     if (e.altKey || e.ctrlKey || e.metaKey || e.shiftKey) return;
-    if (e.key === " ") {
-      e.preventDefault();
-      e.stopPropagation();
-      return;
-    }
-    if (e.key !== "Enter") return;
+    if (e.key !== "Enter" && e.key !== " ") return;
     e.preventDefault();
     e.stopPropagation();
     openDropdown(idx, "keyboard");
@@ -301,6 +304,21 @@
   </div>
   {#if expanded}
     <div transition:slide={{ duration: 180, easing: cubicOut }} data-section="notifications" class="flex flex-col gap-1.5 p-2.5" style="background-color: var(--panel-bg);">
+      {#if deliveryNotice}
+        <div class="mb-1 flex flex-col gap-2 rounded-md border border-warning/35 bg-warning/8 px-2.5 py-2 text-[0.733333rem] leading-5 text-foreground">
+          <span>{deliveryNotice}</span>
+          {#if deliveryActionLabel && ondeliveryaction}
+            <button
+              type="button"
+              disabled={deliveryActionBusy}
+              class="min-h-8 self-start rounded-md border border-border bg-card px-2.5 text-[0.733333rem] font-medium text-foreground disabled:opacity-60"
+              onclick={ondeliveryaction}
+            >
+              {deliveryActionLabel}
+            </button>
+          {/if}
+        </div>
+      {/if}
       <div class="flex flex-col gap-0.5">
         {#each NOTIF_PRESETS as opt, index}
           <button

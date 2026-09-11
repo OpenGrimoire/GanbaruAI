@@ -34,18 +34,9 @@ Expected handling:
 - Project supported `VEVENT` rows.
 - Preserve attendees, organizer, and recurrence data.
 
-## Export from Ganbaru AI into Fastmail
+## Manual test
 
-Manual checks:
-
-1. Create a disposable Fastmail calendar.
-2. Import Ganbaru AI-generated fixtures from `apps/client/test-fixtures/ics/rfc5545/`.
-3. Verify all-day and timed date behavior.
-4. Verify recurrence and exceptions.
-5. Verify whether alarms are dropped as documented.
-6. Export the Fastmail calendar.
-7. Import back into Ganbaru AI.
-8. Compare semantic results and note any alarm loss.
+Use the [shared client procedure](./README.md#shared-procedure). Include the alarm and duplicate-UID priorities below.
 
 ## Behavior to verify
 
@@ -58,12 +49,3 @@ Manual checks:
 ## Observed behavior log
 
 No manual Ganbaru AI compatibility run recorded yet.
-
-Record:
-
-- Fastmail web version if visible
-- timezone
-- fixture name
-- import result
-- export result
-- alarm behavior

@@ -1,5 +1,5 @@
 import type {
-  CalendarEvent, EventColor, GuestPermissions, PomodoroConfig, RecurrenceConfig, RecurringScope,
+  CalendarEvent, EventColor, PomodoroConfig, RecurrenceConfig, RecurringScope,
 } from "./types";
 import { recurrenceConfigsEqual } from "./rrule";
 import { parseCalendarDate } from "./utils";
@@ -8,6 +8,14 @@ import {
   DEFAULT_FOCUS_IDLE_THRESHOLD_MINUTES,
   clampFocusIdleThresholdMinutes,
 } from "$lib/stores/preferences";
+import {
+  clonePomodoroConfig,
+  createPresetPomodoroConfig,
+} from "$lib/pomodoro/rhythm";
+import {
+  hasMeetingState,
+  hasNonDefaultGuestPermissions,
+} from "$lib/calendar/meeting-state";
 
 export type PanelAnchor = { x: number; y: number; width: number; height: number };
 
@@ -79,27 +87,9 @@ function normalizePomodoroConfig(
   if (!config) return undefined;
   const { thresholdMinutes } = normalizeFocusIdleDefaults(focusIdleDefaults);
   return {
-    focusDurationMinutes: config.focusDurationMinutes,
-    shortBreakMinutes: config.shortBreakMinutes,
-    longBreakMinutes: config.longBreakMinutes,
-    pomodoroCount: 4,
+    ...clonePomodoroConfig(config),
     idleTimeoutMinutes: config.idleTimeoutMinutes !== null ? thresholdMinutes : null,
   };
-}
-
-function hasNonDefaultGuestPermissions(value: GuestPermissions | undefined): boolean {
-  return !!value && (value.canModify || !value.canInviteOthers || !value.canSeeOtherGuests);
-}
-
-function hasMeetingState(event: CalendarEvent): boolean {
-  return event.meetingEnabled === true
-    || !!(event.attendees && event.attendees.length > 0)
-    || !!event.organizer
-    || !!event.location
-    || !!event.url
-    || !!event.geo
-    || event.localParticipationStatus !== undefined
-    || hasNonDefaultGuestPermissions(event.guestPermissions);
 }
 
 /**
@@ -118,6 +108,7 @@ export function buildEditPanelInitialChanges(
     start: event.start,
     end: event.end,
     color: event.color,
+    linkedTaskIds: event.linkedTaskIds ? [...event.linkedTaskIds] : [],
     description: event.description ?? "",
     recurrence: event.recurrence,
     notifications: normalizeNotifications(event.notifications),
@@ -146,25 +137,21 @@ export function buildCreatePanelInitialChanges(
   end: string,
   allDay?: boolean,
   focusIdleDefaults?: Partial<FocusIdleEventDefaults>,
+  initialChanges?: Partial<CalendarEvent>,
 ): Partial<CalendarEvent> {
   const { pauseWhenIdle, thresholdMinutes } = normalizeFocusIdleDefaults(focusIdleDefaults);
-  return {
+  const base: Partial<CalendarEvent> = {
     title: "",
     start,
     end,
     color: undefined,
+    linkedTaskIds: [],
     description: "",
     recurrence: undefined,
     notifications: [0],
     pomodoroConfig: allDay
       ? undefined
-      : {
-          focusDurationMinutes: 40,
-          shortBreakMinutes: 5,
-          longBreakMinutes: 10,
-          pomodoroCount: 4,
-          idleTimeoutMinutes: pauseWhenIdle ? thresholdMinutes : null,
-        },
+      : createPresetPomodoroConfig("adaptive", pauseWhenIdle ? thresholdMinutes : null),
     allDay: allDay || undefined,
     meetingEnabled: undefined,
     location: undefined,
@@ -173,6 +160,13 @@ export function buildCreatePanelInitialChanges(
     status: undefined,
     visibility: "private",
     attendees: undefined,
+  };
+  return {
+    ...base,
+    ...initialChanges,
+    start: initialChanges?.start ?? start,
+    end: initialChanges?.end ?? end,
+    allDay: initialChanges?.allDay ?? (allDay || undefined),
   };
 }
 
@@ -285,30 +279,47 @@ export function createEditSession(
       createPreview = null;
     },
 
-    openCreate(start: string, end: string, anchor: PanelAnchor, allDay?: boolean) {
-      state = { mode: "create", sessionKey: ++nextSessionKey, start, end, anchor };
+    openCreate(
+      start: string,
+      end: string,
+      anchor: PanelAnchor,
+      allDay?: boolean,
+      initialChanges?: Partial<CalendarEvent>,
+    ) {
+      const normalizedStart = initialChanges?.start ?? start;
+      const normalizedEnd = initialChanges?.end ?? end;
+      state = {
+        mode: "create",
+        sessionKey: ++nextSessionKey,
+        start: normalizedStart,
+        end: normalizedEnd,
+        anchor,
+      };
       scope = "this";
 
       // Seed the full panel baseline before mount. This keeps create preview
       // data available on the first frame and avoids a parent callback from
       // EventPanel during the opening flush.
       const initial = buildCreatePanelInitialChanges(
-        start,
-        end,
-        allDay,
+        normalizedStart,
+        normalizedEnd,
+        initialChanges?.allDay ?? allDay,
         getFocusIdleDefaults(),
+        initialChanges,
       );
       changes = { ...initial };
       baseline = { ...initial };
 
-      const dateStr = start.split(" ")[0];
-      const endDateStr = end.split(" ")[0];
+      const dateStr = normalizedStart.split(" ")[0];
+      const endDateStr = normalizedEnd.split(" ")[0];
       createPreview = {
         dateStr,
-        startMinute: minuteOffsetFromDateStart(dateStr, start),
-        endMinute: minuteOffsetFromDateStart(dateStr, end),
-        allDay,
-        endDateStr: allDay ? endDateStr : undefined,
+        startMinute: minuteOffsetFromDateStart(dateStr, normalizedStart),
+        endMinute: minuteOffsetFromDateStart(dateStr, normalizedEnd),
+        title: typeof initial.title === "string" ? initial.title : undefined,
+        color: initial.color,
+        allDay: initial.allDay,
+        endDateStr: initial.allDay ? endDateStr : undefined,
       };
     },
 

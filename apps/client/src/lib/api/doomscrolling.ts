@@ -28,7 +28,12 @@ export interface DoomscrollingDesktopAppCandidate {
   processNames: string[];
 }
 
+export type DoomscrollingDesktopRuleIdentity =
+  | { kind: "desktop-app"; ruleId: string }
+  | { kind: "usage-limit"; ruleId: string; entryId: string };
+
 export interface DoomscrollingDesktopAppRulePayload {
+  ruleIdentity: DoomscrollingDesktopRuleIdentity;
   name: string;
   matchNames: string[];
 }
@@ -37,6 +42,21 @@ export interface DoomscrollingRunningDesktopAppMatch {
   appName: string;
   processName: string;
   processId: number;
+  processIdentity: string;
+  ruleIdentity: DoomscrollingDesktopRuleIdentity;
+}
+
+export interface DoomscrollingCloseDesktopAppRequest {
+  processId: number;
+  processName: string;
+  processIdentity: string;
+  ruleIdentity: DoomscrollingDesktopRuleIdentity;
+}
+
+export interface DoomscrollingDesktopBlockEventPayload {
+  appName: string;
+  processName: string | null;
+  processId: number | null;
 }
 
 export interface DoomscrollingUsageSamplePayload {
@@ -95,6 +115,11 @@ export interface DoomscrollingForegroundDesktopAppExpectation {
   matchNames: readonly string[];
 }
 
+export interface DoomscrollingCloseForegroundDesktopAppRequest {
+  expected: DoomscrollingForegroundDesktopAppExpectation;
+  ruleIdentity: DoomscrollingDesktopRuleIdentity;
+}
+
 export async function writeDoomscrollingRuntimeState(
   state: DoomscrollingRuntimeState,
 ): Promise<void> {
@@ -123,8 +148,16 @@ export async function listBlockedDoomscrollingDesktopAppMatches(
   );
 }
 
-export async function closeDoomscrollingDesktopApp(processId: number): Promise<void> {
-  await invoke("doomscrolling_close_desktop_app", { processId });
+export async function closeDoomscrollingDesktopApp(
+  request: DoomscrollingCloseDesktopAppRequest,
+): Promise<void> {
+  await invoke("doomscrolling_close_desktop_app", { request });
+}
+
+export async function recordDoomscrollingDesktopBlockEvent(
+  event: DoomscrollingDesktopBlockEventPayload,
+): Promise<void> {
+  await invoke("doomscrolling_record_desktop_block_event", { event });
 }
 
 export async function showDoomscrollingDesktopBlockNotification(appName: string): Promise<void> {
@@ -143,6 +176,14 @@ export async function recordDoomscrollingUsageSample(
   sample: DoomscrollingUsageSamplePayload,
 ): Promise<void> {
   await invoke("doomscrolling_record_usage_sample", { dbUrl, sample });
+}
+
+export async function recordDoomscrollingUsageSamples(
+  dbUrl: string,
+  samples: DoomscrollingUsageSamplePayload[],
+): Promise<void> {
+  if (samples.length === 0) return;
+  await invoke("doomscrolling_record_usage_samples", { dbUrl, samples });
 }
 
 export async function listDoomscrollingUsageSamples(
@@ -169,7 +210,7 @@ export async function getForegroundDoomscrollingDesktopApp(): Promise<Doomscroll
 }
 
 export async function closeCurrentForegroundDoomscrollingDesktopApp(
-  expected: DoomscrollingForegroundDesktopAppExpectation,
+  request: DoomscrollingCloseForegroundDesktopAppRequest,
 ): Promise<void> {
-  await invoke("doomscrolling_close_current_foreground_desktop_app", { expected });
+  await invoke("doomscrolling_close_current_foreground_desktop_app", { request });
 }

@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { getNavigation, type View } from "$lib/stores/navigation.svelte";
+  import { getNavigation } from "$lib/stores/navigation.svelte";
   import {
     firstMainView,
     isDetachableTabView,
@@ -13,22 +13,35 @@
   import { getDoomscrollingUsage } from "$lib/stores/doomscrolling-usage.svelte";
   import { getMusicPlayer } from "$lib/stores/music-player.svelte";
   import { getPomodoro } from "$lib/stores/pomodoro.svelte";
+  import { getNotes } from "$lib/stores/notes.svelte";
+  import { getProjects } from "$lib/stores/projects.svelte";
+  import { getChat } from "$lib/stores/chat.svelte";
   import { getZoom } from "$lib/stores/zoom.svelte";
+  import { getPreferences } from "$lib/stores/preferences.svelte";
   import { getSettingsLauncher } from "$lib/stores/settingsLauncher.svelte";
   import { getUpdateManager } from "$lib/stores/updates.svelte";
   import { UPDATE_AUTO_CHECK_INTERVAL_MS } from "$lib/stores/updates";
   import { getViewport } from "$lib/stores/viewport.svelte";
   import { getDetachedWindows } from "$lib/stores/detached-windows.svelte";
-  import { selectActivePomodoroBlock } from "$lib/stores/pomodoro-scheduler";
+  import { createPomodoroCalendarScheduler } from "$lib/stores/pomodoro-calendar-scheduler";
   import {
     classifyPomodoroCompletion,
     type PomodoroCompletionKind,
   } from "$lib/stores/pomodoro-completion";
+  import { parseNotesLinkHash } from "$lib/notes/block-link";
+  import {
+    listPendingNotesMentionNotifications,
+    markNotesMentionNotificationsDelivered,
+  } from "$lib/api/notes";
+  import { getNotesNotificationSchedule } from "$lib/notes/notification-schedule.svelte";
+  import type {
+    NotesMentionNotification,
+    NotesMentionNotificationKind,
+  } from "$lib/notes/types";
   import { detachableTabViewFromWindowLabel } from "$lib/windows/detached";
   import { ensureDbUrl } from "$lib/api/db";
   import { APP_SOUND_IDS, playAppSound, type AppSoundId } from "$lib/app-sounds";
   import "$lib/stores/app-session";
-  import { parseCalendarDate } from "$lib/components/calendar/utils";
   import type { CalendarEvent } from "$lib/components/calendar/types";
   import { Temporal } from "@js-temporal/polyfill";
   import { invoke } from "@tauri-apps/api/core";
@@ -40,7 +53,16 @@
   import CalendarView from "$lib/components/calendar/CalendarView.svelte";
   import CompletionOverlay from "$lib/components/pomodoro/CompletionOverlay.svelte";
   import MusicPlaybackHost from "$lib/components/music/MusicPlaybackHost.svelte";
-  import MusicView from "$lib/components/music/MusicView.svelte";
+  import MusicContextCoordinator from "$lib/components/music/MusicContextCoordinator.svelte";
+  import MusicSoundscapeCoordinator from "$lib/components/music/MusicSoundscapeCoordinator.svelte";
+  import NotesView from "$lib/components/notes/NotesView.svelte";
+  import ProjectsView from "$lib/components/projects/ProjectsView.svelte";
+  import ProjectDashboardView from "$lib/components/projects/ProjectDashboardView.svelte";
+  import ProjectGanttView from "$lib/components/projects/ProjectGanttView.svelte";
+  import ProjectKanbanView from "$lib/components/projects/ProjectKanbanView.svelte";
+  import ProjectListView from "$lib/components/projects/ProjectListView.svelte";
+  import type { ProjectDesktopViewComponents } from "$lib/components/projects/project-desktop-view-components";
+  import ChatWorkspace from "$lib/components/chat/ChatWorkspace.svelte";
   import ConfirmDialog from "$lib/components/ui/ConfirmDialog.svelte";
   import TooltipHost from "$lib/components/ui/TooltipHost.svelte";
   import UpdateNotificationToast from "$lib/components/updates/UpdateNotificationToast.svelte";
@@ -52,8 +74,20 @@
     setShellStartupMs,
   } from "$lib/stores/perflog.svelte";
   import type { MemoryReport, StartupMemorySnapshot } from "$lib/components/perf/memoryReport";
-  import { isEditableKeyboardTarget, shouldUseKeyboardFocusIntent } from "$lib/utils";
+  import { shouldUseKeyboardFocusIntent } from "$lib/utils";
+  import {
+    createLifecycleScheduler,
+    type SchedulerRunContext,
+  } from "$lib/scheduling/lifecycle-scheduler";
+  import {
+    createEventNotificationScheduler,
+    createNotesNotificationScheduler,
+  } from "$lib/scheduling/notification-schedulers";
   import { onMount } from "svelte";
+  import { getNotesProjectHistoryScheduler } from "$lib/notes/project-history-scheduler";
+  import { onActiveVaultIdentityChange } from "$lib/vault/active-vault";
+  import { doomscrollingObservationPlan } from "$lib/stores/doomscrolling-observation-policy";
+  import type { ProjectChatIntegration } from "$lib/projects/types";
 
   perfMark("boot.script-start");
 
@@ -61,6 +95,8 @@
   const isMainWindow = appWindow.label === "main";
   const detachedWindowView = detachableTabViewFromWindowLabel(appWindow.label);
   const nav = getNavigation();
+  const startupTabView = detachedWindowView ?? nav.current;
+  if (nav.current !== startupTabView) nav.navigate(startupTabView);
   const calendar = getCalendar();
   const calendars = getCalendars();
   const doomscrolling = getDoomscrolling();
@@ -68,7 +104,11 @@
   const doomscrollingUsage = getDoomscrollingUsage();
   const music = getMusicPlayer();
   const pomodoro = getPomodoro();
+  const notes = getNotes();
+  const projects = getProjects();
+  const chat = getChat();
   const zoom = getZoom();
+  const preferences = getPreferences();
   const settingsLauncher = getSettingsLauncher();
   const updates = getUpdateManager();
   const viewport = getViewport();
@@ -76,11 +116,42 @@
   const { t } = localization;
   const locale = $derived(localization.locale);
   const detachedWindows = getDetachedWindows();
+  const notesNotificationSchedule = getNotesNotificationSchedule();
+  const notesProjectHistoryScheduler = getNotesProjectHistoryScheduler();
+  const projectDesktopViewComponents = {
+    list: ProjectListView,
+    kanban: ProjectKanbanView,
+    calendar: CalendarView,
+    gantt: ProjectGanttView,
+    dashboard: ProjectDashboardView,
+  } satisfies ProjectDesktopViewComponents;
+  const projectChatIntegration: ProjectChatIntegration = {
+    listWorkingFolders: (projectId) => chat.workingFolders
+      .filter((entry) => (
+        entry.workingFolder.projectId === projectId
+        && entry.workingFolder.archivedAt === null
+      ))
+      .map((entry) => ({
+        id: entry.workingFolder.id,
+        displayName: entry.workingFolder.displayName,
+      })),
+    ensureLoaded: () => chat.ensureLoaded(),
+    openProject: async (projectId, workingFolderId) => {
+      await chat.ensureLoaded();
+      if (workingFolderId) chat.selectWorkingFolder(workingFolderId);
+      else await chat.syncProjectSelection(projectId);
+      nav.navigate("chat");
+    },
+  };
+  const notesMusicMentionContext = $derived({
+    currentMusicSource: music.currentSource,
+    musicQueue: music.queue,
+  });
   let unlistenCalendarNotificationOpen: UnlistenFn | null = null;
+  let unlistenNotesNotificationOpen: UnlistenFn | null = null;
   let unlistenDoomscrollingDesktopSettingsOpen: UnlistenFn | null = null;
   let unlistenDoomscrollingLimitsSettingsOpen: UnlistenFn | null = null;
-  const ACTIVE_BLOCK_CHECK_INTERVAL_MS = 1000;
-  const EVENT_NOTIFICATION_CHECK_INTERVAL_MS = 1000;
+  const NOTES_NOTIFICATION_BODY_MAX_CHARS = 180;
   const DESKTOP_BLOCKING_CHECK_INTERVAL_MS = 5_000;
   const AUTOMATIC_UPDATE_CHECK_DELAY_MS = 3_000;
   const COMPLETION_MUSIC_FADE_OUT_MS = 1_200;
@@ -94,6 +165,11 @@
     workweek: 11_455,
   };
 
+  interface NotesNotificationOpenPayload {
+    page_id: string;
+    block_id?: string | null;
+  }
+
   let isMaximized = $state(true);
   let completionOverlay = $state<{ kind: PomodoroCompletionKind } | null>(null);
   let completionMusicDuckingGeneration = 0;
@@ -104,7 +180,6 @@
   let loadingBenchmarkOverlay: Promise<void> | null = null;
   let loadingIdleOverlay: Promise<void> | null = null;
   let devtoolsToggleInFlight = false;
-
   function ensureBenchmarkOverlay(): Promise<void> {
     if (BenchmarkOverlay) return Promise.resolve();
     loadingBenchmarkOverlay ??= import("$lib/components/benchmark/BenchmarkOverlay.svelte")
@@ -173,6 +248,36 @@
     return loadingIdleOverlay;
   }
 
+  function parseNotesNotificationOpenPayload(
+    payload: unknown,
+  ): NotesNotificationOpenPayload | null {
+    if (!payload || typeof payload !== "object") return null;
+    const record = payload as Record<string, unknown>;
+    if (typeof record.page_id !== "string") return null;
+    const blockId = record.block_id;
+    if (blockId !== null && blockId !== undefined && typeof blockId !== "string") return null;
+    return {
+      page_id: record.page_id,
+      block_id: blockId,
+    };
+  }
+
+  function notesHashForNotification(payload: NotesNotificationOpenPayload): string {
+    const params = new URLSearchParams({ page: payload.page_id });
+    if (payload.block_id) params.set("block", payload.block_id);
+    return `#notes?${params.toString()}`;
+  }
+
+  function openNotesNotification(payload: NotesNotificationOpenPayload): void {
+    const nextHash = notesHashForNotification(payload);
+    nav.navigate("notes");
+    if (window.location.hash === nextHash) {
+      window.dispatchEvent(new HashChangeEvent("hashchange"));
+      return;
+    }
+    window.location.hash = nextHash;
+  }
+
   /**
    * Time spent before App.svelte could emit `boot.script-start`. The Rust
    * command is process-spawn anchored, while performance.now is anchored to
@@ -184,6 +289,7 @@
 
   onMount(() => {
     perfMark("boot.app-mount");
+    let disposed = false;
     const automaticUpdateCheckTimerId = isMainWindow
       ? setTimeout(() => {
         void updates.checkAutomatically({ kind: "startup" });
@@ -194,28 +300,96 @@
         void updates.checkAutomatically({ kind: "periodic" });
       }, UPDATE_AUTO_CHECK_INTERVAL_MS + AUTOMATIC_UPDATE_CHECK_DELAY_MS + 1_000)
       : null;
+    const handleMusicAssignmentInspection = (event: Event) => {
+      if (!(event instanceof CustomEvent) || event.detail?.ready === true || nav.current === "calendar") return;
+      const eventId = typeof event.detail?.eventId === "string" ? event.detail.eventId : null;
+      if (!eventId) return;
+      nav.navigate("calendar");
+      window.setTimeout(() => {
+        window.dispatchEvent(new CustomEvent("ganbaru-ai:inspect-music-assignment", {
+          detail: { eventId, ready: true },
+        }));
+      }, 0);
+    };
+    window.addEventListener("ganbaru-ai:inspect-music-assignment", handleMusicAssignmentInspection);
     if (isMainWindow) {
+      notesProjectHistoryScheduler.setEnabled(true);
       listen("calendar-notification-open", () => {
+        if (disposed) return;
         nav.navigate("calendar");
       })
         .then((unlisten) => {
+          if (disposed) {
+            unlisten();
+            return;
+          }
           unlistenCalendarNotificationOpen = unlisten;
         })
         .catch((e) => console.error("Failed to listen for calendar notification opens:", e));
+      listen<unknown>("notes-notification-open", (event) => {
+        if (disposed) return;
+        const payload = parseNotesNotificationOpenPayload(event.payload);
+        if (!payload) return;
+        openNotesNotification(payload);
+      })
+        .then((unlisten) => {
+          if (disposed) {
+            unlisten();
+            return;
+          }
+          unlistenNotesNotificationOpen = unlisten;
+        })
+        .catch((e) => console.error("Failed to listen for Notes notification opens:", e));
       listen("doomscrolling-open-desktop-settings", () => {
+        if (disposed) return;
         settingsLauncher.open("doomscrolling", { doomscrollingTab: "desktop" });
       })
         .then((unlisten) => {
+          if (disposed) {
+            unlisten();
+            return;
+          }
           unlistenDoomscrollingDesktopSettingsOpen = unlisten;
         })
         .catch((e) => console.error("Failed to listen for doomscrolling settings opens:", e));
       listen("doomscrolling-open-limits-settings", () => {
+        if (disposed) return;
         settingsLauncher.open("doomscrolling", { doomscrollingTab: "limits" });
       })
         .then((unlisten) => {
+          if (disposed) {
+            unlisten();
+            return;
+          }
           unlistenDoomscrollingLimitsSettingsOpen = unlisten;
         })
         .catch((e) => console.error("Failed to listen for doomscrolling limit settings opens:", e));
+    }
+    const unsubscribeHistoryVault = isMainWindow
+      ? onActiveVaultIdentityChange((previousVaultId, nextVaultId) => {
+          notesProjectHistoryScheduler.switchVault();
+          chat.resetForVault();
+          if (!nextVaultId) return;
+          const projectsRequest = previousVaultId ? projects.load() : projects.ensureLoaded();
+          void projectsRequest.then(() => Promise.all([
+            previousVaultId ? notes.load() : notes.ensureLoaded(),
+            chat.prewarmForProject(projects.selectedProjectId),
+          ])).catch((error) => {
+            console.error("core workspace preload failed", error);
+          });
+        })
+      : null;
+
+    if (isMainWindow) {
+      void ensureDbUrl()
+        .then(() => projects.ensureLoaded())
+        .then(() => Promise.all([
+          notes.ensureLoaded(),
+          chat.prewarmForProject(projects.selectedProjectId),
+        ]))
+        .catch((error) => {
+          console.error("core workspace preload failed", error);
+        });
     }
 
     // Valid benchmark boots are claimed before normal calendar hydration so
@@ -252,6 +426,9 @@
     document.addEventListener("contextmenu", blockNativeContextMenu, { capture: true });
 
     const root = document.documentElement;
+    const navigateToNotesHash = () => {
+      if (parseNotesLinkHash(window.location.hash)) nav.navigate("notes");
+    };
     const markPointerFocus = () => {
       root.dataset.focusIntent = "pointer";
     };
@@ -261,14 +438,15 @@
       }
     };
     markPointerFocus();
+    navigateToNotesHash();
     document.addEventListener("pointerdown", markPointerFocus, { capture: true });
     document.addEventListener("keydown", markKeyboardFocus, { capture: true });
+    window.addEventListener("hashchange", navigateToNotesHash);
 
     // Track device timezone changes (travel, OS-level update). On change,
     // reload calendar events so wall-clock strings reflect the new zone.
-    // Re-resolves on visibility change (returning from suspend/lock screen),
-    // window focus, and a cheap 60s sanity poll for cases where neither
-    // event fires (background tab, multi-window).
+    // Re-resolves on visibility change and window focus after suspend or
+    // device travel. Those same lifecycle events catch every scheduler up.
     let knownZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
     const checkZone = () => {
       const current = Intl.DateTimeFormat().resolvedOptions().timeZone;
@@ -277,19 +455,24 @@
         calendar.load().catch((e) => console.error("Failed to reload calendar after zone change:", e));
       }
     };
-    const onVisibility = () => { if (document.visibilityState === "visible") checkZone(); };
+    const onVisibility = () => {
+      if (document.visibilityState !== "visible") return;
+      checkZone();
+      resumeLifecycleSchedulers();
+    };
+    const onFocus = () => {
+      checkZone();
+      resumeLifecycleSchedulers();
+    };
     document.addEventListener("visibilitychange", onVisibility);
-    window.addEventListener("focus", checkZone);
-    const zoneIntervalId = setInterval(checkZone, 60_000);
-    const desktopBlockerIntervalId = isMainWindow
-      ? setInterval(checkDesktopAppBlocking, DESKTOP_BLOCKING_CHECK_INTERVAL_MS)
-      : null;
-    const stopDoomscrollingUsage = isMainWindow ? doomscrollingUsage.start() : null;
-    checkDesktopAppBlocking();
+    window.addEventListener("focus", onFocus);
 
     return () => {
+      disposed = true;
       unlistenCalendarNotificationOpen?.();
       unlistenCalendarNotificationOpen = null;
+      unlistenNotesNotificationOpen?.();
+      unlistenNotesNotificationOpen = null;
       unlistenDoomscrollingDesktopSettingsOpen?.();
       unlistenDoomscrollingDesktopSettingsOpen = null;
       unlistenDoomscrollingLimitsSettingsOpen?.();
@@ -298,56 +481,49 @@
       document.removeEventListener("contextmenu", blockNativeContextMenu, { capture: true });
       document.removeEventListener("pointerdown", markPointerFocus, { capture: true });
       document.removeEventListener("keydown", markKeyboardFocus, { capture: true });
+      window.removeEventListener("hashchange", navigateToNotesHash);
       document.removeEventListener("visibilitychange", onVisibility);
-      window.removeEventListener("focus", checkZone);
+      window.removeEventListener("focus", onFocus);
+      window.removeEventListener("ganbaru-ai:inspect-music-assignment", handleMusicAssignmentInspection);
       if (automaticUpdateCheckTimerId) clearTimeout(automaticUpdateCheckTimerId);
       if (automaticUpdateCheckIntervalId) clearInterval(automaticUpdateCheckIntervalId);
       clearTimeout(startupMemoryTimerId);
-      clearInterval(zoneIntervalId);
-      if (desktopBlockerIntervalId) clearInterval(desktopBlockerIntervalId);
-      stopDoomscrollingUsage?.();
+      unsubscribeHistoryVault?.();
+      if (isMainWindow) {
+        void notesProjectHistoryScheduler.shutdown().catch((error) => {
+          console.error("Notes project history shutdown flush failed", error);
+        });
+      }
+      disposeLifecycleSchedulers();
     };
   });
 
   $effect(() => {
-    const _active = pomodoro.isActive;
-    const _running = pomodoro.isRunning;
-    const _phase = pomodoro.phase;
-    const _idlePaused = pomodoro.idlePaused;
-    const _suspendedAway = pomodoro.suspendedAway;
-    const _enabled = doomscrolling.desktopEnabled;
-    const _focus = doomscrolling.desktopBlockDuringFocus;
-    const _shortBreaks = doomscrolling.desktopBlockDuringShortBreaks;
-    const _longBreaks = doomscrolling.desktopBlockDuringLongBreaks;
-    const _pause = doomscrolling.desktopPauseDuringFocusPause;
-    const _rules = doomscrolling.blockedApps;
-    checkDesktopAppBlocking();
-  });
-
-  $effect(() => {
-    const _limitsEnabled = doomscrolling.limitsEnabled;
-    const _limits = doomscrolling.usageLimits;
-    if (isMainWindow) void doomscrollingUsage.refresh();
-  });
-
-  $effect(() => {
     let cleanup: (() => void) | undefined;
+    let disposed = false;
     appWindow.onResized(() => {
-      appWindow.isMaximized().then((v) => (isMaximized = v));
+      if (disposed) return;
+      appWindow.isMaximized().then((value) => {
+        if (!disposed) isMaximized = value;
+      });
     }).then((unlisten) => {
+      if (disposed) {
+        unlisten();
+        return;
+      }
       cleanup = unlisten;
     });
-    return () => cleanup?.();
+    return () => {
+      disposed = true;
+      cleanup?.();
+    };
   });
 
   const visibleTabViews = $derived.by<DetachableTabView[]>(() => {
     if (detachedWindowView) return [detachedWindowView];
     return mainTabViews(detachedWindows.views);
   });
-  const keyboardViews = $derived.by<View[]>(() => {
-    if (!isMainWindow) return visibleTabViews;
-    return [...visibleTabViews, "music"];
-  });
+  const keyboardViews = $derived(visibleTabViews);
   let showStopConfirm = $state(false);
   let savedBlockState: CalendarEvent | null = null;
   let reverting = false;
@@ -390,13 +566,75 @@
     return false;
   }
 
-  function checkDesktopAppBlocking(): void {
+  async function checkDesktopAppBlocking(context?: SchedulerRunContext): Promise<void> {
     if (!desktopAppBlockingActive()) {
       desktopBlocker.clear();
       return;
     }
-    void desktopBlocker.check(doomscrolling.blockedApps);
+    await desktopBlocker.check(
+      doomscrolling.blockedApps,
+      () => context?.isCurrent() ?? desktopAppBlockingActive(),
+    );
   }
+
+  const desktopBlockingScheduler = createLifecycleScheduler({
+    run: async (context) => {
+      await checkDesktopAppBlocking(context);
+      if (context.isCurrent()) await doomscrollingUsage.runOnce(context);
+      return context.isCurrent()
+        ? context.now() + DESKTOP_BLOCKING_CHECK_INTERVAL_MS
+        : null;
+    },
+    onError: (error) => {
+      console.warn("Failed to check blocked desktop apps:", error);
+    },
+  });
+
+  $effect(() => {
+    const _active = pomodoro.isActive;
+    const _running = pomodoro.isRunning;
+    const _phase = pomodoro.phase;
+    const _idlePaused = pomodoro.idlePaused;
+    const _suspendedAway = pomodoro.suspendedAway;
+    const _enabled = doomscrolling.desktopEnabled;
+    const _focus = doomscrolling.desktopBlockDuringFocus;
+    const _shortBreaks = doomscrolling.desktopBlockDuringShortBreaks;
+    const _longBreaks = doomscrolling.desktopBlockDuringLongBreaks;
+    const _pause = doomscrolling.desktopPauseDuringFocusPause;
+    const _rules = doomscrolling.blockedApps;
+    const active = doomscrollingObservationPlan(
+      isMainWindow,
+      desktopAppBlockingActive(),
+      doomscrollingUsage.isEnabled(),
+    ).coordinatorEnabled;
+    const wasEnabled = desktopBlockingScheduler.isEnabled();
+    desktopBlockingScheduler.setEnabled(active);
+    if (!active) {
+      desktopBlocker.clear();
+    } else if (wasEnabled) {
+      desktopBlockingScheduler.invalidate();
+    }
+  });
+
+  $effect(() => {
+    const _limitsEnabled = doomscrolling.limitsEnabled;
+    const _limits = doomscrolling.usageLimits;
+    const enabled = isMainWindow
+      && doomscrolling.limitsEnabled
+      && doomscrolling.usageLimits.some((limit) => limit.enabled);
+    const wasEnabled = doomscrollingUsage.isEnabled();
+    doomscrollingUsage.setEnabled(enabled);
+    const coordinatorEnabled = doomscrollingObservationPlan(
+      isMainWindow,
+      desktopAppBlockingActive(),
+      enabled,
+    ).coordinatorEnabled;
+    const coordinatorWasEnabled = desktopBlockingScheduler.isEnabled();
+    desktopBlockingScheduler.setEnabled(coordinatorEnabled);
+    if (coordinatorEnabled && (wasEnabled || coordinatorWasEnabled)) {
+      desktopBlockingScheduler.invalidate();
+    }
+  });
 
   function toggleDevtools(): void {
     if (!import.meta.env.DEV || devtoolsToggleInFlight) return;
@@ -454,13 +692,6 @@
       return;
     }
 
-    if (isMainWindow && hasOnlyShortcutModifier(e) && e.key.toLowerCase() === "m") {
-      if (isEditableKeyboardTarget(e.target)) return;
-      e.preventDefault();
-      nav.navigate("music");
-      return;
-    }
-
     if (hasShortcutModifier(e) && !e.altKey && e.code === "Tab") {
       e.preventDefault();
       if (e.shiftKey) navigatePrev();
@@ -473,19 +704,6 @@
       if (e.key === "PageUp") navigatePrev();
       else navigateNext();
     }
-  }
-
-  async function findActiveBlock(): Promise<CalendarEvent | undefined> {
-    const now = new Date();
-    const today = Temporal.Now.plainDateISO();
-    const events = await calendar.loadPomodoroSchedulerEvents(
-      today.subtract({ days: 1 }),
-      today.add({ days: 1 }),
-    );
-    return selectActivePomodoroBlock(events, {
-      now,
-      activeBlockId: pomodoro.activeBlockId,
-    });
   }
 
   function soundForCompletionKind(kind: PomodoroCompletionKind): AppSoundId {
@@ -543,7 +761,7 @@
       const faded = await fadeMusicVolume(0, COMPLETION_MUSIC_FADE_OUT_MS, generation);
       if (!faded) return null;
 
-      await music.pausePlayback();
+      await music.pausePlayback("system");
       await delayMs(COMPLETION_MUSIC_PAUSE_SETTLE_MS);
       return {
         generation,
@@ -574,7 +792,7 @@
       await delayMs(completionSoundDurationMs(kind) + COMPLETION_SOUND_RESUME_PAD_MS);
       if (duck.generation !== completionMusicDuckingGeneration) return;
       if (!music.currentSource) return;
-      await music.playPlayback();
+      await music.playPlayback("system");
       await fadeMusicVolume(duck.restoreVolume, COMPLETION_MUSIC_FADE_IN_MS, duck.generation);
       if (duck.generation === completionMusicDuckingGeneration) {
         await music.setTransientVolume(duck.restoreVolume);
@@ -614,93 +832,26 @@
     restoreMusicAfterCompletionSound(duck, kind);
   }
 
-  let trackedBlockSnapshot: CalendarEvent | null = null;
-  let activeBlockCheckRunning = false;
-  let activeBlockCheckQueued = false;
-
-  async function runActiveBlockCheck(): Promise<void> {
-    if (!isMainWindow) return;
-    if (!calendar.loaded) return;
-    if (showStopConfirm || reverting || suspendInfo || idleInfo || pomodoro.autoStartSuppressed) return;
-
-    const activeBlock = await findActiveBlock();
-
-    // Clear dismissed block once its time window passes
-    if (pomodoro.dismissedBlockId && activeBlock?.id !== pomodoro.dismissedBlockId) {
-      pomodoro.dismissedBlockId = null;
-    }
-
-    if (activeBlock && activeBlock.id === pomodoro.dismissedBlockId) {
-      return;
-    }
-
-    if (activeBlock) {
-      if (pomodoro.blockExpired) pomodoro.clearBlockExpired();
-      const pc = activeBlock.pomodoroConfig!;
-      void pomodoro.startFromBlock(
-        activeBlock.id,
-        {
-          focusMinutes: pc.focusDurationMinutes,
-          shortBreakMinutes: pc.shortBreakMinutes,
-          longBreakMinutes: pc.longBreakMinutes,
-          cyclesBeforeLongBreak: pc.pomodoroCount,
-        },
-        activeBlock.end,
-        activeBlock.start.split(" ")[0],
-        pc.idleTimeoutMinutes,
-        false,
-      );
-      trackedBlockSnapshot = { ...activeBlock };
-    } else if (pomodoro.activeBlockId && pomodoro.blockExpired) {
-      // Block naturally ended, no successor: stop the timer and show a terminal notice.
-      const completedBlock = trackedBlockSnapshot;
-      pomodoro.clearBlockExpired();
-      trackedBlockSnapshot = null;
-      await pomodoro.stopSession();
-      await showNaturalPomodoroCompletion(completedBlock);
-    } else if (
-      pomodoro.activeBlockId &&
-      trackedBlockSnapshot &&
-      parseCalendarDate(trackedBlockSnapshot.end).getTime() <= Date.now()
-    ) {
-      // A paused session has no tick to mark blockExpired. If the event window
-      // has naturally passed, finish it silently instead of offering an edit
-      // rollback that would not change anything useful.
-      const completedBlock = trackedBlockSnapshot;
+  const activeBlockScheduler = createPomodoroCalendarScheduler({
+    calendar,
+    pomodoro,
+    canStartAutomatically: (boundaryEpochMs) => invoke<boolean>("pomodoro_can_start_automatically", {
+      boundaryEpochMs,
+    }),
+    isBlocked: () => showStopConfirm || reverting || Boolean(suspendInfo) || Boolean(idleInfo),
+    onBeforeNaturalCompletion: () => {
       savedBlockState = null;
-      trackedBlockSnapshot = null;
-      await pomodoro.stopSession();
-      await showNaturalPomodoroCompletion(completedBlock);
-    } else if (pomodoro.activeBlockId && trackedBlockSnapshot) {
-      // No overlapping scheduler candidate is not proof that the active event vanished.
-      // Explicit expiry and protected edit/delete paths own session stops.
-      return;
-    }
-  }
-
-  async function checkActiveBlock(): Promise<void> {
-    if (activeBlockCheckRunning) {
-      activeBlockCheckQueued = true;
-      return;
-    }
-
-    activeBlockCheckRunning = true;
-    try {
-      do {
-        activeBlockCheckQueued = false;
-        await runActiveBlockCheck();
-      } while (activeBlockCheckQueued);
-    } catch (e) {
-      console.warn("active pomodoro block check failed", e);
-    } finally {
-      activeBlockCheckRunning = false;
-    }
-  }
+    },
+    onNaturalCompletion: showNaturalPomodoroCompletion,
+    onError: (error) => {
+      console.warn("active pomodoro block check failed", error);
+    },
+  });
 
   function confirmStop() {
     showStopConfirm = false;
     savedBlockState = null;
-    trackedBlockSnapshot = null;
+    activeBlockScheduler.clearTrackedBlock();
     pomodoro.stopSession();
   }
 
@@ -718,83 +869,194 @@
     });
   }
 
-  // React to calendar event changes and block expiry immediately
+  // React to calendar and timer state changes, then sleep until the exact
+  // next event boundary instead of scanning every second.
   $effect(() => {
     const _v = calendar.indexVersion;
     const _expired = pomodoro.blockExpired;
-    void checkActiveBlock();
+    const _suspended = suspendInfo;
+    const _idle = idleInfo;
+    const _suppressed = pomodoro.autoStartSuppressed;
+    const _confirming = showStopConfirm;
+    const _reverting = reverting;
+    const enabled = isMainWindow && calendar.loaded;
+    const wasEnabled = activeBlockScheduler.isEnabled();
+    activeBlockScheduler.setEnabled(enabled);
+    if (enabled && wasEnabled) activeBlockScheduler.invalidate();
   });
 
   $effect(() => {
     if (detachedWindowView) {
-      if (nav.current !== detachedWindowView) nav.navigate(detachedWindowView);
+      if (nav.current !== detachedWindowView) {
+        nav.navigate(detachedWindowView);
+        return;
+      }
       return;
     }
     if (isDetachableTabView(nav.current) && !visibleTabViews.includes(nav.current)) {
       nav.navigate(firstMainView(detachedWindows.views));
+      return;
     }
   });
 
-  // Also poll for time-based transitions
+  // Notes mention notifications
+  function notesMentionNotificationSchedulerEnabled(): boolean {
+    return preferences.notesMentionNotificationsEnabled
+      && (
+        preferences.notesReminderNotificationsEnabled
+        || preferences.notesUserMentionNotificationsEnabled
+        || preferences.notesTaskMentionNotificationsEnabled
+      );
+  }
+
+  function notesMentionNotificationTitle(kind: NotesMentionNotificationKind): string {
+    if (kind === "reminder") return t("notes.notification.reminderTitle");
+    if (kind === "task_mention") return t("notes.notification.taskMentionTitle");
+    return t("notes.notification.userMentionTitle");
+  }
+
+  function compactNotificationText(value: string): string {
+    return value.replace(/\s+/gu, " ").trim();
+  }
+
+  function truncateNotificationText(value: string): string {
+    const compact = compactNotificationText(value);
+    if (compact.length <= NOTES_NOTIFICATION_BODY_MAX_CHARS) return compact;
+    return `${compact.slice(0, NOTES_NOTIFICATION_BODY_MAX_CHARS - 3).trimEnd()}...`;
+  }
+
+  function notesMentionNotificationBody(notification: NotesMentionNotification): string {
+    const pageTitle = notification.page_title.trim() || t("notes.untitled");
+    if (preferences.notesNotificationIncludeContent) {
+      const sourceText = truncateNotificationText(
+        notification.source_plain_text || notification.plain_text,
+      );
+      if (sourceText) return sourceText;
+    }
+    return t("notes.notification.privateBody", pageTitle);
+  }
+
+  async function deliverNotesMentionNotification(
+    notification: NotesMentionNotification,
+  ): Promise<void> {
+    await invoke("show_notes_notification", {
+      title: notesMentionNotificationTitle(notification.kind),
+      body: notesMentionNotificationBody(notification),
+      pageId: notification.page_id,
+      blockId: notification.block_id,
+      playSound: true,
+    });
+    await markNotesMentionNotificationsDelivered({ ids: [notification.id] });
+  }
+
+  const notesNotificationScheduler = createNotesNotificationScheduler({
+    listPending: listPendingNotesMentionNotifications,
+    getPreferences: () => ({
+      mentionNotificationsEnabled: preferences.notesMentionNotificationsEnabled,
+      reminderNotificationsEnabled: preferences.notesReminderNotificationsEnabled,
+      userMentionNotificationsEnabled: preferences.notesUserMentionNotificationsEnabled,
+      taskMentionNotificationsEnabled: preferences.notesTaskMentionNotificationsEnabled,
+    }),
+    deliver: deliverNotesMentionNotification,
+    onError: (error) => {
+      console.error("[notes notifications] check failed:", error);
+    },
+    onDeliveryError: (error) => {
+      console.error("[notes notifications] failed:", error);
+    },
+  });
+
   $effect(() => {
-    const id = setInterval(() => {
-      void checkActiveBlock();
-    }, ACTIVE_BLOCK_CHECK_INTERVAL_MS);
-    return () => clearInterval(id);
+    const _enabled = preferences.notesMentionNotificationsEnabled;
+    const _reminders = preferences.notesReminderNotificationsEnabled;
+    const _users = preferences.notesUserMentionNotificationsEnabled;
+    const _tasks = preferences.notesTaskMentionNotificationsEnabled;
+    const _version = notesNotificationSchedule.version;
+    const enabled = isMainWindow && notesMentionNotificationSchedulerEnabled();
+    const wasEnabled = notesNotificationScheduler.isEnabled();
+    notesNotificationScheduler.setEnabled(enabled);
+    if (enabled && wasEnabled) notesNotificationScheduler.invalidate();
+  });
+
+  const chatScheduledMessageScheduler = createLifecycleScheduler({
+    errorRetryMs: 60_000,
+    run: async (context) => {
+      const result = await chat.dispatchDueScheduledMessages();
+      if (!context.isCurrent() || !result.nextDispatchAt) return null;
+      const deadline = Date.parse(result.nextDispatchAt);
+      return Number.isFinite(deadline) ? deadline : null;
+    },
+    onError: (error) => {
+      console.error("[chat scheduled messages] dispatch failed:", error);
+    },
+  });
+
+  $effect(() => {
+    const _version = chat.scheduledMessagesVersion;
+    const enabled = isMainWindow && chat.loaded;
+    const wasEnabled = chatScheduledMessageScheduler.isEnabled();
+    chatScheduledMessageScheduler.setEnabled(enabled);
+    if (enabled && wasEnabled) chatScheduledMessageScheduler.invalidate();
   });
 
   // Event notifications
-  const notifiedEvents = new Set<string>();
+  const eventNotificationScheduler = createEventNotificationScheduler({
+    getEvents: () => {
+      const today = Temporal.Now.plainDateISO();
+      return calendar.eventsInWindow(
+        today.subtract({ days: 1 }),
+        today.add({ days: 7 }),
+      );
+    },
+    deliver: async ({ event }) => {
+      const now = new Date();
+      const title = event.title.trim() || t("calendar.notification.titleFallback");
+      const body = formatEventNotificationBody(event, now, { t, locale });
+      await invoke("show_event_notification", { title, body, openCalendar: true });
+    },
+    onError: (error) => {
+      console.error("[notifications] failed:", error);
+    },
+  });
 
-  function checkEventNotifications() {
-    if (!isMainWindow) return;
-    const now = new Date();
-    const today = Temporal.Now.plainDateISO();
-    const events = calendar.eventsInWindow(
-      today.subtract({ days: 1 }),
-      today.add({ days: 7 }),
-    );
-    for (const event of events) {
-      if (!event.notifications || event.notifications.length === 0) continue;
-
-      const startTime = parseCalendarDate(event.start);
-      for (const minutes of event.notifications) {
-        const notifKey = `${event.id}::${minutes}`;
-        if (notifiedEvents.has(notifKey)) continue;
-
-        const notifyTime = new Date(startTime.getTime() - minutes * 60_000);
-        const diff = now.getTime() - notifyTime.getTime();
-
-        // Fire if within a narrow window that covers the 1s polling interval with margin.
-        if (diff >= 0 && diff < 2_500) {
-          notifiedEvents.add(notifKey);
-          const title = event.title.trim() || t("calendar.notification.titleFallback");
-          const body = formatEventNotificationBody(event, now, { t, locale });
-          invoke("show_event_notification", { title, body, openCalendar: true }).catch((e) =>
-            console.error("[notifications] failed:", e),
-          );
-        }
-      }
-    }
-  }
-
-  // Check notifications on event changes and every scheduler tick.
+  // Recompute the exact next deadline whenever the calendar window changes.
   $effect(() => {
     const _v = calendar.indexVersion;
-    checkEventNotifications();
+    const enabled = isMainWindow && calendar.loaded;
+    const wasEnabled = eventNotificationScheduler.isEnabled();
+    eventNotificationScheduler.setEnabled(enabled);
+    if (enabled && wasEnabled) eventNotificationScheduler.invalidate();
   });
 
-  $effect(() => {
-    const id = setInterval(checkEventNotifications, EVENT_NOTIFICATION_CHECK_INTERVAL_MS);
-    return () => clearInterval(id);
-  });
+  function resumeLifecycleSchedulers(): void {
+    activeBlockScheduler.resume();
+    eventNotificationScheduler.resume();
+    notesNotificationScheduler.resume();
+    chatScheduledMessageScheduler.resume();
+    notesProjectHistoryScheduler.resume();
+    desktopBlockingScheduler.resume();
+    doomscrollingUsage.resume();
+    music.resumeSnapshotScheduler();
+  }
+
+  function disposeLifecycleSchedulers(): void {
+    activeBlockScheduler.dispose();
+    eventNotificationScheduler.dispose();
+    notesNotificationScheduler.dispose();
+    chatScheduledMessageScheduler.dispose();
+    desktopBlockingScheduler.dispose();
+    doomscrollingUsage.setEnabled(false);
+    void doomscrollingUsage.flush().catch((error) => {
+      console.warn("Failed to flush doomscrolling usage on shutdown:", error);
+    });
+    desktopBlocker.clear();
+  }
 </script>
 
 <svelte:window onkeydown={handleKeydown} />
 
 <div
   class="app-shell h-screen w-screen"
-  class:app-rounded={!isMaximized}
   data-size-class={viewport.sizeClass}
 >
   <div class="flex h-full flex-col overflow-hidden bg-sidebar">
@@ -803,11 +1065,14 @@
       {#if nav.current === "calendar"}
         <CalendarView />
       {:else if nav.current === "projects"}
-        <div class="h-full"></div>
+        <ProjectsView
+          desktopViewComponents={projectDesktopViewComponents}
+          projectChat={projectChatIntegration}
+        />
       {:else if nav.current === "notes"}
-        <div class="h-full"></div>
-      {:else if nav.current === "music"}
-        <MusicView />
+        <NotesView musicMentionContext={notesMusicMentionContext} />
+      {:else}
+        <ChatWorkspace />
       {/if}
     </main>
   </div>
@@ -828,7 +1093,7 @@
       title={t("focusDialog.resumeTitle")}
       message={t("focusDialog.awayMessage", formatAwayDuration(suspendInfo.awaySeconds))}
       confirmLabel={t("focusDialog.resume")}
-      cancelLabel={t("focusDialog.stopSessionShortcut")}
+      cancelLabel={t("focusDialog.stopSessionCancel")}
       danger={false}
       onConfirm={() => { void pomodoro.dismissSuspend(true); }}
       onCancel={() => { pomodoro.dismissedBlockId = pomodoro.activeBlockId; void pomodoro.dismissSuspend(false); }}
@@ -863,13 +1128,10 @@
   {/if}
 
   <MusicPlaybackHost />
+  {#if isMainWindow}
+    <MusicContextCoordinator />
+    <MusicSoundscapeCoordinator />
+  {/if}
   <TooltipHost />
   <WindowResizeHandles disabled={isMaximized || !!idleInfo} />
 </div>
-
-<style>
-  .app-rounded {
-    border-radius: var(--content-radius);
-    overflow: hidden;
-  }
-</style>

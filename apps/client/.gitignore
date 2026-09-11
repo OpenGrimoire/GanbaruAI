@@ -1,6 +1,7 @@
 .DS_Store
 node_modules
 /build
+/.bundle-contracts/
 /.svelte-kit
 /package
 .env

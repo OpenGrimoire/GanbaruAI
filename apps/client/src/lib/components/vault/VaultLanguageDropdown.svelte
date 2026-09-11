@@ -41,7 +41,7 @@
 
   const initialPreference = readPreVaultLanguagePreference(safeStorage());
   if (initialPreference) {
-    localization.setLanguagePreference(initialPreference, { persist: false });
+    void localization.setLanguagePreference(initialPreference, { persist: false });
   }
 
   const locale = $derived(localization.locale);
@@ -87,8 +87,9 @@
     searchInputEl?.focus();
   }
 
-  function selectLanguage(next: LanguageOption): void {
-    localization.setLanguagePreference(next.value, { persist: false });
+  async function selectLanguage(next: LanguageOption): Promise<void> {
+    const applied = await localization.setLanguagePreference(next.value, { persist: false });
+    if (!applied) return;
     writePreVaultLanguagePreference(safeStorage(), next.value);
     open = false;
     query = "";
@@ -160,7 +161,7 @@
               type="button"
               role="option"
               aria-selected={isActive}
-              onclick={() => selectLanguage(option)}
+              onclick={() => void selectLanguage(option)}
               class={cn(
                 "flex w-full items-center justify-between gap-3 rounded-md px-2.5 py-2 text-left text-sm transition-colors",
                 isActive ? "bg-accent/35 text-foreground" : "text-foreground hover:bg-accent/25",

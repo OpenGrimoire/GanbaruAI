@@ -8,6 +8,12 @@ import {
   DEFAULT_CALENDAR_DIM_PAST_EVENTS,
   DEFAULT_CALENDAR_VIEW_MODE,
   DEFAULT_MUSIC_PAUSE_ON_POMODORO_PAUSE,
+  DEFAULT_PROFILE_DISPLAY_NAME,
+  DEFAULT_PROFILE_IMAGE_PATH,
+  DEFAULT_PROFILE_FULL_NAME,
+  PROFILE_DISPLAY_NAME_MAX_CHARS,
+  isProfileImagePath,
+  PROFILE_FULL_NAME_MAX_CHARS,
   DEFAULT_CALENDAR_TIME_FORMAT,
   CALENDAR_VIEW_MODES,
   DEFAULT_FOCUS_IDLE_PAUSE_ON_EVENT_CREATE,
@@ -42,8 +48,9 @@ import {
   parseFocusPauseNotificationIntervalMinutes,
   parseLanguagePreference,
   parseTitleBarVisibility,
+  normalizeProfileDisplayName,
+  normalizeProfileFullName,
   resolveFontFamilyStack,
-  shouldNormalizeTitleBarVisibility,
 } from "./preferences";
 
 describe("FONT_FAMILIES registry", () => {
@@ -195,6 +202,69 @@ describe("language preferences", () => {
 describe("music pomodoro preferences", () => {
   it("pauses music on pomodoro pause by default", () => {
     expect(DEFAULT_MUSIC_PAUSE_ON_POMODORO_PAUSE).toBe(true);
+  });
+});
+
+describe("profile preferences", () => {
+  it("defaults to empty profile names", () => {
+    expect(DEFAULT_PROFILE_DISPLAY_NAME).toBe("");
+    expect(DEFAULT_PROFILE_FULL_NAME).toBe("");
+    expect(PROFILE_DISPLAY_NAME_MAX_CHARS).toBe(25);
+    expect(PROFILE_FULL_NAME_MAX_CHARS).toBe(50);
+  });
+
+  it("trims profile display names while allowing an empty value", () => {
+    expect(normalizeProfileDisplayName("  Victor  ")).toEqual({
+      ok: true,
+      value: "Victor",
+    });
+    expect(normalizeProfileDisplayName("   ")).toEqual({
+      ok: true,
+      value: "",
+    });
+  });
+
+  it("accepts only managed raster profile image paths", () => {
+    expect(DEFAULT_PROFILE_IMAGE_PATH).toBeNull();
+    expect(isProfileImagePath(`profile/${"a".repeat(64)}.png`)).toBe(true);
+    expect(isProfileImagePath(`profile/${"b".repeat(64)}.jpeg`)).toBe(true);
+    expect(isProfileImagePath("profile/image.png")).toBe(false);
+    expect(isProfileImagePath(`profile/nested/${"a".repeat(64)}.webp`)).toBe(false);
+    expect(isProfileImagePath(`project-icons/${"a".repeat(64)}.png`)).toBe(false);
+    expect(isProfileImagePath(`profile/${"a".repeat(64)}.svg`)).toBe(false);
+  });
+
+  it("trims profile full names while allowing an empty value", () => {
+    expect(normalizeProfileFullName("  Victor Example  ")).toEqual({
+      ok: true,
+      value: "Victor Example",
+    });
+    expect(normalizeProfileFullName("   ")).toEqual({
+      ok: true,
+      value: "",
+    });
+  });
+
+  it("rejects profile display names that are too long or contain control characters", () => {
+    expect(normalizeProfileDisplayName("a".repeat(PROFILE_DISPLAY_NAME_MAX_CHARS + 1))).toEqual({
+      ok: false,
+      reason: "too_long",
+    });
+    expect(normalizeProfileDisplayName("Bad\u0000Name")).toEqual({
+      ok: false,
+      reason: "control_characters",
+    });
+  });
+
+  it("rejects profile full names that are too long or contain control characters", () => {
+    expect(normalizeProfileFullName("a".repeat(PROFILE_FULL_NAME_MAX_CHARS + 1))).toEqual({
+      ok: false,
+      reason: "too_long",
+    });
+    expect(normalizeProfileFullName("Bad\u0000Name")).toEqual({
+      ok: false,
+      reason: "control_characters",
+    });
   });
 });
 
@@ -376,17 +446,6 @@ describe("title bar visibility helpers", () => {
       ...DEFAULT_TITLE_BAR_VISIBILITY,
       settings: false,
     });
-  });
-
-  it("normalizes obsolete or malformed stored title bar visibility", () => {
-    expect(shouldNormalizeTitleBarVisibility(undefined)).toBe(false);
-    expect(shouldNormalizeTitleBarVisibility({
-      settings: false,
-      compactTabs: true,
-    })).toBe(false);
-    expect(shouldNormalizeTitleBarVisibility({ help: true })).toBe(true);
-    expect(shouldNormalizeTitleBarVisibility({ settings: "false" })).toBe(true);
-    expect(shouldNormalizeTitleBarVisibility(null)).toBe(true);
   });
 
   it("falls back to defaults for malformed stored values", () => {

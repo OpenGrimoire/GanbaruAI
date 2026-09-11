@@ -1,6 +1,6 @@
 # Performance budget
 
-Full iCalendar compatibility must not make normal calendar use heavy. Compatibility work belongs mostly in import, export, preservation storage, and lazy detail loading.
+Broad iCalendar compatibility must not make normal calendar use heavy. Compatibility work belongs mostly in import, export, preservation storage, and lazy detail loading.
 
 ## Startup budget
 
@@ -79,7 +79,7 @@ Expansion should be measurable independently from import and export.
 
 ## Database size
 
-Preservation storage will increase database size. This is acceptable because it buys lossless compatibility, but growth should be visible and bounded.
+Preservation storage will increase database size. This is acceptable because it retains unsupported structured semantics, but growth should be visible and bounded.
 
 Track:
 
@@ -113,4 +113,4 @@ Initial targets:
 - Visible-window queries remain bounded by projected rows and required recurrence templates.
 - Import and export can be slower, but must provide diagnostics and avoid unbounded loops.
 
-Exact millisecond targets should be recorded in `docs/PERFORMANCE.md` after benchmark methodology is stable.
+Exact millisecond targets should be recorded in [performance records](../../performance/results.md) after benchmark methodology is stable.

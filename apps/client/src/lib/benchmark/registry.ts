@@ -5,7 +5,7 @@
  * scenario implementation modules.
  *
  * Order is rendered order; keep startup and memory baselines first so
- * pasted suite output is easy to place in PERFORMANCE.md.
+ * pasted suite output is easy to place in docs/performance/results.md.
  */
 import {
   CORE_BENCHMARK_DATASETS,

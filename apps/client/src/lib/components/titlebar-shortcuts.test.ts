@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   isCloseWindowShortcut,
   recordResetShortcutPress,
+  titleBarShortcutAction,
   type CloseWindowShortcutEvent,
   type ResetShortcutSequenceOptions,
   type ResetShortcutSequenceState,
@@ -75,5 +76,24 @@ describe("title bar shortcuts", () => {
 
     expect(result.resetTriggered).toBe(false);
     expect(result.state).toEqual({ pressCount: 1, lastPressAtMs: 10_001 });
+  });
+
+  it("classifies theme and zoom shortcuts", () => {
+    expect(titleBarShortcutAction(shortcutEvent({ ctrlKey: true, shiftKey: true, key: "l" }), false))
+      .toBe("theme-toggle");
+    expect(titleBarShortcutAction(shortcutEvent({ ctrlKey: true, shiftKey: true, key: "t" }), false))
+      .toBe("theme-switcher");
+    expect(titleBarShortcutAction(shortcutEvent({ ctrlKey: true, key: "+" }), false))
+      .toBe("zoom-in");
+    expect(titleBarShortcutAction(shortcutEvent({ ctrlKey: true, key: "-" }), false))
+      .toBe("zoom-out");
+    expect(titleBarShortcutAction(shortcutEvent({ ctrlKey: true, key: "0" }), false))
+      .toBe("zoom-reset");
+  });
+
+  it("keeps close global but ignores editing-sensitive shortcuts", () => {
+    expect(titleBarShortcutAction(shortcutEvent({ ctrlKey: true }), true)).toBe("close");
+    expect(titleBarShortcutAction(shortcutEvent({ ctrlKey: true, shiftKey: true, key: "l" }), true))
+      .toBeNull();
   });
 });

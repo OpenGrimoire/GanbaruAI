@@ -1,0 +1,10 @@
+build (primary)
+  [{"permission":"*","pattern":"*","action":"ask"}]
+explore (subagent)
+  [{"permission":"read","pattern":"*","action":"allow"}]
+compaction (primary)
+  [{"permission":"*","pattern":"*","action":"allow"}]
+code reviewer (all)
+  [{"permission":"read","pattern":"*","action":"allow"}]
+broken (unknown-mode)
+  not JSON

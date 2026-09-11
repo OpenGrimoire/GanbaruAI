@@ -316,7 +316,7 @@ describe("toUserThemeSnapshot", () => {
     expect(snapshot.kind).toBe("user");
     expect(snapshot.id).toBe(lightTheme.id);
     expect(snapshot.displayName).toBe(lightTheme.displayName);
-    expect(parsed.schemaVersion).toBe(2);
+    expect(parsed.schemaVersion).toBe(1);
     expect(Object.keys(parsed.appTokens as Record<string, unknown>)).toEqual(
       APP_TOKEN_KEYS,
     );

@@ -1,0 +1,8 @@
+{"method":"thread/started","params":{"thread":{"id":"provider-thread-1","name":"Provider-owned title","preview":"Redacted preview"}}}
+{"method":"turn/started","params":{"threadId":"provider-thread-1","turn":{"id":"provider-turn-1","status":"inProgress"}}}
+{"method":"item/started","params":{"threadId":"provider-thread-1","turnId":"provider-turn-1","item":{"id":"provider-item-1","type":"agentMessage","status":"inProgress"}}}
+{"method":"item/agentMessage/delta","params":{"threadId":"provider-thread-1","turnId":"provider-turn-1","itemId":"provider-item-1","delta":"Hello from Codex"}}
+{"method":"item/reasoning/summaryTextDelta","params":{"threadId":"provider-thread-1","turnId":"provider-turn-1","itemId":"provider-reasoning-1","summaryIndex":2,"delta":"Checked the workspace"}}
+{"method":"turn/plan/updated","params":{"threadId":"provider-thread-1","turnId":"provider-turn-1","plan":[{"step":"Inspect the code","status":"completed"},{"step":"Implement the change","status":"inProgress"}]}}
+{"method":"future/redactedEvent","params":{"threadId":"provider-thread-1","secret":"ganbaru-codex-fixture-secret","safeFlag":true}}
+{"method":"turn/completed","params":{"threadId":"provider-thread-1","turn":{"id":"provider-turn-1","status":"completed","items":[]}}}

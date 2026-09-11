@@ -1,95 +1,169 @@
 # Data invariants
 
-These hold across the whole app. Any operation that can break one is wrong, regardless of which feature it belongs to. The list is numbered for cross-referencing from feature and algorithm docs; the numbers are stable.
+These conditions must remain true across UI actions, imports, migrations, recovery, synchronization, and direct service calls. Each invariant names the rule, why it exists, its enforcement boundary, and the tests expected to protect it.
 
-A violation is a bug in whatever code produced it: the data layer, the derivation logic, or the renderer's visual math. The renderer must not paper over bad data with cosmetic clamps, and the data layer must not lean on the renderer to hide impossible state. Each side has to be correct on its own.
+## Pomodoro and calendar
 
-## 1. Green never appears after the current time
+### 1. Progress never appears after the current time
 
-A focus fill band on the rail can only exist for a segment with `actual_start` in the past and recorded work. Any time the rail shows green beyond the current moment, something is wrong: the segment data, the projection logic, or the visual math that maps time to pixels under the current scroll position, calendar zoom, or app scaling.
+**Rule.** Historical focus or break progress is clipped to the current instant. Future projections may be visible as planned time, but they must not use the visual language of completed or active progress.
 
-**Why:** the rail is a record of what happened, not a forecast. Green ahead of "now" would suggest progress the user has not actually made, undermining the trust the rail builds.
+**Why.** A progress rail that colors future time misrepresents work as already performed.
 
-**What would break:** the user could be misled into thinking they have already focused, leading them to skip a session they meant to do. Analytics derived from green time would inflate.
+**Enforcement.** Timeline projection and rendering, using persisted segment timestamps and the current clock.
 
-**Enforced by:** segment fetch (no future timestamps from the database), the active-segment renderer (clamps to `now`), the projected-band renderer (emits break marks only, never green), and a single time-to-pixel transform shared by the `now` indicator and any green band. That transform must stay correct under every viewport state: scroll position, calendar zoom (25 to 200 px/hour), and app or OS scaling. A green pixel past the `now` line under any zoom or scroll combination is a real violation, not a rounding artifact to ignore.
+**Tests.** Active, paused, completed, and future segments at exact time boundaries.
 
-## 2. Exactly one segment is `active` at a time
+### 2. At most one Pomodoro segment is active globally
 
-Across all runs in the database, at most one segment row carries `status = active`. Two would mean the timer is running two things simultaneously.
+**Rule.** Zero or one segment may have active status across the database. An open run may temporarily have no active segment during a transactional transition or recovery boundary.
 
-**Why:** the timer state machine assumes a single active phase. Pauses, transitions, reconfigurations, and crash recovery all key off the active segment.
+**Why.** The application exposes one global timer and one enforcement state.
 
-**What would break:** double pauses on the wrong segment, transitions that end the wrong run, recovery picking the wrong segment to mark interrupted.
+**Enforcement.** A partial unique SQLite index, transactional phase transitions, and startup recovery.
 
-**Enforced by:** session start/transition/reconfigure code paths (always close the previous active segment before creating a new one), and crash recovery (closes any stale active segments on startup).
+**Tests.** Concurrent starts, repeated transition requests, crash recovery, and rapid start or stop actions.
 
-## 3. Break positions are stable within a session
+### 3. Historical phases are stable within a run
 
-For a running session, the planned positions of upcoming breaks are deterministic from the run's `started_at`, config snapshot, and inherited state (`inherited_focus_minutes`, `inherited_cycle`). Once the session is running, these positions do not shift.
+**Rule.** Completed and interrupted segment positions, phases, durations, and timestamps never move. The active phase keeps its persisted identity. Explicit reconfiguration or an adaptive boundary decision may change future projections, but the decision and selected value must be persisted before the affected segment starts.
 
-For events without an active session, projected break marks are computed from "now" and naturally shift each tick. This is a different surface, see `features/pomodoro-progress-displays.md`.
+**Why.** History must remain auditable while future assistance remains adaptable.
 
-**Why:** if break positions slid around while the user was working, the rail would feel unreliable; the user would not know whether the break mark in front of them was a real commitment or a moving target.
+**Enforcement.** Immutable historical rows, boundary-only adaptive decisions, and the reconfiguration transaction.
 
-**What would break:** users would lose trust in the schedule. The state machine's assumption that "next break is at minute X" would be invalidated mid-session.
+**Tests.** Reconfigure and adaptive decisions before, during, and after a phase boundary.
 
-**Enforced by:** plan derivation reads only the run's snapshot fields, never "now," for active sessions.
+### 4. One visible Pomodoro owner occupies a time range
 
-## 4. No duplicate bands in the same time range
+**Rule.** Overlapping calendar events must not render duplicate active or planned Pomodoro bands for the same occupied interval. The already-active event remains the owner while it is eligible. Other conflicts are resolved deterministically.
 
-The rail shows one coherent schedule at any point in time. Two overlapping events must never both contribute bands (green or break) to the same minute range.
+**Why.** Duplicated bands imply simultaneous timers that cannot exist.
 
-**Why:** the user must not see, for example, a 25/5 break cadence and a 40/5 break cadence interleaved over the same hour. That makes the rail unreadable.
+**Enforcement.** The calendar conflict policy and timeline band projection.
 
-**What would break:** visual ambiguity, conflicting break notifications, double-counting in analytics.
+**Tests.** Partial overlap, full containment, equal windows, active nested events, and identical configuration.
 
-**Enforced by:** timeline band computation (containment filter and active-event suppression, see `features/pomodoro-progress-displays.md`).
+The scheduler and rail share an active-first selector, followed by earliest end, creation identity and occurrence identity. Recorded older runs remain visible as historical evidence. See [Time conflict detection](../algorithms/calendar/time-conflict-detection.md).
 
-## 5. Persisted data is the source of truth for the past
+### 5. Persisted evidence owns the past
 
-The rail renders past time from segment records, never from re-computation of what "should have happened." If a session was interrupted, the green stops where it stopped. If a break was skipped, no break band appears for that slot.
+**Rule.** Past and active progress is reconstructed from runs, segments, pauses, run events, heartbeats, and adaptive decisions. Configuration is used only to derive a future projection where no persisted segment exists.
 
-Future time is rendered from config-based projections derived from the run's `started_at`, config snapshot, and inherited state. The planned schedule is never stored as separate rows because it is fully deterministic from these fields. See `algorithms/pomodoro-segments-and-plan.md` for the derivation.
+**Why.** A later config edit must not rewrite what happened.
 
-**Why:** treating the past as truth is the foundation for honest analytics. Rebuilding it from "what should have happened" would mask gaps and inflate focus time.
+**Enforcement.** Projection order, run snapshots, segment timestamps, pause normalization, and recovery services.
 
-**What would break:** AI suggestions and stats would optimize for the imagined ideal instead of the user's real patterns.
+**Tests.** Config edits after completion, crash recovery, inherited runs, and adaptive changes.
 
-**Enforced by:** rail rendering reads segments for past time and pauses for green-fill splitting; never recomputes.
+### 6. Past progress is never erased by calendar edits
 
-## 6. Past progress is never erased
+**Rule.** Resizing, moving, archiving, or deleting a calendar event cannot delete elapsed Pomodoro history. An active run may be interrupted or shortened when its event becomes ineligible, but its completed evidence remains.
 
-Once a segment has `actual_start` set and its status is `completed` or `interrupted`, no user action may delete, overwrite, or hide it. Skipping a break, stopping the session, dismissing the idle overlay, reconfiguring pomodoro settings, the app closing unexpectedly, deleting a calendar event, or archiving the calendar event: none of these remove previously recorded work. There is no mechanism to delete individual segments.
+**Why.** Calendar planning is editable; work history is durable.
 
-**Why:** the system is honest with the user about their patterns. Letting users (or operations) wipe out evidence breaks the contract that the app is a record, not a manipulable narrative.
+**Enforcement.** Protected-event deletion rules, archive relationships, event snapshots on runs, and explicit run end reasons.
 
-**What would break:** users would learn to "clean up" sessions they regret, defeating the anti-procrastination feedback loop.
+**Tests.** Move, resize, recurrence split, archive, and delete while a run is active or historical.
 
-**Enforced by:** absence of any delete-segment API. Even structural calendar operations (detach, split, template-wide edit) preserve segments by transferring run references rather than dropping them.
+### 7. Protected calendar events are not hard-deleted
 
-## 7. Protected events are never deleted
+**Rule.** An event with Pomodoro history, project links, imported preservation state, or another protected relationship is archived or detached through a domain command. It is not removed by a generic delete.
 
-A calendar event that has started, is in progress, is in the past, or has pomodoro tracking can only be archived, never hard deleted. This applies regardless of whether the event has completed focus segments. An event where the user planned to focus but never opened the app is still valuable: the absence of work on a planned block is itself a procrastination pattern. Only future events with no run or segment history can be truly deleted.
+**Why.** Hard deletion would break history and interoperability identity.
 
-**Why:** this is invariant 6 generalized to events. The shape of the user's schedule is part of the historical record; deleting past blocks rewrites the past.
+**Enforcement.** Rust calendar services and foreign-key or trigger constraints. The current app boundary implements this. Future CLI or external MCP surfaces must reuse the same service policy.
 
-**What would break:** analytics would lose context (what was planned versus what happened). AI estimates would mistake the absence of an event for the absence of an attempt.
+**Tests.** Every protected relationship, recurrence templates and overrides, imported events, repeated delete commands, and restore from archive.
 
-**Enforced by every programmatic boundary:**
+## Notes and projects
 
-- **UI:** protected events show archive behavior instead of delete. Active pomodoro events show End event first; delete and archive become available only after the run is closed and the event is past.
-- **CLI (`ganbaru-ai`):** delete commands on past events are rejected with a descriptive error pointing to archive. The rejection is logged with timestamp, command, and event ID.
-- **MCP handlers:** event deletion handlers refuse past events at the handler level and return a structured error including the archive alternative.
-- **Internal Tauri commands and database layer:** `calendar_delete_event` accepts the concrete rendered identity and rejects protected rows with an archive-required error. Hard delete is allowed only when the exact event or occurrence is future-only and untracked. `calendar_archive_event`, `calendar_clear_events`, and `calendar_remove_calendar` snapshot protected rows into archive tables and null live pomodoro FKs.
-- **AI agent integration:** system prompts and tool descriptions communicate the policy. Repeated rejection attempts by an agent are logged for diagnostic purposes.
+### 8. A Notes page has one valid owner path
 
-The user owns the SQLite file and can modify it directly with a third-party tool. The app does not attempt to prevent that. But every code path inside the app must refuse.
+**Rule.** A page is either workspace-rooted, nested under one valid parent page, or placed through one project location. It cannot simultaneously claim incompatible parents or escape its project and folder ancestry.
 
-Recurring events have additional protection: structural changes that would cause protected occurrences to silently stop expanding (an EXDATE on a protected date, an UNTIL moved earlier, a pattern change that excludes protected dates) must preserve those occurrences first. This is not a visible-window-only rule. For supported recurrence rules, structural edit code must reason over all affected occurrences from the template start through the captured edit time, using each occurrence's start time rather than only its date. Same-day occurrences that already started are protected; same-day occurrences that have not started and have no tracking remain mutable. A capped historical template is preferred when it can preserve the protected range without changing its meaning. Detached standalone events or archive snapshots are required when an occurrence needs its own event ID or cannot be represented safely by the capped template. Delete/archive requests and recurrence edit saves use one semantic frontend plan and one atomic backend batch so protected archive snapshots, detachments, template caps, splits, and active Pomodoro reference transfers cannot partially apply. The frontend may build occurrence materialization payloads because it owns live preview and wall-clock edit semantics; the backend remains authoritative for persisted writes and invariant enforcement. Occurrences with runs, segments, overrides, exceptions, active sessions, or persisted references are always protected. See `features/calendar-recurrence.md`.
+**Why.** Multiple canonical placements produce divergent navigation, permissions, and history.
 
-## Adding new invariants
+**Enforcement.** Page and folder validation, cycle checks, project membership rules, and transactional move commands.
 
-When an operation reveals a constraint the system depends on but had not stated explicitly, add it here as the next number. Number reuse is forbidden; numbers may be marked deprecated but never recycled. Each new invariant gets the same five fields: statement, why, what would break, enforced by, plus any cross-doc links.
+**Tests.** Cycles, stale parents, cross-project moves, trash and restore, folder migration, and project history restore.
 
-Operations are not invariants. "We always validate input" is a practice; "no segment may exist without a parent run" is an invariant. The test is whether the property must hold across every state of the database, regardless of which code path produced that state.
+## Chat and working folders
+
+### 9. Native Chat work has exactly one execution target
+
+**Rule.** Organizational planning may be targetless. Before filesystem, terminal, Git, preview, checkpoint, restore, or provider process work begins, the run resolves exactly one authorized working folder or one private scratch generation.
+
+**Why.** A single target gives every native operation an unambiguous authority root.
+
+**Enforcement.** Assignment validation, thread and run target constraints, and the authorization service.
+
+**Tests.** Targetless discussion, missing target, conflicting targets, folder and scratch mixing, and target replacement.
+
+### 10. Filesystem access remains below the authorized root
+
+**Rule.** Every native path is resolved from a validated relative path below the current target. Traversal, symlinks, replaced directories, invalid external bindings, and Git common-directory changes fail closed.
+
+**Why.** Provider-native trust and user-authored repository content must not widen application authority.
+
+**Enforcement.** Rust folder authorization at every file, terminal, preview, attachment, Git, checkpoint, and restore boundary.
+
+**Tests.** Traversal, absolute paths, symlink escape, replacement, stale bindings, ignored directories, and Git indirection.
+
+### 11. Organizational conversations outlive provider sessions
+
+**Rule.** A channel, message, decision, or approval is not owned by a provider continuation. Replacing, forking, archiving, or deleting a provider session changes execution linkage without silently changing organizational history.
+
+**Why.** Provider sessions are replaceable implementation resources. Team history is the product record.
+
+**Enforcement.** Separate channel, link, session, canonical-event, and projection identities.
+
+**Tests.** Session handoff, provider change, retry, archive, cleanup, and failed provider startup.
+
+### 12. Effective access applies to every derivative
+
+**Rule.** Search, summaries, unread counts, suggestions, context packages, exports, caches, and synchronized projections apply the same current membership, history, resource, and revision limits as canonical reads.
+
+**Why.** A derivative is a common route around otherwise correct authorization.
+
+**Enforcement.** Shared access services and authorization-complete cache keys.
+
+**Tests.** Revocation and history cutoffs across every derivative read path.
+
+### 13. A mention never expands authority
+
+**Rule.** Mentioning an AI teammate or resource does not add membership, history, folder, scratch, or runtime access. The mention resolves only within existing authority.
+
+**Why.** User-authored text is not an authorization channel.
+
+**Enforcement.** Mention resolution and assignment review through [Chat access control](access-control.md).
+
+**Tests.** Unauthorized participant, hidden history, cross-channel references, ambiguous targets, and fabricated IDs.
+
+### 14. Cross-channel disclosure never widens the audience
+
+**Rule.** Content may be copied or summarized into another channel only when the destination readable audience is a subset of the source audience, or an explicit declassification creates new content under the destination policy.
+
+**Why.** A shared participant or project does not make two channel audiences equivalent.
+
+**Enforcement.** Publication, reference, export, and context-building services.
+
+**Tests.** Broader, narrower, overlapping, and history-bounded audiences.
+
+### 15. Materialized context cannot silently outlive authority
+
+**Rule.** When a continuation has already received context that is later revoked, the application interrupts the run, denies tools and publication, discards or quarantines the continuation, and requires fresh authorization before reuse.
+
+**Why.** Filtering future reads cannot remove data already present in model context or scratch.
+
+**Enforcement.** Authorization revisions, revocation workflow, bounded provider shutdown, and retryable cleanup.
+
+**Tests.** Membership, profile, folder, scratch, and audience reduction during active and idle continuations.
+
+## Adding an invariant
+
+A new invariant must include a rule, rationale, enforcement boundary, and meaningful failure tests. Prefer one durable assertion over a list of current helper or table names. If the assertion belongs to authorization, make [Chat access control](access-control.md) normative and reference it here.
+
+## Focus evidence and replication
+
+A Calendar commitment, notification projection, or replicated history record cannot authorize execution. Android recovery consumes committed SQLite state only and never creates projected runs or later phases. Desktop automatic admission requires a fresh local activity observation after the relevant boundary. [Focus authority](../algorithms/pomodoro/focus-authority.md) specifies the remaining device-controller and command fencing requirements.

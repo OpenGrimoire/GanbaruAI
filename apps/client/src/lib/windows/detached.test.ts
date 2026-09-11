@@ -14,22 +14,26 @@ describe("detached view windows", () => {
     expect(detachedViewWindowLabel("calendar")).toBe("view-calendar");
     expect(detachedViewWindowLabel("projects")).toBe("view-projects");
     expect(detachedViewWindowLabel("notes")).toBe("view-notes");
+    expect(detachedViewWindowLabel("chat")).toBe("view-chat");
   });
 
   it("opens a local app route with the requested initial view", () => {
     expect(detachedViewWindowUrl("calendar")).toBe("/?view=calendar");
     expect(detachedViewWindowUrl("projects")).toBe("/?view=projects");
     expect(detachedViewWindowUrl("notes")).toBe("/?view=notes");
+    expect(detachedViewWindowUrl("chat")).toBe("/?view=chat");
   });
 
   it("uses view-specific window titles", () => {
     expect(detachedViewWindowTitle("calendar")).toBe("Ganbaru AI: Calendar");
     expect(detachedViewWindowTitle("projects")).toBe("Ganbaru AI: Projects");
     expect(detachedViewWindowTitle("notes")).toBe("Ganbaru AI: Notes");
+    expect(detachedViewWindowTitle("chat")).toBe("Ganbaru AI: Chat");
   });
 
   it("parses detachable views from detached window labels only", () => {
     expect(detachableTabViewFromWindowLabel("view-calendar")).toBe("calendar");
+    expect(detachableTabViewFromWindowLabel("view-chat")).toBe("chat");
     expect(detachableTabViewFromWindowLabel("view-music")).toBeUndefined();
     expect(detachableTabViewFromWindowLabel("main")).toBeUndefined();
   });

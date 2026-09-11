@@ -40,8 +40,8 @@
     onAdd: (text: string) => boolean;
     onOpenSelector?: () => void;
     selectorLabel?: string;
-    onEnabledChange: (label: string, enabled: boolean) => void;
-    onDelete: (label: string) => void;
+    onEnabledChange: (id: string, enabled: boolean) => void;
+    onDelete: (id: string) => void;
   } = $props();
 
   let draft = $state("");
@@ -132,7 +132,7 @@
           {:else}
             <button
               type="button"
-              onclick={() => onEnabledChange(item.label, !item.enabled)}
+              onclick={() => onEnabledChange(item.id, !item.enabled)}
               aria-label={item.enabled
                 ? t("settings.doomscrolling.shared.disable", item.label)
                 : t("settings.doomscrolling.shared.enable", item.label)}
@@ -149,7 +149,7 @@
             </button>
             <button
               type="button"
-              onclick={() => onDelete(item.label)}
+              onclick={() => onDelete(item.id)}
               aria-label={t("settings.doomscrolling.shared.remove", item.label)}
               data-app-tooltip-disabled="true"
               class="flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-border bg-card text-foreground transition-colors hover:bg-accent dark:bg-transparent"

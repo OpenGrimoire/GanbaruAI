@@ -1,0 +1,21 @@
+fn main() {
+    tauri_plugin::Builder::new(&[
+        "ensureCalendarChannel",
+        "calendarChannelStatus",
+        "scheduleCalendarNotifications",
+        "pendingCalendarNotifications",
+        "cancelCalendarNotifications",
+        "takeCalendarNotificationAction",
+        "updatePomodoroNotification",
+        "cancelPomodoroNotification",
+        "pomodoroNotificationState",
+        "reconcilePomodoroSchedule",
+        "exactAlarmStatus",
+        "backgroundExecutionStatus",
+        "openBackgroundExecutionSettings",
+        "openExactAlarmSettings",
+        "openNotificationSettings",
+    ])
+    .android_path("android")
+    .build();
+}

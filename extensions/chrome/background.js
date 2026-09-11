@@ -201,11 +201,6 @@ async function refreshActiveUsage({ forceFlush = false } = {}) {
     }
     return;
   }
-
-  if (!target) {
-    await recordUsageInterval(usage, now);
-    await clearActiveUsage();
-  }
 }
 
 function blockedPageStore() {

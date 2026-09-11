@@ -1,7 +1,7 @@
 /**
  * Markdown formatter for benchmark results.
  *
- * The shape is pinned so historical rows in `docs/PERFORMANCE.md` stay
+ * The shape is pinned so historical rows in `docs/performance/results.md` stay
  * comparable across builds. The vitest suite in `output.test.ts` locks the
  * format with golden assertions; do not change spacing or column order
  * without updating the tests and docs. Layout-only output changes do not bump
@@ -136,9 +136,8 @@ function formatTotalMb(n: number): string {
 function formatMetricValue(metric: BenchmarkMetric | undefined): string {
   if (!metric) return "n/a";
   if (!Number.isFinite(metric.value)) return "n/a";
-  return metric.unit === "count"
-    ? Math.round(metric.value).toString()
-    : Math.round(metric.value).toString();
+  if (metric.unit === "percent") return metric.value.toFixed(2);
+  return Math.round(metric.value).toString();
 }
 
 function metricsByLabel(phase: PhaseResult): Map<string, BenchmarkMetric> {

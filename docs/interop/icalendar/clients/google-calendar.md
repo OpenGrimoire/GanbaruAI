@@ -60,20 +60,9 @@ Expected handling:
 - Preserve attendees and organizer as data.
 - Treat guest RSVP data as read-only unless future identity support proves the attendee is the current user.
 
-## Export from Ganbaru AI into Google
+## Manual test
 
-Manual checks:
-
-1. Create a disposable Google calendar.
-2. Export a Ganbaru AI calendar with the fixture set in `apps/client/test-fixtures/ics/rfc5545/`.
-3. Import the file into the disposable Google calendar.
-4. Confirm all-day events show on the intended days.
-5. Confirm timed recurring events keep their wall-clock time.
-6. Confirm exceptions are missing on the intended dates.
-7. Confirm overrides appear on the intended dates and times.
-8. Confirm private, tentative, cancelled, and free/busy metadata are interpreted acceptably.
-9. Export from Google again and import back into Ganbaru AI.
-10. Compare semantic results against the original fixture.
+Use the [shared client procedure](./README.md#shared-procedure). Include all-day spans, mixed UTC and `TZID` values, recurrence exclusions and overrides, guest fields, conference data, and an exported calendar zip.
 
 ## Behavior to verify
 
@@ -95,13 +84,4 @@ Partial manual compatibility run recorded in May 2026:
 - The same Google export contained old unbounded daily recurrences that were not visible in the Google Calendar UI. The file represented them as confirmed infinite recurrences, so a standards-based importer expands them.
 - A Google invitation with an empty title was exported with organizer, attendees, and conference properties. Ganbaru AI should import it as an event with an empty stored title unless the UI adds a display-only "Untitled" fallback.
 
-When testing, record:
-
-- test date
-- Google Calendar web version if visible
-- account type
-- calendar timezone
-- import source fixture
-- import result
-- export result
-- warnings or visual differences
+Future runs should preserve the date and account context required by the shared result record so behavior changes can be distinguished from the May 2026 observations.

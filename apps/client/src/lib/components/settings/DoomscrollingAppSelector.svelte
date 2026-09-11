@@ -279,8 +279,8 @@
   <ConfirmDialog
     title={t("settings.doomscrolling.appSelector.blockTitle", pendingAddApp.name)}
     message={t("settings.doomscrolling.appSelector.blockMessage")}
-    confirmLabel={t("settings.doomscrolling.appSelector.blockShortcut")}
-    cancelLabel={t("settings.doomscrolling.shared.cancelShortcut")}
+    confirmLabel={t("settings.doomscrolling.appSelector.blockAction")}
+    cancelLabel={t("settings.doomscrolling.shared.cancelAction")}
     onConfirm={confirmAdd}
     onCancel={cancelAdd}
   />
@@ -290,8 +290,8 @@
   <ConfirmDialog
     title={t("settings.doomscrolling.desktop.removeAppTitle", pendingRemoveName)}
     message={t("settings.doomscrolling.desktop.removeMessage")}
-    confirmLabel={t("settings.doomscrolling.shared.removeShortcut")}
-    cancelLabel={t("settings.doomscrolling.shared.cancelShortcut")}
+    confirmLabel={t("settings.doomscrolling.shared.removeAction")}
+    cancelLabel={t("settings.doomscrolling.shared.cancelAction")}
     onConfirm={confirmRemove}
     onCancel={cancelRemove}
   />

@@ -1,14 +1,12 @@
 import { describe, expect, it } from "vitest";
 import type { CalendarEvent, PomodoroConfig } from "$lib/components/calendar/types";
-import { selectActivePomodoroBlock } from "./pomodoro-scheduler";
+import { createPresetPomodoroConfig } from "$lib/pomodoro/rhythm";
+import {
+  nextPomodoroBlockBoundaryMs,
+  selectActivePomodoroBlock,
+} from "./pomodoro-scheduler";
 
-const config: PomodoroConfig = {
-  focusDurationMinutes: 40,
-  shortBreakMinutes: 5,
-  longBreakMinutes: 10,
-  pomodoroCount: 4,
-  idleTimeoutMinutes: null,
-};
+const config: PomodoroConfig = createPresetPomodoroConfig("adaptive");
 
 function event(overrides: Partial<CalendarEvent> & Pick<CalendarEvent, "id" | "start" | "end">): CalendarEvent {
   return {
@@ -83,27 +81,37 @@ describe("selectActivePomodoroBlock", () => {
     ).toBe(older);
   });
 
-  it("prefers a recently interrupted block before normal tiebreakers", () => {
-    const interrupted = event({
-      id: "interrupted",
-      start: "2026-05-25 09:00",
-      end: "2026-05-25 12:00",
-    });
-    const shorter = event({
-      id: "shorter",
+  it("orders occurrence identities consistently without locale collation", () => {
+    const upper = event({ id: "Z", start: "2026-05-25 10:00", end: "2026-05-25 11:00" });
+    const lower = event({ id: "a", start: "2026-05-25 10:00", end: "2026-05-25 11:00" });
+    for (const events of [[upper, lower], [lower, upper]]) {
+      expect(selectActivePomodoroBlock(events, { now, activeBlockId: null })).toBe(upper);
+    }
+  });
+
+  it("excludes cancelled and all-day commitments even when they were the current owner", () => {
+    const cancelled = event({ id: "cancelled", start: "2026-05-25 10:00", end: "2026-05-25 11:00", status: "cancelled" });
+    const allDay = event({ id: "all-day", start: "2026-05-25 00:00", end: "2026-05-26 00:00", allDay: true });
+    expect(selectActivePomodoroBlock([cancelled, allDay], { now, activeBlockId: cancelled.id })).toBeUndefined();
+    expect(nextPomodoroBlockBoundaryMs([cancelled, allDay], now.getTime())).toBeNull();
+  });
+
+  it("returns the next Pomodoro start or end boundary without polling", () => {
+    const active = event({
+      id: "active",
       start: "2026-05-25 10:00",
       end: "2026-05-25 10:30",
     });
+    const future = event({
+      id: "future",
+      start: "2026-05-25 10:20",
+      end: "2026-05-25 11:00",
+    });
 
-    expect(
-      selectActivePomodoroBlock(
-        [shorter, interrupted],
-        {
-          now,
-          activeBlockId: null,
-          recentlyInterruptedBlockIds: new Set(["interrupted"]),
-        },
-      ),
-    ).toBe(interrupted);
+    expect(nextPomodoroBlockBoundaryMs([active, future], now.getTime())).toBe(
+      new Date(2026, 4, 25, 10, 20).getTime(),
+    );
+    expect(nextPomodoroBlockBoundaryMs([active], new Date(2026, 4, 25, 10, 30).getTime()))
+      .toBeNull();
   });
 });

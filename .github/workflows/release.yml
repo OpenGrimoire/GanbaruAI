@@ -108,7 +108,7 @@ jobs:
     name: sign release assets
     needs: build-release
     runs-on: ubuntu-22.04
-    timeout-minutes: 30
+    timeout-minutes: 120
     environment: release
     permissions:
       contents: read
@@ -127,6 +127,12 @@ jobs:
         with:
           node-version: "24"
 
+      - name: install Java 21
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y openjdk-21-jdk
+          echo "JAVA_HOME=/usr/lib/jvm/java-21-openjdk-amd64" >> "$GITHUB_ENV"
+
       - name: enable pnpm
         env:
           COREPACK_ENABLE_DOWNLOAD_PROMPT: "0"
@@ -134,8 +140,44 @@ jobs:
           corepack enable
           corepack prepare pnpm@11.1.1 --activate
 
-      - name: install signer dependencies
+      - name: install Rust stable and Android targets
+        run: |
+          rustup toolchain install stable --profile minimal --no-self-update
+          rustup default stable
+          rustup target add aarch64-linux-android armv7-linux-androideabi i686-linux-android x86_64-linux-android
+
+      - name: install Android command line tools
+        run: |
+          export ANDROID_HOME="$RUNNER_TEMP/android-sdk"
+          command_line_tools="$ANDROID_HOME/cmdline-tools/latest/bin"
+          if [ ! -x "$command_line_tools/sdkmanager" ]; then
+            mkdir -p "$ANDROID_HOME/cmdline-tools"
+            curl -fsSL https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip -o "$RUNNER_TEMP/android-commandline-tools.zip"
+            unzip -q "$RUNNER_TEMP/android-commandline-tools.zip" -d "$ANDROID_HOME/cmdline-tools"
+            mv "$ANDROID_HOME/cmdline-tools/cmdline-tools" "$ANDROID_HOME/cmdline-tools/latest"
+            set +o pipefail
+            yes | "$command_line_tools/sdkmanager" --sdk_root="$ANDROID_HOME" --licenses >/dev/null 2>&1
+            set -o pipefail
+          fi
+          echo "ANDROID_HOME=$ANDROID_HOME" >> "$GITHUB_ENV"
+          echo "ANDROID_SDK_ROOT=$ANDROID_HOME" >> "$GITHUB_ENV"
+          echo "$command_line_tools" >> "$GITHUB_PATH"
+          echo "$ANDROID_HOME/platform-tools" >> "$GITHUB_PATH"
+
+      - name: install pinned Android SDK components
+        run: |
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" \
+            --sdk_root="$ANDROID_HOME" \
+            "platforms;android-36" \
+            "build-tools;35.0.0" \
+            "ndk;30.0.15729638"
+          echo "NDK_HOME=$ANDROID_HOME/ndk/30.0.15729638" >> "$GITHUB_ENV"
+
+      - name: install release dependencies
         run: pnpm install --frozen-lockfile --ignore-scripts
+
+      - name: fetch Rust dependencies
+        run: cargo fetch --locked
 
       - name: download unsigned assets
         # actions/download-artifact v7.0.0
@@ -145,11 +187,40 @@ jobs:
           path: dist/release-assets
           merge-multiple: true
 
+      - name: prepare Android signing
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: node apps/client/scripts/write-android-signing-properties.mjs
+
+      - name: build signed Android release
+        run: pnpm --dir apps/client tauri android build --ci
+
+      - name: stage Android release assets
+        run: node apps/client/scripts/stage-android-release-assets.mjs
+
+      - name: verify Android release signatures
+        run: |
+          android_apk="$(find dist/release-assets -maxdepth 1 -type f -name 'Ganbaru_AI_*_android_universal.apk' -print -quit)"
+          android_aab="$(find dist/release-assets -maxdepth 1 -type f -name 'Ganbaru_AI_*_android_universal.aab' -print -quit)"
+          test -n "$android_apk"
+          test -n "$android_aab"
+          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose "$android_apk"
+          jarsigner -verify -strict "$android_aab"
+
       - name: sign updater assets
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         run: node apps/client/scripts/sign-tauri-release-assets.mjs
+
+      - name: remove Android signing files
+        if: always()
+        run: |
+          rm -f apps/client/src-tauri/gen/android/keystore.properties
+          rm -f "$RUNNER_TEMP/ganbaru-ai-android-release.jks"
 
       - name: upload signed assets
         # actions/upload-artifact v7.0.1
@@ -214,7 +285,7 @@ jobs:
             -e "s/^\*\*Full Changelog\*\*:/\*\*Full changelog\*\*:/" \
             -e "s/^Full Changelog:/Full changelog:/" \
             dist/generated-release-notes.md
-          cat docs/release-notes-template.md > dist/release-notes.md
+          cat .github/release-notes-template.md > dist/release-notes.md
           printf '\n\n' >> dist/release-notes.md
           cat dist/generated-release-notes.md >> dist/release-notes.md
 

@@ -1,14 +1,19 @@
 <script lang="ts">
   import { onMount, tick } from "svelte";
+  import { getLocalization } from "$lib/i18n/translator.svelte";
   import {
     calculateTooltipContentWidth,
     calculateTooltipPosition,
     deriveTooltipPalette,
+    isPointInHorizontalScrollbar,
     isVisibleCssColor,
     type TooltipPalette,
     type TooltipPaletteTokens,
     type TooltipPlacement,
+    type TooltipRect,
   } from "./tooltip";
+
+  const { t } = getLocalization();
 
   const tooltipId = "app-global-tooltip";
   const hoverDelayMs = 350;
@@ -26,6 +31,8 @@
 
   let tooltipEl = $state<HTMLDivElement | null>(null);
   let anchor: HTMLElement | null = null;
+  let anchorTextOverride: string | undefined;
+  let anchorRectOverride: TooltipRect | undefined;
   let text = $state("");
   let visible = $state(false);
   let ready = $state(false);
@@ -111,6 +118,10 @@
     if (explicitTooltip.length > 0) return explicitTooltip;
     if (!isInteractiveElement(element) || element.textContent?.trim()) return "";
     return element.getAttribute("aria-label")?.trim() || "";
+  }
+
+  function activeTooltipText(element: HTMLElement): string {
+    return anchorTextOverride ?? tooltipTextFor(element);
   }
 
   function findTooltipTarget(target: EventTarget | null): HTMLElement | null {
@@ -235,7 +246,7 @@
     }
 
     const position = calculateTooltipPosition(
-      anchor.getBoundingClientRect(),
+      anchorRectOverride ?? anchor.getBoundingClientRect(),
       tooltipEl.getBoundingClientRect(),
       { width: window.innerWidth, height: window.innerHeight },
     );
@@ -256,13 +267,28 @@
     showTimer = undefined;
   }
 
-  function showTooltipFor(element: HTMLElement, delayMs: number): void {
-    const nextText = tooltipTextFor(element);
+  function showTooltipFor(
+    element: HTMLElement,
+    delayMs: number,
+    textOverride?: string,
+    rectOverride?: TooltipRect,
+  ): void {
+    const normalizedOverride = textOverride?.trim() || undefined;
+    const nextText = normalizedOverride ?? tooltipTextFor(element);
     if (nextText.length === 0) return;
-    if (anchor === element && (visible || showTimer !== undefined)) return;
+    if (
+      anchor === element
+      && anchorTextOverride === normalizedOverride
+      && (visible || showTimer !== undefined)
+    ) {
+      anchorRectOverride = rectOverride;
+      return;
+    }
 
     clearShowTimer();
     anchor = element;
+    anchorTextOverride = normalizedOverride;
+    anchorRectOverride = rectOverride;
     text = nextText;
     ready = false;
     tooltipWidthStyle = "";
@@ -272,7 +298,7 @@
     showTimer = setTimeout(() => {
       showTimer = undefined;
       if (!anchor) return;
-      text = tooltipTextFor(anchor);
+      text = activeTooltipText(anchor);
       if (text.length === 0) {
         hideTooltip();
         return;
@@ -285,6 +311,8 @@
   function hideTooltip(): void {
     clearShowTimer();
     anchor = null;
+    anchorTextOverride = undefined;
+    anchorRectOverride = undefined;
     visible = false;
     ready = false;
     text = "";
@@ -297,6 +325,54 @@
     if (!anchor.contains(event.target)) return false;
     const relatedTarget = event.relatedTarget;
     return relatedTarget instanceof Node && anchor.contains(relatedTarget);
+  }
+
+  function horizontalScrollbarAtPointer(
+    event: PointerEvent,
+  ): { element: HTMLElement; rect: TooltipRect } | null {
+    if (!(event.target instanceof Element)) return null;
+
+    let element: HTMLElement | null = event.target instanceof HTMLElement
+      ? event.target
+      : event.target.parentElement;
+    while (element && element !== document.body) {
+      if (element.scrollWidth - element.clientWidth > 2) {
+        const style = window.getComputedStyle(element);
+        if (style.overflowX !== "auto" && style.overflowX !== "scroll") {
+          element = element.parentElement;
+          continue;
+        }
+        const rect = element.getBoundingClientRect();
+        const borderBottomWidth = Number.parseFloat(style.borderBottomWidth) || 0;
+        if (isPointInHorizontalScrollbar({
+          rect,
+          clientLeft: element.clientLeft,
+          clientTop: element.clientTop,
+          clientWidth: element.clientWidth,
+          clientHeight: element.clientHeight,
+          scrollWidth: element.scrollWidth,
+          borderBottomWidth,
+        }, { x: event.clientX, y: event.clientY })) {
+          const left = rect.left + element.clientLeft;
+          const top = rect.top + element.clientTop + element.clientHeight;
+          const right = left + element.clientWidth;
+          const bottom = rect.bottom - borderBottomWidth;
+          return {
+            element,
+            rect: {
+              left,
+              top,
+              right,
+              bottom,
+              width: right - left,
+              height: bottom - top,
+            },
+          };
+        }
+      }
+      element = element.parentElement;
+    }
+    return null;
   }
 
   onMount(() => {
@@ -335,6 +411,20 @@
       clearSuppressionIfPointerLeft(event);
       if (isStillInsideAnchor(event)) return;
       hideTooltip();
+    };
+
+    const handlePointerMove = (event: PointerEvent) => {
+      const scrollbar = horizontalScrollbarAtPointer(event);
+      if (scrollbar) {
+        showTooltipFor(
+          scrollbar.element,
+          hoverDelayMs,
+          t("common.horizontalScrollTooltip"),
+          scrollbar.rect,
+        );
+        return;
+      }
+      if (anchorTextOverride !== undefined) hideTooltip();
     };
 
     const handleFocusIn = (event: FocusEvent) => {
@@ -376,11 +466,12 @@
 
     document.addEventListener("pointerover", handlePointerOver, true);
     document.addEventListener("pointerout", handlePointerOut, true);
+    document.addEventListener("pointermove", handlePointerMove, true);
     document.addEventListener("focusin", handleFocusIn, true);
     document.addEventListener("focusout", handleFocusOut, true);
     document.addEventListener("pointerdown", handlePointerDown, true);
     window.addEventListener("resize", refreshPosition);
-    window.addEventListener("scroll", refreshPosition, true);
+    window.addEventListener("scroll", hideTooltip, true);
 
     return () => {
       clearShowTimer();
@@ -388,11 +479,12 @@
       themeObserver.disconnect();
       document.removeEventListener("pointerover", handlePointerOver, true);
       document.removeEventListener("pointerout", handlePointerOut, true);
+      document.removeEventListener("pointermove", handlePointerMove, true);
       document.removeEventListener("focusin", handleFocusIn, true);
       document.removeEventListener("focusout", handleFocusOut, true);
       document.removeEventListener("pointerdown", handlePointerDown, true);
       window.removeEventListener("resize", refreshPosition);
-      window.removeEventListener("scroll", refreshPosition, true);
+      window.removeEventListener("scroll", hideTooltip, true);
     };
   });
 </script>
@@ -422,7 +514,7 @@
     background: var(--app-tooltip-bg, var(--popover));
     color: var(--app-tooltip-fg, var(--popover-foreground));
     box-shadow: var(--app-tooltip-shadow, 0 8px 28px rgba(0, 0, 0, 0.22));
-    font-size: 0.8rem;
+    font-size: calc(0.8rem * var(--type-scale));
     font-weight: 500;
     letter-spacing: 0;
     line-height: 1.3;

@@ -8,6 +8,7 @@ import {
   normalizeDoomscrollingDesktopAppMatchNames,
   normalizeDoomscrollingLimitEntryColor,
   normalizeDoomscrollingLimitEntryName,
+  normalizeDoomscrollingMobilePackage,
   normalizeDoomscrollingUsageLimitName,
   normalizeDoomscrollingHost,
   parseDoomscrollingHosts,
@@ -19,11 +20,14 @@ import {
   type DoomscrollingDesktopConfig,
   type DoomscrollingHostRule,
   type DoomscrollingLimitEntry,
+  type DoomscrollingMobileAppRule,
+  type DoomscrollingMobileConfig,
   type DoomscrollingMode,
   type DoomscrollingUsageLimit,
 } from "$lib/doomscrolling";
 import type { EventColor } from "$lib/components/calendar/types";
 import { getConfigKey, setConfigKey } from "$lib/vault/config";
+import { publishMobileDoomscrollingConfig } from "$lib/scheduling/mobile-doomscrolling";
 
 const CONFIG_KEY = "doomscrolling";
 
@@ -63,6 +67,7 @@ export interface DoomscrollingUsageLimitEntryDraft {
   color?: EventColor | null;
   websiteHost: string;
   mobileAppName: string;
+  mobileAppPackage: string;
   desktopAppName: string;
   desktopAppMatchNames: readonly string[];
 }
@@ -77,6 +82,9 @@ let config = $state<DoomscrollingConfig>(loadSavedConfig());
 function persist(next: DoomscrollingConfig): void {
   config = next;
   setConfigKey(CONFIG_KEY, next);
+  void publishMobileDoomscrollingConfig(next).catch((error: unknown) => {
+    console.warn("Android Doomscrolling rules could not be published", error);
+  });
 }
 
 function update(partial: Partial<DoomscrollingConfig>): void {
@@ -85,6 +93,10 @@ function update(partial: Partial<DoomscrollingConfig>): void {
 
 function updateDesktop(partial: Partial<DoomscrollingDesktopConfig>): void {
   update({ desktop: { ...config.desktop, ...partial } });
+}
+
+function updateMobile(partial: Partial<DoomscrollingMobileConfig>): void {
+  update({ mobile: { ...config.mobile, ...partial } });
 }
 
 function updateLimits(partial: Partial<DoomscrollingConfig["limits"]>): void {
@@ -271,6 +283,10 @@ function normalizeLimitDraftEntry(
   const mobileAppName = draft.mobileAppName.trim()
     ? normalizeDoomscrollingAppName(draft.mobileAppName)
     : null;
+  const mobileAppPackage = draft.mobileAppPackage.trim()
+    ? normalizeDoomscrollingMobilePackage(draft.mobileAppPackage)
+    : null;
+  if (mobileAppPackage && !mobileAppName) return "invalid-sources";
   const desktopAppName = draft.desktopAppName.trim()
     ? normalizeDoomscrollingAppName(draft.desktopAppName)
     : null;
@@ -293,6 +309,7 @@ function normalizeLimitDraftEntry(
     name,
     websiteHost,
     mobileAppName,
+    mobileAppPackage,
     desktopAppName,
     desktopAppMatchNames,
   };
@@ -399,6 +416,24 @@ export function getDoomscrolling() {
     get blockedApps(): readonly DoomscrollingAppRule[] {
       return config.desktop.blockedApps;
     },
+    get mobileEnabled(): boolean {
+      return config.mobile.enabled;
+    },
+    get mobileBlockDuringFocus(): boolean {
+      return config.mobile.blockDuringFocus;
+    },
+    get mobileBlockDuringShortBreaks(): boolean {
+      return config.mobile.blockDuringShortBreaks;
+    },
+    get mobileBlockDuringLongBreaks(): boolean {
+      return config.mobile.blockDuringLongBreaks;
+    },
+    get mobilePauseDuringFocusPause(): boolean {
+      return config.mobile.pauseDuringFocusPause;
+    },
+    get blockedMobileApps(): readonly DoomscrollingMobileAppRule[] {
+      return config.mobile.blockedApps;
+    },
     get limitsEnabled(): boolean {
       return config.limits.enabled;
     },
@@ -407,6 +442,9 @@ export function getDoomscrolling() {
     },
     get config(): DoomscrollingConfig {
       return config;
+    },
+    publishMobileRules(): Promise<void> {
+      return publishMobileDoomscrollingConfig(config);
     },
     setMode(mode: DoomscrollingMode): void {
       update({ mode });
@@ -440,6 +478,21 @@ export function getDoomscrolling() {
     },
     setDesktopPauseDuringFocusPause(pauseDuringFocusPause: boolean): void {
       updateDesktop({ pauseDuringFocusPause });
+    },
+    setMobileEnabled(enabled: boolean): void {
+      updateMobile({ enabled });
+    },
+    setMobileBlockDuringFocus(blockDuringFocus: boolean): void {
+      updateMobile({ blockDuringFocus });
+    },
+    setMobileBlockDuringShortBreaks(blockDuringShortBreaks: boolean): void {
+      updateMobile({ blockDuringShortBreaks });
+    },
+    setMobileBlockDuringLongBreaks(blockDuringLongBreaks: boolean): void {
+      updateMobile({ blockDuringLongBreaks });
+    },
+    setMobilePauseDuringFocusPause(pauseDuringFocusPause: boolean): void {
+      updateMobile({ pauseDuringFocusPause });
     },
     setLimitsEnabled(enabled: boolean): void {
       updateLimits({ enabled });
@@ -536,6 +589,18 @@ export function getDoomscrolling() {
       updateDesktop({ blockedApps: merged });
       return true;
     },
+    addBlockedMobileApp(nameInput: string, packageInput: string): boolean {
+      const name = normalizeDoomscrollingAppName(nameInput);
+      const packageName = normalizeDoomscrollingMobilePackage(packageInput);
+      if (!name || !packageName) return false;
+      if (config.mobile.blockedApps.some((rule) => (
+        rule.packageName.toLowerCase() === packageName.toLowerCase()
+      ))) return true;
+      updateMobile({
+        blockedApps: [...config.mobile.blockedApps, { name, packageName, enabled: true }],
+      });
+      return true;
+    },
     removeBlockedHost(host: string): void {
       update({ blockedHosts: removeHost(config.blockedHosts, host) });
     },
@@ -548,6 +613,14 @@ export function getDoomscrolling() {
     removeBlockedApp(name: string): void {
       updateDesktop({ blockedApps: removeApp(config.desktop.blockedApps, name) });
     },
+    removeBlockedMobileApp(packageName: string): void {
+      const key = packageName.toLowerCase();
+      updateMobile({
+        blockedApps: config.mobile.blockedApps.filter((rule) => (
+          rule.packageName.toLowerCase() !== key
+        )),
+      });
+    },
     setBlockedHostEnabled(host: string, enabled: boolean): void {
       update({ blockedHosts: setHostEnabled(config.blockedHosts, host, enabled) });
     },
@@ -559,6 +632,14 @@ export function getDoomscrolling() {
     },
     setBlockedAppEnabled(name: string, enabled: boolean): void {
       updateDesktop({ blockedApps: setAppEnabled(config.desktop.blockedApps, name, enabled) });
+    },
+    setBlockedMobileAppEnabled(packageName: string, enabled: boolean): void {
+      const key = packageName.toLowerCase();
+      updateMobile({
+        blockedApps: config.mobile.blockedApps.map((rule) => (
+          rule.packageName.toLowerCase() === key ? { ...rule, enabled } : rule
+        )),
+      });
     },
     addUsageLimit(draft: DoomscrollingUsageLimitDraft): SaveDoomscrollingUsageLimitResult {
       const normalized = normalizeLimitDraft(draft);

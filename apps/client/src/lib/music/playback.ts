@@ -29,7 +29,7 @@ export interface PersistedPlaybackState {
   updatedAt: number;
 }
 
-export type LocalPlaybackBackendKind = "none" | "rodio" | "webview";
+export type LocalPlaybackBackendKind = "none" | "rodio" | "webview" | "media3";
 
 export interface LocalPlaybackBackendSnapshot {
   backendKind: LocalPlaybackBackendKind;

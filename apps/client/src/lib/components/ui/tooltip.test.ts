@@ -4,6 +4,7 @@ import {
   calculateTooltipContentWidth,
   calculateTooltipPosition,
   deriveTooltipPalette,
+  isPointInHorizontalScrollbar,
   parseCssColor,
   relativeLuminance,
   type TooltipRect,
@@ -105,6 +106,32 @@ describe("calculateTooltipContentWidth", () => {
         measureText,
       }),
     ).toBe(251);
+  });
+});
+
+describe("isPointInHorizontalScrollbar", () => {
+  const metrics = {
+    rect: rect({ left: 20, top: 30, width: 220, height: 108 }),
+    clientLeft: 1,
+    clientTop: 1,
+    clientWidth: 210,
+    clientHeight: 98,
+    scrollWidth: 420,
+    borderBottomWidth: 1,
+  };
+
+  it("detects the rendered horizontal scrollbar rail", () => {
+    expect(isPointInHorizontalScrollbar(metrics, { x: 100, y: 132 })).toBe(true);
+  });
+
+  it("rejects content and the vertical scrollbar corner", () => {
+    expect(isPointInHorizontalScrollbar(metrics, { x: 100, y: 120 })).toBe(false);
+    expect(isPointInHorizontalScrollbar(metrics, { x: 235, y: 132 })).toBe(false);
+  });
+
+  it("rejects elements without horizontal overflow or a rendered rail", () => {
+    expect(isPointInHorizontalScrollbar({ ...metrics, scrollWidth: 210 }, { x: 100, y: 132 })).toBe(false);
+    expect(isPointInHorizontalScrollbar({ ...metrics, clientHeight: 106 }, { x: 100, y: 137 })).toBe(false);
   });
 });
 

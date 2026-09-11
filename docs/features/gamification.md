@@ -1,9 +1,19 @@
 # Gamification
 
-A skill tree, XP system, Will metrics (Focus, Clarity, Intensity, Execution), self-imposed contracts, and NPC-guided project workflows. The full design will be developed in the final phase of the project; this doc is a minimal placeholder so the rest of the system has a name to point at.
+Gamification is deferred. If revisited, it would be an optional layer for visual progression, personal reflection, and playful project guidance. It must support the anti-burnout product rather than convert work into an engagement loop.
 
-The gamification layer measures real productivity through automated data collection, not self-reporting. Pillars (when implemented) include consistency, streaks, the four Will categories, and contracts. XP feeds into a skill tree visualizing personal and professional growth. NPCs (the Fairy, the Dwarf, Drasil) are aesthetic guides for the project management lifecycle.
+Possible surfaces include a skill tree, earned progression, the Focus, Clarity, Intensity, and Execution themes, self-authored contracts, and aesthetic guide characters. These are presentation concepts, not current canonical metrics.
 
-Anti-grinding mechanics (daily XP caps, logarithmic time conversion, novelty weighting, diversity bonus, competency gates) and ethical engagement (gacha-inspired Skill Capsules use earned currency only, never real money; loss aversion is visible but not punitive) are explicit design constraints.
+## Ethical constraints
 
-This is the lowest-priority feature area. No deep design here.
+- Activity data is an imperfect personal signal, never proof of real productivity.
+- No public ranking, competitive leaderboard, employee scoring, or comparison by default.
+- No punishment for rest, illness, disability, travel, low-energy days, or broken streaks.
+- No paid random rewards, real-money currency, manipulative scarcity, or hidden engagement optimization.
+- Streaks, caps, novelty, diversity, and diminishing returns must reduce grinding pressure rather than create it.
+- Every progression surface can be disabled without losing core application behavior or data access.
+- The app explains what inputs affect a metric and lets the user correct or exclude misleading data.
+
+Guide characters and quest language remain optional themes over ordinary Projects behavior. They cannot hide requirements, destructive actions, permissions, or accessibility labels.
+
+No deep scoring model should be finalized before diary privacy, capacity semantics, accessibility, and real user testing establish that it supports wellbeing.

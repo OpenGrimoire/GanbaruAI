@@ -1,6 +1,5 @@
 import type { Calendar } from "$lib/components/calendar/types";
 
-const IMPORTED_NAME_PATTERN = /^Imported from (.+) \((\d{4}-\d{2}-\d{2})\)$/;
 const EMAIL_PATTERN = /^[^\s@<>()[\],;:]+@[^\s@<>()[\],;:]+\.[^\s@<>()[\],;:]+$/i;
 const DATE_ONLY_PATTERN = /^(\d{4})-(\d{2})-(\d{2})$/;
 function importDateFormatter(locale?: string | readonly string[]): Intl.DateTimeFormat {
@@ -33,15 +32,6 @@ function basename(value: string): string {
 function sourceName(calendar: Calendar): string | undefined {
   if (!calendar.sourceUrl) return undefined;
   return stripIcsExtension(basename(calendar.sourceUrl));
-}
-
-function legacyImportedNameParts(name: string): { label: string; date: string } | undefined {
-  const match = IMPORTED_NAME_PATTERN.exec(name);
-  if (!match) return undefined;
-  return {
-    label: match[1] ?? name,
-    date: match[2] ?? "",
-  };
 }
 
 function validDate(value: Date): Date | undefined {
@@ -86,7 +76,7 @@ function formatImportTimestamp(value: string, locale?: string | readonly string[
 
 export function calendarDisplayName(calendar: Calendar): string {
   if (calendar.source === "ics") {
-    return sourceName(calendar) ?? legacyImportedNameParts(calendar.name)?.label ?? calendar.name;
+    return sourceName(calendar) ?? calendar.name;
   }
   return calendar.name;
 }
@@ -96,10 +86,7 @@ export function calendarImportDate(
   locale?: string | readonly string[],
 ): string | undefined {
   if (calendar.source !== "ics") return undefined;
-  return (
-    (calendar.createdAt ? formatImportTimestamp(calendar.createdAt, locale) : undefined) ??
-    formatImportDateOnly(legacyImportedNameParts(calendar.name)?.date ?? "", locale)
-  );
+  return calendar.createdAt ? formatImportTimestamp(calendar.createdAt, locale) : undefined;
 }
 
 export function calendarIdentityEmail(calendar: Calendar | undefined): string | undefined {
@@ -107,7 +94,6 @@ export function calendarIdentityEmail(calendar: Calendar | undefined): string | 
 
   const candidates = [
     sourceName(calendar),
-    legacyImportedNameParts(calendar.name)?.label,
     calendar.name,
   ];
 

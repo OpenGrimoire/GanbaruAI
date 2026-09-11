@@ -16,12 +16,13 @@
   import { getLocalization } from "$lib/i18n/translator.svelte";
   import { getDoomscrolling } from "$lib/stores/doomscrolling.svelte";
   import ConfirmDialog from "$lib/components/ui/ConfirmDialog.svelte";
-  import DoomscrollingBrowserConnectionStatus from "./DoomscrollingBrowserConnectionStatus.svelte";
+  import DoomscrollingBrowserConnectionStatus from "$lib/components/settings/doomscrolling-browser-connection";
   import DoomscrollingConfigurationSection from "./DoomscrollingConfigurationSection.svelte";
   import DoomscrollingRuleList from "./DoomscrollingRuleList.svelte";
 
   const doomscrolling = getDoomscrolling();
   const { t } = getLocalization();
+  let { showConnectionStatus = true }: { showConnectionStatus?: boolean } = $props();
 
   type WebsiteListKind = "blocked" | "exception" | "allowed";
 
@@ -513,20 +514,20 @@
   function pendingActionConfirmLabel(action: PendingAction): string {
     if (action.target === "website") {
       return action.action.type === "disable"
-        ? t("settings.doomscrolling.shared.disableShortcut")
-        : t("settings.doomscrolling.shared.deleteShortcut");
+        ? t("settings.doomscrolling.shared.disableAction")
+        : t("settings.doomscrolling.shared.deleteAction");
     }
     if (action.target === "browserConfiguration") {
       return action.action.toggle === "enabled"
-        ? t("settings.doomscrolling.shared.turnOffShortcut")
-        : t("settings.doomscrolling.shared.allowShortcut");
+        ? t("settings.doomscrolling.shared.turnOffAction")
+        : t("settings.doomscrolling.shared.allowAction");
     }
-    if (action.target === "mode") return t("settings.doomscrolling.shared.switchShortcut");
-    if (action.target === "category") return t("settings.doomscrolling.shared.disableShortcut");
-    if (action.target === "customStackDraftHost") return t("settings.doomscrolling.shared.deleteShortcut");
+    if (action.target === "mode") return t("settings.doomscrolling.shared.switchAction");
+    if (action.target === "category") return t("settings.doomscrolling.shared.disableAction");
+    if (action.target === "customStackDraftHost") return t("settings.doomscrolling.shared.deleteAction");
     return action.action.type === "disable"
-      ? t("settings.doomscrolling.shared.disableShortcut")
-      : t("settings.doomscrolling.shared.deleteShortcut");
+      ? t("settings.doomscrolling.shared.disableAction")
+      : t("settings.doomscrolling.shared.deleteAction");
   }
 
 </script>
@@ -768,7 +769,7 @@
 {/snippet}
 
 <div class="flex flex-col gap-6">
-  <DoomscrollingBrowserConnectionStatus />
+  {#if showConnectionStatus}<DoomscrollingBrowserConnectionStatus />{/if}
 
   <DoomscrollingConfigurationSection
     title={t("settings.doomscrolling.browser.browserConfiguration")}
@@ -800,7 +801,7 @@
       !doomscrolling.enabled && "opacity-50",
     )}
   >
-    <div class="h-px bg-border/70" aria-hidden="true"></div>
+    <div class="h-px shrink-0 scale-y-50 bg-border" aria-hidden="true"></div>
 
     {#if doomscrolling.mode === "blacklist"}
       {@render blacklistModeSection()}
@@ -815,7 +816,7 @@
     title={pendingActionTitle(pendingAction)}
     message={pendingActionMessage(pendingAction)}
     confirmLabel={pendingActionConfirmLabel(pendingAction)}
-    cancelLabel={t("settings.doomscrolling.shared.cancelShortcut")}
+    cancelLabel={t("settings.doomscrolling.shared.cancelAction")}
     onConfirm={confirmPendingAction}
     onCancel={cancelPendingAction}
   />

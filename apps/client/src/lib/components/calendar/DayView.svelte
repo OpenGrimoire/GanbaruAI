@@ -1,10 +1,9 @@
 <script lang="ts">
-  import type { CalendarEvent, PersistedSegment } from "./types";
+  import type { CalendarEvent, PersistedSegment, PositionedEvent } from "./types";
   import type { DayNameFormat, TimezoneAbbrMode } from "./utils";
   import {
     formatDatePart,
     formatDayName,
-    allDayEventsForDay,
     GUTTER_WIDTH_PER_TZ,
     visibleMinuteRangeForScroll,
   } from "./utils";
@@ -22,13 +21,15 @@
   import { getCalendarZoom } from "$lib/stores/calendarZoom.svelte";
   import { getPomodoro } from "$lib/stores/pomodoro.svelte";
   import { getLocalization } from "$lib/i18n/translator.svelte";
+  import { formatNumber } from "$lib/i18n/formatters";
   import { onMount } from "svelte";
   import type { Theme } from "$lib/stores/themes";
 
   let {
     anchorDate,
     events,
-    eventsByDay,
+    positionedTimedEventsByDay,
+    allDayEventsByDay,
     theme,
     timezones = [] as string[],
     tzAbbrMode = "acronym" as TimezoneAbbrMode,
@@ -47,10 +48,15 @@
     onTzAbbrModeChange,
     onWheelNavigate,
     onDayHeaderClick,
+    allowPointerEditing = true,
+    mobileLayout = false,
+    onMobileTouchEditStart,
+    onMobileTouchEditEnd,
   }: {
     anchorDate: Date;
     events: CalendarEvent[];
-    eventsByDay: Map<string, CalendarEvent[]>;
+    positionedTimedEventsByDay: Map<string, PositionedEvent[]>;
+    allDayEventsByDay: Map<string, CalendarEvent[]>;
     theme: Theme;
     timezones?: string[];
     tzAbbrMode?: TimezoneAbbrMode;
@@ -69,10 +75,15 @@
     onTzAbbrModeChange?: (mode: TimezoneAbbrMode) => void;
     onWheelNavigate?: (direction: "back" | "forward") => void;
     onDayHeaderClick?: () => void;
+    allowPointerEditing?: boolean;
+    mobileLayout?: boolean;
+    onMobileTouchEditStart?: () => void;
+    onMobileTouchEditEnd?: () => void;
   } = $props();
 
   /** Stable empty fallback so the day column keeps a consistent prop reference. */
   const EMPTY_DAY: CalendarEvent[] = [];
+  const EMPTY_POSITIONED: PositionedEvent[] = [];
 
   let scrollContainer: HTMLDivElement | undefined = $state();
   let wheelCooldown = false;
@@ -83,6 +94,7 @@
   const calZoom = getCalendarZoom();
   const timelineWheelScroll = createTimelineWheelScroll(() => scrollContainer);
   const localization = getLocalization();
+  const { t } = localization;
   const locale = $derived(localization.locale);
 
   function renderedHourHeight(): number {
@@ -144,8 +156,7 @@
   const today = $derived(formatDatePart(anchorDate) === todayStr);
   const past = $derived(formatDatePart(anchorDate) < todayStr);
   const dateStr = $derived(formatDatePart(anchorDate));
-  const dayBucket = $derived(eventsByDay.get(dateStr) ?? EMPTY_DAY);
-  const allDayEvents = $derived(allDayEventsForDay(dayBucket, anchorDate));
+  const allDayEvents = $derived(allDayEventsByDay.get(dateStr) ?? EMPTY_DAY);
 
   let allDayExpanded = $state(false);
   const allDayCollapsible = $derived(allDayEvents.length > ALL_DAY_MAX_VISIBLE);
@@ -353,6 +364,9 @@
     canDrag: (id) => editingId ? id === editingId : !previewedIds || !previewedIds.has(id),
     isActiveEvent: isActiveCalendarEvent,
     isEventLocked: isLockedCalendarEvent,
+    mobileLayout: () => mobileLayout,
+    onTouchEditStart: () => onMobileTouchEditStart?.(),
+    onTouchEditEnd: () => onMobileTouchEditEnd?.(),
   });
 
   function allDayCreateAnchorFromHeader(target: HTMLElement): PanelAnchor {
@@ -411,21 +425,23 @@
             {dayLabel}
           </span>
         </div>
-        <!-- svelte-ignore a11y_no_static_element_interactions -->
-        <!-- svelte-ignore a11y_click_events_have_key_events -->
-        <div
-          class="absolute inset-x-0 bottom-0 cursor-pointer transition-colors hover:bg-foreground/10"
-          style="height: 6px;"
-          onclick={(e) => {
-            e.stopPropagation();
-            onEventCreate(
-              `${dateStr} 00:00`,
-              `${dateStr} 00:00`,
-              true,
-              allDayCreateAnchorFromHeader(e.currentTarget as HTMLElement),
-            );
-          }}
-        ></div>
+        {#if allowPointerEditing}
+          <!-- svelte-ignore a11y_no_static_element_interactions -->
+          <!-- svelte-ignore a11y_click_events_have_key_events -->
+          <div
+            class="absolute inset-x-0 bottom-0 cursor-pointer transition-colors hover:bg-foreground/10"
+            style="height: 6px;"
+            onclick={(e) => {
+              e.stopPropagation();
+              onEventCreate(
+                `${dateStr} 00:00`,
+                `${dateStr} 00:00`,
+                true,
+                allDayCreateAnchorFromHeader(e.currentTarget as HTMLElement),
+              );
+            }}
+          ></div>
+        {/if}
       </div>
     </div>
 
@@ -464,7 +480,7 @@
             style="height: {ALL_DAY_ROW_H}px;"
             onclick={(e) => { e.stopPropagation(); allDayExpanded = true; }}
           >
-            +{allDayEvents.length - ALL_DAY_MAX_VISIBLE} more
+            {t("calendar.moreEvents", formatNumber(locale, allDayEvents.length - ALL_DAY_MAX_VISIBLE))}
           </button>
         {/if}
       </div>
@@ -498,9 +514,9 @@
         style="border-left: 1px solid var(--cal-gridline);"
       >
         <HourGridlines />
-        <DayColumn
+      <DayColumn
           date={anchorDate}
-          events={dayBucket}
+        positionedEvents={positionedTimedEventsByDay.get(dateStr) ?? EMPTY_POSITIONED}
           {theme}
           isToday={today}
           isPast={past}
@@ -521,6 +537,8 @@
           onCreateStart={drag.handleCreateStart}
           isActiveEvent={isActiveCalendarEvent}
           isEventLocked={isLockedCalendarEvent}
+          {allowPointerEditing}
+          {mobileLayout}
         />
       </div>
       </div>

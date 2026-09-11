@@ -174,23 +174,23 @@
   .blocked-date-time,
   .blocked-kicker,
   .blocked-subtitle {
-    font-size: 1.75rem;
+    font-size: calc(1.75rem * var(--type-scale));
     line-height: 1.25;
   }
 
   .blocked-hints {
-    font-size: 1.3125rem;
+    font-size: calc(1.3125rem * var(--type-scale));
     line-height: 1.25;
   }
 
   .blocked-status {
-    font-size: 2rem;
+    font-size: calc(2rem * var(--type-scale));
     line-height: 1.2;
   }
 
   .blocked-timer {
     font-family: inherit;
-    font-size: 13rem;
+    font-size: calc(13rem * var(--type-scale));
     font-weight: 700;
     font-variant-numeric: tabular-nums;
     letter-spacing: 0;
@@ -198,7 +198,7 @@
   }
 
   .blocked-finished-title {
-    font-size: 5rem;
+    font-size: calc(5rem * var(--type-scale));
     font-weight: 700;
     letter-spacing: 0;
     line-height: 0.95;
@@ -206,97 +206,97 @@
 
   @media (max-width: 900px), (max-height: 620px) {
     .blocked-timer {
-      font-size: 10rem;
+      font-size: calc(10rem * var(--type-scale));
     }
 
     .blocked-finished-title {
-      font-size: 4rem;
+      font-size: calc(4rem * var(--type-scale));
     }
 
     .blocked-date-time,
     .blocked-kicker,
     .blocked-subtitle {
-      font-size: 1.4rem;
+      font-size: calc(1.4rem * var(--type-scale));
     }
 
     .blocked-hints {
-      font-size: 1.05rem;
+      font-size: calc(1.05rem * var(--type-scale));
     }
 
     .blocked-status {
-      font-size: 1.6rem;
+      font-size: calc(1.6rem * var(--type-scale));
     }
   }
 
   @media (max-width: 640px), (max-height: 460px) {
     .blocked-timer {
-      font-size: 7rem;
+      font-size: calc(7rem * var(--type-scale));
     }
 
     .blocked-finished-title {
-      font-size: 3rem;
+      font-size: calc(3rem * var(--type-scale));
     }
 
     .blocked-date-time,
     .blocked-kicker,
     .blocked-subtitle {
-      font-size: 1.1rem;
+      font-size: calc(1.1rem * var(--type-scale));
     }
 
     .blocked-hints {
-      font-size: 0.825rem;
+      font-size: calc(0.825rem * var(--type-scale));
     }
 
     .blocked-status {
-      font-size: 1.25rem;
+      font-size: calc(1.25rem * var(--type-scale));
     }
   }
 
   @media (max-width: 420px), (max-height: 320px) {
     .blocked-timer {
-      font-size: 4.75rem;
+      font-size: calc(4.75rem * var(--type-scale));
     }
 
     .blocked-finished-title {
-      font-size: 2rem;
+      font-size: calc(2rem * var(--type-scale));
     }
 
     .blocked-date-time,
     .blocked-kicker,
     .blocked-subtitle {
-      font-size: 0.85rem;
+      font-size: calc(0.85rem * var(--type-scale));
     }
 
     .blocked-hints {
-      font-size: 0.6375rem;
+      font-size: calc(0.6375rem * var(--type-scale));
     }
 
     .blocked-status {
-      font-size: 0.95rem;
+      font-size: calc(0.95rem * var(--type-scale));
     }
   }
 
   @media (max-width: 300px), (max-height: 220px) {
     .blocked-timer {
-      font-size: 3.25rem;
+      font-size: calc(3.25rem * var(--type-scale));
     }
 
     .blocked-finished-title {
-      font-size: 1.5rem;
+      font-size: calc(1.5rem * var(--type-scale));
     }
 
     .blocked-date-time,
     .blocked-kicker,
     .blocked-subtitle {
-      font-size: 0.7rem;
+      font-size: calc(0.7rem * var(--type-scale));
     }
 
     .blocked-hints {
-      font-size: 0.525rem;
+      font-size: calc(0.525rem * var(--type-scale));
     }
 
     .blocked-status {
-      font-size: 0.8rem;
+      font-size: calc(0.8rem * var(--type-scale));
     }
   }
 </style>

@@ -1,0 +1,19 @@
+[package]
+name = "ganbaru-focus"
+version = "0.1.5"
+description = "Ganbaru AI focus persistence, validation, and recovery"
+authors = ["Ganbaru AI"]
+license = "AGPL-3.0-only"
+edition = "2021"
+
+[lib]
+doctest = false
+
+[dependencies]
+chrono = { workspace = true }
+ganbaru-db = { path = "../ganbaru-db" }
+serde = { workspace = true }
+sqlx = { workspace = true }
+
+[dev-dependencies]
+tokio = { workspace = true }

@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-ensureCalendarChannel"
+description = "Enables the ensureCalendarChannel command without any pre-configured scope."
+commands.allow = ["ensureCalendarChannel"]
+
+[[permission]]
+identifier = "deny-ensureCalendarChannel"
+description = "Denies the ensureCalendarChannel command without any pre-configured scope."
+commands.deny = ["ensureCalendarChannel"]

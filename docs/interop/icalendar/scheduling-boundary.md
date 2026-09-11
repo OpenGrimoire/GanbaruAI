@@ -76,10 +76,12 @@ When importing scheduling components:
 When exporting scheduling metadata:
 
 - preserve original scheduling fields when no unsafe edit occurred.
-- include diagnostics for edited offline invitations.
+- include diagnostics for edited offline invitations once user-visible export diagnostics are implemented.
 - avoid generating `METHOD:REQUEST` for ordinary local calendar export unless the source calendar has one distinct preserved scheduling method or the user explicitly exports an invitation.
-- fall back to `METHOD:PUBLISH` when an exported calendar contains mixed preserved methods, because one `VCALENDAR` cannot represent multiple scheduling message types truthfully.
+- current calendar export normalizes missing, invalid, or mixed preserved methods to `METHOD:PUBLISH`, because the generated `VCALENDAR` emits one object-level method.
 - do not fabricate attendee replies.
+
+The `METHOD:PUBLISH` fallback is a current export-normalization choice, not a claim that mixed scheduling semantics were preserved without loss. A future calendar-backup mode may instead omit `METHOD` when no single scheduling method truthfully describes the output.
 
 ## Future scheduling modes
 

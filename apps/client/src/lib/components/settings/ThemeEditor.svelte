@@ -1,41 +1,35 @@
 <script lang="ts">
-  import { onDestroy, untrack } from "svelte";
+  import { untrack } from "svelte";
   import AlertTriangle from "@lucide/svelte/icons/alert-triangle";
   import ChevronDown from "@lucide/svelte/icons/chevron-down";
   import ChevronUp from "@lucide/svelte/icons/chevron-up";
-  import Link2 from "@lucide/svelte/icons/link-2";
   import Moon from "@lucide/svelte/icons/moon";
-  import Pencil from "@lucide/svelte/icons/pencil";
   import RotateCcw from "@lucide/svelte/icons/rotate-ccw";
   import Sun from "@lucide/svelte/icons/sun";
   import Wand2 from "@lucide/svelte/icons/wand-2";
-  import { invoke } from "@tauri-apps/api/core";
   import CalendarScrollbar from "../calendar/CalendarScrollbar.svelte";
-  import { cn, isEditableKeyboardTarget } from "$lib/utils";
-  import {
-    contrastRatio,
-    pickReadableForeground,
-  } from "$lib/components/ui/colorMath";
+  import { cn } from "$lib/utils";
   import {
     DERIVATION_ENGINE_VERSION,
-    resolveAppTokens,
-    resolveCalendarTokens,
-    type CalendarColorDefaultMode,
     type Theme,
-    type ThemeSources,
     type UserTheme,
   } from "$lib/stores/themes";
   import { getTheme } from "$lib/stores/theme.svelte";
   import { getLocalization } from "$lib/i18n/translator.svelte";
-  import {
-    canResetTokenToSeed,
-    toUserThemeSnapshot,
-  } from "$lib/stores/themeOperations";
+  import { toUserThemeSnapshot } from "$lib/stores/themeOperations";
+  import { createThemeEditorActions } from "./theme-editor/theme-editor-actions";
+  import { ThemeJsonController } from "./theme-editor/theme-json-controller.svelte";
+  import { ThemeContrastController } from "./theme-editor/theme-contrast-controller.svelte";
   import ColorField from "$lib/components/ui/ColorField.svelte";
   import ThemeContrastNotice from "./ThemeContrastNotice.svelte";
   import ThemeEventPaletteSection from "./ThemeEventPaletteSection.svelte";
   import ThemeJsonSection from "./ThemeJsonSection.svelte";
   import ThemeRebakeBanner from "./ThemeRebakeBanner.svelte";
+  import ThemeEditorNavigation from "./theme-editor/ThemeEditorNavigation.svelte";
+  import ThemeSourcePairRow from "./theme-editor/ThemeSourcePairRow.svelte";
+  import ThemeTokenEditor from "./theme-editor/ThemeTokenEditor.svelte";
+  import ActionToast from "$lib/components/ui/ActionToast.svelte";
+  import { BUILD_PLATFORM_PROFILE } from "$lib/platform";
   import {
     SOURCE_GROUPS,
     isCalendarGroup,
@@ -57,19 +51,12 @@
 
   const themeStore = getTheme();
   const { t } = getLocalization();
+  const mobileShell = BUILD_PLATFORM_PROFILE.shell === "mobile";
   const sourceGroups = $derived(localizedSourceGroups(t));
   const textActionGroups = $derived(sourceGroups.filter(isTextActionGroup));
   const calendarGroups = $derived(sourceGroups.filter(isCalendarGroup));
   const themeNavItems = $derived(localizedThemeNavItems(t));
   const calendarDefaultOptions = $derived(localizedCalendarDefaultOptions(t));
-  const PANEL_SCROLL_KEYS = new Set([
-    "ArrowUp",
-    "ArrowDown",
-    "PageUp",
-    "PageDown",
-    "Home",
-    "End",
-  ]);
 
   const isBuiltin = $derived(theme.kind === "builtin");
   const readOnly = $derived(theme.kind === "builtin");
@@ -91,59 +78,7 @@
 
   let scrollViewport: HTMLDivElement | undefined = $state();
   let scrollContent: HTMLDivElement | undefined = $state();
-  let themeNav: HTMLElement | undefined = $state();
-  let activeThemeSection = $state<ThemeNavTarget>("general");
-  let lockedThemeSection = $state<ThemeNavTarget | undefined>(undefined);
-  let scrollFrame: number | undefined;
-  let navScrollFrame: number | undefined;
-  let sectionLockTimer: ReturnType<typeof setTimeout> | undefined;
-  let navCanScrollLeft = $state(false);
-  let navCanScrollRight = $state(false);
-
-  onDestroy(() => {
-    if (scrollFrame !== undefined) cancelAnimationFrame(scrollFrame);
-    if (navScrollFrame !== undefined) cancelAnimationFrame(navScrollFrame);
-    if (sectionLockTimer) clearTimeout(sectionLockTimer);
-  });
-
-  $effect(() => {
-    if (!scrollViewport) return;
-    const viewport = scrollViewport;
-    const content = scrollContent;
-    const ro = new ResizeObserver(updateActiveThemeSection);
-    ro.observe(viewport);
-    if (content) ro.observe(content);
-    return () => {
-      ro.disconnect();
-    };
-  });
-
-  $effect(() => {
-    if (!themeNav) return;
-    const nav = themeNav;
-    syncThemeNavOverflow();
-    const onScroll = () => syncThemeNavOverflow();
-    const ro = new ResizeObserver(() => {
-      syncThemeNavOverflow();
-      scrollThemeNavTargetIntoView(activeThemeSection, "auto");
-    });
-    nav.addEventListener("scroll", onScroll, { passive: true });
-    ro.observe(nav);
-    return () => {
-      nav.removeEventListener("scroll", onScroll);
-      ro.disconnect();
-    };
-  });
-
-  $effect(() => {
-    const target = activeThemeSection;
-    if (!themeNav) return;
-    if (navScrollFrame !== undefined) cancelAnimationFrame(navScrollFrame);
-    navScrollFrame = requestAnimationFrame(() => {
-      navScrollFrame = undefined;
-      scrollThemeNavTargetIntoView(target, "smooth");
-    });
-  });
+  let navigation: ThemeEditorNavigation | undefined = $state();
 
   // Collapse state is ephemeral (not persisted across sessions). Every
   // multi-row group is collapsible; single-row source groups still render
@@ -166,487 +101,63 @@
   // The JSON drawer mirrors the theme's serialized form. We only refresh it
   // from props while the user has not yet typed anything, otherwise their
   // pending edits would be wiped every time a form field updates the store.
-  let jsonDraft = $state(untrack(() => themeStore.exportTheme(theme.id) ?? ""));
-  let jsonDirty = $state(false);
-  let jsonErrors = $state<string[]>([]);
-  let jsonNotice = $state<string | undefined>(undefined);
-  let jsonNoticeTimer: ReturnType<typeof setTimeout> | undefined;
-
-  $effect(() => {
-    const next = themeStore.exportTheme(theme.id) ?? "";
-    if (!jsonDirty) jsonDraft = next;
+  const json = new ThemeJsonController({
+    store: themeStore,
+    themeId: () => theme.id,
+    translate: t,
+    reportError: (message, error) => { console.error(message, error); },
   });
 
-  function flashJsonNotice(message: string) {
-    jsonNotice = message;
-    if (jsonNoticeTimer) clearTimeout(jsonNoticeTimer);
-    jsonNoticeTimer = setTimeout(() => {
-      jsonNotice = undefined;
-    }, 1800);
-  }
 
   function setName(next: string) {
-    if (readOnly) return;
-    void themeStore.renameTheme(theme.id, next);
+    actions.rename(next);
   }
 
-  function sectionSelector(target: ThemeNavTarget): string {
-    return `[data-theme-nav-target="${target}"]`;
-  }
+  const actions = createThemeEditorActions({
+    store: themeStore,
+    themeId: () => theme.id,
+    readOnly: () => readOnly,
+    userTheme: () => userTheme,
+  });
+  const setSlot = actions.setPaletteSlot;
+  const setAppToken = actions.setAppToken;
+  const setCalToken = actions.setCalendarToken;
+  const setSource = actions.setSource;
+  const applyCalendarDefault = actions.applyCalendarDefault;
+  const setCalendarDefaultCustom = (hex: string) =>
+    actions.applyCalendarDefault("custom", hex);
+  const resetCalendarDefault = actions.resetCalendarDefault;
+  const isolateAppToken = actions.isolateAppToken;
+  const isolateCalToken = actions.isolateCalendarToken;
+  const relinkAppToken = actions.relinkAppToken;
+  const relinkCalToken = actions.relinkCalendarToken;
+  const canResetSource = actions.canResetSource;
+  const resetSource = actions.resetSource;
+  const canResetAppToken = actions.canResetAppToken;
+  const resetAppToken = actions.resetAppToken;
+  const canResetCalToken = actions.canResetCalendarToken;
+  const resetCalToken = actions.resetCalendarToken;
+  const rebake = actions.rebake;
+  const dismissRebake = actions.dismissRebake;
 
-  function themeSectionElements(): Array<{
-    target: ThemeNavTarget;
-    el: HTMLElement;
-  }> {
-    if (!scrollViewport) return [];
-    const out: Array<{ target: ThemeNavTarget; el: HTMLElement }> = [];
-    for (const item of themeNavItems) {
-      const el = scrollViewport.querySelector<HTMLElement>(
-        sectionSelector(item.target),
-      );
-      if (el) out.push({ target: item.target, el });
-    }
-    return out;
-  }
-
-  function scrollViewportHasLayout(
-    viewport: HTMLDivElement | undefined,
-  ): viewport is HTMLDivElement {
-    if (!viewport) return false;
-    return viewport.clientHeight > 0 && viewport.scrollHeight > 0;
-  }
-
-  function updateActiveThemeSection() {
-    const viewport = scrollViewport;
-    if (!scrollViewportHasLayout(viewport)) return;
-    if (lockedThemeSection) {
-      activeThemeSection = lockedThemeSection;
-      return;
-    }
-    const sections = themeSectionElements();
-    if (sections.length === 0) return;
-    const atBottom =
-      viewport.scrollTop + viewport.clientHeight >= viewport.scrollHeight - 2;
-    if (atBottom) {
-      activeThemeSection = sections[sections.length - 1].target;
-      return;
-    }
-    const viewportTop = viewport.getBoundingClientRect().top;
-    const threshold = viewportTop + 8;
-    let next = sections[0].target;
-    for (const section of sections) {
-      if (section.el.getBoundingClientRect().top <= threshold) {
-        next = section.target;
-      } else {
-        break;
-      }
-    }
-    activeThemeSection = next;
-  }
-
-  function queueActiveThemeSectionUpdate() {
-    if (lockedThemeSection) {
-      activeThemeSection = lockedThemeSection;
-      scheduleThemeSectionLockRelease();
-      return;
-    }
-    if (scrollFrame !== undefined) return;
-    scrollFrame = requestAnimationFrame(() => {
-      scrollFrame = undefined;
-      updateActiveThemeSection();
-    });
-  }
-
-  function lockThemeSection(target: ThemeNavTarget) {
-    lockedThemeSection = target;
-    activeThemeSection = target;
-    scheduleThemeSectionLockRelease();
-  }
-
-  function scheduleThemeSectionLockRelease() {
-    if (!lockedThemeSection) return;
-    if (sectionLockTimer) clearTimeout(sectionLockTimer);
-    sectionLockTimer = setTimeout(() => {
-      lockedThemeSection = undefined;
-      sectionLockTimer = undefined;
-      updateActiveThemeSection();
-    }, 160);
-  }
-
-  function syncThemeNavOverflow() {
-    if (!themeNav) {
-      navCanScrollLeft = false;
-      navCanScrollRight = false;
-      return;
-    }
-    const maxScrollLeft = Math.max(0, themeNav.scrollWidth - themeNav.clientWidth);
-    navCanScrollLeft = themeNav.scrollLeft > 1;
-    navCanScrollRight = themeNav.scrollLeft < maxScrollLeft - 1;
-  }
-
-  function scrollThemeNavTargetIntoView(
-    target: ThemeNavTarget,
-    behavior: ScrollBehavior,
-  ) {
-    if (!themeNav) return;
-    const button = themeNav.querySelector<HTMLButtonElement>(
-      `[data-theme-nav-button="${target}"]`,
-    );
-    if (!button) return;
-    const navRect = themeNav.getBoundingClientRect();
-    const buttonRect = button.getBoundingClientRect();
-    const edgePadding = 8;
-    const leftOverflow = buttonRect.left - navRect.left - edgePadding;
-    const rightOverflow = buttonRect.right - navRect.right + edgePadding;
-    let nextLeft = themeNav.scrollLeft;
-    if (leftOverflow < 0) {
-      nextLeft += leftOverflow;
-    } else if (rightOverflow > 0) {
-      nextLeft += rightOverflow;
-    } else {
-      syncThemeNavOverflow();
-      return;
-    }
-    const maxScrollLeft = Math.max(0, themeNav.scrollWidth - themeNav.clientWidth);
-    themeNav.scrollTo({
-      left: Math.min(Math.max(0, nextLeft), maxScrollLeft),
-      behavior,
-    });
-    syncThemeNavOverflow();
-  }
-
-  function handleThemeNavWheel(e: WheelEvent) {
-    if (!themeNav) return;
-    const maxScrollLeft = Math.max(0, themeNav.scrollWidth - themeNav.clientWidth);
-    if (maxScrollLeft <= 0) return;
-    const rawDelta =
-      Math.abs(e.deltaX) > Math.abs(e.deltaY) ? e.deltaX : e.deltaY;
-    if (rawDelta === 0) return;
-    const deltaScale =
-      e.deltaMode === WheelEvent.DOM_DELTA_LINE
-        ? 16
-        : e.deltaMode === WheelEvent.DOM_DELTA_PAGE
-          ? themeNav.clientWidth
-          : 1;
-    const nextLeft = Math.min(
-      Math.max(0, themeNav.scrollLeft + rawDelta * deltaScale),
-      maxScrollLeft,
-    );
-    if (nextLeft === themeNav.scrollLeft) return;
-    e.preventDefault();
-    themeNav.scrollTo({ left: nextLeft, behavior: "auto" });
-    syncThemeNavOverflow();
-  }
-
-  function scrollToThemeSection(target: ThemeNavTarget) {
-    const el =
-      scrollViewport?.querySelector<HTMLElement>(sectionSelector(target)) ??
-      document.querySelector<HTMLElement>(sectionSelector(target));
-    if (!el) return;
-    lockThemeSection(target);
-    if (!scrollViewport) {
-      el.scrollIntoView({ behavior: "smooth", block: "start" });
-      return;
-    }
-    const rootTop = scrollViewport.getBoundingClientRect().top;
-    const targetTop = el.getBoundingClientRect().top;
-    scrollViewport.scrollTo({
-      top: scrollViewport.scrollTop + targetTop - rootTop,
-      behavior: "smooth",
-    });
-  }
-
-  function shouldKeepPanelFocusTarget(target: EventTarget | null): boolean {
-    if (!(target instanceof Element)) return false;
-    return target.closest("button, a[href], [role='button'], [role='combobox'], [role='listbox']") === null;
-  }
-
-  function focusScrollViewportFromPointer(e: PointerEvent) {
-    if (!scrollViewport) return;
-    if (isEditableKeyboardTarget(e.target)) return;
-    if (!shouldKeepPanelFocusTarget(e.target)) return;
-    scrollViewport.focus({ preventScroll: true });
-  }
-
-  function keepPanelScrollKey(e: KeyboardEvent) {
-    if (!PANEL_SCROLL_KEYS.has(e.key)) return;
-    if (isEditableKeyboardTarget(e.target)) return;
-    e.stopPropagation();
-  }
-
-  function setSlot(index: number, hex: string) {
-    if (readOnly) return;
-    void themeStore.setPaletteSlot(theme.id, index, hex);
-  }
-
-  function setAppToken(key: string, hex: string) {
-    if (readOnly) return;
-    void themeStore.setTokenValue(theme.id, "app", key, hex);
-  }
-
-  function setCalToken(key: string, hex: string) {
-    if (readOnly) return;
-    void themeStore.setTokenValue(theme.id, "calendar", key, hex);
-  }
-
-  function setSource(key: keyof ThemeSources, hex: string) {
-    if (readOnly) return;
-    void themeStore.updateSourceValue(theme.id, key, hex);
-  }
-
-  function applyCalendarDefault(mode: CalendarColorDefaultMode) {
-    if (readOnly) return;
-    if (!userTheme) return;
-    void themeStore.applyCalendarDefault(theme.id, mode);
-  }
-
-  function setCalendarDefaultCustom(hex: string) {
-    if (readOnly) return;
-    if (!userTheme) return;
-    void themeStore.applyCalendarDefault(theme.id, "custom", hex);
-  }
-
-  function resetCalendarDefault() {
-    if (readOnly) return;
-    if (!userTheme) return;
-    void themeStore.resetCalendarDefaultToSeed(theme.id);
-  }
-
-  // Isolating a token pins the current snapshot value against future
-  // source-edit cascades. Visually the row swaps its readonly swatch +
-  // Isolated-edit button for a ColorField + Link-back. The hex itself
-  // does not change at the moment of pinning; the snapshot already holds
-  // the auto-derived value.
-  function isolateAppToken(key: string) {
-    if (readOnly) return;
-    void themeStore.isolateToken(theme.id, "app", key);
-  }
-
-  function isolateCalToken(key: string) {
-    if (readOnly) return;
-    void themeStore.isolateToken(theme.id, "calendar", key);
-  }
-
-  function relinkAppToken(key: string) {
-    if (readOnly) return;
-    void themeStore.relinkToken(theme.id, "app", key);
-  }
-
-  function relinkCalToken(key: string) {
-    if (readOnly) return;
-    void themeStore.relinkToken(theme.id, "calendar", key);
-  }
-
-  // Per-token reset restores a single control back to the value (and
-  // isolated flag) it had when the theme was cloned. Sources/app/cal all
-  // round-trip through the same DB mutator since seeds carry both the
-  // value and the pinned-state.
-  function canResetSource(key: keyof ThemeSources): boolean {
-    if (!userTheme) return false;
-    return canResetTokenToSeed(userTheme, "source", key);
-  }
-
-  function resetSource(key: keyof ThemeSources) {
-    if (readOnly) return;
-    if (!userTheme) return;
-    void themeStore.resetTokenToSeed(theme.id, "source", key);
-  }
-
-  function canResetAppToken(key: string): boolean {
-    if (!userTheme) return false;
-    return canResetTokenToSeed(userTheme, "app", key);
-  }
-
-  function resetAppToken(key: string) {
-    if (readOnly) return;
-    void themeStore.resetTokenToSeed(theme.id, "app", key);
-  }
-
-  function canResetCalToken(key: string): boolean {
-    if (!userTheme) return false;
-    return canResetTokenToSeed(userTheme, "calendar", key);
-  }
-
-  function resetCalToken(key: string) {
-    if (readOnly) return;
-    void themeStore.resetTokenToSeed(theme.id, "calendar", key);
-  }
-
-  function rebake() {
-    if (!userTheme) return;
-    void themeStore.rebakeTheme(theme.id);
-  }
-
-  function dismissRebake() {
-    if (!userTheme) return;
-    void themeStore.dismissUpgrade(theme.id);
-  }
-
-  // WCAG body-text threshold. Default target for rows that don't override
-  // it; muted surfaces tag themselves with 3 so the warning panel respects
-  // their design intent (captions and past-day numbers are supposed to
-  // recede, not pass 4.5:1).
-  const AA_BODY_TARGET = 4.5;
-
-  function pairTarget(row: GroupContrastRow): number {
-    return row.target ?? AA_BODY_TARGET;
-  }
-
-  // Resolve a token's rendered value from the inspected theme. User themes
-  // read their stored snapshot; built-ins use a read-only projected snapshot.
-  // We re-read on every call so the live editor reflects whatever the user
-  // just changed without a roundtrip through the DOM.
-  const resolvedApp = $derived(resolveAppTokens(viewTheme));
-  const resolvedCal = $derived(resolveCalendarTokens(viewTheme));
-
-  function effectiveColor(key: string, scope: "app" | "cal"): string {
-    return scope === "app" ? resolvedApp[key] : resolvedCal[key];
-  }
-
-  type PairContrast = { ratio: number; passes: boolean; target: number };
-  function pairContrast(row: GroupContrastRow): PairContrast {
-    const bg = effectiveColor(row.bg, row.scope);
-    const fg = effectiveColor(row.fg, row.scope);
-    const ratio = contrastRatio(fg, bg);
-    const target = pairTarget(row);
-    return { ratio, passes: ratio >= target, target };
-  }
-
-  function contrastTargetSuffix(target: number): string {
-    return target >= 4.5
-      ? t("settings.theme.editor.contrastTargetAaBody")
-      : t("settings.theme.editor.contrastTargetAaLargeUi");
-  }
-
-  function contrastTitle(contrast: PairContrast): string {
-    const ratio = contrast.ratio.toFixed(2);
-    const target = String(contrast.target);
-    const suffix = contrastTargetSuffix(contrast.target);
-    if (readOnly) {
-      return t("settings.theme.editor.contrastTitle", ratio, target, suffix);
-    }
-    return t(
-      "settings.theme.editor.contrastTitleEditable",
-      ratio,
-      target,
-      suffix,
-    );
-  }
-
-  function autoFixPair(row: GroupContrastRow) {
-    if (readOnly) return;
-    const bg = effectiveColor(row.bg, row.scope);
-    const ink = resolvedApp["--foreground"];
-    const canvas = resolvedApp["--background"];
-    const next = pickReadableForeground(bg, {
-      ink,
-      canvas,
-      target: pairTarget(row),
-    });
-    if (row.kind === "source-pair") {
-      setSource(row.fgSource, next);
-    } else if (row.scope === "app") {
-      setAppToken(row.fg, next);
-    } else {
-      setCalToken(row.fg, next);
-    }
-  }
-
-  // Flat list of every pair row across every source group, used by the
-  // floating contrast notice so users don't have to hunt for warnings across
-  // collapsed sections.
-  type LocatedPair = { row: GroupContrastRow; group: SourceGroup };
-  const allPairs: LocatedPair[] = (() => {
-    const out: LocatedPair[] = [];
-    for (const g of SOURCE_GROUPS) {
-      for (const r of g.rows) {
-        if (r.kind === "pair" || r.kind === "source-pair") {
-          out.push({ row: r, group: g });
-        }
-      }
-    }
-    return out;
-  })();
-
-  const failingPairs = $derived(
-    allPairs.filter(({ row }) => !pairContrast(row).passes),
-  );
-
-  let nextPairCursor = $state(0);
-
-  function pairKey(row: GroupContrastRow): string {
-    return `${row.scope}:${row.bg}:${row.fg}`;
-  }
-
-  // Jump the viewport to the next failing row, cycling through the list.
-  // Expands the row's group if collapsed so the pair is actually visible
-  // before scrolling. Without this, clicking Next on a collapsed row would
-  // silently do nothing.
-  function jumpToNextFailingPair() {
-    if (failingPairs.length === 0) return;
-    const idx = nextPairCursor % failingPairs.length;
-    const target = failingPairs[idx];
-    nextPairCursor = idx + 1;
-    collapsed = { ...collapsed, [target.group.id]: false };
-    queueMicrotask(() => {
-      const el = document.querySelector<HTMLElement>(
-        `[data-pair-key="${pairKey(target.row)}"]`,
-      );
-      if (el) el.scrollIntoView({ behavior: "smooth", block: "center" });
-    });
-  }
-
-  function fixAllFailingPairs() {
-    if (readOnly) return;
-    for (const { row } of failingPairs) autoFixPair(row);
-    nextPairCursor = 0;
-  }
-
-  async function copyJsonToClipboard() {
-    try {
-      await navigator.clipboard.writeText(jsonDraft);
-      flashJsonNotice(t("settings.theme.editor.jsonCopied"));
-    } catch (err) {
-      console.error("clipboard write failed", err);
-      flashJsonNotice(t("settings.theme.editor.jsonCopyFailed"));
-    }
-  }
-
-  async function saveJsonToFile() {
-    try {
-      const saved = await invoke<boolean>("vault_pick_and_write_theme_json", {
-        defaultName: `${theme.id}.json`,
-        contents: jsonDraft,
-      });
-      if (saved) flashJsonNotice(t("settings.theme.editor.jsonSaved"));
-    } catch (err) {
-      console.error("save dialog failed", err);
-      flashJsonNotice(t("settings.theme.editor.jsonSaveFailed"));
-    }
-  }
-
-  async function applyJsonChanges() {
-    const result = await themeStore.replaceTheme(theme.id, jsonDraft);
-    if (!result.ok) {
-      jsonErrors = result.errors;
-      return;
-    }
-    jsonErrors = [];
-    jsonDirty = false;
-    flashJsonNotice(t("settings.theme.editor.jsonUpdated"));
-  }
-
-  function resetJsonDraft() {
-    jsonDraft = themeStore.exportTheme(theme.id) ?? "";
-    jsonDirty = false;
-    jsonErrors = [];
-  }
-
-  function onJsonInput(e: Event) {
-    jsonDraft = (e.currentTarget as HTMLTextAreaElement).value;
-    jsonDirty = true;
-    jsonErrors = [];
-  }
+  const contrast = new ThemeContrastController({
+    theme: () => viewTheme,
+    readOnly: () => readOnly,
+    translate: t,
+    setSource,
+    setAppToken,
+    setCalendarToken: setCalToken,
+    expandGroup: (groupId) => {
+      collapsed = { ...collapsed, [groupId]: false };
+    },
+  });
+  const pairContrast = contrast.pairContrast;
+  const contrastTitle = contrast.contrastTitle;
+  const autoFixPair = contrast.autoFix;
+  const pairKey = contrast.pairKey;
+  const failingPairs = $derived(contrast.failingPairs);
+  const jumpToNextFailingPair = contrast.jumpToNext;
+  const fixAllFailingPairs = contrast.fixAll;
 
 </script>
 
@@ -654,10 +165,10 @@
   <!-- Theme chrome sits above the editor scroll viewport so the scrollbar
        starts with the editable sections. -->
   <section
-    class="theme-editor-chrome relative z-20 flex shrink-0 flex-col gap-1.5 border-b border-border bg-sidebar px-3 py-2"
+    class="theme-editor-chrome relative z-20 flex shrink-0 flex-col gap-1.5 border-b border-border/70 bg-sidebar px-3 py-2"
   >
     <div
-      class="flex h-9 min-w-0 items-center overflow-hidden rounded-md border border-border bg-card text-[0.733333rem] text-muted-foreground dark:bg-background"
+      class="theme-editor-identity flex h-9 min-w-0 items-center overflow-hidden rounded-md border border-border bg-card text-[0.733333rem] text-muted-foreground dark:bg-background"
     >
       <button
         type="button"
@@ -700,7 +211,7 @@
       >
         <BaseIcon size={12} strokeWidth={1.75} />
       </button>
-      <span class="h-5 border-r border-border" aria-hidden="true"></span>
+      <span class="h-5 border-r border-border/70" aria-hidden="true"></span>
       <input
         type="text"
         value={theme.displayName}
@@ -714,37 +225,12 @@
         )}
       />
     </div>
-    <div
-      class="theme-editor-nav-shell relative h-9 overflow-hidden rounded-lg border border-border bg-card text-[0.733333rem] dark:bg-background"
-      data-can-scroll-left={navCanScrollLeft}
-      data-can-scroll-right={navCanScrollRight}
-      onwheel={handleThemeNavWheel}
-    >
-      <nav
-        bind:this={themeNav}
-        class="theme-editor-nav grid h-full grid-cols-5 items-center gap-1 overflow-hidden px-1"
-        aria-label={t("settings.theme.editor.sectionsLabel")}
-      >
-        {#each themeNavItems as item}
-          <button
-            type="button"
-            data-theme-nav-button={item.target}
-            onclick={() => scrollToThemeSection(item.target)}
-            aria-current={activeThemeSection === item.target
-              ? "location"
-              : undefined}
-            class={cn(
-              "flex h-7 min-w-0 items-center justify-center rounded-md px-2 text-center font-medium transition-colors",
-              activeThemeSection === item.target
-                ? "bg-accent text-foreground"
-                : "text-muted-foreground",
-            )}
-          >
-            <span class="min-w-0 truncate uppercase">{item.label}</span>
-          </button>
-        {/each}
-      </nav>
-    </div>
+    <ThemeEditorNavigation
+      bind:this={navigation}
+      items={themeNavItems}
+      {scrollViewport}
+      {scrollContent}
+    />
   </section>
 
   {#snippet resetIconButton(
@@ -793,101 +279,30 @@
     {@const displayVal = snapshot?.[key] ?? ""}
     {@const canResetRow =
       scope === "app" ? canResetAppToken(key) : canResetCalToken(key)}
-    <div class="theme-token-editor flex items-center gap-1.5">
-      <ColorField
-        value={displayVal}
-        onChange={(hex) => {
-          if (isLinked) return;
-          if (scope === "app") setAppToken(key, hex);
-          else setCalToken(key, hex);
-        }}
-        readOnly={readOnly || isLinked}
-        label={ariaLabel}
-      />
-      {@render resetIconButton(
-        () => {
-          if (scope === "app") resetAppToken(key);
-          else resetCalToken(key);
-        },
-        ariaLabel,
-        canResetRow,
-        readOnly
-          ? t("settings.theme.editor.builtInReadOnly")
-          : isLinked
-            ? t("settings.theme.editor.linkedColorsResetThroughSource")
-            : t("settings.theme.editor.originalValue"),
-      )}
-      {#if isLinked}
-        <button
-          type="button"
-          onclick={() => {
-            if (readOnly) return;
-            if (scope === "app") isolateAppToken(key);
-            else isolateCalToken(key);
-          }}
-          disabled={readOnly}
-          aria-label={t("settings.theme.editor.isolateEditLabel", ariaLabel)}
-          title={readOnly
-            ? t("settings.theme.editor.builtInReadOnly")
-            : t("settings.theme.editor.isolateEditTitle")}
-          class={cn(
-            "theme-token-action flex min-w-27 shrink-0 items-center justify-center gap-1 rounded-md border border-border bg-card px-2 py-1 text-[0.666667rem] font-medium text-muted-foreground transition-colors",
-            readOnly
-              ? "cursor-not-allowed opacity-60"
-              : "hover:border-foreground/30 hover:bg-accent hover:text-foreground",
-          )}
-        >
-          <Pencil size={10} strokeWidth={2.25} />
-          <span>{t("settings.theme.editor.isolateEdit")}</span>
-        </button>
-      {:else}
-        <button
-          type="button"
-          onclick={() => {
-            if (readOnly) return;
-            if (scope === "app") relinkAppToken(key);
-            else relinkCalToken(key);
-          }}
-          disabled={readOnly}
-          aria-label={t("settings.theme.editor.linkBackLabel", ariaLabel)}
-          title={readOnly
-            ? t("settings.theme.editor.builtInReadOnly")
-            : t("settings.theme.editor.linkBackTitle")}
-          class={cn(
-            "theme-token-action flex min-w-27 shrink-0 items-center justify-center gap-1 rounded-md border border-border bg-card px-2 py-1 text-[0.666667rem] font-medium text-muted-foreground transition-colors",
-            readOnly
-              ? "cursor-not-allowed opacity-60"
-              : "hover:border-foreground/30 hover:bg-accent hover:text-foreground",
-          )}
-        >
-          <Link2 size={10} strokeWidth={2.25} />
-          <span>{t("settings.theme.editor.linkBack")}</span>
-        </button>
-      {/if}
-    </div>
-  {/snippet}
-
-  {#snippet sourceEditor(
-    key: keyof ThemeSources,
-    ariaLabel: string,
-  )}
-    <div class="theme-source-editor flex items-center gap-1.5">
-      <ColorField
-        value={viewTheme.sources[key]}
-        onChange={(hex) => setSource(key, hex)}
-        {readOnly}
-        label={ariaLabel}
-      />
-      {@render resetIconButton(
-        () => resetSource(key),
-        ariaLabel,
-        canResetSource(key),
-        readOnly
-          ? t("settings.theme.editor.builtInReadOnly")
-          : t("settings.theme.editor.originalValue"),
-      )}
-      <div class="theme-token-action-spacer min-w-27 shrink-0" aria-hidden="true"></div>
-    </div>
+    <ThemeTokenEditor
+      value={displayVal}
+      label={ariaLabel}
+      scope={scope === "app" ? "app" : "calendar"}
+      linked={isLinked}
+      {readOnly}
+      canReset={canResetRow}
+      onChange={(hex) => {
+        if (scope === "app") setAppToken(key, hex);
+        else setCalToken(key, hex);
+      }}
+      onReset={() => {
+        if (scope === "app") resetAppToken(key);
+        else resetCalToken(key);
+      }}
+      onIsolate={() => {
+        if (scope === "app") isolateAppToken(key);
+        else isolateCalToken(key);
+      }}
+      onRelink={() => {
+        if (scope === "app") relinkAppToken(key);
+        else relinkCalToken(key);
+      }}
+    />
   {/snippet}
 
   {#snippet groupSingleRow(row: GroupSingleRow)}
@@ -988,72 +403,18 @@
 
   {#snippet groupSourcePairRow(row: GroupSourcePairRow)}
     {@const contrast = pairContrast(row)}
-    <div
-      data-pair-key={pairKey(row)}
-      class="theme-pair-row flex flex-wrap items-start justify-between gap-x-4 gap-y-2 px-1 py-2.5"
-    >
-      <div class="min-w-0 flex-1">
-        <div class="flex items-center gap-1.5">
-          <span class="text-[0.866667rem] font-semibold text-foreground">
-            {row.title}
-          </span>
-          {#if !contrast.passes}
-            <button
-              type="button"
-              onclick={() => {
-                if (!readOnly) autoFixPair(row);
-              }}
-              disabled={readOnly}
-              aria-label={readOnly
-                ? t(
-                    "settings.theme.editor.contrastReadOnlyLabel",
-                    row.title,
-                    contrast.ratio.toFixed(2),
-                  )
-                : t("settings.theme.editor.contrastAutoFixLabel", row.title)}
-              title={contrastTitle(contrast)}
-              class={cn(
-                "flex items-center gap-1 rounded px-1 py-0.5 text-[0.666667rem] font-medium text-amber-700 transition-colors dark:text-amber-400",
-                readOnly
-                  ? "cursor-not-allowed opacity-75"
-                  : "hover:bg-amber-500/10",
-              )}
-            >
-              <AlertTriangle size={11} strokeWidth={2.25} />
-              <span>{contrast.ratio.toFixed(1)}:1</span>
-              {#if !readOnly}
-                <Wand2 size={10} strokeWidth={2.25} />
-              {/if}
-            </button>
-          {/if}
-        </div>
-        <div class="text-[0.733333rem] text-muted-foreground">{row.description}</div>
-      </div>
-      <div class="theme-pair-controls flex shrink-0 flex-col items-end gap-2">
-        <div class="theme-pair-control-line flex items-center gap-1.5">
-          <span
-            class="theme-pair-label w-8.5 text-right text-[0.666667rem] font-medium uppercase tracking-wide text-muted-foreground"
-          >
-            {t("settings.theme.editor.backgroundShort")}
-          </span>
-          {@render sourceEditor(
-            row.bgSource,
-            t("settings.theme.editor.backgroundControl", row.title),
-          )}
-        </div>
-        <div class="theme-pair-control-line flex items-center gap-1.5">
-          <span
-            class="theme-pair-label w-8.5 text-right text-[0.666667rem] font-medium uppercase tracking-wide text-muted-foreground"
-          >
-            {t("settings.theme.editor.textShort")}
-          </span>
-          {@render sourceEditor(
-            row.fgSource,
-            t("settings.theme.editor.textControl", row.title),
-          )}
-        </div>
-      </div>
-    </div>
+    <ThemeSourcePairRow
+      {row}
+      {contrast}
+      contrastTitle={contrastTitle(contrast)}
+      pairKey={pairKey(row)}
+      {readOnly}
+      sourceValue={(key) => viewTheme.sources[key]}
+      {canResetSource}
+      onSetSource={setSource}
+      onResetSource={resetSource}
+      onAutoFix={() => autoFixPair(row)}
+    />
   {/snippet}
 
   {#snippet groupSection(group: SourceGroup)}
@@ -1122,7 +483,7 @@
           </div>
         </header>
         {#if showRows}
-          <div class="divide-y divide-border border-t border-border">
+          <div class="divide-y divide-border/70 border-t border-border/70">
             {#if group.sourceKey !== null && group.rows.length === 1 && group.rows[0].kind === "single"}
               {@render groupHeaderStyleRow(group.rows[0])}
             {:else}
@@ -1143,7 +504,7 @@
   {/snippet}
 
   {#snippet textActionsSection()}
-    <section class="flex flex-col divide-y divide-border">
+    <section class="flex flex-col divide-y divide-border/70">
       {#each textActionGroups as group (group.id)}
         {@render groupSection(group)}
       {/each}
@@ -1208,7 +569,7 @@
   {/snippet}
 
   {#snippet calendarSection()}
-    <section class="flex flex-col divide-y divide-border">
+    <section class="flex flex-col divide-y divide-border/70">
       {@render calendarDefaultsSection()}
       {#each calendarGroups as group (group.id)}
         {#if group.id === "calendar-details"}
@@ -1231,7 +592,7 @@
       <h2 class="shrink-0 text-[0.866667rem] font-semibold uppercase text-foreground">
         {localizedThemeSectionLabel(target, t)}
       </h2>
-      <div class="h-px min-w-4 flex-1 bg-border" aria-hidden="true"></div>
+      <div class="h-px min-w-4 flex-1 scale-y-50 bg-border" aria-hidden="true"></div>
       {#if note}
         <span class="shrink-0 text-[0.733333rem] text-muted-foreground">
           {note}
@@ -1248,9 +609,9 @@
       role="region"
       aria-label={t("settings.theme.editor.controlsLabel")}
       tabindex="-1"
-      onpointerdown={focusScrollViewportFromPointer}
-      onkeydown={keepPanelScrollKey}
-      onscroll={queueActiveThemeSectionUpdate}
+      onpointerdown={(event) => navigation?.focusViewportFromPointer(event)}
+      onkeydown={(event) => navigation?.keepPanelScrollKey(event)}
+      onscroll={() => navigation?.queueActiveSectionUpdate()}
     >
       <div
         bind:this={scrollContent}
@@ -1301,15 +662,17 @@
           {@render sectionHeader("json")}
           <ThemeJsonSection
             {isBuiltin}
-            {jsonDraft}
-            {jsonDirty}
-            {jsonErrors}
-            {jsonNotice}
-            onCopy={copyJsonToClipboard}
-            onSave={saveJsonToFile}
-            onApply={applyJsonChanges}
-            onReset={resetJsonDraft}
-            onInput={onJsonInput}
+            jsonDraft={json.draft}
+            jsonDirty={json.dirty}
+            jsonErrors={json.errors}
+            jsonNotice={mobileShell ? undefined : json.notice?.message}
+            jsonSaving={json.saving}
+            fileSaveAvailable={json.fileSaveAvailable}
+            onCopy={json.copy}
+            onSave={json.save}
+            onApply={json.apply}
+            onReset={json.reset}
+            onInput={json.input}
           />
         </div>
       </div>
@@ -1323,50 +686,20 @@
       />
     {/if}
   </div>
+
+  {#if mobileShell && json.notice}
+    <ActionToast
+      message={json.notice.message}
+      variant={json.notice.variant}
+      dismissLabel={t("settings.theme.editor.dismissFileNotification")}
+      onDismiss={json.dismissNotice}
+    />
+  {/if}
 </div>
 
 <style>
   .theme-editor-root {
     container: theme-editor / inline-size;
-  }
-
-  .theme-editor-nav {
-    scrollbar-width: none;
-  }
-
-  .theme-editor-nav::-webkit-scrollbar {
-    display: none;
-  }
-
-  .theme-editor-nav-shell::before,
-  .theme-editor-nav-shell::after {
-    content: "";
-    position: absolute;
-    top: 1px;
-    bottom: 1px;
-    z-index: 2;
-    width: 1.25rem;
-    opacity: 0;
-    pointer-events: none;
-    transition: opacity 120ms ease-out;
-  }
-
-  .theme-editor-nav-shell::before {
-    left: 0;
-    background: linear-gradient(to right, var(--card), transparent);
-  }
-
-  .theme-editor-nav-shell::after {
-    right: 0;
-    background: linear-gradient(to left, var(--card), transparent);
-  }
-
-  :global(.dark) .theme-editor-nav-shell::before {
-    background: linear-gradient(to right, var(--background), transparent);
-  }
-
-  :global(.dark) .theme-editor-nav-shell::after {
-    background: linear-gradient(to left, var(--background), transparent);
   }
 
   .theme-editor-scroll {
@@ -1382,24 +715,6 @@
   @container theme-editor (max-width: 620px) {
     .theme-editor-chrome {
       padding-inline: 0.625rem;
-    }
-
-    .theme-editor-nav {
-      display: flex;
-      overflow-x: auto;
-      overflow-y: hidden;
-      grid-template-columns: none;
-      justify-content: flex-start;
-    }
-
-    .theme-editor-nav-shell[data-can-scroll-left="true"]::before,
-    .theme-editor-nav-shell[data-can-scroll-right="true"]::after {
-      opacity: 1;
-    }
-
-    .theme-editor-nav button {
-      flex: 0 0 auto;
-      min-width: max-content;
     }
 
     .theme-editor-content {

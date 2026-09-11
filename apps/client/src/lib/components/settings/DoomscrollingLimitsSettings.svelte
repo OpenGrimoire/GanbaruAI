@@ -20,7 +20,7 @@
   import { getDoomscrollingUsage } from "$lib/stores/doomscrolling-usage.svelte";
   import { getTheme } from "$lib/stores/theme.svelte";
   import { cn } from "$lib/utils";
-  import DoomscrollingBrowserConnectionStatus from "./DoomscrollingBrowserConnectionStatus.svelte";
+  import DoomscrollingBrowserConnectionStatus from "$lib/components/settings/doomscrolling-browser-connection";
   import ToggleSetting from "./ToggleSetting.svelte";
   import type { DoomscrollingLimitEditorTarget } from "./types";
 
@@ -232,10 +232,10 @@
   }
 
   function pendingConfirmLabel(action: PendingLimitAction): string {
-    if (action.type === "global-disable") return t("settings.doomscrolling.shared.turnOffShortcut");
+    if (action.type === "global-disable") return t("settings.doomscrolling.shared.turnOffAction");
     return action.type === "disable"
-      ? t("settings.doomscrolling.shared.disableShortcut")
-      : t("settings.doomscrolling.shared.deleteShortcut");
+      ? t("settings.doomscrolling.shared.disableAction")
+      : t("settings.doomscrolling.shared.deleteAction");
   }
 </script>
 
@@ -387,7 +387,7 @@
       !doomscrolling.limitsEnabled && "opacity-50",
     )}
   >
-    <div class="h-px bg-border/70" aria-hidden="true"></div>
+    <div class="h-px shrink-0 scale-y-50 bg-border" aria-hidden="true"></div>
 
     {#if desktopAvailabilityMessage}
       <section class="flex flex-col gap-2">
@@ -397,7 +397,7 @@
         </div>
       </section>
 
-      <div class="h-px bg-border/70" aria-hidden="true"></div>
+      <div class="h-px shrink-0 scale-y-50 bg-border" aria-hidden="true"></div>
     {/if}
 
     {@render limitList()}
@@ -409,7 +409,7 @@
     title={pendingTitle(pendingAction)}
     message={pendingMessage(pendingAction)}
     confirmLabel={pendingConfirmLabel(pendingAction)}
-    cancelLabel={t("settings.doomscrolling.shared.cancelShortcut")}
+    cancelLabel={t("settings.doomscrolling.shared.cancelAction")}
     onConfirm={confirmPendingAction}
     onCancel={cancelPendingAction}
   />

@@ -1,322 +1,138 @@
 # Roadmap
 
-Phased development plan for Ganbaru AI. Each phase produces a working, testable increment. Phases are sequential; each builds on prior phases.
+This roadmap records delivery horizons, not a history of implementation order. Ganbaru AI has developed across several domains in parallel, so numbered phases no longer describe the real dependency graph.
 
----
+Detailed behavior belongs in feature specifications. This document states what is implemented, what is actively incomplete, and which outcomes should follow.
 
-## Phase 1: core loop
+## Implemented foundation
 
-The minimum viable cycle: plan sessions, focus with a timer, track tasks.
+The current repository has a substantial local desktop and Android foundation:
 
-**Includes:**
+- A Svelte 5 and Tauri v2 application with separate desktop and mobile composition roots.
+- An active-vault model with embedded SQLite migrations, managed assets, and portable folder identity.
+- Calendar day, week, and month views; event editing; recurrence; iCalendar import and export; notifications; and project links.
+- Pomodoro rhythms, persisted runs and segments, idle and suspend handling, adaptive decision foundations, progress surfaces, and desktop or Android scheduling.
+- SQLite-backed Projects with groups, planning views, tasks, dependencies, tags, custom fields, templates, scheduling links, and history.
+- SQLite-backed Notes pages, blocks, databases, templates, links, comments, suggestions, assets, history, import, export, and working-folder Markdown editing.
+- Quick notes, typed English and Spanish localization, profiles, and customizable themes.
+- Project channels over durable native coding-agent sessions, with provider-neutral history, local provider transports, workspace tools, terminals, checkpoints, review, teammate identity, and explicit access profiles.
+- Local Music library and playlist workflows, desktop audio playback and media controls, Android Media3 playback, and YouTube IFrame integration with a known interaction-compliance redesign requirement.
+- Chromium website blocking, desktop application blocking, Android selected-application usage awareness, and explicitly consented Android enforcement.
+- An adaptive Android shell for Calendar, Projects, Notes, Chat, Quick notes, Pomodoro, Music, Settings, themes, portable backup and restore, notifications, and Doomscrolling controls.
 
-- Monorepo scaffold: Turborepo + pnpm workspaces + Tauri v2 + Svelte 5 + Vite
-- SQLite setup through Rust commands with initial schema (calendar events, pomodoro configs, pomodoro runs, tasks)
-- Calendar with session blocks: day/week/month views, drag-and-drop event creation and resizing, session blocks carrying task references and Pomodoro counts
-- Basic Pomodoro timer: configurable focus/break durations, cycle counting per session block, timer state in Svelte runes, auto-start when session block activates
-- Basic personal Kanban: four default columns (backlog, to do, in progress, done), task cards with priority tiers (easy/medium/hard/epic), estimated Pomodoro count, drag-and-drop reordering (svelte-dnd-action), task-to-session-block linking
-- UI shell: shadcn-svelte component setup, global CSS theme variables, main window layout with navigation between calendar/kanban views
+Implemented does not mean release-complete on every platform. The [feature index](features/README.md) and [Android platform document](platforms/android/README.md) identify partial areas and platform limits.
 
-**Depends on:** nothing
+## Active completion work
 
-**Out of scope:** fullscreen break overlay, edge panel, multi-window, work environments, browser extension, notes, diary, music, contracts, sync, mobile, NPC layer, gamification (XP, skill tree, streaks)
+These domains already have useful implementations but still need hardening or missing product slices.
 
-**Complexity:** large
+### Calendar and Pomodoro correctness
 
-**Platform:** cross-platform (desktop focus, no mobile-specific work)
+- Move live Calendar transition and reconfiguration decisions into Rust. Scheduler and rail selection now share an active-first policy with stable tie-breakers.
+- Align TypeScript and Rust recurrence behavior through shared fixtures, then resolve COUNT with exclusions and the relationship between RDATE and RRULE termination.
+- Expose idle-source availability and apply bounded retry or backoff instead of silently treating adapter errors as zero idle duration.
 
----
+See [Calendar](features/calendar/README.md), [Pomodoro](features/pomodoro/README.md), [recurrence expansion](algorithms/calendar/recurrence-expansion.md), and [time-conflict detection](algorithms/calendar/time-conflict-detection.md).
 
-## Phase 2: notes and Ganbaru AI folder
+### Local device linking and synchronization
 
-The local-first knowledge layer. Users can take notes linked to their tasks and projects.
+Implement the accepted one-person device-linking design with typed domain operations, SQLite-persisted Yrs/Yjs text, secure local enrollment, and an optional user-hosted Rust relay for opaque encrypted records. Hocuspocus is no longer the relay candidate.
 
-**Includes:**
+The synchronization mechanisms remain unimplemented. Prerequisites are partial: focus persistence and recovery live in Rust, Android uses explicit starts and commitment reminders, desktop automatic admission requires fresh activity, and authoritative SQLite connections use durable commits. Scoped preferences, the transactional operation journal, domain convergence, cryptographic enrollment, explicit focus-controller ownership, native runtime bridges, and relay delivery remain required. The [sync milestone table](data/sync.md#delivery-and-acceptance) tracks the implemented boundary and remaining work.
 
-- Ganbaru AI folder structure on disk (vault.json, config.json, ganbaru-ai.sqlite, notes/, diary/, projects/)
-- Tiptap note editor: block-based editing, slash commands, rich formatting, drag-to-reorder blocks
-- Markdown serialization via @tiptap/extension-markdown (notes saved as .md files to disk via Tauri file system plugin)
-- Bidirectional backlinks tracked in SQLite (note-to-note, note-to-task, note-to-project)
-- Note tags and search indexing in SQLite
-- Daily notes (auto-created dated markdown files)
+### Android release readiness
 
-**Depends on:** phase 1 (SQLite, Tauri file system access, Kanban tasks for linking)
+- Complete broader physical-device and emulator acceptance, including gesture navigation and predictive Back behavior.
+- Provision durable signing credentials, validate signed APK and AAB output, and finish distribution preparation.
+- Complete remaining content-URI attachment transfers and encrypted scheduled backup.
+- Keep notification, background focus, Media3, and Accessibility Service behavior reliable across supported Android versions and manufacturer variants.
 
-**Out of scope:** Yjs/collaboration, AI features, diary system (phase 3)
+See [Android](platforms/android/README.md).
 
-**Complexity:** medium
+### Projects and Notes maturity
 
-**Platform:** cross-platform
+- Finish incomplete planning, database, editor, transfer, and history workflows without weakening the current source-of-truth model.
+- Keep large collections bounded through pagination, visible-window queries, and measured bundle boundaries.
+- Refine project-to-Calendar and project-to-Notes transitions around accepted commitments rather than duplicated state.
 
----
+See [Projects](features/projects/README.md) and [Notes](features/notes/README.md).
 
-## Phase 3: diary and consistency
+### Chat and local agent execution
 
-Daily touchpoints and engagement mechanics that make the app habit-forming.
+- Finish the user-facing teammate, mention, reply-thread, scheduling, and access-review flows built on the current authorization foundation.
+- Harden provider recovery, workspace observation, scratch cleanup, checkpoints, and review across supported local providers.
+- Keep organizational communication independent from replaceable provider sessions.
 
-**Includes:**
+See [Chat](features/chat/README.md), [AI integration](features/ai/README.md), and [Chat access control](data/access-control.md).
 
-- Daily diary: morning and evening entry forms stored as dated markdown files in `Ganbaru AI/diary/`
-- Diary indexed fields in SQLite: mood (5 options), energy level (5 options), sleep quality (5 options), daily intention, evening reflection
-- Consistency tracking: session block completion rate, Pomodoro cycle completion rate
+### Music and Doomscrolling
 
-**Depends on:** phase 2 (notes and Ganbaru AI folder for diary storage and backlinks), phase 1 (Pomodoro/calendar for consistency data)
+- Complete local library repair, assignment, and Android queue behavior where the current UI still exposes partial workflows.
+- Redesign YouTube interaction so no Ganbaru element overlays or disables required embedded-player interaction.
+- Complete browser and desktop rule coverage, diagnostics, false-positive recovery, and cross-platform reliability.
+- Treat any future Firefox or content-aware blocking as a separate reviewed capability.
 
-**Out of scope:** sleep alarm (mobile, phase 10), AI mood analysis (phase 11)
+See [Music](features/music/README.md) and [Doomscrolling](features/doomscrolling/README.md).
 
-**Complexity:** small
+## Next product outcomes
 
-**Platform:** cross-platform
+The next outcomes complete missing parts of the core anti-procrastination and anti-burnout loop.
 
----
+### Diary and sleep routines
 
-## Phase 4: desktop experience
+Implement morning and evening diary flows, durable dated entries, mood and energy baselines, and an Android sleep-alarm experience with explicit exact-alarm policy and graceful fallback.
 
-Multi-window desktop features that make Ganbaru AI an always-present productivity companion.
+See [Diary](features/diary.md) and [Sleep alarm](features/sleep-alarm.md).
 
-**Includes:**
+### Human work environments
 
-- Tauri multi-window: notification popup (frameless, always-on-top, bottom-right), fullscreen break overlay (frameless, always-on-top, covers taskbar, semi-transparent), edge panel window (narrow, always-on-top, right edge)
-- Fullscreen break screen: countdown timer, session completion stats, option to extend break, break playlist placeholder
-- Edge panel: quick-access module icons, live Pomodoro timer indicator, active work environment name, quick-add Kanban task, task checkboxes for current session. Initially triggered by keyboard shortcut (global mouse polling added later)
-- Work environment management: saved configurations (apps to open/close, browser tabs, blocker rules, playlist assignment), automatic activation when session block starts, app open/close via sysinfo + std::process::Command
-- Chrome browser extension (manifest v3): native messaging bridge to Tauri backend, URL blocklist enforcement, redirect to branded block page, tab management for environment switching
-- Doomscrolling: blocker trigger events logged as productivity analytics
+Implement saved desktop environments that can prepare approved applications, browser resources, Music, Doomscrolling rules, and the relevant project context when a Calendar block begins. Activation must remain user-configurable and must not grant AI execution authority.
 
-**Depends on:** phase 1 (Pomodoro timer, calendar session blocks, Kanban tasks), phase 3 (diary for break screen context)
+See [Work environments](features/work-environments.md) and [Edge panel](features/edge-panel.md).
 
-**Out of scope:** content-specific blocking (phase 11), Firefox extension (phase 11), music playback (phase 6), global mouse edge-panel trigger via rdev (can be added incrementally)
+### Structured project delegation
 
-**Complexity:** large
+Build reviewable planning proposals, task-linked agent runs, context packages, assignment and review workflows, budgets, sustainable work-in-progress limits, requirement history, schedule proposals, and generated reports on top of the current Projects and Chat foundations.
 
-**Platform:** desktop only
+No planning teammate is seeded or privileged by default. A person approves commitments before Projects or Calendar changes.
 
----
+See [Project management](features/projects/management.md) and [Agent coordination](features/ai/coordination.md).
 
-## Phase 5: gamification system (deferred)
+## Later outcomes
 
-The experience measurement engine, skill tree rewards, and contract system. Consolidated from the original phases 5, 6, and 7 into a single deferred phase.
+### Human collaboration
 
-**Includes:**
+Extend the one-person synchronization foundation to multiple participants with resource-scoped authorization, invitations, history visibility, revocation, offline behavior, and permission-safe derived data. This remains later work and is separate from linking one person's devices.
 
-- Complete Will system with four categories (Focus, Clarity, Intensity, Execution)
-- Full compound Activity XP formula with anti-grinding mechanics
-- Skill tree: SVG + Svelte center-snap navigation, neighborhood culling, sub-layer navigation, skill decay, cross-branch connections
-- Skill point spending, tier upgrades, badges, Skill Capsules
-- Contract system: self-imposed conditions with in-app benefits and penalties
-- Desktop activity monitoring for Will metrics (active window tracking, idle detection)
-- Endowed progress effect (onboarding-based skill pre-population)
-- Profile sharing
+See [Sync and collaboration](data/sync.md).
 
-**Depends on:** phases 1-4
+### General BYOK assistants and external access
 
-**Out of scope:** AI-assisted condition suggestions (phase 11)
+Add hosted and local BYOK assistants through the same teammate, channel, task, permission, and provenance model. Add a separately authorized external MCP service and, if still useful, a local `ganbaru-ai` CLI for explicit queries and derivative exports.
 
-**Complexity:** large
+This work must not reuse native coding-provider trust as general Ganbaru authority. External service credentials remain user-owned and locally protected.
 
-**Platform:** cross-platform (desktop-only for OS-level monitoring)
+See [AI integration](features/ai/README.md).
 
----
+### Additional platforms and interoperability
 
-## Phase 6: music player
+- Add macOS and iOS composition, build, signing, and acceptance after Apple hardware and release infrastructure are available.
+- Add Firefox only after shared browser-rule semantics and native-host packaging are stable.
+- Expand iCalendar conformance through fixtures and evidence without claiming unsupported scheduling transports.
 
-Local-first media playback integrated into the productivity workflow.
+See [Platforms](platforms/README.md) and [iCalendar compatibility](interop/icalendar/README.md).
 
-**Includes:**
+## Deferred
 
-- Internal Rust media player module for Rodio/Symphonia audio playback, app-command IPC, and frontend integration
-- Local file playback: Rodio and Symphonia backend for common local audio, platform WebView media playback for local video, broader audio fallback candidates for unsupported codecs, lower audio-only memory overhead, and VLC-class transport latency
-- YouTube IFrame API integration: load videos by ID/URL, start/end timestamps, volume and speed control, seek, desktop WebView client identity through a loopback HTTP player host plus referrer policy, `origin`, and `widget_referrer`, playback position persistence in SQLite, ad-compatible (YouTube Premium removes ads if user is logged in)
-- Playlist management: definitions stored in SQLite (track paths, ordering, environment associations), create/edit/delete playlists, assign playlists to work environment templates and session blocks
-- Session block integration: automatic playlist start when block activates, focus/break playlist switching on Pomodoro phase change
-- User preconfiguration per session block: source selection, timestamps, skip ranges, volume, playback speed, break source override
-- Edge panel music controls: play/pause, skip, volume
-- Morning playlist placeholder (actual alarm trigger in phase 10)
+Gamification, the Will model, skill trees, contracts, and the narrative character layer remain deliberately deferred. They must reflect genuine progress, protect recovery, avoid paid chance mechanics, and never become prerequisites for the core productivity app.
 
-**Depends on:** phase 1 (calendar session blocks for playlist assignment, SQLite), phase 4 (edge panel for controls, work environments for playlist association)
+See [Gamification](features/gamification.md).
 
-**Out of scope:** Spotify (explicitly not supported, as documented in project), collaborative playlists, AI music recommendations, and stream extraction from YouTube or YouTube Music
+## Dependency rules
 
-**Complexity:** medium
-
-**Platform:** cross-platform (desktop primary, mobile audio-only path)
-
----
-
-## Phase 7: CLI and integrated terminal
-
-The agent integration layer. The `ganbaru-ai` CLI and an embedded terminal bring AI assistance into the core workflow.
-
-**Includes:**
-
-- `ganbaru-ai` CLI: Rust binary linking to the same SQLite, human-readable and JSON output, commands for projects, tasks, calendar, workspace, pomodoro, import/export
-- Integrated terminal: xterm.js embedded in Tauri webview, runs Codex or another CLI coding agent
-- Context injection: Ganbaru AI assembles project/task context and passes it through the launch prompt or standard input. `AGENTS.md` stays as project-level conventions, per-task context is dynamic.
-- Session management: per-project conversation threads in SQLite, calendar-driven automatic switching (save current session, resume the session for the new calendar event's project)
-- Kanban task activation: clicking "Start" on a task injects its details into the current AI conversation
-- Workflow phase prompts: structured system prompts for brainstorming, evaluation, planning, execution modes
-- Prompt buttons: UI buttons that insert pre-built prompts into the terminal (e.g., "Plan this sprint", "Research competitors")
-- Background agents: non-interactive Codex runs (`codex exec`) or equivalent selected-agent processes for delegated parallel work, results as notifications or kanban updates
-- Markdown export/import: CLI exports project state as markdown to git repos for collaborators and agents without the CLI
-
-**Depends on:** phase 1 (SQLite, Kanban, calendar for context), phase 2 (notes for project docs)
-
-**Out of scope:** BYOK chat widget (phase 11), MCP (phase 11), content-specific blocking (phase 11)
-
-**Complexity:** large
-
-**Platform:** desktop only (terminal requires desktop OS)
-
----
-
-## Phase 8: project management framework
-
-Structured project lifecycle templates and tools. The AI panel from phase 7 enhances every phase with contextual assistance.
-
-**Includes:**
-
-- Project lifecycle phases: Genesis (brainstorming), Forging the idea (evaluation), The journey ahead (planning, MVP, execution, post-execution) with all subphases
-- Phase templates: all planning subtemplates (deep brainstorming, market analysis, competitor research, specification, resources, review), MVP subtemplates (PoC, MVP, funding), execution subtemplates (alpha, beta, launch, polish), post-execution subtemplates
-- Actionable methodology templates: reverse brainstorming, value proposition canvas, business model canvas, SWOT analysis, market research frameworks. Structured forms, not static documents
-- Project Kanban boards: per-project boards linked to project phases
-- Requirement version control: timestamped diffs on every task change (what, when, who, why, downstream impact), immutable history, searchable and filterable, exportable
-- Calendar date cascade: inserting or extending session blocks shifts downstream blocks, dependency graph propagation, conflict highlighting
-- Automatic report generation: markdown reports from Kanban state, calendar data, Pomodoro history, requirement changes, milestone progress. PDF generation via Typst
-- PDF reading: pdfium-render for importing external documents (text extraction, page rendering)
-- AI-enhanced workflows: the integrated terminal's workflow phase prompts guide users through each project phase. The AI researches competitors, helps fill templates, and validates ideas.
-
-**Depends on:** phase 1 (Kanban, calendar), phase 2 (notes for project working documents), phase 4 (work environments for project contexts), phase 7 (CLI for exports, terminal for AI-assisted workflows)
-
-**Out of scope:** NPC visual layer (deferred with gamification), conversational AI calendar management (phase 11)
-
-**Complexity:** large
-
-**Platform:** cross-platform (templates and forms), desktop only (report PDF generation via Typst, AI terminal)
-
----
-
-## Phase 9: sync and collaboration
-
-Multi-device sync and real-time collaboration via CRDTs and E2E encryption.
-
-**Includes:**
-
-- Yjs CRDT integration: every document type (notes, calendar, Kanban, diary, app state) as Yjs data structures, binary updates that merge in any order
-- Tiptap collaboration: @tiptap/extension-collaboration for real-time note co-editing, @tiptap/extension-collaboration-cursor for live cursor positions and selections
-- Hocuspocus server: apps/server package, persistent document state, presence and awareness, authentication and authorization hooks for workspace access control, self-hostable
-- E2E encryption: libsodium / @noble/ciphers, client-side key derivation, personal Ganbaru AI folder (single key per folder), collaborative workspace (workspace key encrypted per-member), server stores only ciphertext
-- Two sync tiers: local-only (scheduled encrypted export to user-specified path), self-hosted (user's own Hocuspocus server with guided setup, automatic cloud backup)
-- Multi-device sync: desktop-to-desktop, desktop-to-mobile (mobile in phase 10)
-- Collaborative workspaces: shared documents, live presence, access control
-- Local backup: scheduled encrypted zip export of the Ganbaru AI folder
-
-**Depends on:** phase 2 (Tiptap editor for collaboration extensions), phase 1 (SQLite data model, Ganbaru AI folder structure)
-
-**Out of scope:** mobile sync client (phase 10), AI features
-
-**Complexity:** large
-
-**Platform:** cross-platform (server is standalone Node.js)
-
----
-
-## Phase 10: mobile
-
-Tauri v2 mobile builds delivering a focused subset of the desktop experience.
-
-**Includes:**
-
-- Tauri v2 mobile builds: iOS and Android targets from the same Svelte + Rust codebase
-- Mobile-adaptive layouts: responsive UI for all shared features, touch-optimized interactions
-- Sleep alarm: iOS UNNotificationRequest with alarm-style scheduling, Android AlarmManager with SCHEDULE_EXACT_ALARM permission
-- Alarm-to-diary flow: morning alarm dismissal triggers morning diary, morning playlist starts; setting evening alarm triggers evening diary
-- Sleep duration tracking: alarm-set to dismissal time, feeds into sleep quality suggestions
-- App-level Doomscrolling: iOS Screen Time API (Family Controls framework), Android UsageStatsManager, with graceful degradation when permissions unavailable
-- Mobile Pomodoro: notification-based breaks (no fullscreen overlay), timer continues in background
-- Mobile calendar and notes: full editing capability, synced via phase 9
-- Mobile sync: connects to Hocuspocus server from phase 9
-- Calendar notifications as calls to action (reminders to return to desktop for upcoming session blocks)
-
-**Depends on:** phase 9 (sync for multi-device), phase 3 (diary system), phase 6 (music for alarm playlists)
-
-**Out of scope:** work environment management, edge panel, fullscreen break overlay, browser extension, desktop activity monitoring. All of these are blocked by mobile OS sandboxing
-
-**Complexity:** large
-
-**Platform:** mobile only (iOS, Android)
-
----
-
-## Phase 11: BYOK chat, advanced AI, and MCP
-
-The general-user AI path, advanced AI capabilities, and external access layer. Builds on the integrated terminal from phase 7.
-
-**Includes:**
-
-- BYOK chat widget: in-app chat interface with same session management as the terminal (calendar-driven switching, per-project threads)
-- LLM provider support: OpenAI API, OpenAI-compatible APIs (Groq, Together, Mistral, and any provider using a compatible chat format), Ollama for local models (Llama, Mistral, Gemma, no API key needed), and other explicitly supported provider APIs when users supply their own credentials
-- BYOK configuration UI: API key management (stored locally), model selection, provider setup with guided instructions, consent controls
-- Natural language calendar management: "move my 3pm session to tomorrow", AI modifies events via CLI
-- Mood-aware motivation: using diary mood/energy baselines, AI adapts communication and suggests schedule adjustments
-- Content-specific browsing relevance detection: LLM analyzes page content (not just URLs) for task relevance, smarter blocking on YouTube and similar platforms
-- Local LLM diary analysis: small local models (via Ollama) analyze diary language for goal-setting, reflection quality, mood trends, no data leaves the device
-- MCP server: exposes Ganbaru AI data to external AI clients (ChatGPT, teammate agents, and other MCP-compatible clients) that don't run locally
-- MCP client: consumes external MCP servers for integrations (email, external calendars)
-- Firefox browser extension: port of Chrome extension to Firefox manifest
-- Edge panel global mouse trigger: rdev / Win32 / X11 polling for cursor position (replaces keyboard shortcut from phase 4), Wayland detection and graceful fallback
-
-**Depends on:** phase 7 (CLI and terminal as foundation), phase 3 (diary for mood baselines), phase 4 (browser extension for content blocking)
-
-**Out of scope:** this is the final planned phase
-
-**Complexity:** large
-
-**Platform:** cross-platform (BYOK chat, AI features), desktop only (mouse trigger, Firefox extension, content-specific blocking)
-
----
-
-## Systems coverage verification
-
-Every system from the product spec is accounted for:
-
-
-| System                                                           | Phase         |
-| ---------------------------------------------------------------- | ------------- |
-| Calendar (session blocks)                                        | 1             |
-| Kanban (personal)                                                | 1             |
-| Pomodoro timer                                                   | 1             |
-| Note-taking (Tiptap, markdown, backlinks)                        | 2             |
-| Daily diary (morning/evening)                                    | 3             |
-| Consistency tracking                                             | 3             |
-| Doomscrolling (desktop/browser)                                  | 4             |
-| Work environment management                                      | 4             |
-| Edge panel                                                       | 4             |
-| Multi-window (break overlay, notification)                       | 4             |
-| Browser extension (Chrome)                                       | 4             |
-| Gamification (Will, skill tree, XP, contracts, badges, capsules) | 5 (deferred)  |
-| Music player (local + YouTube)                                   | 6             |
-| `ganbaru-ai` CLI                                                  | 7             |
-| Integrated terminal (xterm.js + Codex)                           | 7             |
-| AI session management (calendar-driven switching)                | 7             |
-| Context injection and workflow phase prompts                     | 7             |
-| Markdown export/import for project repos                         | 7             |
-| Background agents                                                | 7             |
-| Project management lifecycle templates                           | 8             |
-| Kanban (project, requirement version control)                    | 8             |
-| Methodology templates                                            | 8             |
-| Calendar date cascade                                            | 8             |
-| Report generation (markdown + PDF)                               | 8             |
-| Sync (Yjs + Hocuspocus)                                          | 9             |
-| E2E encryption                                                   | 9             |
-| Collaborative workspaces                                         | 9             |
-| Mobile (Tauri v2, iOS/Android)                                   | 10            |
-| Sleep alarm (mobile)                                              | 10            |
-| Doomscrolling (mobile/app-level)                                 | 10            |
-| BYOK chat widget (OpenAI, compatible APIs, Ollama)               | 11            |
-| AI: natural language calendar management                         | 11            |
-| AI: mood-aware motivation                                        | 11            |
-| AI: content-specific blocking                                    | 11            |
-| AI: local LLM diary analysis                                     | 11            |
-| MCP server/client (external AI access)                           | 11            |
-| Browser extension (Firefox)                                      | 11            |
-| NPC characters and visual novel (deferred with gamification)     | 5 (deferred)  |
+- Diary and sleep can build on the existing vault, notification, Calendar, Pomodoro, and Android foundations.
+- Work environments depend on stable Calendar activation, Music, and Doomscrolling adapters.
+- Structured delegation depends on current Projects, Notes, Chat, access-control, and execution foundations.
+- Human collaboration depends on domain-specific sync operations and permission-safe derived data.
+- General BYOK and external MCP depend on the same identity, authorization, and provenance rules as local coordination.
+- Apple platform releases depend on platform build and signing capability, not on unrelated feature completion.

@@ -23,7 +23,7 @@ vi.mock("@tauri-apps/api/core", () => ({
 function setReadResponse(json: string) {
   invokeMock.mockImplementation(((cmd: string) => {
     if (cmd === "vault_read_config") return Promise.resolve(json);
-    if (cmd === "vault_write_config") return Promise.resolve();
+    if (cmd === "vault_patch_config") return Promise.resolve();
     return Promise.reject(new Error(`unexpected command: ${cmd}`));
   }) as unknown as Mock);
 }
@@ -55,7 +55,7 @@ describe("ensureConfigLoaded", () => {
   it("rejects backend read failures so startup can show a setup error", async () => {
     invokeMock.mockImplementation(((cmd: string) => {
       if (cmd === "vault_read_config") return Promise.reject(new Error("permission denied"));
-      if (cmd === "vault_write_config") return Promise.resolve();
+      if (cmd === "vault_patch_config") return Promise.resolve();
       return Promise.reject(new Error(`unexpected command: ${cmd}`));
     }) as unknown as Mock);
     const { ensureConfigLoaded } = await loadModule();
@@ -127,13 +127,19 @@ describe("setConfigKey", () => {
     await vi.runAllTimersAsync();
     await flushConfig();
     const writes = invokeMock.mock.calls.filter(
-      ([cmd]) => cmd === "vault_write_config",
+      ([cmd]) => cmd === "vault_patch_config",
     );
     expect(writes.length).toBeGreaterThan(0);
-    const payload = JSON.parse(
-      (writes[writes.length - 1][1] as { json: string }).json,
-    );
-    expect(payload.theme.activeId).toBe("midnight");
+    const payload = writes[writes.length - 1][1] as { patches: Array<{
+      path: string[];
+      remove: boolean;
+      value: unknown;
+    }> };
+    expect(payload.patches).toEqual([{
+      path: ["theme", "activeId"],
+      remove: false,
+      value: "midnight",
+    }]);
   });
 
   it("debounces a burst of edits into a single write", async () => {
@@ -149,13 +155,12 @@ describe("setConfigKey", () => {
     await flushConfig();
 
     const writes = invokeMock.mock.calls.filter(
-      ([cmd]) => cmd === "vault_write_config",
+      ([cmd]) => cmd === "vault_patch_config",
     );
     expect(writes.length).toBe(1);
-    const payload = JSON.parse(
-      (writes[0][1] as { json: string }).json,
-    );
-    expect(payload.theme.activeId).toBe("c");
+    const payload = writes[0][1] as { patches: Array<{ value: unknown }> };
+    expect(payload.patches).toHaveLength(1);
+    expect(payload.patches[0]?.value).toBe("c");
   });
 
   it("removes a key when set to undefined", async () => {
@@ -170,6 +175,16 @@ describe("setConfigKey", () => {
     await vi.runAllTimersAsync();
     await flushConfig();
     expect(getConfigKey("preferences.fontFamilyId", "missing")).toBe("missing");
+    const writes = invokeMock.mock.calls.filter(
+      ([cmd]) => cmd === "vault_patch_config",
+    );
+    expect(writes[0]?.[1]).toEqual({
+      patches: [{
+        path: ["preferences", "fontFamilyId"],
+        remove: true,
+        value: null,
+      }],
+    });
   });
 });
 
@@ -183,7 +198,7 @@ describe("flushConfig", () => {
     // Do not advance timers; flushConfig should bypass the debounce.
     await flushConfig();
     const writes = invokeMock.mock.calls.filter(
-      ([cmd]) => cmd === "vault_write_config",
+      ([cmd]) => cmd === "vault_patch_config",
     );
     expect(writes.length).toBe(1);
   });
