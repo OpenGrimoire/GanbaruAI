@@ -1,5 +1,5 @@
 use super::*;
-use windows as windows_crate;
+use ::windows as windows_crate;
 
 #[cfg(windows)]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
