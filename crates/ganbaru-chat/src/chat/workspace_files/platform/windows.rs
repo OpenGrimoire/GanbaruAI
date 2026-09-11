@@ -11,8 +11,8 @@ struct WindowsFileIdentity {
 fn windows_file_identity(file: &File) -> std::io::Result<WindowsFileIdentity> {
     use std::mem::size_of;
     use std::os::windows::io::AsRawHandle;
-    use windows::Win32::Foundation::HANDLE;
-    use windows::Win32::Storage::FileSystem::{
+    use ::windows::Win32::Foundation::HANDLE;
+    use ::windows::Win32::Storage::FileSystem::{
         FileIdInfo, GetFileInformationByHandleEx, FILE_ID_INFO,
     };
 
