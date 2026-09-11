@@ -137,7 +137,9 @@ jobs:
             curl -fsSL https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip -o "$RUNNER_TEMP/android-commandline-tools.zip"
             unzip -q "$RUNNER_TEMP/android-commandline-tools.zip" -d "$ANDROID_HOME/cmdline-tools"
             mv "$ANDROID_HOME/cmdline-tools/cmdline-tools" "$ANDROID_HOME/cmdline-tools/latest"
+            set +o pipefail
             yes | "$command_line_tools/sdkmanager" --sdk_root="$ANDROID_HOME" --licenses >/dev/null 2>&1
+            set -o pipefail
           fi
           echo "ANDROID_HOME=$ANDROID_HOME" >> "$GITHUB_ENV"
           echo "ANDROID_SDK_ROOT=$ANDROID_HOME" >> "$GITHUB_ENV"
