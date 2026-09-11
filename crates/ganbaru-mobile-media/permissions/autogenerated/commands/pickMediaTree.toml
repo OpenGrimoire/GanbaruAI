@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-pickMediaTree"
+description = "Enables the pickMediaTree command without any pre-configured scope."
+commands.allow = ["pickMediaTree"]
+
+[[permission]]
+identifier = "deny-pickMediaTree"
+description = "Denies the pickMediaTree command without any pre-configured scope."
+commands.deny = ["pickMediaTree"]

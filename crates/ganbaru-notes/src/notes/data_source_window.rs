@@ -1,7 +1,7 @@
-use super::data_source_board::BoardProperty;
 use super::data_source_table::{
     row_property_checked, row_property_number, row_property_plain_text, TableProperty,
 };
+use super::data_source_views::ViewProperty as BoardProperty;
 use super::models::{
     NoteDataSourceRowWindow, NoteDataSourceTableFilter, NoteDataSourceTableSort,
     NoteDataSourceViewWindowRequest, NotePageRow,

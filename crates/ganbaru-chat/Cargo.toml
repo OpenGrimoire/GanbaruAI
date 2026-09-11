@@ -10,12 +10,14 @@ edition = "2021"
 doctest = false
 
 [features]
-test-support = []
+default = ["native-runtime"]
+native-runtime = ["dep:ganbaru-chat-providers"]
+test-support = ["native-runtime"]
 
 [dependencies]
 chrono = { workspace = true }
 ganbaru-chat-contracts = { path = "../ganbaru-chat-contracts" }
-ganbaru-chat-providers = { path = "../ganbaru-chat-providers" }
+ganbaru-chat-providers = { path = "../ganbaru-chat-providers", optional = true }
 ganbaru-working-folders = { path = "../ganbaru-working-folders" }
 reqwest = { workspace = true, features = ["json"] }
 serde = { workspace = true }

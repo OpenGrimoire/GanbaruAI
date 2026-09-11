@@ -6,10 +6,7 @@
   import HardDrive from "@lucide/svelte/icons/hard-drive";
   import RefreshCw from "@lucide/svelte/icons/refresh-cw";
   import { getLocalization } from "$lib/i18n/translator.svelte";
-  import type {
-    NotesWorkingMarkdownFileRef,
-    NotesWorkingMarkdownTreeRead,
-  } from "$lib/notes/types";
+  import type { NotesWorkingMarkdownTreeProps } from "./notes-working-markdown-tree-contract";
   import { buildWorkingMarkdownTreeItems } from "$lib/notes/working-markdown-tree";
   import { cn } from "$lib/utils";
 
@@ -21,15 +18,7 @@
     error,
     onSelect,
     onRefresh,
-  }: {
-    tree: NotesWorkingMarkdownTreeRead;
-    query: string;
-    selectedFile: NotesWorkingMarkdownFileRef | null;
-    loading: boolean;
-    error: string | null;
-    onSelect: (file: NotesWorkingMarkdownFileRef) => void;
-    onRefresh: () => void;
-  } = $props();
+  }: NotesWorkingMarkdownTreeProps = $props();
 
   const { t } = getLocalization();
   let collapsedKeys = $state<Set<string>>(new Set());

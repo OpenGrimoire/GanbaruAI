@@ -72,19 +72,19 @@ function parsePortableProvider(value: unknown, label: string): ChatPortableProvi
     }
   }
   const launchArguments = readArray(
-    record.launchArguments ?? [],
+    record.launchArguments,
     `${label}.launchArguments`,
     (entry, entryLabel) => readBoundedString(entry, MAX_ARGUMENT_BYTES, entryLabel, false),
   );
   if (launchArguments.length > MAX_ARGUMENTS) throw new Error(`${label}.launchArguments exceeds the item limit`);
-  const environment = readStringRecord(record.environment ?? {}, `${label}.environment`);
+  const environment = readStringRecord(record.environment, `${label}.environment`);
   if (Object.keys(environment).length > MAX_ENVIRONMENT_ROWS) throw new Error(`${label}.environment exceeds the item limit`);
   for (const [name, environmentValue] of Object.entries(environment)) {
     if (!/^[A-Za-z0-9_]+$/.test(name)) throw new Error(`${label}.environment.${name} has an invalid name`);
     readBoundedString(environmentValue, MAX_ENVIRONMENT_VALUE_BYTES, `${label}.environment.${name}`, false);
   }
-  const visibleModelIds = readArray(record.visibleModelIds ?? [], `${label}.visibleModelIds`, readIdentifier);
-  const favoriteModelIds = readArray(record.favoriteModelIds ?? [], `${label}.favoriteModelIds`, readIdentifier);
+  const visibleModelIds = readArray(record.visibleModelIds, `${label}.visibleModelIds`, readIdentifier);
+  const favoriteModelIds = readArray(record.favoriteModelIds, `${label}.favoriteModelIds`, readIdentifier);
   if (visibleModelIds.length > MAX_MODELS_PER_SET || favoriteModelIds.length > MAX_MODELS_PER_SET) {
     throw new Error(`${label}.visibleModelIds exceeds the item limit`);
   }
@@ -94,10 +94,10 @@ function parsePortableProvider(value: unknown, label: string): ChatPortableProvi
     instanceId: readIdentifier(record.instanceId, `${label}.instanceId`),
     familyId: readIdentifier(record.familyId, `${label}.familyId`),
     label: readBoundedString(record.label, MAX_LABEL_BYTES, `${label}.label`, true),
-    enabled: record.enabled === undefined ? true : readBoolean(record.enabled, `${label}.enabled`),
+    enabled: readBoolean(record.enabled, `${label}.enabled`),
     launchArguments,
     environment,
-    credentialReferences: readStringRecord(record.credentialReferences ?? {}, `${label}.credentialReferences`),
+    credentialReferences: readStringRecord(record.credentialReferences, `${label}.credentialReferences`),
     visibleModelIds,
     favoriteModelIds,
     providerConfig: readVersionedJson(record.providerConfig, `${label}.providerConfig`),
@@ -107,9 +107,7 @@ function parsePortableProvider(value: unknown, label: string): ChatPortableProvi
 function parseRememberedSelection(value: unknown, label: string): RememberedComposerSelection {
   const record = readRecord(value, label);
   const modelId = readNullable(record.modelId, `${label}.modelId`, readIdentifier);
-  const providerManagedModel = record.providerManagedModel === undefined
-    ? false
-    : readBoolean(record.providerManagedModel, `${label}.providerManagedModel`);
+  const providerManagedModel = readBoolean(record.providerManagedModel, `${label}.providerManagedModel`);
   if (modelId === null && !providerManagedModel) {
     throw new Error(`${label}.modelId or provider-managed model state is required`);
   }
@@ -118,7 +116,7 @@ function parseRememberedSelection(value: unknown, label: string): RememberedComp
     providerInstanceId: readIdentifier(record.providerInstanceId, `${label}.providerInstanceId`),
     modelId,
     providerManagedModel,
-    modelOptions: readArray(record.modelOptions ?? [], `${label}.modelOptions`, parseModelOptionSelection),
+    modelOptions: readArray(record.modelOptions, `${label}.modelOptions`, parseModelOptionSelection),
     safetyMode: readEnum(record.safetyMode, SAFETY_MODES, `${label}.safetyMode`),
     interactionMode: readEnum(record.interactionMode, INTERACTION_MODES, `${label}.interactionMode`),
   };
@@ -127,7 +125,7 @@ function parseRememberedSelection(value: unknown, label: string): RememberedComp
 function parsePanels(value: unknown, label: string): ChatPanelPreferences {
   const record = readRecord(value, label);
   const inspectorWidthPx = readNonNegativeSafeInteger(
-    record.inspectorWidthPx ?? DEFAULT_PANELS.inspectorWidthPx,
+    record.inspectorWidthPx,
     `${label}.inspectorWidthPx`,
   );
   if (inspectorWidthPx < 240 || inspectorWidthPx > 960) throw new Error(`${label}.inspectorWidthPx is out of range`);
@@ -137,11 +135,11 @@ function parsePanels(value: unknown, label: string): ChatPanelPreferences {
 function parseBehavior(value: unknown, label: string): ChatBehaviorPreferences {
   const record = readRecord(value, label);
   const terminalScrollbackLines = readNonNegativeSafeInteger(
-    record.terminalScrollbackLines ?? DEFAULT_BEHAVIOR.terminalScrollbackLines,
+    record.terminalScrollbackLines,
     `${label}.terminalScrollbackLines`,
   );
   const idleSessionTimeoutSeconds = readNonNegativeSafeInteger(
-    record.idleSessionTimeoutSeconds ?? DEFAULT_BEHAVIOR.idleSessionTimeoutSeconds,
+    record.idleSessionTimeoutSeconds,
     `${label}.idleSessionTimeoutSeconds`,
   );
   if (terminalScrollbackLines < 1_000 || terminalScrollbackLines > 100_000) {
@@ -151,23 +149,23 @@ function parseBehavior(value: unknown, label: string): ChatBehaviorPreferences {
     throw new Error(`${label}.idleSessionTimeoutSeconds is out of range`);
   }
   return {
-    sendKey: readEnum(record.sendKey ?? DEFAULT_BEHAVIOR.sendKey, CHAT_SEND_KEYS, `${label}.sendKey`),
+    sendKey: readEnum(record.sendKey, CHAT_SEND_KEYS, `${label}.sendKey`),
     restoreLastSelectedThread: readBoolean(
-      record.restoreLastSelectedThread ?? DEFAULT_BEHAVIOR.restoreLastSelectedThread,
+      record.restoreLastSelectedThread,
       `${label}.restoreLastSelectedThread`,
     ),
     showReasoningSummaries: readBoolean(
-      record.showReasoningSummaries ?? DEFAULT_BEHAVIOR.showReasoningSummaries,
+      record.showReasoningSummaries,
       `${label}.showReasoningSummaries`,
     ),
     automaticallyFoldSettledWork: readBoolean(
-      record.automaticallyFoldSettledWork ?? DEFAULT_BEHAVIOR.automaticallyFoldSettledWork,
+      record.automaticallyFoldSettledWork,
       `${label}.automaticallyFoldSettledWork`,
     ),
     terminalScrollbackLines,
     idleSessionTimeoutSeconds,
     confirmMultilineTerminalPaste: readBoolean(
-      record.confirmMultilineTerminalPaste ?? DEFAULT_BEHAVIOR.confirmMultilineTerminalPaste,
+      record.confirmMultilineTerminalPaste,
       `${label}.confirmMultilineTerminalPaste`,
     ),
   };
@@ -176,14 +174,14 @@ function parseBehavior(value: unknown, label: string): ChatBehaviorPreferences {
 export function parseChatVaultConfig(value: unknown, label = "chat"): ChatVaultConfig {
   const record = readRecord(value, label);
   const schemaVersion = readNonNegativeSafeInteger(
-    record.schemaVersion ?? CHAT_VAULT_CONFIG_SCHEMA_VERSION,
+    record.schemaVersion,
     `${label}.schemaVersion`,
   );
   if (schemaVersion !== CHAT_VAULT_CONFIG_SCHEMA_VERSION) throw new Error(`${label}.schemaVersion is unsupported`);
-  const providers = readArray(record.providers ?? [], `${label}.providers`, parsePortableProvider);
+  const providers = readArray(record.providers, `${label}.providers`, parsePortableProvider);
   if (providers.length > MAX_PROVIDERS) throw new Error(`${label}.providers exceeds the item limit`);
   const automaticProviderSetupDisabled = readArray(
-    record.automaticProviderSetupDisabled ?? [],
+    record.automaticProviderSetupDisabled,
     `${label}.automaticProviderSetupDisabled`,
     readIdentifier,
   );
@@ -199,7 +197,7 @@ export function parseChatVaultConfig(value: unknown, label = "chat"): ChatVaultC
     instanceIds.add(provider.instanceId);
   }
   const rememberedSelections = readArray(
-    record.rememberedSelections ?? [],
+    record.rememberedSelections,
     `${label}.rememberedSelections`,
     parseRememberedSelection,
   );
@@ -207,7 +205,7 @@ export function parseChatVaultConfig(value: unknown, label = "chat"): ChatVaultC
     throw new Error(`${label}.rememberedSelections exceeds the item limit`);
   }
   const workingFolderProviderPreferences = readStringRecord(
-    record.workingFolderProviderPreferences ?? {},
+    record.workingFolderProviderPreferences,
     `${label}.workingFolderProviderPreferences`,
   );
   const providerIds = new Set(providers.map((provider) => provider.instanceId));
@@ -225,8 +223,8 @@ export function parseChatVaultConfig(value: unknown, label = "chat"): ChatVaultC
     automaticProviderSetupDisabled,
     rememberedSelections,
     workingFolderProviderPreferences,
-    panels: parsePanels(record.panels ?? DEFAULT_PANELS, `${label}.panels`),
-    behavior: parseBehavior(record.behavior ?? DEFAULT_BEHAVIOR, `${label}.behavior`),
+    panels: parsePanels(record.panels, `${label}.panels`),
+    behavior: parseBehavior(record.behavior, `${label}.behavior`),
   };
 }
 

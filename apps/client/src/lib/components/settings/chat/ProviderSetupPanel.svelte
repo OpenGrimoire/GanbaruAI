@@ -219,12 +219,8 @@
       : { mode };
     if (mode === "local") {
       delete value.serverUrl;
-      delete value.endpoint;
       delete value.allowInsecureExternalHttp;
       delete value.confirmExternalWorkspaceAccess;
-    } else if (typeof value.endpoint === "string" && typeof value.serverUrl !== "string") {
-      value.serverUrl = value.endpoint;
-      delete value.endpoint;
     }
     draft.providerConfig = { schemaVersion: 1, value };
     if (mode === "local" && openCodePassword) {
@@ -337,13 +333,11 @@
 
   function openCodeMode(): "local" | "external" {
     const mode = providerConfigValue("mode");
-    if (mode === "external") return "external";
-    if (mode === "local") return "local";
-    return openCodeServerUrl() ? "external" : "local";
+    return mode === "external" ? "external" : "local";
   }
 
   function openCodeServerUrl(): string {
-    return providerConfigValue("serverUrl") || providerConfigValue("endpoint");
+    return providerConfigValue("serverUrl");
   }
 
   function openCodeUsesInsecureExternalHttp(): boolean {

@@ -13,7 +13,7 @@ function createContext(
       activeSegment: () => runtime.segments[runtime.currentSegmentIndex] ?? null,
       eventDateFromBlockId: () => null,
       applyActiveBlockWindowChange: vi.fn(),
-      createSegments: vi.fn(async () => undefined),
+      createSegments: vi.fn(async (): Promise<void> => undefined),
     },
     transferActiveEventReference: vi.fn(async () => undefined),
     setActiveTimeoutMs: vi.fn(),
@@ -41,6 +41,38 @@ function createContext(
 }
 
 describe("Pomodoro active block controller", () => {
+  it("does not start countdown or native effects before the run commits", async () => {
+    const runtime = createPomodoroRuntimeFixture();
+    const context = createContext(runtime);
+    let commit!: () => void;
+    context.segments.createSegments.mockImplementation(() => new Promise<void>((resolve) => { commit = resolve; }));
+    const pending = createPomodoroActiveBlockController(context).startFromBlock(
+      "block-1", DEFAULT_CONFIG, "Write", "2026-07-12 00:30:00", "2026-07-12",
+    );
+    expect(runtime.isRunning).toBe(false);
+    expect(context.startVisualTick).not.toHaveBeenCalled();
+    expect(context.startIdleChecking).not.toHaveBeenCalled();
+    expect(context.updateTray).not.toHaveBeenCalled();
+    commit();
+    await pending;
+    expect(runtime.isRunning).toBe(true);
+  });
+
+  it("returns a persistence failure without leaving an executing session", async () => {
+    const runtime = createPomodoroRuntimeFixture();
+    const context = createContext(runtime);
+    context.segments.createSegments.mockRejectedValue(new Error("disk full"));
+    await expect(createPomodoroActiveBlockController(context).startFromBlock(
+      "block-1", DEFAULT_CONFIG, "Write", "2026-07-12 00:30:00", "2026-07-12",
+    )).rejects.toThrow("disk full");
+    expect(runtime.isRunning).toBe(false);
+    expect(runtime.activeBlockId).toBeNull();
+    expect(runtime.activeRunId).toBeNull();
+    expect(runtime.phaseEndTime).toBeNull();
+    expect(context.startVisualTick).not.toHaveBeenCalled();
+    expect(context.updateTray).not.toHaveBeenCalled();
+  });
+
   it("persists a transfer before adopting the successor id", async () => {
     const runtime = createPomodoroRuntimeFixture({
       activeBlockId: "old-block",
@@ -83,11 +115,13 @@ describe("Pomodoro active block controller", () => {
     await createPomodoroActiveBlockController(context).startFromBlock(
       "block-1",
       DEFAULT_CONFIG,
+      "Write project brief",
       "2026-07-12 00:30:00",
       "2026-07-12",
     );
 
     expect(runtime.activeBlockId).toBe("block-1");
+    expect(runtime.activeBlockTitle).toBe("Write project brief");
     expect(runtime.isRunning).toBe(true);
     expect(runtime.phaseEndTime).toBe(1_000 + runtime.remainingSeconds * 1_000);
     expect(context.startVisualTick).toHaveBeenCalledOnce();

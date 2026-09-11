@@ -1,9 +1,12 @@
-use super::{
-    NoteDataSourceCsvExportDto, NoteDataSourceCsvExportRequest, NoteDataSourceCsvExportSaveDto,
-};
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
+use super::NoteDataSourceCsvExportSaveDto;
+use super::{NoteDataSourceCsvExportDto, NoteDataSourceCsvExportRequest};
 use sqlx::SqlitePool;
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 use std::path::PathBuf;
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 use tauri::{AppHandle, Runtime};
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 use tauri_plugin_dialog::{DialogExt, FilePath};
 
 pub async fn export_csv(
@@ -14,6 +17,7 @@ pub async fn export_csv(
     ganbaru_notes::notes::data_source_csv_export::export_csv(pool, data_source_id, request).await
 }
 
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 pub async fn pick_and_write_csv<R: Runtime>(
     app: &AppHandle<R>,
     pool: &SqlitePool,
@@ -36,6 +40,7 @@ pub async fn pick_and_write_csv<R: Runtime>(
     ganbaru_notes::notes::data_source_csv_export::write_csv(&path, export)
 }
 
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 fn dialog_path(path: FilePath) -> Result<PathBuf, String> {
     path.into_path()
         .map_err(|error| format!("selected path is not a local file: {error}"))

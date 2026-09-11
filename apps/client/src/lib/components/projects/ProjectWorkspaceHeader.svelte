@@ -9,6 +9,7 @@
   import ListCollapse from "@lucide/svelte/icons/list-collapse";
   import MessageSquare from "@lucide/svelte/icons/message-square";
   import Settings2 from "@lucide/svelte/icons/settings-2";
+  import SlidersHorizontal from "@lucide/svelte/icons/sliders-horizontal";
   import SquareKanban from "@lucide/svelte/icons/square-kanban";
   import { getLocalization } from "$lib/i18n/translator.svelte";
   import {
@@ -25,15 +26,21 @@
     type ProjectToolbarPanel,
     type ProjectNavigatorPanelMode,
   } from "$lib/projects/project-toolbar";
-  import { PROJECT_VIEW_IDS, type Project, type ProjectGroup, type ProjectViewId } from "$lib/projects/types";
+  import {
+    PROJECT_VIEW_IDS,
+    type Project,
+    type ProjectChatIntegration,
+    type ProjectGroup,
+    type ProjectViewId,
+  } from "$lib/projects/types";
   import { getProjects } from "$lib/stores/projects.svelte";
-  import { getChat } from "$lib/stores/chat.svelte";
-  import { getNavigation } from "$lib/stores/navigation.svelte";
+  import { getMobileBackStack } from "$lib/stores/mobile-back-stack.svelte";
   import { getViewport } from "$lib/stores/viewport.svelte";
   import { cn } from "$lib/utils";
   import ProjectIcon from "./ProjectIcon.svelte";
   import WorkspaceBreadcrumbTerminalIcon from "$lib/components/WorkspaceBreadcrumbTerminalIcon.svelte";
   import ProjectNavigator from "./ProjectNavigator.svelte";
+  import ProjectPickerMobileDialog from "./ProjectPickerMobileDialog.svelte";
 
   let {
     selectedProject,
@@ -47,6 +54,8 @@
     onShowInactiveProjectsChange,
     onProjectSelected,
     onToggleToolbarPanel,
+    mobileLayout = false,
+    projectChat = null,
   }: {
     selectedProject: Project;
     selectedGroup: ProjectGroup;
@@ -59,11 +68,12 @@
     onShowInactiveProjectsChange: (value: boolean) => void;
     onProjectSelected: () => void;
     onToggleToolbarPanel: (panel: ProjectToolbarPanel) => void;
+    mobileLayout?: boolean;
+    projectChat?: ProjectChatIntegration | null;
   } = $props();
 
   const projects = getProjects();
-  const chat = getChat();
-  const navigation = getNavigation();
+  const mobileBackStack = getMobileBackStack();
   const viewport = getViewport();
   const { t } = getLocalization();
   const projectIdentityIconSize = COMPACT_IDENTITY_ICON_SIZE;
@@ -71,6 +81,8 @@
   const projectIdentityEmojiScale = COMPACT_IDENTITY_EMOJI_SCALE;
 
   let projectNavigatorOpen = $state(false);
+  let mobileViewMenuOpen = $state(false);
+  let mobileCustomizationMenuOpen = $state(false);
   let projectNavigatorMode = $state<ProjectNavigatorPanelMode>("groups");
   let projectHeaderElement = $state<HTMLDivElement | null>(null);
   let projectIdentityElement = $state<HTMLDivElement | null>(null);
@@ -84,24 +96,21 @@
   let projectNavigatorPanelStyle = $state("");
   let projectNavigatorPanelMaxHeight = $state(0);
   let viewTabDensityFrame: number | null = null;
-  const projectWorkingFolders = $derived(chat.workingFolders.filter((entry) => (
-    entry.workingFolder.projectId === selectedProject.id
-      && entry.workingFolder.archivedAt === null
-  )));
+  const projectWorkingFolders = $derived(
+    projectChat?.listWorkingFolders(selectedProject.id) ?? [],
+  );
 
   $effect(() => {
-    void chat.ensureLoaded().catch((error) => {
+    if (!projectChat) return;
+    void projectChat.ensureLoaded().catch((error) => {
       console.error("load project working folders failed", error);
     });
   });
 
   async function openProjectChat(workingFolderId?: string): Promise<void> {
-    await chat.ensureLoaded();
-    if (workingFolderId) chat.selectWorkingFolder(workingFolderId);
-    else await chat.syncProjectSelection(selectedProject.id);
-    navigation.navigate("chat");
+    if (!projectChat) return;
+    await projectChat.openProject(selectedProject.id, workingFolderId);
   }
-
   interface ProjectNavigatorBounds {
     left: number;
     right: number;
@@ -134,9 +143,49 @@
 
   function toolbarIconButtonClass(active: boolean, open = false): string {
     return cn(
-      "flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-foreground transition-colors hover:bg-accent",
+      "flex shrink-0 items-center justify-center rounded-md text-foreground transition-colors hover:bg-accent",
+      mobileLayout ? "h-12 w-12" : "h-7 w-7",
       (active || open) && "bg-accent",
     );
+  }
+
+  const MOBILE_CUSTOMIZATION_PANELS = ["filters", "sort", "customize", "group"] as const;
+  type MobileCustomizationPanel = (typeof MOBILE_CUSTOMIZATION_PANELS)[number];
+
+  function customizationIcon(panel: MobileCustomizationPanel) {
+    if (panel === "filters") return ListFilter;
+    if (panel === "sort") return ArrowUpDown;
+    if (panel === "customize") return Columns3;
+    return Layers;
+  }
+
+  function customizationLabel(panel: MobileCustomizationPanel): string {
+    if (panel === "filters") return t("projects.filters.title");
+    if (panel === "sort") return t("projects.toolbar.sort");
+    if (panel === "customize") return t("projects.toolbar.customize");
+    return t("projects.toolbar.group");
+  }
+
+  function customizationActive(panel: MobileCustomizationPanel): boolean {
+    if (panel === "filters") return taskFiltersActive;
+    if (panel === "customize") return taskCustomizeActive;
+    if (panel === "group") return taskGroupingActive;
+    return false;
+  }
+
+  function closeMobileMenus(): void {
+    mobileViewMenuOpen = false;
+    mobileCustomizationMenuOpen = false;
+  }
+
+  function selectMobileView(view: ProjectViewId): void {
+    closeMobileMenus();
+    projects.activeView = view;
+  }
+
+  function selectMobileCustomization(panel: MobileCustomizationPanel): void {
+    closeMobileMenus();
+    onToggleToolbarPanel(panel);
   }
 
   function projectHeaderGap(): number {
@@ -191,7 +240,13 @@
   }
 
   function refreshProjectNavigatorPanelGeometry(): void {
-    if (!projectNavigatorOpen || !projectNavigatorAnchorElement) return;
+    if (!projectNavigatorOpen) return;
+    if (mobileLayout) {
+      projectNavigatorPanelStyle = "";
+      projectNavigatorPanelMaxHeight = 0;
+      return;
+    }
+    if (!projectNavigatorAnchorElement) return;
     const rect = projectNavigatorAnchorElement.getBoundingClientRect();
     const bounds = projectNavigatorBounds();
     const geometry = projectNavigatorPanelGeometry({
@@ -213,6 +268,7 @@
   }
 
   function openProjectNavigator(mode: ProjectNavigatorPanelMode): void {
+    closeMobileMenus();
     projectNavigatorMode = mode;
     projectNavigatorAnchorElement = mode === "groups"
       ? projectGroupTriggerElement
@@ -230,7 +286,19 @@
     openProjectNavigator(mode);
   }
 
+  function closeProjectNavigator(): void {
+    projectNavigatorOpen = false;
+  }
+
+  $effect(() => {
+    if (!mobileLayout || (!mobileViewMenuOpen && !mobileCustomizationMenuOpen)) return;
+    return mobileBackStack.activate({
+      handle: closeMobileMenus,
+    });
+  });
+
   function handleProjectWindowPointerDown(event: PointerEvent): void {
+    if (mobileLayout) return;
     const target = event.target;
     if (!(target instanceof Node)) return;
     if (
@@ -282,31 +350,47 @@
 
 <div
   bind:this={projectHeaderElement}
-  class="flex shrink-0 items-center gap-1 overflow-x-auto px-3"
+  class={cn(
+    "flex shrink-0 items-center gap-1",
+    mobileLayout ? "overflow-visible px-3" : "hide-scrollbar overflow-x-auto px-3",
+  )}
   style="height: var(--cal-header-row-h); background-color: var(--cal-header-bg); border-bottom: 1px solid var(--sidebar);"
   onscroll={refreshProjectNavigatorPanelGeometry}
 >
-  <div bind:this={projectIdentityElement} class="relative min-w-36 shrink-0 min-[760px]:max-w-md">
-    <div class="flex h-7 min-w-0 max-w-full items-center gap-0.5 text-identity font-medium">
+  <div
+    bind:this={projectIdentityElement}
+    class={cn(
+      "relative",
+      mobileLayout
+        ? "min-w-0 flex-1 overflow-hidden"
+        : "min-w-36 shrink-0 min-[760px]:max-w-md",
+    )}
+  >
+    <div class="flex min-w-0 max-w-full items-center gap-0.5 text-identity font-medium {mobileLayout ? 'h-12' : 'h-7'}">
       <button
         bind:this={projectGroupTriggerElement}
         type="button"
         class={cn(
-          "flex h-7 min-w-0 items-center gap-1.5 rounded-md px-1.5 text-left hover:bg-accent",
+          "flex min-w-0 items-center gap-1.5 rounded-md px-1.5 text-left hover:bg-accent",
+          mobileLayout && "shrink-0",
+          mobileLayout ? "h-12" : "h-7",
           projectNavigatorOpen && projectNavigatorMode === "groups" && "bg-accent",
         )}
         aria-label={t("projects.navigator.open")}
+        aria-haspopup="dialog"
         aria-expanded={projectNavigatorOpen && projectNavigatorMode === "groups"}
-        onpointerenter={() => openProjectNavigator("groups")}
+        onpointerenter={() => { if (!mobileLayout) openProjectNavigator("groups"); }}
         onclick={() => toggleProjectNavigator("groups")}
       >
-        <ProjectIcon
-          name={selectedGroup.icon}
-          size={projectIdentityIconSize}
-          strokeWidth={projectIdentityIconStrokeWidth}
-          emojiScale={projectIdentityEmojiScale}
-          class="shrink-0"
-        />
+        {#if !mobileLayout}
+          <ProjectIcon
+            name={selectedGroup.icon}
+            size={projectIdentityIconSize}
+            strokeWidth={projectIdentityIconStrokeWidth}
+            emojiScale={projectIdentityEmojiScale}
+            class="shrink-0"
+          />
+        {/if}
         <span class="min-w-0 truncate text-foreground">{selectedGroup.name}</span>
       </button>
       <span class="shrink-0 px-0.5 text-muted-foreground">/</span>
@@ -314,21 +398,26 @@
         bind:this={projectProjectTriggerElement}
         type="button"
         class={cn(
-          "flex h-7 min-w-0 items-center gap-1.5 rounded-md px-1.5 text-left hover:bg-accent",
+          "flex min-w-0 items-center gap-1.5 rounded-md px-1.5 text-left hover:bg-accent",
+          mobileLayout && "flex-1",
+          mobileLayout ? "h-12" : "h-7",
           projectNavigatorOpen && projectNavigatorMode === "projects" && "bg-accent",
         )}
         aria-label={t("projects.navigator.open")}
+        aria-haspopup="dialog"
         aria-expanded={projectNavigatorOpen && projectNavigatorMode === "projects"}
-        onpointerenter={() => openProjectNavigator("projects")}
+        onpointerenter={() => { if (!mobileLayout) openProjectNavigator("projects"); }}
         onclick={() => toggleProjectNavigator("projects")}
       >
-        <ProjectIcon
-          name={selectedProject.icon}
-          size={projectIdentityIconSize}
-          strokeWidth={projectIdentityIconStrokeWidth}
-          emojiScale={projectIdentityEmojiScale}
-          class="shrink-0"
-        />
+        {#if !mobileLayout}
+          <ProjectIcon
+            name={selectedProject.icon}
+            size={projectIdentityIconSize}
+            strokeWidth={projectIdentityIconStrokeWidth}
+            emojiScale={projectIdentityEmojiScale}
+            class="shrink-0"
+          />
+        {/if}
         <span class="min-w-0 truncate text-foreground">{selectedProject.name}</span>
         <WorkspaceBreadcrumbTerminalIcon kind="chevron" class="shrink-0 text-muted-foreground" />
         {#if selectedProject.status !== "active"}
@@ -339,151 +428,304 @@
       </button>
     </div>
     {#if projectNavigatorOpen}
-      <div
-        bind:this={projectNavigatorPanelElement}
-        class="fixed z-80"
-        style={projectNavigatorPanelStyle}
-        role="dialog"
-        tabindex="-1"
-        aria-label={t("projects.navigator.pickerLabel")}
-      >
-        <ProjectNavigator
-          {selectedProjectId}
-          selectedGroupId={selectedGroup.id}
-          {showInactiveProjects}
-          panelMode={projectNavigatorMode}
-          panelMaxHeight={projectNavigatorPanelMaxHeight}
-          onShowInactiveProjectsChange={onShowInactiveProjectsChange}
-          onProjectSelected={() => {
-            projectNavigatorOpen = false;
-            onProjectSelected();
-          }}
-        />
-      </div>
+      {#if mobileLayout}
+        <ProjectPickerMobileDialog
+          label={t("projects.navigator.pickerLabel")}
+          closeLabel={t("projects.navigator.closePicker")}
+          onClose={closeProjectNavigator}
+        >
+          <ProjectNavigator
+            {selectedProjectId}
+            selectedGroupId={selectedGroup.id}
+            {showInactiveProjects}
+            panelMode="groups"
+            initialMobileGroupId={projectNavigatorMode === "projects" ? selectedGroup.id : null}
+            onShowInactiveProjectsChange={onShowInactiveProjectsChange}
+            onProjectSelected={() => {
+              closeProjectNavigator();
+              onProjectSelected();
+            }}
+            mobileLayout
+            onClose={closeProjectNavigator}
+          />
+        </ProjectPickerMobileDialog>
+      {:else}
+        <div
+          bind:this={projectNavigatorPanelElement}
+          class="fixed z-80"
+          style={projectNavigatorPanelStyle}
+          role="dialog"
+          tabindex="-1"
+          aria-label={t("projects.navigator.pickerLabel")}
+        >
+          <ProjectNavigator
+            {selectedProjectId}
+            selectedGroupId={selectedGroup.id}
+            {showInactiveProjects}
+            panelMode={projectNavigatorMode}
+            panelMaxHeight={projectNavigatorPanelMaxHeight}
+            onShowInactiveProjectsChange={onShowInactiveProjectsChange}
+            onProjectSelected={() => {
+              closeProjectNavigator();
+              onProjectSelected();
+            }}
+          />
+        </div>
+      {/if}
     {/if}
   </div>
-  <div class="flex-1"></div>
-  <nav
-    bind:this={expandedViewTabsMeasureElement}
-    class="pointer-events-none fixed left-0 top-0 flex h-7 items-center gap-0.5 overflow-visible whitespace-nowrap opacity-0"
-    aria-hidden="true"
-    inert
-  >
-    {#each PROJECT_VIEW_IDS as view}
-      {@const Icon = viewIcon(view)}
-      {@const label = viewLabel(view)}
-      <span class="flex h-6 shrink-0 items-center gap-1 rounded-md px-2 text-xs font-medium">
-        <Icon size={14} strokeWidth={1.75} class={view === "gantt" ? "-scale-x-100" : undefined} />
-        <span>{label}</span>
-      </span>
-    {/each}
-  </nav>
-  <nav class="flex min-w-0 shrink-0 items-center gap-0.5 overflow-x-auto">
-    {#each PROJECT_VIEW_IDS as view}
-      {@const Icon = viewIcon(view)}
-      {@const label = viewLabel(view)}
-      {@const title = viewShortcutTitle(view)}
+  {#if mobileLayout}
+    {@const ActiveViewIcon = viewIcon(projects.activeView)}
+    <div class="flex shrink-0 items-center gap-0">
+      <div class="relative shrink-0">
+        <button
+          type="button"
+          class={toolbarIconButtonClass(false, mobileViewMenuOpen)}
+          aria-label={viewLabel(projects.activeView)}
+          title={viewLabel(projects.activeView)}
+          aria-haspopup="menu"
+          aria-expanded={mobileViewMenuOpen}
+          onclick={() => {
+            projectNavigatorOpen = false;
+            mobileCustomizationMenuOpen = false;
+            mobileViewMenuOpen = !mobileViewMenuOpen;
+          }}
+        >
+          <ActiveViewIcon
+            size={16}
+            strokeWidth={1.75}
+            class={projects.activeView === "gantt" ? "-scale-x-100" : undefined}
+          />
+        </button>
+        {#if mobileViewMenuOpen}
+          <!-- svelte-ignore a11y_click_events_have_key_events -->
+          <!-- svelte-ignore a11y_no_static_element_interactions -->
+          <div class="fixed inset-0 z-40" onclick={closeMobileMenus}></div>
+          <div
+            class="absolute right-0 top-full z-50 mt-1 w-52 rounded-md border border-border bg-card p-1.5 text-card-foreground shadow-lg"
+            role="menu"
+            aria-label={t("projects.toolbar.views")}
+          >
+            {#each PROJECT_VIEW_IDS as view}
+              {@const Icon = viewIcon(view)}
+              {@const label = viewLabel(view)}
+              <button
+                type="button"
+                role="menuitemradio"
+                aria-checked={projects.activeView === view}
+                class={cn(
+                  "flex min-h-12 w-full items-center gap-3 rounded-md px-3 text-left text-sm hover:bg-accent",
+                  projects.activeView === view
+                    ? "bg-accent text-foreground"
+                    : "text-muted-foreground",
+                )}
+                onclick={() => selectMobileView(view)}
+              >
+                <Icon
+                  size={16}
+                  strokeWidth={1.75}
+                  class={view === "gantt" ? "-scale-x-100" : undefined}
+                />
+                <span>{label}</span>
+              </button>
+            {/each}
+          </div>
+        {/if}
+      </div>
+
+      <div class="relative shrink-0">
+        <button
+          type="button"
+          class={toolbarIconButtonClass(
+            taskFiltersActive || taskCustomizeActive || taskGroupingActive,
+            mobileCustomizationMenuOpen,
+          )}
+          aria-label={t("projects.toolbar.customization")}
+          title={t("projects.toolbar.customization")}
+          aria-haspopup="menu"
+          aria-expanded={mobileCustomizationMenuOpen}
+          onclick={() => {
+            projectNavigatorOpen = false;
+            mobileViewMenuOpen = false;
+            mobileCustomizationMenuOpen = !mobileCustomizationMenuOpen;
+          }}
+        >
+          <SlidersHorizontal size={16} strokeWidth={1.75} />
+        </button>
+        {#if mobileCustomizationMenuOpen}
+          <!-- svelte-ignore a11y_click_events_have_key_events -->
+          <!-- svelte-ignore a11y_no_static_element_interactions -->
+          <div class="fixed inset-0 z-40" onclick={closeMobileMenus}></div>
+          <div
+            class="absolute right-0 top-full z-50 mt-1 w-52 rounded-md border border-border bg-card p-1.5 text-card-foreground shadow-lg"
+            role="menu"
+            aria-label={t("projects.toolbar.customization")}
+          >
+            {#each MOBILE_CUSTOMIZATION_PANELS as panel}
+              {@const Icon = customizationIcon(panel)}
+              {@const label = customizationLabel(panel)}
+              {@const active = customizationActive(panel) || projectToolbarPanel === panel}
+              <button
+                type="button"
+                role="menuitem"
+                class={cn(
+                  "flex min-h-12 w-full items-center gap-3 rounded-md px-3 text-left text-sm hover:bg-accent",
+                  active ? "bg-accent text-foreground" : "text-muted-foreground",
+                )}
+                onclick={() => selectMobileCustomization(panel)}
+              >
+                <Icon size={16} strokeWidth={1.75} />
+                <span>{label}</span>
+              </button>
+            {/each}
+          </div>
+        {/if}
+      </div>
+
       <button
         type="button"
-        class={cn(
-          "flex h-6 shrink-0 items-center gap-1 rounded-md text-xs font-medium transition-colors hover:bg-accent",
-          viewLabelsCollapsed ? "w-7 justify-center px-0" : "px-2",
-          projects.activeView === view
-            ? "text-foreground"
-            : "text-muted-foreground",
-        )}
-        aria-label={label}
-        title={title}
+        data-project-toolbar-trigger="settings"
+        class={toolbarIconButtonClass(false, projectToolbarPanel === "settings")}
+        aria-label={t("projects.header.projectSettings")}
+        title={t("projects.header.projectSettings")}
+        aria-expanded={projectToolbarPanel === "settings"}
         onclick={() => {
-          projects.activeView = view;
+          closeMobileMenus();
+          projectNavigatorOpen = false;
+          onToggleToolbarPanel("settings");
         }}
       >
-        <Icon size={14} strokeWidth={1.75} class={view === "gantt" ? "-scale-x-100" : undefined} />
-        {#if !viewLabelsCollapsed}
-          <span>{label}</span>
-        {/if}
+        <Settings2 size={16} strokeWidth={1.75} />
       </button>
-    {/each}
-  </nav>
-  <div bind:this={toolbarActionsElement} class="flex shrink-0 items-center gap-1">
-    <button
-      type="button"
-      class={toolbarIconButtonClass(false)}
-      aria-label={t("projects.header.openChat")}
-      title={t("projects.header.openChat")}
-      onclick={() => { void openProjectChat(); }}
+    </div>
+  {:else}
+    <div class="flex-1"></div>
+    <nav
+      bind:this={expandedViewTabsMeasureElement}
+      class="pointer-events-none fixed left-0 top-0 flex h-7 items-center gap-0.5 overflow-visible whitespace-nowrap opacity-0"
+      aria-hidden="true"
+      inert
     >
-      <MessageSquare size={14} strokeWidth={1.75} />
-    </button>
-    {#if projectWorkingFolders.length > 1}
-      <select
-        class="h-7 max-w-28 rounded-md border border-border bg-background px-1 text-[0.68rem] text-muted-foreground"
-        aria-label={t("projects.header.chatFolder")}
-        value=""
-        onchange={(event) => {
-          const workingFolderId = event.currentTarget.value;
-          event.currentTarget.value = "";
-          if (workingFolderId) void openProjectChat(workingFolderId);
-        }}
+      {#each PROJECT_VIEW_IDS as view}
+        {@const Icon = viewIcon(view)}
+        {@const label = viewLabel(view)}
+        <span class="flex h-6 shrink-0 items-center gap-1 rounded-md px-2 text-xs font-medium">
+          <Icon size={14} strokeWidth={1.75} class={view === "gantt" ? "-scale-x-100" : undefined} />
+          <span>{label}</span>
+        </span>
+      {/each}
+    </nav>
+    <nav class="flex min-w-0 shrink-0 items-center gap-0.5">
+      {#each PROJECT_VIEW_IDS as view}
+        {@const Icon = viewIcon(view)}
+        {@const label = viewLabel(view)}
+        {@const title = viewShortcutTitle(view)}
+        <button
+          type="button"
+          class={cn(
+            "flex shrink-0 items-center gap-1 rounded-md text-xs font-medium transition-colors hover:bg-accent",
+            viewLabelsCollapsed ? "h-6 w-7 justify-center px-0" : "h-6 px-2",
+            projects.activeView === view
+              ? "text-foreground"
+              : "text-muted-foreground",
+          )}
+          aria-label={label}
+          title={title}
+          onclick={() => {
+            projects.activeView = view;
+          }}
+        >
+          <Icon size={14} strokeWidth={1.75} class={view === "gantt" ? "-scale-x-100" : undefined} />
+          {#if !viewLabelsCollapsed}
+            <span>{label}</span>
+          {/if}
+        </button>
+      {/each}
+    </nav>
+    <div bind:this={toolbarActionsElement} class="flex shrink-0 items-center gap-1">
+      {#if projectChat}
+        <button
+          type="button"
+          class={toolbarIconButtonClass(false)}
+          aria-label={t("projects.header.openChat")}
+          title={t("projects.header.openChat")}
+          onclick={() => { void openProjectChat(); }}
+        >
+          <MessageSquare size={14} strokeWidth={1.75} />
+        </button>
+        {#if projectWorkingFolders.length > 1}
+          <select
+            class="h-7 max-w-28 rounded-md border border-border bg-background px-1 text-[0.68rem] text-muted-foreground"
+            aria-label={t("projects.header.chatFolder")}
+            value=""
+            onchange={(event) => {
+              const workingFolderId = event.currentTarget.value;
+              event.currentTarget.value = "";
+              if (workingFolderId) void openProjectChat(workingFolderId);
+            }}
+          >
+            <option value="">{t("projects.header.chatFolder")}</option>
+            {#each projectWorkingFolders as folder (folder.id)}
+              <option value={folder.id}>{folder.displayName}</option>
+            {/each}
+          </select>
+        {/if}
+      {/if}
+      <button
+        type="button"
+        data-project-toolbar-trigger="filters"
+        class={toolbarIconButtonClass(taskFiltersActive, projectToolbarPanel === "filters")}
+        aria-label={t("projects.filters.title")}
+        title={t("projects.filters.title")}
+        aria-expanded={projectToolbarPanel === "filters"}
+        onclick={() => onToggleToolbarPanel("filters")}
       >
-        <option value="">{t("projects.header.chatFolder")}</option>
-        {#each projectWorkingFolders as folder (folder.workingFolder.id)}
-          <option value={folder.workingFolder.id}>{folder.workingFolder.displayName}</option>
-        {/each}
-      </select>
-    {/if}
-    <button
-      type="button"
-      data-project-toolbar-trigger="filters"
-      class={toolbarIconButtonClass(taskFiltersActive, projectToolbarPanel === "filters")}
-      aria-label={t("projects.filters.title")}
-      title={t("projects.filters.title")}
-      aria-expanded={projectToolbarPanel === "filters"}
-      onclick={() => onToggleToolbarPanel("filters")}
-    >
-      <ListFilter size={14} strokeWidth={1.75} />
-    </button>
-    <button
-      type="button"
-      data-project-toolbar-trigger="sort"
-      class={toolbarIconButtonClass(false)}
-      aria-label={t("projects.toolbar.sort")}
-      title={t("projects.toolbar.sort")}
-    >
-      <ArrowUpDown size={14} strokeWidth={1.75} />
-    </button>
-    <button
-      type="button"
-      data-project-toolbar-trigger="customize"
-      class={toolbarIconButtonClass(taskCustomizeActive, projectToolbarPanel === "customize")}
-      aria-label={t("projects.toolbar.customize")}
-      title={t("projects.toolbar.customize")}
-      aria-expanded={projectToolbarPanel === "customize"}
-      onclick={() => onToggleToolbarPanel("customize")}
-    >
-      <Columns3 size={14} strokeWidth={1.75} />
-    </button>
-    <button
-      type="button"
-      data-project-toolbar-trigger="group"
-      class={toolbarIconButtonClass(taskGroupingActive, projectToolbarPanel === "group")}
-      aria-label={t("projects.toolbar.group")}
-      title={t("projects.toolbar.group")}
-      aria-expanded={projectToolbarPanel === "group"}
-      onclick={() => onToggleToolbarPanel("group")}
-    >
-      <Layers size={14} strokeWidth={1.75} />
-    </button>
-    <button
-      type="button"
-      data-project-toolbar-trigger="settings"
-      class={toolbarIconButtonClass(false, projectToolbarPanel === "settings")}
-      aria-label={t("projects.header.projectSettings")}
-      title={t("projects.header.projectSettings")}
-      aria-expanded={projectToolbarPanel === "settings"}
-      onclick={() => onToggleToolbarPanel("settings")}
-    >
-      <Settings2 size={14} strokeWidth={1.75} />
-    </button>
-  </div>
+        <ListFilter size={14} strokeWidth={1.75} />
+      </button>
+      <button
+        type="button"
+        data-project-toolbar-trigger="sort"
+        class={toolbarIconButtonClass(false, projectToolbarPanel === "sort")}
+        aria-label={t("projects.toolbar.sort")}
+        title={t("projects.toolbar.sort")}
+        aria-expanded={projectToolbarPanel === "sort"}
+        onclick={() => onToggleToolbarPanel("sort")}
+      >
+        <ArrowUpDown size={14} strokeWidth={1.75} />
+      </button>
+      <button
+        type="button"
+        data-project-toolbar-trigger="customize"
+        class={toolbarIconButtonClass(taskCustomizeActive, projectToolbarPanel === "customize")}
+        aria-label={t("projects.toolbar.customize")}
+        title={t("projects.toolbar.customize")}
+        aria-expanded={projectToolbarPanel === "customize"}
+        onclick={() => onToggleToolbarPanel("customize")}
+      >
+        <Columns3 size={14} strokeWidth={1.75} />
+      </button>
+      <button
+        type="button"
+        data-project-toolbar-trigger="group"
+        class={toolbarIconButtonClass(taskGroupingActive, projectToolbarPanel === "group")}
+        aria-label={t("projects.toolbar.group")}
+        title={t("projects.toolbar.group")}
+        aria-expanded={projectToolbarPanel === "group"}
+        onclick={() => onToggleToolbarPanel("group")}
+      >
+        <Layers size={14} strokeWidth={1.75} />
+      </button>
+      <button
+        type="button"
+        data-project-toolbar-trigger="settings"
+        class={toolbarIconButtonClass(false, projectToolbarPanel === "settings")}
+        aria-label={t("projects.header.projectSettings")}
+        title={t("projects.header.projectSettings")}
+        aria-expanded={projectToolbarPanel === "settings"}
+        onclick={() => onToggleToolbarPanel("settings")}
+      >
+        <Settings2 size={14} strokeWidth={1.75} />
+      </button>
+    </div>
+  {/if}
 </div>

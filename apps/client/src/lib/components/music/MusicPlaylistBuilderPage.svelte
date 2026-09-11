@@ -11,6 +11,7 @@
   import RefreshCw from "@lucide/svelte/icons/refresh-cw";
   import Undo2 from "@lucide/svelte/icons/undo-2";
   import { getLocalization } from "$lib/i18n/translator.svelte";
+  import { BUILD_PLATFORM_PROFILE, platformHasCapability } from "$lib/platform";
   import { revealLocalFile } from "$lib/api/music";
   import { bulkEditMusicMemberships, bulkSnoozeMusicItems, reorderMusicPlaylists } from "$lib/api/music-library";
   import { createMusicBuilderInspectorController } from "$lib/music/music-builder-inspector.svelte";
@@ -59,9 +60,9 @@
   import MusicVirtualItemList from "./builder/MusicVirtualItemList.svelte";
   import MusicAddSourceDialog from "./builder/MusicAddSourceDialog.svelte";
   import MusicReviewIssuesPanel from "./builder/MusicReviewIssuesPanel.svelte";
-  import MusicItemRepairDialog from "./builder/MusicItemRepairDialog.svelte";
+  import MusicItemRepairDialog from "$lib/components/music/builder/MusicItemRepairDialog.svelte";
   import MusicNetworkRefreshDialog from "./builder/MusicNetworkRefreshDialog.svelte";
-  import MusicRelinkWizard from "./builder/MusicRelinkWizard.svelte";
+  import MusicRelinkWizard from "$lib/components/music/builder/MusicRelinkWizard.svelte";
   import MusicSourceRemovalDialog from "./builder/MusicSourceRemovalDialog.svelte";
   import MusicSourcesDashboard from "./builder/MusicSourcesDashboard.svelte";
   import MusicReviewWorkspace from "./builder/MusicReviewWorkspace.svelte";
@@ -70,7 +71,7 @@
   import MusicBuilderDock from "./builder/MusicBuilderDock.svelte";
   import MusicBuilderToolbar from "./builder/MusicBuilderToolbar.svelte";
   import MusicPlaylistManager from "./builder/MusicPlaylistManager.svelte";
-  import MusicSoundscapeBuilder from "./MusicSoundscapeBuilder.svelte";
+  import MusicSoundscapeBuilder from "$lib/components/music/MusicSoundscapeBuilder.svelte";
   import MusicPlaylistDialog from "./builder/MusicPlaylistDialog.svelte";
   import MusicInterchangeDialog from "./builder/MusicInterchangeDialog.svelte";
   import type { MusicBuilderInitialAction } from "$lib/music/music-builder-loader";
@@ -79,10 +80,12 @@
 
   let {
     onOpenPlayer,
+    presentation = "desktop",
     initialAction = null,
     onInitialActionHandled = () => undefined,
   }: {
     onOpenPlayer: () => void;
+    presentation?: "desktop" | "mobile";
     initialAction?: MusicBuilderInitialAction | null;
     onInitialActionHandled?: () => void;
   } = $props();
@@ -95,6 +98,12 @@
   const playlist = createMusicPlaylistController(library);
   const bulk = createMusicBulkEditController(library);
   const interchange = createMusicInterchangeController(() => library.playlistSummaries, () => sources.bindings, () => library.vaultId);
+  const supportsSoundscapes = platformHasCapability(BUILD_PLATFORM_PROFILE, "music.soundscapes");
+  const supportsLocalFileReveal = platformHasCapability(BUILD_PLATFORM_PROFILE, "music.local-file-reveal");
+  const supportsItemRepair = platformHasCapability(BUILD_PLATFORM_PROFILE, "music.local-item-repair");
+  const supportsRelinkPlans = platformHasCapability(BUILD_PLATFORM_PROFILE, "music.local-root-relink-plans");
+  const supportsRootReselection = platformHasCapability(BUILD_PLATFORM_PROFILE, "music.local-root-reselection");
+  const mobilePresentation = $derived(presentation === "mobile");
   let root = $state<HTMLElement | null>(null);
   let width = $state(1000);
   let height = $state(680);
@@ -109,9 +118,6 @@
   let playlistSurfaceReturnsToCurrentView = $state(false);
   let playlistSurfaceTargetId = $state<string | null>(null);
   let reviewAutoplay = $state(parseMusicReviewAutoplay(getConfigKey<unknown>("music.review.autoplay", undefined)));
-  if (getConfigKey<unknown>("music.review.exitPreference", undefined) !== undefined) {
-    setConfigKey("music.review.exitPreference", undefined);
-  }
   let choosingFirstUseFolder = $state(false);
   let firstUseFolderError = $state<string | null>(null);
   let firstUsePreparationActive = $state(false);
@@ -235,7 +241,9 @@
     if (action === "new-playlist") playlistSurface = "create";
     else if (action === "open-playlists") void navigateNow({ kind: "playlists" });
     else if (action.kind === "open-issues") void openReviewIssues();
-    else if (action.kind === "open-soundscapes") void navigateNow({ kind: "soundscapes" });
+    else if (action.kind === "open-soundscapes") {
+      if (supportsSoundscapes) void navigateNow({ kind: "soundscapes" });
+    }
     else void openInitialItem(action.itemId);
     onInitialActionHandled();
   });
@@ -260,6 +268,11 @@
     library.setVault(vaultId);
     sources.setVault(vaultId);
     await Promise.all([library.preloadCoreDestinations(), sources.load()]);
+    const recoveryPlan = sources.prepareUninitializedLocalRefresh();
+    if (recoveryPlan.targets.length > 0) {
+      await sources.runRefresh(recoveryPlan, false);
+      await library.refreshAfterMutation();
+    }
     const remembered = history.current.destination;
     history = initialMusicBuilderRoute(reviewCount, remembered, routeContext);
     library.navigate(history.current.destination);
@@ -333,9 +346,18 @@
     sourceSurface = "remove";
   }
 
-  function openRelink(collectionId: string): void {
+  async function openRelink(collectionId: string): Promise<void> {
     const collection = collectionById(collectionId);
     if (!collection?.localRootId) return;
+    if (supportsRootReselection) {
+      try {
+        if (await sources.reselectLocalRoot(collection)) await library.refreshAfterMutation();
+      } catch (error) {
+        sources.error = error instanceof Error ? error.message : String(error);
+      }
+      return;
+    }
+    if (!supportsRelinkPlans) return;
     sourceSurfaceCollection = collection;
     sourceSurface = "relink";
   }
@@ -343,20 +365,28 @@
   function repairIssue(issue: MusicIssue): void {
     if (issue.rootId) {
       const collection = sources.collections.find((entry) => entry.localRootId === issue.rootId);
-      if (collection) openRelink(collection.id);
+      if (collection) void openRelink(collection.id);
       return;
     }
-    if (issue.itemId) { openItemRepair(issue.itemId); return; }
+    if (issue.itemId && supportsItemRepair) { openItemRepair(issue.itemId); return; }
     if (issue.collectionId) requestSourceRefresh([issue.collectionId]);
   }
 
+  function canRepairIssue(issue: MusicIssue): boolean {
+    if (issue.rootId) return supportsRelinkPlans || supportsRootReselection;
+    if (issue.itemId) return supportsItemRepair;
+    return Boolean(issue.collectionId);
+  }
+
   function openItemRepair(itemId: string): void {
+    if (!supportsItemRepair) return;
     repairItemId = itemId;
     sources.clearItemRepair();
     sourceSurface = "item-repair";
   }
 
   async function navigateNow(next: MusicBuilderDestination): Promise<void> {
+    if (next.kind === "soundscapes" && !supportsSoundscapes) return;
     history = pushMusicBuilderRoute(history, { destination: next, inspectorItemId: null }, routeContext);
     library.navigate(next);
     inspector.clear();
@@ -375,6 +405,7 @@
   }
 
   function navigate(next: MusicBuilderDestination): void {
+    if (next.kind === "soundscapes" && !supportsSoundscapes) return;
     contextViewState.contextPanelOpen = false;
     toolbarMenuOpen = false;
     if (next.kind !== "playlists" && next.kind !== "playlist") playlistManagementOpen = false;
@@ -567,6 +598,7 @@
   }
 
   async function showItemLocation(item: MusicItemListEntry): Promise<void> {
+    if (!supportsLocalFileReveal) return;
     if (inspector.itemId !== item.id) await inspector.select(item.id);
     const location = inspector.detail?.locations.find((entry) => entry.availability === "available");
     if (!location) { openItemRepair(item.id); return; }
@@ -591,7 +623,7 @@
     const shortcutBlocked = event.ctrlKey || event.metaKey || event.altKey || event.shiftKey
       || Boolean(target?.closest("input, textarea, [contenteditable='true'], [role='dialog']"))
       || Boolean(sourceSurface || pendingRefreshPlan || playlistSurface || interchange.open);
-    if (shortcutDestination && !shortcutBlocked) {
+    if (shortcutDestination && !shortcutBlocked && (shortcutDestination.kind !== "soundscapes" || supportsSoundscapes)) {
       event.preventDefault();
       event.stopImmediatePropagation();
       navigate(shortcutDestination);
@@ -642,6 +674,16 @@
   <div class="builder-shell relative grid min-h-0 flex-1" class:builder-wide={layout.mode === "wide"} class:builder-medium={layout.mode === "medium"} class:builder-narrow={layout.mode === "narrow"} class:builder-contextless={firstUsePreparation || firstUseNeedsFolder}>
     {#if !firstUsePreparation && !firstUseNeedsFolder}
       <aside class:context-open={contextViewState.contextPanelOpen} class="builder-context-panel relative z-20 flex min-h-0 flex-col overflow-hidden bg-background/20">
+        {#if layout.contextPanelPresentation === "sheet"}
+          <div class="flex h-11 shrink-0 items-center px-2">
+            <button
+              type="button"
+              onclick={() => contextViewState.contextPanelOpen = false}
+              class="inline-flex h-8 items-center gap-1.5 rounded-lg px-2 text-[0.7rem] font-medium text-foreground active:bg-secondary"
+              aria-label={t("music.builder.closeContextPanel")}
+            ><ArrowLeft size={15} />{t("music.builder.back")}</button>
+          </div>
+        {/if}
         {#if destination.kind === "review"}
           {#if contextViewState.reviewPanel === "issues" && issueCount > 0}
             <MusicReviewIssuesPanel
@@ -655,6 +697,7 @@
               onBack={() => { contextViewState.reviewPanel = "folders"; contextViewState.reviewIssueGroup = null; }}
               onSelectIssue={(issue) => { void selectReviewIssue(issue); }}
               onRepair={repairIssue}
+              {canRepairIssue}
               onRefresh={() => requestSourceRefresh()}
             />
           {:else}
@@ -691,12 +734,12 @@
             onSoundscapeFilter={(filter) => contextViewState.soundscapeFilter = filter}
           />
         {/if}
-        {#if layout.dockPresentation === "sidebar"}<MusicBuilderDock {destination} {reviewCount} onNavigate={navigate} />{/if}
+        {#if layout.dockPresentation === "sidebar"}<MusicBuilderDock {destination} {reviewCount} showAllLabels={mobilePresentation} includeSoundscapes={supportsSoundscapes} onNavigate={navigate} />{/if}
       </aside>
     {/if}
     <main class="relative flex min-h-0 min-w-0 flex-col overflow-hidden bg-background/30">
       {#if destination.kind !== "review"}
-        <MusicBuilderToolbar status={workspaceStatus()} showPanelButton={layout.contextPanelPresentation === "sheet"} onOpenPanel={() => contextViewState.contextPanelOpen = true} onOpenPlayer={openPlayerFromBuilder}>
+        <MusicBuilderToolbar status={workspaceStatus()} showPanelButton={layout.contextPanelPresentation === "sheet"} onOpenPanel={() => contextViewState.contextPanelOpen = true} onOpenPlayer={openPlayerFromBuilder} compactPlayerLabel={mobilePresentation}>
           {#snippet actions()}
             {#if destination.kind === "playlists"}
               <button type="button" onclick={createPlaylistFromWorkspace} class="toolbar-primary"><Plus size={13} />{t("music.builder.newPlaylist")}</button>
@@ -765,7 +808,7 @@
             {/if}
           </div>
         {:else}
-          <MusicReviewWorkspace {library} {inspector} {sources} {audition} {review} {bulk} selectedItemIds={reviewTreeViewState.selectedItemIds} selectedFolderIds={reviewTreeViewState.selectedFolderIds} onClearSelection={clearReviewSelection} autoplay={reviewAutoplay} onAutoplayChange={setReviewAutoplay} onOpenPlayer={openPlayerFromBuilder} showPanelButton={layout.contextPanelPresentation === "sheet"} onOpenPanel={() => contextViewState.contextPanelOpen = true} onEditPlaylist={(playlistId) => { void openPlaylistManagementSurface(playlistId, "edit"); }} onDeletePlaylist={(playlistId) => { void openPlaylistManagementSurface(playlistId, "delete"); }} onReorderPlaylists={reorderPlaylistSummaries} issue={activeReviewIssue} onRepairIssue={repairIssue} viewState={reviewWorkspaceViewState} />
+          <MusicReviewWorkspace {library} {inspector} {sources} {audition} {review} {bulk} selectedItemIds={reviewTreeViewState.selectedItemIds} selectedFolderIds={reviewTreeViewState.selectedFolderIds} onClearSelection={clearReviewSelection} autoplay={reviewAutoplay} onAutoplayChange={setReviewAutoplay} onOpenPlayer={openPlayerFromBuilder} compactPlayerLabel={mobilePresentation} showPanelButton={layout.contextPanelPresentation === "sheet"} onOpenPanel={() => contextViewState.contextPanelOpen = true} onEditPlaylist={(playlistId) => { void openPlaylistManagementSurface(playlistId, "edit"); }} onDeletePlaylist={(playlistId) => { void openPlaylistManagementSurface(playlistId, "delete"); }} onReorderPlaylists={reorderPlaylistSummaries} issue={activeReviewIssue} repairAvailable={activeReviewIssue ? canRepairIssue(activeReviewIssue) : false} onRepairIssue={repairIssue} viewState={reviewWorkspaceViewState} />
         {/if}
       {:else if playlistManagementOpen && (destination.kind === "playlists" || destination.kind === "playlist")}
         <div class="min-h-0 flex-1 overflow-y-auto p-3" data-music-scrollable="true"><MusicPlaylistManager playlists={library.playlistSummaries} onEdit={(playlistId) => { void openPlaylistManagementSurface(playlistId, "edit"); }} onDelete={(playlistId) => { void openPlaylistManagementSurface(playlistId, "delete"); }} onReorder={reorderPlaylistSummaries} onDone={() => playlistManagementOpen = false} /></div>
@@ -819,6 +862,7 @@
             onScrollTop={(scrollTop) => library.setScrollTop(scrollTop)}
             onTogglePlayback={(item) => { void togglePlaylistItem(item); }}
             onShowLocation={showItemLocation}
+            showLocationAction={supportsLocalFileReveal}
             onSnooze={snoozePlaylistItem}
             onWeight={setPlaylistItemWeight}
             onRemove={removePlaylistItem}
@@ -836,7 +880,7 @@
           onAdd={() => sourceSurface = "add"}
           onRefreshAll={() => requestSourceRefresh()}
           onRefreshSource={(collectionId) => requestSourceRefresh([collectionId])}
-          onRelink={openRelink}
+          onRelink={(collectionId) => { void openRelink(collectionId); }}
           onRemove={(collectionId) => { void openRemoval(collectionId); }}
           onDetectedFolderAdded={detectedFolderAdded}
         />
@@ -848,7 +892,7 @@
     </main>
 
     {#if layout.dockPresentation === "bottom" && !firstUsePreparation && !firstUseNeedsFolder}
-      <div class="builder-mobile-dock"><MusicBuilderDock {destination} {reviewCount} compact onNavigate={navigate} /></div>
+      <div class="builder-mobile-dock"><MusicBuilderDock {destination} {reviewCount} compact showAllLabels={mobilePresentation} includeSoundscapes={supportsSoundscapes} onNavigate={navigate} /></div>
     {/if}
 
     {#if sourceSurface === "add"}
@@ -927,7 +971,7 @@
   :global(.toolbar-menu button) { display: flex; min-height: 1.9rem; width: 100%; align-items: center; border-radius: 0.45rem; padding-inline: 0.6rem; font-size: calc(0.68rem * var(--type-scale)); text-align: left; }
   :global(.toolbar-menu button:hover) { background: var(--accent); }
   :global(.toolbar-menu button:disabled) { opacity: 0.4; }
-  @container (width < 520px) { :global(.toolbar-primary), :global(.toolbar-secondary) { width: 2rem; padding-inline: 0; font-size: 0; } }
+  @container (width < 520px) { :global(.toolbar-primary), :global(.toolbar-secondary) { width: 2rem; gap: 0; padding-inline: 0; font-size: 0; } }
   @media (prefers-reduced-motion: reduce) { :global(.builder-root *) { scroll-behavior: auto; } }
   @media (prefers-reduced-motion: reduce) { .builder-narrow .builder-context-panel { transition: none; } }
 </style>

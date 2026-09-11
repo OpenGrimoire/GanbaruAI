@@ -1,5 +1,7 @@
 use super::*;
-use sqlx::{Executor, Sqlite, SqlitePool};
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
+use sqlx::SqlitePool;
+use sqlx::{Executor, Sqlite};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(super) struct TeammateLifecycleState {
@@ -53,6 +55,7 @@ where
     })
 }
 
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 pub(super) async fn set_teammate_archived(
     pool: &SqlitePool,
     teammate_id: &ChatParticipantId,
@@ -95,6 +98,7 @@ pub(super) async fn set_teammate_archived(
     read_teammate(pool, teammate_id).await
 }
 
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 pub(super) async fn delete_unused_teammate(
     pool: &SqlitePool,
     teammate_id: &ChatParticipantId,

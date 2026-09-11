@@ -7,7 +7,7 @@ use super::fixed_command_status;
 
 #[derive(Clone, Serialize, Deserialize)]
 pub struct IdleStatus {
-    pub idle_ms: u64,
+    pub idle_ms: Option<u64>,
     pub webcam_in_use: bool,
 }
 
@@ -72,16 +72,16 @@ fn is_webcam_in_use() -> bool {
 }
 
 #[cfg(target_os = "linux")]
-fn get_idle_time_with_fallback() -> u64 {
+fn get_idle_time_with_fallback() -> Option<u64> {
     if let Some(ms) = get_idle_time_ms() {
-        return ms;
+        return Some(ms);
     }
     if let Ok(stdout) = fixed_command_output("xprintidle", &[], 128) {
         if let Ok(ms) = stdout.trim().parse::<u64>() {
-            return ms;
+            return Some(ms);
         }
     }
-    0
+    None
 }
 
 #[cfg(target_os = "linux")]
@@ -93,8 +93,13 @@ pub fn get_idle_status() -> IdleStatus {
     }
 }
 
+#[cfg(any(target_os = "windows", test))]
+fn windows_idle_elapsed_ms(now: u32, last_input: u32) -> u64 {
+    u64::from(now.wrapping_sub(last_input))
+}
+
 #[cfg(target_os = "windows")]
-fn get_idle_time_ms_windows() -> u64 {
+fn get_idle_time_ms_windows() -> Option<u64> {
     use windows::Win32::System::SystemInformation::GetTickCount;
     use windows::Win32::UI::Input::KeyboardAndMouse::{GetLastInputInfo, LASTINPUTINFO};
 
@@ -109,9 +114,9 @@ fn get_idle_time_ms_windows() -> u64 {
         // SAFETY: GetTickCount reads the current Windows uptime tick and does
         // not require any pointer or handle ownership from this process.
         let now = unsafe { GetTickCount() };
-        (now.wrapping_sub(lii.dwTime)) as u64
+        Some(windows_idle_elapsed_ms(now, lii.dwTime))
     } else {
-        0
+        None
     }
 }
 
@@ -144,23 +149,23 @@ pub fn get_idle_status() -> IdleStatus {
 }
 
 #[cfg(target_os = "macos")]
-fn get_idle_time_ms_macos() -> u64 {
+fn get_idle_time_ms_macos() -> Option<u64> {
     let stdout =
         match fixed_command_output("ioreg", &["-c", "IOHIDSystem", "-d", "4", "-S"], 256 * 1024) {
             Ok(stdout) => stdout,
-            Err(_) => return 0,
+            Err(_) => return None,
         };
     for line in stdout.lines() {
         if let Some(pos) = line.find("\"HIDIdleTime\"") {
             if let Some(eq) = line[pos..].find('=') {
                 let val_str = line[pos + eq + 1..].trim();
                 if let Ok(ns) = val_str.parse::<u64>() {
-                    return ns / 1_000_000;
+                    return Some(ns / 1_000_000);
                 }
             }
         }
     }
-    0
+    None
 }
 
 #[cfg(target_os = "macos")]
@@ -183,7 +188,22 @@ pub fn get_idle_status() -> IdleStatus {
 #[tauri::command]
 pub fn get_idle_status() -> IdleStatus {
     IdleStatus {
-        idle_ms: 0,
+        idle_ms: None,
         webcam_in_use: false,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::windows_idle_elapsed_ms;
+
+    #[test]
+    fn windows_idle_elapsed_handles_tick_wraparound() {
+        assert_eq!(windows_idle_elapsed_ms(25, u32::MAX - 24), 50);
+    }
+
+    #[test]
+    fn windows_idle_elapsed_preserves_the_u32_range() {
+        assert_eq!(windows_idle_elapsed_ms(u32::MAX, 0), u64::from(u32::MAX));
     }
 }

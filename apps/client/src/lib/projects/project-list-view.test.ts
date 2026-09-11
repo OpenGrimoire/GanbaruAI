@@ -15,6 +15,7 @@ import {
   projectTaskListColumnTrack,
   projectTaskListGridMinWidth,
   projectTaskListGridTemplate,
+  projectTaskListLeadingGridTemplate,
   selectedProjectTaskIdsInView,
   startProjectTaskListColumnResize,
   taskListColumnWidthsForProject,
@@ -78,6 +79,9 @@ describe("project list view helpers", () => {
     expect(projectTaskListGridTemplate(["status", "custom:field-a"])).toBe(
       "1.5rem 1.75rem 24rem 7.5rem 7.63rem 2.25rem",
     );
+    expect(projectTaskListLeadingGridTemplate(["status", "custom:field-a"])).toBe(
+      "1.5rem 1.75rem minmax(0, 1fr)",
+    );
   });
 
   it("sizes tracks from visible content without using flexible ratios", () => {
@@ -130,6 +134,10 @@ describe("project list view helpers", () => {
         due: 14,
       },
     })).toBe("1.5rem 1.75rem 18rem 9rem 14rem 2.25rem");
+    expect(projectTaskListLeadingGridTemplate({
+      columns: ["status", "due"],
+      columnWidths: { name: 18 },
+    })).toBe("1.5rem 1.75rem minmax(0, 1fr)");
   });
 
   it("uses double-click sizing to reset or fit hidden content", () => {

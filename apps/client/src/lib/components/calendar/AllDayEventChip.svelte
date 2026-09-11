@@ -24,6 +24,7 @@
     preview = false,
     grabbing = false,
     canDrag = true,
+    mobileLayout = false,
     isPast = false,
     onclick,
     onprefetch,
@@ -35,6 +36,7 @@
     preview?: boolean;
     grabbing?: boolean;
     canDrag?: boolean;
+    mobileLayout?: boolean;
     isPast?: boolean;
     onclick: (rect?: DOMRect) => void;
     onprefetch?: () => void;
@@ -73,6 +75,7 @@
     e.stopPropagation();
     onpointerdown?.(e);
   }
+
 </script>
 
 <!-- svelte-ignore a11y_no_static_element_interactions -->
@@ -80,7 +83,7 @@
 <div
   bind:this={chipEl}
   data-event-id={event.id}
-  class="allday-chip relative min-w-0 flex-1 select-none truncate rounded px-1.5 text-[0.666667rem] leading-5 {statusPatternClass}
+  class="allday-chip relative min-w-0 flex-1 select-none truncate rounded px-1.5 text-[0.666667rem] leading-5 {statusPatternClass} {mobileLayout ? 'mobile-allday-chip' : ''}
     {editing || preview || grabbing ? 'chip-editing' : ''}"
   style="
     background-color: {activeColors.bg};
@@ -163,5 +166,9 @@
   .chip-editing {
     outline: 2px solid color-mix(in oklab, var(--event-bg) 65%, var(--outline-mix));
     outline-offset: 0;
+  }
+
+  .mobile-allday-chip {
+    touch-action: none;
   }
 </style>

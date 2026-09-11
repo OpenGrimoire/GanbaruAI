@@ -1,10 +1,10 @@
 <script lang="ts">
+  import { onDestroy } from "svelte";
   import Upload from "@lucide/svelte/icons/upload";
   import FolderOpen from "@lucide/svelte/icons/folder-open";
   import X from "@lucide/svelte/icons/x";
   import Sun from "@lucide/svelte/icons/sun";
   import Moon from "@lucide/svelte/icons/moon";
-  import { invoke } from "@tauri-apps/api/core";
   import { themeDisplayName } from "$lib/i18n/theme-labels";
   import { getLocalization } from "$lib/i18n/translator.svelte";
   import { getTheme } from "$lib/stores/theme.svelte";
@@ -14,16 +14,28 @@
   import CustomSelect from "./CustomSelect.svelte";
   import ShortcutDescription from "./ShortcutDescription.svelte";
   import ConfirmDialog from "$lib/components/ui/ConfirmDialog.svelte";
+  import ActionToast from "$lib/components/ui/ActionToast.svelte";
+  import { BUILD_PLATFORM_PROFILE } from "$lib/platform";
+  import {
+    pickThemeJsonFile,
+    saveThemeJsonFile,
+  } from "$lib/components/settings/theme-json-file";
 
   const themeStore = getTheme();
   const themeEditor = getThemeEditor();
   const { t } = getLocalization();
+  const desktopShell = BUILD_PLATFORM_PROFILE.shell === "desktop";
 
   let pendingDelete = $state<ThemeId | undefined>(undefined);
   let importOpen = $state(false);
   let importDraft = $state("");
   let importErrors = $state<string[]>([]);
-  let toast = $state<string | undefined>(undefined);
+  let exportingThemeId = $state<ThemeId | undefined>(undefined);
+  let toast = $state<{
+    message: string;
+    variant: "default" | "success" | "error";
+    pending: boolean;
+  } | undefined>(undefined);
   let toastTimer: ReturnType<typeof setTimeout> | undefined;
   const quickToggleShortcuts = ["Mod + Shift + L"] as const;
   const themePickerShortcuts = ["Mod + Shift + T"] as const;
@@ -42,13 +54,31 @@
     })),
   );
 
-  function flashToast(message: string) {
-    toast = message;
+  function clearToastTimer(): void {
     if (toastTimer) clearTimeout(toastTimer);
+    toastTimer = undefined;
+  }
+
+  function dismissToast(): void {
+    clearToastTimer();
+    toast = undefined;
+  }
+
+  function showToast(
+    message: string,
+    variant: "default" | "success" | "error" = "default",
+    pending = false,
+  ): void {
+    clearToastTimer();
+    toast = { message, variant, pending };
+    if (pending) return;
     toastTimer = setTimeout(() => {
       toast = undefined;
-    }, 1800);
+      toastTimer = undefined;
+    }, variant === "error" ? 8_000 : 3_000);
   }
+
+  onDestroy(clearToastTimer);
 
   function handleApply(id: ThemeId) {
     themeStore.setTheme(id);
@@ -101,7 +131,7 @@
 
   async function handleImportFromFile() {
     try {
-      const text = await invoke<string | null>("vault_pick_and_read_theme_json");
+      const text = await pickThemeJsonFile();
       if (text === null) return;
       const result = await themeStore.importTheme(text);
       if (!result.ok) {
@@ -112,7 +142,7 @@
       importErrors = [];
       importDraft = "";
       importOpen = false;
-      flashToast(t("settings.theme.imported"));
+      showToast(t("settings.theme.imported"), "success");
     } catch (err) {
       console.error("import from file failed", err);
       importErrors = [
@@ -134,24 +164,37 @@
     importErrors = [];
     importDraft = "";
     importOpen = false;
-    flashToast(t("settings.theme.imported"));
+    showToast(t("settings.theme.imported"), "success");
   }
 
   async function handleExport(id: ThemeId) {
+    if (exportingThemeId) return;
     const contents = themeStore.exportTheme(id);
     if (!contents) {
-      flashToast(t("settings.theme.exportFailed"));
+      showToast(t("settings.theme.exportFailed"), "error");
       return;
     }
+    exportingThemeId = id;
+    if (!desktopShell) {
+      showToast(t("settings.theme.exporting"), "default", true);
+    }
     try {
-      const saved = await invoke<boolean>("vault_pick_and_write_theme_json", {
-        defaultName: `${id}.json`,
-        contents,
-      });
-      if (saved) flashToast(t("settings.theme.exported"));
+      const outcome = await saveThemeJsonFile(`${id}.json`, contents);
+      if (!outcome.saved) {
+        if (toast?.pending) dismissToast();
+        return;
+      }
+      showToast(
+        outcome.destination === "downloads" && outcome.fileName
+          ? t("settings.theme.exportedToDownloads", outcome.fileName)
+          : t("settings.theme.exported"),
+        "success",
+      );
     } catch (err) {
       console.error("theme export failed", err);
-      flashToast(t("settings.theme.exportFailed"));
+      showToast(t("settings.theme.exportFailed"), "error");
+    } finally {
+      exportingThemeId = undefined;
     }
   }
 
@@ -177,53 +220,57 @@
     </div>
   </header>
 
-  <section
-    class="flex items-center justify-between gap-4 px-1 py-1 max-[640px]:flex-col max-[640px]:items-stretch max-[640px]:gap-2"
-  >
-    <div class="min-w-0 flex-1">
-      <h3 class="text-[0.866667rem] font-normal text-foreground">{t("settings.theme.quickToggle")}</h3>
-      <ShortcutDescription shortcuts={quickToggleShortcuts} />
-    </div>
-    <div
-      class="flex flex-wrap items-center justify-end gap-x-3 gap-y-2 max-[640px]:justify-start"
+  {#if desktopShell}
+    <section
+      class="flex items-center justify-between gap-4 px-1 py-1 max-[640px]:flex-col max-[640px]:items-stretch max-[640px]:gap-2"
     >
-      <div class="flex items-center gap-1.5">
-        <Sun
-          size={13}
-          strokeWidth={1.75}
-          class="shrink-0 text-muted-foreground"
-          aria-hidden="true"
-        />
-        <CustomSelect
-          ariaLabel={t("settings.theme.lightQuickToggle")}
-          value={themeStore.quickToggleLightId}
-          options={themeOptions}
-          onChange={handleQuickToggleLight}
-          class="w-36"
-        />
+      <div class="min-w-0 flex-1">
+        <h3 class="text-[0.866667rem] font-normal text-foreground">{t("settings.theme.quickToggle")}</h3>
+        <ShortcutDescription shortcuts={quickToggleShortcuts} />
       </div>
-      <div class="flex items-center gap-1.5">
-        <Moon
-          size={13}
-          strokeWidth={1.75}
-          class="shrink-0 text-muted-foreground"
-          aria-hidden="true"
-        />
-        <CustomSelect
-          ariaLabel={t("settings.theme.darkQuickToggle")}
-          value={themeStore.quickToggleDarkId}
-          options={themeOptions}
-          onChange={handleQuickToggleDark}
-          class="w-36"
-        />
+      <div
+        class="flex flex-wrap items-center justify-end gap-x-3 gap-y-2 max-[640px]:justify-start"
+      >
+        <div class="flex items-center gap-1.5">
+          <Sun
+            size={13}
+            strokeWidth={1.75}
+            class="shrink-0 text-muted-foreground"
+            aria-hidden="true"
+          />
+          <CustomSelect
+            ariaLabel={t("settings.theme.lightQuickToggle")}
+            value={themeStore.quickToggleLightId}
+            options={themeOptions}
+            onChange={handleQuickToggleLight}
+            class="w-36"
+          />
+        </div>
+        <div class="flex items-center gap-1.5">
+          <Moon
+            size={13}
+            strokeWidth={1.75}
+            class="shrink-0 text-muted-foreground"
+            aria-hidden="true"
+          />
+          <CustomSelect
+            ariaLabel={t("settings.theme.darkQuickToggle")}
+            value={themeStore.quickToggleDarkId}
+            options={themeOptions}
+            onChange={handleQuickToggleDark}
+            class="w-36"
+          />
+        </div>
       </div>
-    </div>
-  </section>
+    </section>
+  {/if}
 
   <section class="flex flex-col gap-3">
     <div class="px-1">
       <h3 class="text-[0.866667rem] font-normal text-foreground">{t("settings.theme.allThemes")}</h3>
-      <ShortcutDescription shortcuts={themePickerShortcuts} />
+      {#if desktopShell}
+        <ShortcutDescription shortcuts={themePickerShortcuts} />
+      {/if}
     </div>
 
     <div class="flex flex-col">
@@ -237,6 +284,9 @@
           onDuplicate={() => handleDuplicate(theme.id)}
           onExport={() => handleExport(theme.id)}
           onDelete={() => handleDelete(theme.id)}
+          exporting={exportingThemeId === theme.id}
+          exportDisabled={exportingThemeId !== undefined && exportingThemeId !== theme.id}
+          mobileLayout={!desktopShell}
         />
       {/each}
       {#if importOpen}
@@ -251,7 +301,9 @@
                 onclick={handleImportToggle}
                 aria-label={t("settings.theme.closeImport")}
                 data-app-tooltip-disabled="true"
-                class="flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
+                class={desktopShell
+                  ? "flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
+                  : "flex size-12 items-center justify-center rounded-xl text-muted-foreground active:bg-accent active:text-foreground"}
               >
                 <X size={13} strokeWidth={2} />
               </button>
@@ -277,14 +329,18 @@
                 <button
                   type="button"
                   onclick={handlePasteFromClipboard}
-                  class="rounded-md border border-border bg-card px-2.5 py-1 text-[0.733333rem] text-foreground transition-colors hover:bg-accent dark:bg-transparent"
+                  class={desktopShell
+                    ? "rounded-md border border-border bg-card px-2.5 py-1 text-[0.733333rem] text-foreground transition-colors hover:bg-accent dark:bg-transparent"
+                    : "min-h-12 rounded-xl border border-border bg-card px-3 text-sm text-foreground active:bg-accent dark:bg-transparent"}
                 >
                   {t("settings.theme.pasteClipboard")}
                 </button>
                 <button
                   type="button"
                   onclick={handleImportFromFile}
-                  class="flex items-center gap-1.5 rounded-md border border-border bg-card px-2.5 py-1 text-[0.733333rem] text-foreground transition-colors hover:bg-accent dark:bg-transparent"
+                  class={desktopShell
+                    ? "flex items-center gap-1.5 rounded-md border border-border bg-card px-2.5 py-1 text-[0.733333rem] text-foreground transition-colors hover:bg-accent dark:bg-transparent"
+                    : "flex min-h-12 items-center gap-1.5 rounded-xl border border-border bg-card px-3 text-sm text-foreground active:bg-accent dark:bg-transparent"}
                 >
                   <FolderOpen size={11} strokeWidth={2.25} />
                   <span>{t("settings.theme.openFile")}</span>
@@ -293,7 +349,9 @@
               <button
                 type="button"
                 onclick={handleImport}
-                class="rounded-md border border-border bg-primary px-3 py-1 text-[0.8rem] font-medium text-primary-foreground transition-colors hover:bg-primary/90 max-[520px]:self-end"
+                class={desktopShell
+                  ? "rounded-md border border-border bg-primary px-3 py-1 text-[0.8rem] font-medium text-primary-foreground transition-colors hover:bg-primary/90 max-[520px]:self-end"
+                  : "min-h-12 rounded-xl border border-primary bg-primary px-4 text-sm font-medium text-primary-foreground active:bg-primary/90 max-[520px]:self-end"}
               >
                 {t("settings.theme.import")}
               </button>
@@ -304,7 +362,9 @@
         <button
           type="button"
           onclick={handleImportToggle}
-          class="flex w-full min-w-0 items-center gap-2 rounded-md px-1 py-1 text-[0.866667rem] text-foreground transition-colors hover:bg-accent/25 focus:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+          class={desktopShell
+            ? "flex w-full min-w-0 items-center gap-2 rounded-md px-1 py-1 text-[0.866667rem] text-foreground transition-colors hover:bg-accent/25 focus:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+            : "flex min-h-12 w-full min-w-0 items-center gap-2 rounded-xl px-3 text-sm text-foreground active:bg-accent/40 focus:outline-none focus-visible:ring-1 focus-visible:ring-ring"}
         >
           <Upload
             size={13}
@@ -318,11 +378,13 @@
   </section>
 
   {#if toast}
-    <div
-      class="pointer-events-none fixed bottom-6 left-1/2 z-80 -translate-x-1/2 rounded-md border border-border bg-popover px-3 py-1.5 text-[0.8rem] text-foreground shadow-lg"
-    >
-      {toast}
-    </div>
+    <ActionToast
+      message={toast.message}
+      variant={toast.variant}
+      controlsVisible={!toast.pending}
+      dismissLabel={t("settings.theme.dismissTransferNotification")}
+      onDismiss={dismissToast}
+    />
   {/if}
 </div>
 

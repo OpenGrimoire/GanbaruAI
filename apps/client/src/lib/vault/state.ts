@@ -24,7 +24,19 @@ export interface DataFolderDefaultLocation {
   developmentBuild: boolean;
 }
 
-export type DataFolderErrorAction = "startup" | "default" | "change" | "import" | "general";
+export interface VaultBackupOutcome {
+  fileName: string;
+  destination: "downloads";
+}
+
+export type DataFolderErrorAction =
+  | "startup"
+  | "default"
+  | "change"
+  | "import"
+  | "backup"
+  | "restore"
+  | "general";
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -82,6 +94,15 @@ function parseOptionalVaultInfo(value: unknown): VaultInfo | null {
   return value === null ? null : parseVaultInfo(value);
 }
 
+function parseVaultBackupOutcome(value: unknown): VaultBackupOutcome {
+  if (!isRecord(value)) throw new Error("backup response is not an object");
+  const fileName = readString(value.fileName);
+  if (!fileName || value.destination !== "downloads") {
+    throw new Error("backup response is incomplete");
+  }
+  return { fileName, destination: "downloads" };
+}
+
 function activateVaultInfo(info: VaultInfo): VaultInfo;
 function activateVaultInfo(info: VaultInfo | null): VaultInfo | null;
 function activateVaultInfo(info: VaultInfo | null): VaultInfo | null {
@@ -112,6 +133,10 @@ function fallbackForAction(
       return t("dataFolderError.change");
     case "import":
       return t("dataFolderError.import");
+    case "backup":
+      return t("dataFolderError.backup");
+    case "restore":
+      return t("dataFolderError.restore");
     case "general":
       return t("dataFolderError.general");
   }
@@ -230,4 +255,15 @@ export async function selectRecentVault(path: string): Promise<VaultInfo> {
 
 export async function revealActiveVault(): Promise<void> {
   await invoke("vault_reveal_active");
+}
+
+/** Save a consistent, portable copy of the active Android vault to Downloads. */
+export async function backupActiveVault(): Promise<VaultBackupOutcome> {
+  return parseVaultBackupOutcome(await invoke<unknown>("vault_backup_to_downloads"));
+}
+
+/** Pick and transactionally restore a portable Android vault backup. */
+export async function restoreVaultBackup(): Promise<VaultInfo | null> {
+  const info = parseOptionalVaultInfo(await invoke<unknown>("vault_pick_and_restore_backup"));
+  return info ? activateVaultInfo(info) : null;
 }

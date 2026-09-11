@@ -228,7 +228,7 @@ pub async fn chat_create_review_comment(
     {
         return Err(ChatError::validation(
             "snapshotId",
-            "Legacy file comments cannot include snapshot provenance",
+            "File editor comments cannot include snapshot provenance",
         ));
     }
     let selected_text = resolved

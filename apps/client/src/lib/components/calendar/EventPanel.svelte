@@ -18,8 +18,16 @@
   import { getProjects } from "$lib/stores/projects.svelte";
   import { deleteActionForCalendarEvent } from "./occurrence-protection";
   import { getPreferences } from "$lib/stores/preferences.svelte";
+  import { getMobileBackStack } from "$lib/stores/mobile-back-stack.svelte";
   import { getViewport } from "$lib/stores/viewport.svelte";
   import { getLocalization } from "$lib/i18n/translator.svelte";
+  import { BUILD_PLATFORM_PROFILE, platformHasCapability } from "$lib/platform";
+  import {
+    mobileCalendarNotificationStatus,
+    requestMobileCalendarNotificationPermission,
+    resolveMobileCalendarNotificationStatus,
+    type MobileCalendarNotificationStatus,
+  } from "$lib/scheduling/mobile-calendar-notifications";
   import { cn } from "$lib/utils";
   import { formatShortcut, hasOnlyShortcutModifier, hasShortcutModifier } from "$lib/keyboard-shortcuts";
   import { moveRovingIndex } from "./event-panel-utils";
@@ -34,9 +42,10 @@
   import {
     EventPanelActionsController,
     canRunEventPanelSave,
+    isEventPanelDeleteActionTarget,
   } from "./event-panel-actions-controller.svelte";
   import type { PanelSaveData } from "./event-panel-payloads";
-  import { getMusicContextAssignments, getMusicPlaylistSummaries } from "$lib/api/music-library";
+  import { getMusicContextAssignments, getMusicPlaylistSummaries } from "$lib/music/platform-library";
   import MusicSoundtrackAssignmentEditor from "$lib/components/music/MusicSoundtrackAssignmentEditor.svelte";
   import {
     completeMusicAssignmentDrafts,
@@ -56,11 +65,26 @@
   import Smile from "@lucide/svelte/icons/smile";
   import Eye from "@lucide/svelte/icons/eye";
   import Lock from "@lucide/svelte/icons/lock";
+  import X from "@lucide/svelte/icons/x";
 
 
   const theme = getTheme();
+  const musicAssignmentsAvailable = platformHasCapability(
+    BUILD_PLATFORM_PROFILE,
+    "music.context-assignments",
+  );
+  const notificationSchedulingAvailable = platformHasCapability(
+    BUILD_PLATFORM_PROFILE,
+    "notifications.native-scheduling",
+  );
+  const androidNotificationScheduling = BUILD_PLATFORM_PROFILE.platform === "android";
+  const nativeIdleDetectionAvailable = platformHasCapability(
+    BUILD_PLATFORM_PROFILE,
+    "pomodoro.native-idle-detection",
+  );
   const projects = getProjects();
   const preferences = getPreferences();
+  const mobileBackStack = getMobileBackStack();
   const viewport = getViewport();
   const localization = getLocalization();
   const { t } = localization;
@@ -68,6 +92,7 @@
 
   let {
     mode,
+    mobileLayout = false,
     panelSessionKey = 0,
     start,
     end,
@@ -99,6 +124,7 @@
     onSurfaceStatusChange,
   }: {
     mode: "create" | "edit";
+    mobileLayout?: boolean;
     panelSessionKey?: number;
     start?: string;
     end?: string;
@@ -167,7 +193,6 @@
   // ─── Inline delete confirmation ────────────────────────────────
   // Two-step delete: first click arms, second click confirms. Any other
   // click inside the panel disarms (see panel-root onclick below).
-  let confirmDeleteBtn: HTMLButtonElement | undefined = $state();
   const deleteAction = $derived(event ? deleteActionForCalendarEvent(event) : "delete");
   const deleteActionLabel = $derived(
     endEventAction
@@ -180,7 +205,7 @@
   const handleProjectSelect = (projectId: string | undefined): void => {
     const changed = session.projectId !== projectId;
     session.handleProjectSelect(projectId);
-    if (changed) void adoptProjectMusicSnapshot(projectId);
+    if (changed && musicAssignmentsAvailable) void adoptProjectMusicSnapshot(projectId);
   };
 
   let musicSnapshots = $state<MusicContextAssignmentDraft[]>(completeMusicAssignmentDrafts([]));
@@ -212,6 +237,7 @@
   }
 
   async function initializeMusicAssignments(key: string): Promise<void> {
+    if (!musicAssignmentsAvailable) return;
     const generation = ++musicLoadGeneration;
     const snapshotGeneration = ++musicSnapshotGeneration;
     const overrideGeneration = ++musicOverrideGeneration;
@@ -255,6 +281,7 @@
   }
 
   async function adoptProjectMusicSnapshot(projectId: string | undefined): Promise<void> {
+    if (!musicAssignmentsAvailable) return;
     const generation = ++musicSnapshotGeneration;
     musicAssignmentsLoading = true;
     musicAssignmentsError = null;
@@ -285,10 +312,17 @@
   // ─── Tab system ─────────────────────────────────────────────────
   type Section = "meeting" | "pomodoro" | "notifications" | "repeat" | "music";
   let openSection: Section | null = $state(null);
+  let mobileNotificationStatus = $state<MobileCalendarNotificationStatus | null>(null);
+  let mobileNotificationStatusBusy = $state(false);
   let lastAutoOpenedMusicSession: number | null = null;
 
   $effect(() => {
-    if (!openMusicSection || panelSessionKey === undefined || panelSessionKey === lastAutoOpenedMusicSession) return;
+    if (
+      !musicAssignmentsAvailable
+      || !openMusicSection
+      || panelSessionKey === undefined
+      || panelSessionKey === lastAutoOpenedMusicSession
+    ) return;
     lastAutoOpenedMusicSession = panelSessionKey;
     openSection = "music";
   });
@@ -300,7 +334,8 @@
   });
   const panelWidth = $derived(geometry.width);
   const panelLayout = $derived(geometry.layout);
-  const panelCanDrag = $derived(geometry.canDrag);
+  const activePanelLayout = $derived(mobileLayout ? "fullscreen" : panelLayout);
+  const panelCanDrag = $derived(!mobileLayout && geometry.canDrag);
   const stackedDateTime = $derived(geometry.stackedDateTime);
 
   function isSectionEnabled(s: Section): boolean {
@@ -356,6 +391,94 @@
     }
     session.emitChange();
   }
+
+  async function refreshMobileNotificationStatus(): Promise<MobileCalendarNotificationStatus | null> {
+    if (!androidNotificationScheduling) return null;
+    try {
+      const status = await mobileCalendarNotificationStatus();
+      mobileNotificationStatus = status;
+      return status;
+    } catch (error) {
+      console.error("Failed to read Android Calendar notification status", error);
+      return null;
+    }
+  }
+
+  async function handleNotificationToggle(): Promise<void> {
+    const enabling = !session.notifEnabled;
+    handleToggle("notifications");
+    if (!enabling || !androidNotificationScheduling) return;
+    const status = mobileNotificationStatus ?? await refreshMobileNotificationStatus();
+    if (status?.permission !== "prompt") return;
+    mobileNotificationStatusBusy = true;
+    try {
+      mobileNotificationStatus = await requestMobileCalendarNotificationPermission();
+    } catch (error) {
+      console.error("Failed to request Android Calendar notification permission", error);
+    } finally {
+      mobileNotificationStatusBusy = false;
+    }
+  }
+
+  async function resolveMobileNotificationDelivery(): Promise<void> {
+    const status = mobileNotificationStatus ?? await refreshMobileNotificationStatus();
+    if (!status) return;
+    mobileNotificationStatusBusy = true;
+    try {
+      if (status.permission === "prompt") {
+        mobileNotificationStatus = await requestMobileCalendarNotificationPermission();
+      } else {
+        await resolveMobileCalendarNotificationStatus(status);
+      }
+    } catch (error) {
+      console.error("Failed to resolve Android Calendar notification access", error);
+    } finally {
+      mobileNotificationStatusBusy = false;
+    }
+  }
+
+  const mobileNotificationDeliveryNotice = $derived.by(() => {
+    if (!androidNotificationScheduling || !mobileNotificationStatus) return null;
+    if (mobileNotificationStatus.permission !== "granted") {
+      return t("calendar.notifications.permissionRequired");
+    }
+    if (
+      mobileNotificationStatus.channel.exists
+      && (
+        !mobileNotificationStatus.channel.enabled
+        || !mobileNotificationStatus.channel.soundConfigured
+      )
+    ) {
+      return t("calendar.notifications.channelRestricted");
+    }
+    if (
+      mobileNotificationStatus.exactAlarm.required
+      && !mobileNotificationStatus.exactAlarm.granted
+    ) {
+      return t("calendar.notifications.exactAlarmRequired");
+    }
+    return null;
+  });
+
+  const mobileNotificationDeliveryAction = $derived.by(() => {
+    if (!mobileNotificationStatus) return null;
+    if (mobileNotificationStatus.permission === "prompt") {
+      return t("calendar.notifications.allowNotifications");
+    }
+    if (mobileNotificationStatus.permission === "denied") {
+      return t("calendar.notifications.openNotificationSettings");
+    }
+    if (
+      mobileNotificationStatus.channel.exists
+      && (
+        !mobileNotificationStatus.channel.enabled
+        || !mobileNotificationStatus.channel.soundConfigured
+      )
+    ) {
+      return t("calendar.notifications.openSoundSettings");
+    }
+    return t("calendar.notifications.allowExactAlarms");
+  });
 
   function canExpandSection(s: Section): boolean {
     return !controlsDisabled
@@ -433,6 +556,11 @@
     } else if (mode === "create") {
       const createData = initialCreateData ?? {};
       session.initializeCreate(createData, start ?? "", end ?? "", initialAllDay);
+      if (!notificationSchedulingAvailable) {
+        session.notifEnabled = false;
+        session.notifSelected = new Set();
+        session.customNotifs = [];
+      }
     }
 
     dateTime.resetInteraction();
@@ -449,7 +577,7 @@
       (onInitialSync ?? onChange)?.(session.changesPayload());
     }
     session.initialized = true;
-    if (!parked) void initializeMusicAssignments(key);
+    if (!parked && musicAssignmentsAvailable) void initializeMusicAssignments(key);
 
     if (!parked && mode === "create") {
       const selectKey = key;
@@ -493,6 +621,27 @@
     }
   });
 
+  $effect(() => {
+    if (!dateTime.datepickerOpen) return;
+    return mobileBackStack.activate({
+      handle: () => dateTime.cancelDatePicker("start"),
+    });
+  });
+
+  $effect(() => {
+    if (!dateTime.timePickerTarget) return;
+    return mobileBackStack.activate({
+      handle: () => dateTime.closeTimePicker(),
+    });
+  });
+
+  $effect(() => {
+    if (!dateTime.endDatepickerOpen) return;
+    return mobileBackStack.activate({
+      handle: () => dateTime.cancelDatePicker("end"),
+    });
+  });
+
   // Sync date/time from event prop when block is dragged/resized externally.
   // Only updates time fields, not title/description/etc. which the user may
   // have edited in the panel. The session's diff-based dirty tracking handles
@@ -515,7 +664,7 @@
   const saveControlsDisabled = $derived(
     (controlsDisabled && !pomodoroReadOnlyInteractive) || session.savePending || !saveReady,
   );
-  const eventPanelBodyConstrained = $derived(geometry.bodyConstrained);
+  const eventPanelBodyConstrained = $derived(mobileLayout || geometry.bodyConstrained);
 
   // ─── Emit changes ───────────────────────────────────────────────
   /**
@@ -540,6 +689,11 @@
   // it would overflow the viewport.
   const panelStyle = $derived(geometry.style);
   const parkedPanelStyle = $derived(geometry.parkedStyle);
+  const activePanelStyle = $derived(
+    mobileLayout
+      ? "position:fixed; left:calc(var(--visual-viewport-offset-left) + var(--safe-area-left)); top:calc(var(--visual-viewport-offset-top) + var(--safe-area-top)); width:calc(var(--visual-viewport-width) - var(--safe-area-left) - var(--safe-area-right)); height:calc(var(--visual-viewport-height) - var(--safe-area-top) - var(--safe-area-bottom)); z-index:50;"
+      : panelStyle,
+  );
 
 
   const shortDate = $derived.by(() => {
@@ -573,8 +727,12 @@
     if (!externalDirty && !musicAssignmentsDirty && mode !== "create" && (!hadSaveableTimeDraft || !committedTimeDraft)) return;
     const data: PanelSaveData = {
       ...session.saveData(),
-      musicSnapshotAssignments: persistedMusicAssignmentDrafts(musicSnapshots),
-      musicOverrideAssignments: persistedMusicAssignmentDrafts(musicOverrides),
+      ...(musicAssignmentsAvailable
+        ? {
+            musicSnapshotAssignments: persistedMusicAssignmentDrafts(musicSnapshots),
+            musicOverrideAssignments: persistedMusicAssignmentDrafts(musicOverrides),
+          }
+        : {}),
     };
     const s = isRecurring ? session.scope : undefined;
     session.savePending = true;
@@ -616,9 +774,7 @@
   function handlePanelClick(e: MouseEvent) {
     if (parked) return;
     e.stopPropagation();
-    // Disarm the inline delete confirmation if the click landed outside the
-    // confirm button. The confirm button handles its own disarm on click.
-    actions.disarmOutsideConfirm(!!confirmDeleteBtn?.contains(e.target as Node));
+    actions.disarmOutsideConfirm(isEventPanelDeleteActionTarget(e.target));
   }
 
   function focusPanelArrowTarget(target: HTMLElement) {
@@ -725,7 +881,9 @@
   const metadataItemCount = $derived(showHeavySections ? 3 : 2);
 
   $effect(() => {
-    if (metadataFocusIndex >= metadataItemCount) metadataFocusIndex = Math.max(0, metadataItemCount - 1);
+    const firstEnabledIndex = startControlsDisabled ? 1 : 0;
+    if (metadataFocusIndex < firstEnabledIndex) metadataFocusIndex = firstEnabledIndex;
+    else if (metadataFocusIndex >= metadataItemCount) metadataFocusIndex = metadataItemCount - 1;
   });
 
   async function focusPanelRovingButton(group: string, index: number) {
@@ -747,12 +905,14 @@
     itemCount: number,
   ) {
     if (e.altKey || e.ctrlKey || e.metaKey || e.shiftKey) return;
-    const nextIndex = moveRovingIndex({
-      currentIndex: index,
-      itemCount,
+    const firstEnabledIndex = group === "metadata" && startControlsDisabled ? 1 : 0;
+    const nextRelativeIndex = moveRovingIndex({
+      currentIndex: index - firstEnabledIndex,
+      itemCount: itemCount - firstEnabledIndex,
       key: e.key,
       orientation: "horizontal",
     });
+    const nextIndex = nextRelativeIndex + firstEnabledIndex;
     if (nextIndex === index) return;
     e.preventDefault();
     e.stopPropagation();
@@ -790,12 +950,20 @@
     });
 
     function handleKeydown(e: KeyboardEvent) { actions.handleKeydown(e); }
+    function refreshNotificationAccess(): void {
+      if (document.visibilityState === "visible") void refreshMobileNotificationStatus();
+    }
     window.addEventListener("keydown", handleKeydown);
+    window.addEventListener("focus", refreshNotificationAccess);
+    document.addEventListener("visibilitychange", refreshNotificationAccess);
+    void refreshMobileNotificationStatus();
     return () => {
       musicLoadGeneration += 1;
       musicSnapshotGeneration += 1;
       musicOverrideGeneration += 1;
       window.removeEventListener("keydown", handleKeydown);
+      window.removeEventListener("focus", refreshNotificationAccess);
+      document.removeEventListener("visibilitychange", refreshNotificationAccess);
     };
   });
 </script>
@@ -805,11 +973,12 @@
 <div
   bind:this={geometry.panelEl}
   class="panel-root flex flex-col"
-  data-layout={panelLayout}
+  data-layout={activePanelLayout}
+  data-mobile={mobileLayout || undefined}
   data-readonly={controlsDisabled || undefined}
   data-parked={parked || undefined}
   aria-hidden={parked || undefined}
-  style="box-shadow: 0 0 2px 0px var(--panel-edge), 0 1px 2px var(--panel-shadow); {parked ? parkedPanelStyle : panelStyle} background-color: var(--panel-bg); visibility: {session.initialized && geometry.positionReady && !parked ? 'visible' : 'hidden'};"
+  style="box-shadow: 0 0 2px 0px var(--panel-edge), 0 1px 2px var(--panel-shadow); {parked ? parkedPanelStyle : activePanelStyle} background-color: var(--panel-bg); visibility: {session.initialized && geometry.positionReady && !parked ? 'visible' : 'hidden'};"
   onclick={handlePanelClick}
   onkeydown={handlePanelArrowKeydown}
 >
@@ -821,15 +990,39 @@
       panelCanDrag ? "cursor-grab active:cursor-grabbing" : "cursor-default",
     )}
     style="background-color: var(--sidebar);"
-    onpointerdown={(event) => geometry.handleDragStart(event)}
-    onpointermove={(event) => geometry.handleDragMove(event)}
-    onpointerup={() => geometry.handleDragEnd()}
-    onpointercancel={() => geometry.handleDragEnd()}
-    onlostpointercapture={() => geometry.handleDragEnd()}
+    onpointerdown={(event) => {
+      if (panelCanDrag) geometry.handleDragStart(event);
+    }}
+    onpointermove={(event) => {
+      if (panelCanDrag) geometry.handleDragMove(event);
+    }}
+    onpointerup={() => {
+      if (panelCanDrag) geometry.handleDragEnd();
+    }}
+    onpointercancel={() => {
+      if (panelCanDrag) geometry.handleDragEnd();
+    }}
+    onlostpointercapture={() => {
+      if (panelCanDrag) geometry.handleDragEnd();
+    }}
   >
+    {#if mobileLayout && !parked}
+      <div class="w-12" aria-hidden="true"></div>
+    {/if}
     <div class="flex flex-1 items-center justify-center py-2.5">
       <div class="h-[1.5px] w-9 bg-muted-foreground/50"></div>
     </div>
+    {#if mobileLayout && !parked}
+      <button
+        type="button"
+        aria-label={t("common.close")}
+        onclick={onClose}
+        onpointerdown={(event) => event.stopPropagation()}
+        class="flex h-12 w-12 shrink-0 items-center justify-center text-muted-foreground active:bg-accent"
+      >
+        <X size={22} aria-hidden="true" />
+      </button>
+    {/if}
   </div>
 
   <div
@@ -892,17 +1085,26 @@
           onkeydown={inputKeydown}
         />
       </div>
-      <ProjectSelector
-        selectedProjectId={session.projectId}
-        disabled={controlsDisabled}
-        onSelect={handleProjectSelect}
-      />
-      {#if !controlsDisabled}
-        <ColorPicker color={session.color} theme={theme.current} onselect={(color) => {
-          session.color = color;
-          session.emitChange();
-        }} />
-      {/if}
+      <div class="event-identity-controls flex items-center {mobileLayout ? 'gap-1' : 'gap-2.5'}">
+        <ProjectSelector
+          selectedProjectId={session.projectId}
+          disabled={controlsDisabled}
+          {mobileLayout}
+          onSelect={handleProjectSelect}
+        />
+        {#if !controlsDisabled}
+          <ColorPicker
+            color={session.color}
+            theme={theme.current}
+            {mobileLayout}
+            buttonClass="event-identity-trigger"
+            onselect={(color) => {
+              session.color = color;
+              session.emitChange();
+            }}
+          />
+        {/if}
+      </div>
     </div>
     <hr class="border-event-panel-divider mx-1 mt-0.5" />
 
@@ -932,8 +1134,6 @@
 
         <!-- Floating start date picker -->
         {#if dateTime.datepickerOpen}
-          <!-- svelte-ignore a11y_click_events_have_key_events -->
-          <!-- svelte-ignore a11y_no_static_element_interactions -->
           <!-- svelte-ignore a11y_click_events_have_key_events -->
           <!-- svelte-ignore a11y_no_static_element_interactions -->
           <div class="fixed inset-0 z-19" onclick={() => { dateTime.datepickerOpen = false; }}></div>
@@ -1030,6 +1230,7 @@
         <button bind:this={dateTime.endDateButton}
           onclick={() => dateTime.toggleDatePicker("end", "pointer")}
           onkeydown={(e) => dateTime.handleDateButtonKeydown(e, "end")}
+          disabled={controlsDisabled}
           class="date-chip max-w-full rounded py-0.5 text-event-panel-input-text
             {controlsDisabled ? '' : dateTime.endDatepickerOpen ? 'ring-1 ring-primary/60' : 'hover:bg-black/5 dark:hover:bg-black/15'}">
           {shortEndDate}
@@ -1063,7 +1264,11 @@
   <div class="flex flex-col gap-3 px-4 pb-0 pt-1.5">
 
     <!-- All-day / Availability / Visibility -->
-    <div class="flex w-full items-center justify-evenly overflow-hidden rounded-none bg-event-panel-contrast text-[0.733333rem]">
+    <div
+      class="flex w-full items-center justify-evenly overflow-hidden rounded-none bg-event-panel-contrast text-[0.733333rem]"
+      role="toolbar"
+      aria-label={t("calendar.eventPanel.metadataControls")}
+    >
       <!-- All day -->
       <button
         onclick={() => dateTime.toggleAllDay()}
@@ -1071,7 +1276,7 @@
         onkeydown={(e) => handlePanelRovingKeydown(e, "metadata", 0, metadataItemCount)}
         data-panel-roving="metadata"
         data-roving-index="0"
-        tabindex={startControlsDisabled ? -1 : 0}
+        tabindex={!startControlsDisabled && metadataFocusIndex === 0 ? 0 : -1}
         disabled={startControlsDisabled}
         class={metadataStartButtonClass()}
       >
@@ -1092,7 +1297,7 @@
         data-panel-roving="metadata"
         data-roving-index="1"
         data-app-tooltip-focus-disabled="true"
-        tabindex={0}
+        tabindex={!controlsDisabled && metadataFocusIndex === 1 ? 0 : -1}
         disabled={controlsDisabled}
         class={metadataButtonClass()}
         title={t("calendar.eventPanel.busyTitle")}
@@ -1113,7 +1318,7 @@
           data-panel-roving="metadata"
           data-roving-index="2"
           data-app-tooltip-focus-disabled="true"
-          tabindex={0}
+          tabindex={!controlsDisabled && metadataFocusIndex === 2 ? 0 : -1}
           disabled={controlsDisabled}
           class={metadataButtonClass("capitalize")}
           title={t("calendar.eventPanel.privateTitle")}
@@ -1175,20 +1380,27 @@
           bind:idleTimeoutEnabled={session.idleTimeoutEnabled}
           expanded={openSection === "pomodoro"}
           readonlyInteractive={pomodoroReadOnlyInteractive}
+          idleDetectionAvailable={nativeIdleDetectionAvailable}
           ontoggle={() => handleToggle("pomodoro")}
           onexpand={() => handleExpand("pomodoro")}
           onchange={() => session.emitChange()} />
       {/if}
 
       <!-- 3) Notifications -->
+      {#if notificationSchedulingAvailable}
       <NotificationsSection
         enabled={session.notifEnabled}
         bind:selected={session.notifSelected}
         bind:customNotifs={session.customNotifs}
         expanded={openSection === "notifications"}
-        ontoggle={() => handleToggle("notifications")}
+        ontoggle={() => { void handleNotificationToggle(); }}
         onexpand={() => handleExpand("notifications")}
-        onchange={() => session.emitChange()} />
+        onchange={() => session.emitChange()}
+        deliveryNotice={mobileNotificationDeliveryNotice}
+        deliveryActionLabel={mobileNotificationDeliveryAction}
+        deliveryActionBusy={mobileNotificationStatusBusy}
+        ondeliveryaction={() => { void resolveMobileNotificationDelivery(); }} />
+      {/if}
 
       <!-- 4) Repeat -->
       <RecurrenceSection
@@ -1201,7 +1413,7 @@
         onchange={() => session.emitChange()} />
 
       <!-- 5) Music -->
-      {#if timedSectionsVisible}
+      {#if timedSectionsVisible && musicAssignmentsAvailable}
         <div class="flex flex-col rounded-none overflow-hidden" style="background-color: var(--panel-contrast);">
           <div class="section-header flex items-stretch">
             <div aria-hidden="true" class="flex w-10 shrink-0 items-center justify-center text-muted-foreground/50">
@@ -1249,7 +1461,7 @@
   <div
     class={cn(
       "shrink-0 px-4",
-      panelLayout === "fullscreen" ? "pb-2 pt-1" : "pb-3.5 pt-1.5",
+      activePanelLayout === "fullscreen" ? "pb-2 pt-1" : "pb-3.5 pt-1.5",
     )}
     style="background-color: var(--panel-bg);"
   >
@@ -1264,7 +1476,8 @@
       <div class="panel-footer-actions flex">
         {#if actions.deleteArmed && mode === "edit" && event && (onDelete || onEndEvent) && (!endEventAction || inlineEndEventConfirm)}
           <button
-            bind:this={confirmDeleteBtn}
+            type="button"
+            data-event-panel-delete-action
             onclick={() => actions.confirmArmedDelete()}
             disabled={deleteControlsDisabled}
             class="readonly-interactive flex flex-1 items-center justify-center gap-2 py-1.5 text-[0.866667rem] text-action-danger-armed-foreground bg-action-danger-armed">
@@ -1279,7 +1492,10 @@
           </button>
         {:else}
           {#if mode === "edit" && (onDelete || onEndEvent) && event}
-            <button onclick={() => actions.armOrConfirmDelete()}
+            <button
+              type="button"
+              data-event-panel-delete-action
+              onclick={() => actions.armOrConfirmDelete()}
               disabled={deleteControlsDisabled}
               class={cn(
                 "readonly-interactive event-panel-delete-icon-button flex w-10 shrink-0 items-center justify-center text-foreground",
@@ -1328,6 +1544,37 @@
     font-variant-numeric: tabular-nums;
     min-height: 0;
     overflow: hidden;
+  }
+
+  .panel-root[data-mobile="true"] :global(button),
+  .panel-root[data-mobile="true"] :global(input),
+  .panel-root[data-mobile="true"] :global(select) {
+    min-height: 3rem;
+  }
+
+  .panel-root[data-mobile="true"] :global([data-section="meeting"] .meeting-detail-row),
+  .panel-root[data-mobile="true"] :global([data-section="meeting"] input) {
+    min-height: 2rem;
+  }
+
+  .panel-root[data-mobile="true"] :global([data-section="meeting"] button) {
+    min-height: 0;
+  }
+
+  .panel-root[data-mobile="true"] .event-identity-controls :global(.event-identity-trigger) {
+    width: 2.5rem;
+    min-width: 2.5rem;
+    height: 2.5rem;
+    min-height: 2.5rem;
+  }
+
+  .panel-root[data-mobile="true"] .time-input-shell {
+    min-height: 3rem;
+  }
+
+  .panel-root[data-mobile="true"] .panel-footer-actions :global(button),
+  .panel-root[data-mobile="true"] .panel-footer-actions :global(div) {
+    min-height: 3rem;
   }
 
   .date-time-grid {

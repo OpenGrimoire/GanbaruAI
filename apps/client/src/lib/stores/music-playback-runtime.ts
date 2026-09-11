@@ -17,6 +17,7 @@ import {
 import type { MusicLoadRuntime } from "./music-load-runtime";
 
 const YOUTUBE_PLAYING_SNAPSHOT_MS = 1_000;
+const LOCAL_LOADING_SNAPSHOT_MS = 250;
 const LOCAL_PLAYING_SNAPSHOT_MS = 500;
 const PAUSED_SNAPSHOT_MS = 5_000;
 
@@ -95,13 +96,15 @@ export function createMusicPlaybackRuntime(
   ): Promise<number | null> {
     const source = context.currentSource();
     const snapshot = context.snapshot();
-    if (!source || (snapshot.status !== "playing" && snapshot.status !== "paused")) {
-      return null;
-    }
+    if (!source) return null;
     if (isYouTubeSource(source)) {
+      if (snapshot.status !== "playing" && snapshot.status !== "paused") return null;
       context.postYouTubeSnapshot();
       await persist();
     } else if (context.usesNativeLocalBackend()) {
+      if (snapshot.status !== "loading"
+        && snapshot.status !== "playing"
+        && snapshot.status !== "paused") return null;
       await context.refreshNativeLocalSnapshot(schedulerContext);
     } else {
       return null;
@@ -110,6 +113,8 @@ export function createMusicPlaybackRuntime(
     const currentSnapshot = context.snapshot();
     const cadenceMs = currentSnapshot.status === "paused"
       ? PAUSED_SNAPSHOT_MS
+      : currentSnapshot.status === "loading"
+        ? LOCAL_LOADING_SNAPSHOT_MS
       : isYouTubeSource(source)
         ? YOUTUBE_PLAYING_SNAPSHOT_MS
         : LOCAL_PLAYING_SNAPSHOT_MS;

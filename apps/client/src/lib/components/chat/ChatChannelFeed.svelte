@@ -6,6 +6,7 @@
   import { unreadMessageStartIndex } from "$lib/chat/organizational-message-model";
   import { organizationalScrollFollowsEnd } from "$lib/chat/organizational-scroll";
   import { getLocalization } from "$lib/i18n/translator.svelte";
+  import { BUILD_PLATFORM_PROFILE, platformHasCapability } from "$lib/platform";
   import { getChat } from "$lib/stores/chat.svelte";
   import ChatMessageComposer from "./ChatMessageComposer.svelte";
   import ChatOrganizationalMessage from "./ChatOrganizationalMessage.svelte";
@@ -14,6 +15,10 @@
   const chat = getChat();
   const localization = getLocalization();
   const { t } = localization;
+  const localExecutionAvailable = platformHasCapability(
+    BUILD_PLATFORM_PROFILE,
+    "chat.local-execution",
+  );
   let feed = $state<HTMLDivElement | null>(null);
   let teammateSetupDismissed = $state(false);
   let followingEnd = true;
@@ -133,7 +138,7 @@
           <p>{channel.topic || t("chat.channels.welcomeDescription")}</p>
         </header>
       {/if}
-      {#if !teammateSetupDismissed && chat.teammates.length === 0}
+      {#if localExecutionAvailable && !teammateSetupDismissed && chat.teammates.length === 0}
         <section class="first-teammate" aria-label={t("chat.organization.firstTeammateTitle")}>
           <Bot size={19} />
           <div>

@@ -3,7 +3,7 @@
 use crate::chat::models::{ChatError, ChatErrorCode, ChatResult};
 use crate::chat::process::ProviderProcessHandle;
 use crate::chat::providers::DriverOperationContext;
-use serde_json::{json, Map, Value};
+use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::fmt;
 use std::sync::{Arc, Mutex};
@@ -594,11 +594,4 @@ fn truncate_text(value: &str, maximum_bytes: usize) -> String {
         boundary -= 1;
     }
     value[..boundary].to_string()
-}
-
-pub fn object(value: Value, label: &str) -> Result<Map<String, Value>, CodexRpcFailure> {
-    value
-        .as_object()
-        .cloned()
-        .ok_or_else(|| CodexRpcFailure::Malformed(format!("{label} must be an object")))
 }

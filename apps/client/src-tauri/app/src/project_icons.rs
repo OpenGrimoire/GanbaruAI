@@ -1,7 +1,12 @@
 use base64::{engine::general_purpose, Engine as _};
+use ganbaru_notes::image_metadata::{
+    parse_managed_image_metadata, validate_managed_image_dimensions, ManagedImageDimensionError,
+    ManagedImageKind, ManagedImageMetadata, ManagedImageMetadataError,
+};
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 use reqwest::{
     dns::{Addrs, Name, Resolve, Resolving},
-    header::LOCATION,
+    header::{CONTENT_TYPE, LOCATION},
     redirect::Policy,
     Url,
 };
@@ -9,25 +14,35 @@ use serde::Serialize;
 use sha2::{Digest, Sha256};
 use std::{
     collections::HashSet,
-    error::Error,
-    fmt, fs,
-    future::Future,
+    fs,
     io::Write,
-    net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr, ToSocketAddrs},
     path::{Component, Path, PathBuf},
+};
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
+use std::{
+    error::Error,
+    fmt,
+    future::Future,
+    net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr, ToSocketAddrs},
     pin::Pin,
     time::{Duration, Instant},
 };
-use tauri::{AppHandle, Manager, Runtime};
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
+use tauri::Manager;
+use tauri::{AppHandle, Runtime};
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 use tauri_plugin_dialog::{DialogExt, FilePath};
 
 use crate::{db_path::connect_sqlite, vault};
 
 const PROJECT_ICON_MAX_DISPLAY_MEGABYTES: usize = 3;
 const PROJECT_ICON_MAX_BYTES: usize = PROJECT_ICON_MAX_DISPLAY_MEGABYTES * 1024 * 1024;
+const PROJECT_ICON_MAX_BASE64_CHARS: usize = PROJECT_ICON_MAX_BYTES.div_ceil(3) * 4;
 const PROJECT_ICON_DIR: &str = "project-icons";
 const PROJECT_ICON_ALLOWED_EXTENSIONS: &[&str] = &["png", "jpg", "jpeg", "webp"];
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 const PROJECT_ICON_DOWNLOAD_TIMEOUT: Duration = Duration::from_secs(8);
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 const PROJECT_ICON_MAX_REDIRECTS: usize = 4;
 
 #[derive(Clone, Debug, Serialize)]
@@ -36,36 +51,13 @@ pub struct ProjectIconAsset {
     pub relative_path: String,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum ProjectIconImageKind {
-    Png,
-    Jpeg,
-    Webp,
-}
-
-impl ProjectIconImageKind {
-    fn extension(self) -> &'static str {
-        match self {
-            Self::Png => "png",
-            Self::Jpeg => "jpg",
-            Self::Webp => "webp",
-        }
-    }
-
-    fn mime_type(self) -> &'static str {
-        match self {
-            Self::Png => "image/png",
-            Self::Jpeg => "image/jpeg",
-            Self::Webp => "image/webp",
-        }
-    }
-}
-
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 fn dialog_path(path: FilePath) -> Result<PathBuf, String> {
     path.into_path()
         .map_err(|e| format!("selected path is not a local file: {e}"))
 }
 
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 fn project_icon_start_directory<R: Runtime>(app: &AppHandle<R>) -> Option<PathBuf> {
     app.path().picture_dir().ok().filter(|path| path.is_dir())
 }
@@ -120,19 +112,6 @@ fn project_icon_unsupported_type_error() -> String {
     "Use PNG, JPG, or WebP. SVG is blocked for security because it can contain interactive or external content.".to_string()
 }
 
-fn sniff_project_icon_kind(bytes: &[u8]) -> Result<ProjectIconImageKind, String> {
-    if bytes.starts_with(&[0x89, b'P', b'N', b'G', 0x0d, 0x0a, 0x1a, 0x0a]) {
-        return Ok(ProjectIconImageKind::Png);
-    }
-    if bytes.starts_with(&[0xff, 0xd8, 0xff]) {
-        return Ok(ProjectIconImageKind::Jpeg);
-    }
-    if bytes.len() >= 12 && &bytes[0..4] == b"RIFF" && &bytes[8..12] == b"WEBP" {
-        return Ok(ProjectIconImageKind::Webp);
-    }
-    Err(project_icon_unsupported_type_error())
-}
-
 fn ensure_project_icon_size(bytes: &[u8]) -> Result<(), String> {
     if bytes.is_empty() {
         return Err("project icon image is empty".to_string());
@@ -152,6 +131,25 @@ fn project_icon_size_limit_error() -> String {
         "project icon image exceeds the {} limit",
         project_icon_size_limit_label()
     )
+}
+
+fn project_icon_metadata_error(error: ManagedImageMetadataError) -> String {
+    match error {
+        ManagedImageMetadataError::UnsupportedFormat => project_icon_unsupported_type_error(),
+        ManagedImageMetadataError::MalformedHeader(reason) => {
+            format!("project icon image header is malformed: {reason}")
+        }
+    }
+}
+
+fn project_icon_dimension_error(error: ManagedImageDimensionError) -> String {
+    format!("project icon image {error}")
+}
+
+fn validate_project_icon_image(bytes: &[u8]) -> Result<ManagedImageMetadata, String> {
+    let metadata = parse_managed_image_metadata(bytes).map_err(project_icon_metadata_error)?;
+    validate_managed_image_dimensions(metadata).map_err(project_icon_dimension_error)?;
+    Ok(metadata)
 }
 
 fn hex_hash(bytes: &[u8]) -> String {
@@ -190,7 +188,7 @@ fn save_project_icon_bytes<R: Runtime>(
     bytes: Vec<u8>,
 ) -> Result<ProjectIconAsset, String> {
     ensure_project_icon_size(&bytes)?;
-    let kind = sniff_project_icon_kind(&bytes)?;
+    let kind = validate_project_icon_image(&bytes)?.kind;
     let file_name = format!("{}.{}", hex_hash(&bytes), kind.extension());
     let relative_path = format!("{PROJECT_ICON_DIR}/{file_name}");
     let path = active_project_icon_dir(app)?.join(file_name);
@@ -215,22 +213,37 @@ fn read_file_capped(path: &Path) -> Result<Vec<u8>, String> {
 
 fn decode_project_icon_data_url(data_url: &str) -> Result<Vec<u8>, String> {
     let trimmed = data_url.trim();
-    let Some((metadata, payload)) = trimmed.split_once(',') else {
+    let Some((data_url_metadata, payload)) = trimmed.split_once(',') else {
         return Err("project icon data URL is malformed".to_string());
     };
-    if !metadata.starts_with("data:image/") || !metadata.ends_with(";base64") {
+    let Some(declared_mime_type) = data_url_metadata
+        .strip_prefix("data:")
+        .and_then(|metadata| metadata.strip_suffix(";base64"))
+    else {
         return Err("project icon data URL must be a base64 image".to_string());
+    };
+    if ManagedImageKind::from_mime_type(declared_mime_type).is_none() {
+        return Err("project icon data URL must be a PNG, JPEG, or WebP image".to_string());
+    }
+    if payload.len() > PROJECT_ICON_MAX_BASE64_CHARS {
+        return Err(project_icon_size_limit_error());
     }
     let bytes = general_purpose::STANDARD
         .decode(payload)
         .map_err(|e| format!("decode project icon data URL: {e}"))?;
     ensure_project_icon_size(&bytes)?;
+    let metadata = validate_project_icon_image(&bytes)?;
+    if !metadata.kind.matches_mime_type(declared_mime_type) {
+        return Err(
+            "project icon data URL MIME type does not match its image contents".to_string(),
+        );
+    }
     Ok(bytes)
 }
 
 fn project_icon_data_url(bytes: &[u8]) -> Result<String, String> {
     ensure_project_icon_size(bytes)?;
-    let kind = sniff_project_icon_kind(bytes)?;
+    let kind = validate_project_icon_image(bytes)?.kind;
     Ok(format!(
         "data:{};base64,{}",
         kind.mime_type(),
@@ -238,6 +251,7 @@ fn project_icon_data_url(bytes: &[u8]) -> Result<String, String> {
     ))
 }
 
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 fn is_public_project_icon_ipv4(address: Ipv4Addr) -> bool {
     let [first, second, third, _] = address.octets();
     if first == 0 || first == 10 || first == 127 || first >= 224 {
@@ -268,6 +282,7 @@ fn is_public_project_icon_ipv4(address: Ipv4Addr) -> bool {
     true
 }
 
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 fn is_public_project_icon_ipv6(address: Ipv6Addr) -> bool {
     if let Some(mapped) = address.to_ipv4_mapped() {
         return is_public_project_icon_ipv4(mapped);
@@ -291,6 +306,7 @@ fn is_public_project_icon_ipv6(address: Ipv6Addr) -> bool {
     true
 }
 
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 fn is_public_project_icon_ip(address: IpAddr) -> bool {
     match address {
         IpAddr::V4(address) => is_public_project_icon_ipv4(address),
@@ -298,6 +314,7 @@ fn is_public_project_icon_ip(address: IpAddr) -> bool {
     }
 }
 
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 fn validate_project_icon_network_url(url: &str) -> Result<Url, String> {
     let parsed = Url::parse(url).map_err(|_| "project icon URL is invalid".to_string())?;
     if !matches!(parsed.scheme(), "http" | "https") {
@@ -325,6 +342,7 @@ fn validate_project_icon_network_url(url: &str) -> Result<Url, String> {
     Ok(parsed)
 }
 
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 fn validate_project_icon_resolved_addresses(
     addresses: Vec<SocketAddr>,
 ) -> Result<Vec<SocketAddr>, ProjectIconDnsError> {
@@ -345,19 +363,24 @@ fn validate_project_icon_resolved_addresses(
 }
 
 #[derive(Clone, Copy, Debug)]
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 struct PublicProjectIconDnsResolver;
 
 #[derive(Clone, Copy, Debug)]
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 struct ProjectIconDnsError(&'static str);
 
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 impl fmt::Display for ProjectIconDnsError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter.write_str(self.0)
     }
 }
 
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 impl Error for ProjectIconDnsError {}
 
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 impl Resolve for PublicProjectIconDnsResolver {
     fn resolve(&self, name: Name) -> Resolving {
         let host = name.as_str().to_owned();
@@ -381,21 +404,29 @@ impl Resolve for PublicProjectIconDnsResolver {
     }
 }
 
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 enum ProjectIconHttpHop {
     Redirect(String),
-    Image(Vec<u8>),
+    Image {
+        bytes: Vec<u8>,
+        content_type: Option<String>,
+    },
 }
 
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 type ProjectIconHttpFuture<'a> =
     Pin<Box<dyn Future<Output = Result<ProjectIconHttpHop, String>> + Send + 'a>>;
 
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 trait ProjectIconHttpTransport: Sync {
     fn fetch<'a>(&'a self, url: Url, timeout: Duration) -> ProjectIconHttpFuture<'a>;
 }
 
 #[derive(Clone, Copy, Debug)]
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 struct ReqwestProjectIconHttpTransport;
 
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 fn append_project_icon_response_chunk(bytes: &mut Vec<u8>, chunk: &[u8]) -> Result<(), String> {
     let next_length = bytes
         .len()
@@ -408,6 +439,7 @@ fn append_project_icon_response_chunk(bytes: &mut Vec<u8>, chunk: &[u8]) -> Resu
     Ok(())
 }
 
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 impl ProjectIconHttpTransport for ReqwestProjectIconHttpTransport {
     fn fetch<'a>(&'a self, url: Url, timeout: Duration) -> ProjectIconHttpFuture<'a> {
         Box::pin(async move {
@@ -436,6 +468,22 @@ impl ProjectIconHttpTransport for ReqwestProjectIconHttpTransport {
             if !response.status().is_success() {
                 return Err(format!("project icon URL returned {}", response.status()));
             }
+            let content_type = response
+                .headers()
+                .get(CONTENT_TYPE)
+                .map(|value| {
+                    value
+                        .to_str()
+                        .map(str::to_owned)
+                        .map_err(|_| "project icon response content type is invalid".to_string())
+                })
+                .transpose()?;
+            if content_type
+                .as_deref()
+                .is_some_and(|value| ManagedImageKind::from_mime_type(value).is_none())
+            {
+                return Err(project_icon_unsupported_type_error());
+            }
             if response
                 .content_length()
                 .is_some_and(|length| length > PROJECT_ICON_MAX_BYTES as u64)
@@ -451,11 +499,15 @@ impl ProjectIconHttpTransport for ReqwestProjectIconHttpTransport {
                 append_project_icon_response_chunk(&mut bytes, &chunk)?;
             }
             ensure_project_icon_size(&bytes)?;
-            Ok(ProjectIconHttpHop::Image(bytes))
+            Ok(ProjectIconHttpHop::Image {
+                bytes,
+                content_type,
+            })
         })
     }
 }
 
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 fn project_icon_remaining_timeout(started_at: Instant) -> Result<Duration, String> {
     PROJECT_ICON_DOWNLOAD_TIMEOUT
         .checked_sub(started_at.elapsed())
@@ -463,6 +515,7 @@ fn project_icon_remaining_timeout(started_at: Instant) -> Result<Duration, Strin
         .ok_or_else(|| "project icon download timed out".to_string())
 }
 
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 async fn download_project_icon_url_with_transport<T: ProjectIconHttpTransport>(
     transport: &T,
     url: &str,
@@ -478,8 +531,20 @@ async fn download_project_icon_url_with_transport<T: ProjectIconHttpTransport>(
         }
         let timeout = project_icon_remaining_timeout(started_at)?;
         match transport.fetch(current.clone(), timeout).await? {
-            ProjectIconHttpHop::Image(bytes) => {
-                sniff_project_icon_kind(&bytes)?;
+            ProjectIconHttpHop::Image {
+                bytes,
+                content_type,
+            } => {
+                let metadata = validate_project_icon_image(&bytes)?;
+                if content_type
+                    .as_deref()
+                    .is_some_and(|value| !metadata.kind.matches_mime_type(value))
+                {
+                    return Err(
+                        "project icon response MIME type does not match its image contents"
+                            .to_string(),
+                    );
+                }
                 return Ok(bytes);
             }
             ProjectIconHttpHop::Redirect(location) => {
@@ -497,10 +562,12 @@ async fn download_project_icon_url_with_transport<T: ProjectIconHttpTransport>(
     }
 }
 
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 async fn download_project_icon_url(url: &str) -> Result<Vec<u8>, String> {
     download_project_icon_url_with_transport(&ReqwestProjectIconHttpTransport, url).await
 }
 
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 #[tauri::command]
 pub async fn project_icon_pick_image_file<R: Runtime>(
     app: AppHandle<R>,
@@ -529,6 +596,7 @@ pub fn project_icon_save_image_data_url<R: Runtime>(
     save_project_icon_bytes(&app, bytes)
 }
 
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 #[tauri::command]
 pub async fn project_icon_download_image_url<R: Runtime>(
     app: AppHandle<R>,
@@ -538,6 +606,7 @@ pub async fn project_icon_download_image_url<R: Runtime>(
     save_project_icon_bytes(&app, bytes)
 }
 
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 #[tauri::command]
 pub fn project_icon_asset_path<R: Runtime>(
     app: AppHandle<R>,
@@ -637,39 +706,41 @@ mod tests {
         }
     }
 
-    fn png_signature() -> Vec<u8> {
-        vec![0x89, b'P', b'N', b'G', 0x0d, 0x0a, 0x1a, 0x0a]
+    fn png(width: u32, height: u32) -> Vec<u8> {
+        let mut bytes = vec![0; 33];
+        bytes[..8].copy_from_slice(b"\x89PNG\r\n\x1a\n");
+        bytes[8..12].copy_from_slice(&13u32.to_be_bytes());
+        bytes[12..16].copy_from_slice(b"IHDR");
+        bytes[16..20].copy_from_slice(&width.to_be_bytes());
+        bytes[20..24].copy_from_slice(&height.to_be_bytes());
+        bytes
     }
 
     #[test]
-    fn sniff_project_icon_kind_accepts_supported_images() {
+    fn project_icon_metadata_accepts_bounded_images() {
         assert_eq!(
-            sniff_project_icon_kind(&[0x89, b'P', b'N', b'G', 0x0d, 0x0a, 0x1a, 0x0a]).unwrap(),
-            ProjectIconImageKind::Png,
+            validate_project_icon_image(&png(4032, 3024)).unwrap().kind,
+            ManagedImageKind::Png
         );
-        assert_eq!(
-            sniff_project_icon_kind(&[0xff, 0xd8, 0xff, 0xdb]).unwrap(),
-            ProjectIconImageKind::Jpeg,
-        );
-        assert_eq!(
-            sniff_project_icon_kind(b"RIFFxxxxWEBPmore").unwrap(),
-            ProjectIconImageKind::Webp,
-        );
+        assert!(validate_project_icon_image(&png(5000, 4000)).is_err());
     }
 
     #[test]
-    fn sniff_project_icon_kind_rejects_unsupported_icon_images() {
+    fn project_icon_metadata_rejects_unsupported_icon_images() {
         let expected = project_icon_unsupported_type_error();
         assert_eq!(
-            sniff_project_icon_kind(b"GIF89amore").unwrap_err(),
+            validate_project_icon_image(b"GIF89amore").unwrap_err(),
             expected
         );
         assert_eq!(
-            sniff_project_icon_kind(br#"<svg xmlns="http://www.w3.org/2000/svg"></svg>"#)
+            validate_project_icon_image(br#"<svg xmlns="http://www.w3.org/2000/svg"></svg>"#)
                 .unwrap_err(),
             expected,
         );
-        assert_eq!(sniff_project_icon_kind(b"not-image").unwrap_err(), expected);
+        assert_eq!(
+            validate_project_icon_image(b"not-image").unwrap_err(),
+            expected
+        );
     }
 
     #[test]
@@ -688,22 +759,31 @@ mod tests {
 
     #[test]
     fn decode_project_icon_data_url_requires_base64_image() {
+        let bytes = png(100, 50);
         let data_url = format!(
             "data:image/png;base64,{}",
-            general_purpose::STANDARD.encode([0x89, b'P', b'N', b'G', 0x0d, 0x0a, 0x1a, 0x0a])
+            general_purpose::STANDARD.encode(&bytes)
         );
         assert!(decode_project_icon_data_url(&data_url).is_ok());
         assert!(decode_project_icon_data_url("data:text/plain;base64,SGk=").is_err());
+        assert_eq!(
+            decode_project_icon_data_url(&format!(
+                "data:image/jpeg;base64,{}",
+                general_purpose::STANDARD.encode(bytes)
+            ))
+            .unwrap_err(),
+            "project icon data URL MIME type does not match its image contents"
+        );
     }
 
     #[test]
     fn project_icon_data_url_uses_sniffed_image_mime_type() {
-        let bytes = [0x89, b'P', b'N', b'G', 0x0d, 0x0a, 0x1a, 0x0a];
+        let bytes = png(100, 50);
         assert_eq!(
             project_icon_data_url(&bytes).unwrap(),
             format!(
                 "data:image/png;base64,{}",
-                general_purpose::STANDARD.encode(bytes)
+                general_purpose::STANDARD.encode(&bytes)
             ),
         );
     }
@@ -868,10 +948,11 @@ mod tests {
 
     #[test]
     fn valid_public_project_icon_response_returns_sniffed_image() {
-        let expected = png_signature();
-        let transport = FakeProjectIconHttpTransport::new(vec![Ok(ProjectIconHttpHop::Image(
-            expected.clone(),
-        ))]);
+        let expected = png(100, 50);
+        let transport = FakeProjectIconHttpTransport::new(vec![Ok(ProjectIconHttpHop::Image {
+            bytes: expected.clone(),
+            content_type: Some("image/png".to_string()),
+        })]);
         let actual = tauri::async_runtime::block_on(download_project_icon_url_with_transport(
             &transport,
             "https://example.com/icon.png",
@@ -889,9 +970,10 @@ mod tests {
 
     #[test]
     fn successful_non_image_response_is_rejected_after_sniffing() {
-        let transport = FakeProjectIconHttpTransport::new(vec![Ok(ProjectIconHttpHop::Image(
-            b"remote secret error body".to_vec(),
-        ))]);
+        let transport = FakeProjectIconHttpTransport::new(vec![Ok(ProjectIconHttpHop::Image {
+            bytes: b"remote secret error body".to_vec(),
+            content_type: None,
+        })]);
         let error = tauri::async_runtime::block_on(download_project_icon_url_with_transport(
             &transport,
             "https://example.com/icon.png",
@@ -899,5 +981,22 @@ mod tests {
         .unwrap_err();
         assert_eq!(error, project_icon_unsupported_type_error());
         assert!(!error.contains("remote secret error body"));
+    }
+
+    #[test]
+    fn successful_image_response_rejects_mime_signature_mismatch() {
+        let transport = FakeProjectIconHttpTransport::new(vec![Ok(ProjectIconHttpHop::Image {
+            bytes: png(100, 50),
+            content_type: Some("image/jpeg; charset=binary".to_string()),
+        })]);
+        let error = tauri::async_runtime::block_on(download_project_icon_url_with_transport(
+            &transport,
+            "https://example.com/icon.png",
+        ))
+        .unwrap_err();
+        assert_eq!(
+            error,
+            "project icon response MIME type does not match its image contents"
+        );
     }
 }

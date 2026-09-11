@@ -221,7 +221,6 @@ describe("computePlannedSegments", () => {
     // Block A: 120 min, Block B: 240 min (sequential, A ends where B starts)
     // Block C: 120 min, overlapping A and B (starts 20 min before A ends)
     // Block B should inherit from Block A, not Block C.
-    const blockA = computePlannedSegments(DEFAULT_CONFIG, 120);
     const trailingA = computeTrailingRhythmState(DEFAULT_CONFIG, 120);
     const trailingFocusA = trailingA.focusOffsetMinutes;
     const trailingPositionA = trailingA.rhythmPosition;
@@ -230,7 +229,6 @@ describe("computePlannedSegments", () => {
     const blockB = computePlannedSegments(DEFAULT_CONFIG, 240, trailingFocusA, trailingPositionA);
 
     // Block C inheriting from Block A (stacked event)
-    const blockC = computePlannedSegments(DEFAULT_CONFIG, 120, trailingFocusA, trailingPositionA);
     const trailingC = computeTrailingRhythmState(
       DEFAULT_CONFIG,
       120,
@@ -352,13 +350,13 @@ describe("computeDayTimelineBands", () => {
     expect(bBands[0].phase).toBe("short_break");
   });
 
-  it("filters out contained events", () => {
+  it("keeps the projected owner when a later nested event begins", () => {
     // A: 10:00-12:00 (deep, longer), B: 10:30-11:30 (creative, shorter, contained)
     const A = makeEvent("A", 10, 12);
     const B = makeEvent("B", 10.5, 11.5, CREATIVE_CONFIG);
     const bands = computeDayTimelineBands([A, B], null, DAY_MS, PAST_NOW);
 
-    // Only A's bands should appear, B is contained and filtered out
+    // A is already the proposed owner when B begins, so it keeps this window.
     // A: 120min, focus 0-40, break 40-45, focus 45-85, break 85-90
     expect(bands.length).toBe(2);
     expect(bands[0].topMinute).toBe(640); // 600+40
@@ -378,17 +376,61 @@ describe("computeDayTimelineBands", () => {
     expect(cBands.length).toBeGreaterThanOrEqual(0); // C may produce bands after A
   });
 
-  it("same-range events: shorter focus is main", () => {
+  it("uses stable identity for equal windows regardless of rhythm or input order", () => {
     // A: Deep (40min focus), B: Creative (25min focus), both 16:00-20:00
     const A = makeEvent("A", 16, 20);
     const B = makeEvent("B", 16, 20, CREATIVE_CONFIG);
     const bands = computeDayTimelineBands([A, B], null, DAY_MS, PAST_NOW);
 
-    // B (creative, 25min focus) is main (shorter focus). A is contained.
-    // B: 240min with creative config (25/5/15, count=4)
-    // Breaks at: 25, 55, 85, long at 115 (position 4).
-    expect(bands[0].topMinute).toBe(960 + 25); // 16*60 + 25
+    expect(bands).toEqual(computeDayTimelineBands([B, A], null, DAY_MS, PAST_NOW));
+    expect(bands[0].topMinute).toBe(960 + 40);
     expect(bands[0].heightMinutes).toBe(5);
+  });
+
+  it("uses creation identity before occurrence identity for equal windows", () => {
+    const A = { ...makeEvent("A", 16, 20), createdAt: "2026-03-20T00:00:00Z" };
+    const B = { ...makeEvent("B", 16, 20, CREATIVE_CONFIG), createdAt: "2026-03-19T00:00:00Z" };
+
+    const bands = computeDayTimelineBands([A, B], null, DAY_MS, PAST_NOW);
+    expect(bands[0].topMinute).toBe(960 + 25);
+    expect(bands).toEqual(computeDayTimelineBands([B, A], null, DAY_MS, PAST_NOW));
+  });
+
+  it("selects the nested commitment at a late start and hands back the remaining outer window", () => {
+    const outer = makeEvent("outer", 9, 12);
+    const nested = makeEvent("nested", 10, 11, CREATIVE_CONFIG);
+    const nowMs = DAY_MS + (10 * 60 + 15) * 60_000;
+
+    const bands = computeDayTimelineBands([outer, nested], null, DAY_MS, nowMs);
+    expect(bands[0]).toEqual({
+      topMinute: 640, heightMinutes: 5, phase: "short_break", status: "planned",
+    });
+    expect(bands.filter((band) => band.topMinute >= 660)[0].topMinute).toBe(685);
+    expect(bands).toEqual(computeDayTimelineBands([nested, outer], null, DAY_MS, nowMs));
+  });
+
+  it("preserves an accepted nested owner and its recorded focus", () => {
+    const outer = makeEvent("outer", 9, 12);
+    const nested = makeEvent("nested", 10, 11, CREATIVE_CONFIG);
+    const startedAt = DAY_MS + 10 * 60 * 60_000;
+    const active: ActivePomodoroState = {
+      activeBlockId: nested.id,
+      remainingSeconds: 10 * 60,
+      breakOvertimeSeconds: 0,
+      segments: [{
+        id: "accepted", runId: "run", eventId: nested.id, eventDate: "2026-03-21",
+        phase: "focus", rhythmPosition: 1, status: "active", pauseLog: [],
+        plannedStart: new Date(startedAt).toISOString(),
+        plannedEnd: new Date(startedAt + 25 * 60_000).toISOString(),
+        actualStart: new Date(startedAt).toISOString(), actualEnd: null,
+      }],
+    };
+
+    const bands = computeDayTimelineBands([outer, nested], active, DAY_MS, startedAt + 15 * 60_000);
+    expect(bands[0]).toEqual({
+      topMinute: 600, heightMinutes: 15, phase: "focus", status: "active",
+    });
+    expect(bands.find((band) => band.status === "planned")?.topMinute).toBe(625);
   });
 
   it("skips fully past planned events", () => {

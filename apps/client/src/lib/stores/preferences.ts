@@ -29,7 +29,7 @@ export {
  * the theme system (font family, font scale, density). Themes may ship a
  * recommended pair of these, but the active values stay user-controlled.
  *
- * See `docs/features/themes.md`, section "Typography and density".
+ * See `docs/features/themes/README.md`, section "Typography and density".
  */
 
 export type FontFamilyId = string;
@@ -345,16 +345,4 @@ export function parseTitleBarVisibility(value: unknown): TitleBarVisibility {
     }
   }
   return visibility;
-}
-
-export function shouldNormalizeTitleBarVisibility(value: unknown): boolean {
-  if (value === undefined) return false;
-  if (typeof value !== "object" || value === null || Array.isArray(value)) return true;
-
-  const validIds = new Set<string>(TITLE_BAR_CONTROL_IDS);
-  const record = value as Record<string, unknown>;
-  for (const [key, stored] of Object.entries(record)) {
-    if (!validIds.has(key) || typeof stored !== "boolean") return true;
-  }
-  return false;
 }

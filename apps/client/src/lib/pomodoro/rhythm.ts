@@ -33,6 +33,12 @@ export interface SequencePomodoroRhythm {
   steps: SequencePomodoroRhythmStep[];
 }
 
+export interface SequencePomodoroRhythmSummary {
+  stepCount: number;
+  focusMinutes: number;
+  breakMinutes: number;
+}
+
 export type PomodoroRhythm = CountPomodoroRhythm | SequencePomodoroRhythm;
 
 export interface PomodoroConfig {
@@ -144,6 +150,17 @@ export function createCustomSequencePomodoroConfig(
     presetKey: null,
     idleTimeoutMinutes,
   };
+}
+
+/** Summarizes the complete duration represented by one sequence cycle. */
+export function summarizeSequencePomodoroRhythm(
+  steps: readonly SequencePomodoroRhythmStep[],
+): SequencePomodoroRhythmSummary {
+  return steps.reduce<SequencePomodoroRhythmSummary>((summary, step) => ({
+    stepCount: summary.stepCount + 1,
+    focusMinutes: summary.focusMinutes + step.focusDurationMinutes,
+    breakMinutes: summary.breakMinutes + step.breakDurationMinutes,
+  }), { stepCount: 0, focusMinutes: 0, breakMinutes: 0 });
 }
 
 export function clonePomodoroConfig(config: PomodoroConfig): PomodoroConfig {

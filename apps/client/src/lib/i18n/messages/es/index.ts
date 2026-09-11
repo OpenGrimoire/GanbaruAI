@@ -5,9 +5,10 @@ import { calendar } from "./calendar";
 import { chat } from "./chat";
 import { common } from "./common";
 import { diagnostics } from "./diagnostics";
-import { focusDialog, pomodoroOverlay } from "./focus";
+import { focusDialog, pomodoroNotification, pomodoroOverlay } from "./focus";
 import { format } from "./format";
 import { music } from "./music";
+import { mobile } from "./mobile";
 import { notes } from "./notes";
 import { projects } from "./projects";
 import { quickNotes } from "./quick-notes";
@@ -26,6 +27,7 @@ export const es = {
   language,
   focusDialog,
   pomodoroOverlay,
+  pomodoroNotification,
   calendar,
   chat,
   settings,
@@ -36,6 +38,7 @@ export const es = {
   projects,
   quickNotes,
   music,
+  mobile,
   titleBar,
   format,
   theme,

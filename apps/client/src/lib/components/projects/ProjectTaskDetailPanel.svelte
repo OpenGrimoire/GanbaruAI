@@ -7,6 +7,8 @@
     selectDateRangeStart,
   } from "$lib/calendar/date-range-selection";
   import { getLocalization } from "$lib/i18n/translator.svelte";
+  import { activateModalFocus } from "$lib/modal-focus";
+  import { BUILD_PLATFORM_PROFILE, platformHasCapability } from "$lib/platform";
   import type {
     ProjectChecklistItem,
     ProjectCustomField,
@@ -20,6 +22,7 @@
   } from "$lib/projects/types";
   import { getCalendar } from "$lib/stores/calendar.svelte";
   import { getProjects } from "$lib/stores/projects.svelte";
+  import { getMobileBackStack } from "$lib/stores/mobile-back-stack.svelte";
   import { getTheme } from "$lib/stores/theme.svelte";
   import { cn } from "$lib/utils";
   import type { ProjectTaskModalLayout } from "$lib/projects/project-toolbar";
@@ -29,6 +32,8 @@
     parentTaskCandidateTasks as buildParentTaskCandidateTasks,
     projectTaskDetailCustomFieldDirty,
     projectTaskDetailCustomFieldDrafts,
+    projectTaskDetailMergeSavedCustomFieldDraft,
+    projectTaskDetailCustomFieldRawDraft,
     projectTaskDetailCustomFieldSaveDraft,
     projectTaskDetailDraftDirty,
     projectTaskDetailDraftFromTask,
@@ -73,8 +78,14 @@
   const calendar = getCalendar();
   const theme = getTheme();
   const { t } = getLocalization();
+  const mobileBackStack = getMobileBackStack();
+  const androidSystemBackAvailable = platformHasCapability(
+    BUILD_PLATFORM_PROFILE,
+    "system.android-back",
+  );
 
   let detailDraftTaskId = $state<string | null>(null);
+  let detailDialog = $state<HTMLDivElement | null>(null);
   let detailDraftUpdatedAt = $state<string | null>(null);
   let detailTitle = $state("");
   let detailDescription = $state("");
@@ -106,6 +117,8 @@
   let customFieldCheckboxDrafts = $state<Record<string, boolean>>({});
   let customFieldSelectDrafts = $state<Record<string, string>>({});
   let customFieldMultiDrafts = $state<Record<string, string[]>>({});
+  const customFieldSaveGenerations = new Map<string, number>();
+  const customFieldSaveQueues = new Map<string, Promise<void>>();
   let dependencySearch = $state("");
   let parentTaskSearch = $state("");
 
@@ -153,7 +166,7 @@
     if (!selectedTask) return;
     if (
       detailDraftTaskId !== selectedTask.id
-      || (!detailDirty && detailDraftUpdatedAt !== selectedTask.updatedAt)
+      || (!detailHasUnsavedEdits && detailDraftUpdatedAt !== selectedTask.updatedAt)
     ) {
       loadTaskDetailDraft(selectedTask);
     }
@@ -317,6 +330,36 @@
     closeTaskDetailImmediately();
   }
 
+  $effect(() => {
+    if (!androidSystemBackAvailable) return;
+    return mobileBackStack.activate({
+      handle: requestTaskDetailClose,
+    });
+  });
+
+  $effect(() => {
+    if (!androidSystemBackAvailable || !datePickerTarget) return;
+    return mobileBackStack.activate({
+      handle: () => {
+        datePickerTarget = null;
+      },
+    });
+  });
+
+  $effect(() => {
+    if (!androidSystemBackAvailable || !customFieldDatePickerTarget) return;
+    return mobileBackStack.activate({
+      handle: () => {
+        customFieldDatePickerTarget = null;
+      },
+    });
+  });
+
+  $effect(() => {
+    if (!selectedTask || !detailDialog || discardCloseConfirmOpen) return;
+    return activateModalFocus(detailDialog);
+  });
+
   function confirmDiscardTaskDetail(): void {
     discardCloseConfirmOpen = false;
     const nextTaskId = pendingTaskOpenId;
@@ -432,10 +475,19 @@
 
   async function saveTaskCustomField(task: ProjectTask, field: ProjectCustomField): Promise<void> {
     detailError = null;
+    const requestKey = `${task.id}:${field.id}`;
+    const requestGeneration = (customFieldSaveGenerations.get(requestKey) ?? 0) + 1;
+    customFieldSaveGenerations.set(requestKey, requestGeneration);
+    const submittedDrafts = currentCustomFieldDrafts();
+    const submittedRawDraft = projectTaskDetailCustomFieldRawDraft({
+      field,
+      drafts: submittedDrafts,
+    });
+    let saveRequest: Promise<void> | null = null;
     try {
       const draft = projectTaskDetailCustomFieldSaveDraft({
         field,
-        drafts: currentCustomFieldDrafts(),
+        drafts: submittedDrafts,
       });
       if (!draft.ok) {
         detailError = draft.reason === "invalid-number"
@@ -443,17 +495,44 @@
           : t("projects.detail.invalidDate");
         return;
       }
-      await projects.saveCustomFieldValue({
-        taskId: task.id,
-        fieldId: field.id,
-        ...draft.value,
+      const previousSave = customFieldSaveQueues.get(requestKey) ?? Promise.resolve();
+      saveRequest = previousSave
+        .catch(() => undefined)
+        .then(() => projects.saveCustomFieldValue({
+          taskId: task.id,
+          fieldId: field.id,
+          ...draft.value,
+        }));
+      customFieldSaveQueues.set(requestKey, saveRequest);
+      await saveRequest;
+      if (selectedTask?.id !== task.id) return;
+      const mergedDrafts = projectTaskDetailMergeSavedCustomFieldDraft({
+        field,
+        drafts: currentCustomFieldDrafts(),
+        saved: draft.value,
+        submittedRawDraft,
+        requestGeneration,
+        latestRequestGeneration: customFieldSaveGenerations.get(requestKey) ?? 0,
       });
-      loadTaskDetailDraft(task);
+      customFieldTextDrafts = mergedDrafts.textDrafts;
+      customFieldNumberDrafts = mergedDrafts.numberDrafts;
+      customFieldDateDrafts = mergedDrafts.dateDrafts;
+      customFieldCheckboxDrafts = mergedDrafts.checkboxDrafts;
+      customFieldSelectDrafts = mergedDrafts.selectDrafts;
+      customFieldMultiDrafts = mergedDrafts.multiDrafts;
     } catch (error) {
+      if (
+        customFieldSaveGenerations.get(requestKey) !== requestGeneration
+        || selectedTask?.id !== task.id
+      ) return;
       detailError = t(
         "projects.customFields.valueSaveFailed",
         error instanceof Error ? error.message : String(error),
       );
+    } finally {
+      if (saveRequest && customFieldSaveQueues.get(requestKey) === saveRequest) {
+        customFieldSaveQueues.delete(requestKey);
+      }
     }
   }
 
@@ -681,16 +760,23 @@
     <!-- svelte-ignore a11y_no_static_element_interactions -->
     <div
       class="fixed inset-0 z-70 flex items-center justify-center bg-black/30 p-3"
+      style={androidSystemBackAvailable
+        ? "padding: calc(var(--safe-area-top) + 0.75rem) calc(var(--safe-area-right) + 0.75rem) calc(var(--safe-area-bottom) + 0.75rem) calc(var(--safe-area-left) + 0.75rem)"
+        : undefined}
       onclick={requestTaskDetailClose}
     >
     <div
+      bind:this={detailDialog}
       class={cn(
-        "flex min-h-0 flex-col overflow-hidden border border-border bg-card text-card-foreground",
-        layout === "fullscreen" && "h-[calc(100dvh-1rem)] w-[calc(100vw-1rem)] rounded-md",
+        "task-detail-dialog",
+        "flex max-h-full max-w-full min-h-0 flex-col overflow-hidden border border-border bg-card text-card-foreground",
+        layout === "fullscreen" && androidSystemBackAvailable && "h-full w-full rounded-md",
+        layout === "fullscreen" && !androidSystemBackAvailable && "h-[calc(100dvh-1rem)] w-[calc(100vw-1rem)] rounded-md",
         layout === "sheet" && "h-[min(88dvh,48rem)] w-[calc(100vw-1rem)] max-w-3xl rounded-md",
         layout === "modal" && "h-[min(86dvh,54rem)] w-[min(56rem,calc(100vw-2rem))] rounded-md",
       )}
       role="dialog"
+      data-mobile={androidSystemBackAvailable || undefined}
       aria-modal="true"
       aria-label={t("projects.detail.title")}
       tabindex="-1"
@@ -954,5 +1040,12 @@
 
   .task-detail-section-first {
     padding-top: 0;
+  }
+
+  .task-detail-dialog[data-mobile="true"] :global(button),
+  .task-detail-dialog[data-mobile="true"] :global(input),
+  .task-detail-dialog[data-mobile="true"] :global(select),
+  .task-detail-dialog[data-mobile="true"] :global(textarea) {
+    min-height: 3rem;
   }
 </style>

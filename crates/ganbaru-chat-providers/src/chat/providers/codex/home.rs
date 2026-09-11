@@ -13,6 +13,7 @@ use std::path::{Component, Path, PathBuf};
 const MAX_CUSTOM_MODELS: usize = 128;
 const MAX_CUSTOM_MODEL_BYTES: usize = 256;
 const MAX_CUSTOM_MODEL_LABEL_BYTES: usize = 160;
+#[cfg(windows)]
 const MAX_SHIM_BYTES: u64 = 64 * 1024;
 const SHARED_DIRECTORY_NAMES: &[&str] = &[
     "sessions",
@@ -107,10 +108,6 @@ pub struct CodexHomeLayout {
 }
 
 impl CodexHomeLayout {
-    pub fn continuation_group(&self) -> ChatResult<ContinuationGroupId> {
-        self.continuation_group_with_authority(false)
-    }
-
     pub fn continuation_group_with_authority(
         &self,
         organizational_authority: bool,

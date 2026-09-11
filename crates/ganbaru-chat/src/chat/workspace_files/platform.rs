@@ -4,7 +4,7 @@ use super::*;
 mod portable;
 #[cfg(unix)]
 mod unix;
-#[cfg(windows)]
+#[cfg(any(windows, test))]
 mod windows;
 
 #[cfg(not(any(unix, windows)))]

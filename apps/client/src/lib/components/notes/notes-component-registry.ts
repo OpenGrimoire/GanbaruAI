@@ -2,6 +2,7 @@ import {
   createLazyComponentLoader,
   type LazyComponentImporter,
 } from "$lib/lazy-component-loader";
+import { importNotesProjectVersionHistoryModal } from "$lib/components/notes/notes-project-platform-importers";
 
 export type NotesSurfaceKind = "archive" | "trash";
 
@@ -12,7 +13,8 @@ export type LoadedNotesSurface =
 export type NotesOptionalComponentKind =
   | "project-history"
   | "confirm-dialog"
-  | "destination-picker";
+  | "destination-picker"
+  | "mobile-project-picker";
 
 export type LoadedNotesOptionalComponent =
   | {
@@ -26,6 +28,11 @@ export type LoadedNotesOptionalComponent =
   | {
       kind: "destination-picker";
       component: typeof import("./NotesDestinationPickerList.svelte").default;
+    }
+  | {
+      kind: "mobile-project-picker";
+      dialog: typeof import("$lib/components/projects/ProjectPickerMobileDialog.svelte").default;
+      panels: typeof import("$lib/components/projects/ProjectPickerPanels.svelte").default;
     };
 
 const SURFACE_IMPORTERS = {
@@ -36,7 +43,7 @@ const SURFACE_IMPORTERS = {
 } satisfies Readonly<Record<NotesSurfaceKind, LazyComponentImporter<LoadedNotesSurface>>>;
 
 const OPTIONAL_IMPORTERS = {
-  "project-history": () => import("./NotesProjectVersionHistoryModal.svelte")
+  "project-history": () => importNotesProjectVersionHistoryModal()
     .then((module) => ({
       default: { kind: "project-history" as const, component: module.default },
     })),
@@ -48,6 +55,16 @@ const OPTIONAL_IMPORTERS = {
     .then((module) => ({
       default: { kind: "destination-picker" as const, component: module.default },
     })),
+  "mobile-project-picker": () => Promise.all([
+    import("$lib/components/projects/ProjectPickerMobileDialog.svelte"),
+    import("$lib/components/projects/ProjectPickerPanels.svelte"),
+  ]).then(([dialogModule, panelsModule]) => ({
+    default: {
+      kind: "mobile-project-picker" as const,
+      dialog: dialogModule.default,
+      panels: panelsModule.default,
+    },
+  })),
 } satisfies Readonly<Record<
   NotesOptionalComponentKind,
   LazyComponentImporter<LoadedNotesOptionalComponent>

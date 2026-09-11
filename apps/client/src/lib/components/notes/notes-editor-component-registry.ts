@@ -4,6 +4,11 @@ import {
 } from "$lib/lazy-component-loader";
 import type { NotesDatabaseViewKind } from "$lib/notes/database-view-kind";
 import type { NotesBlockType } from "$lib/notes/types";
+import {
+  importNotesAgentBridgeExportDialog,
+  importNotesDatabaseCsvExportPanel,
+  importNotesHtmlExportDialog,
+} from "$lib/components/notes/notes-editor-platform-importers";
 
 export type LoadedNotesDatabaseView =
   | { kind: "table"; component: typeof import("./NotesDatabaseTableView.svelte").default }
@@ -186,13 +191,13 @@ const EDITOR_PANEL_IMPORTERS = {
     .then((module) => ({ default: { kind: "page-cover" as const, component: module.default } })),
   "cover-menu": () => import("./NotesPageCoverMenu.svelte")
     .then((module) => ({ default: { kind: "cover-menu" as const, component: module.default } })),
-  "html-export": () => import("./NotesHtmlExportDialog.svelte")
+  "html-export": () => importNotesHtmlExportDialog()
     .then((module) => ({ default: { kind: "html-export" as const, component: module.default } })),
-  "agent-export": () => import("./NotesAgentBridgeExportDialog.svelte")
+  "agent-export": () => importNotesAgentBridgeExportDialog()
     .then((module) => ({ default: { kind: "agent-export" as const, component: module.default } })),
   "database-csv-import": () => import("./NotesDatabaseCsvImportPanel.svelte")
     .then((module) => ({ default: { kind: "database-csv-import" as const, component: module.default } })),
-  "database-csv-export": () => import("./NotesDatabaseCsvExportPanel.svelte")
+  "database-csv-export": () => importNotesDatabaseCsvExportPanel()
     .then((module) => ({ default: { kind: "database-csv-export" as const, component: module.default } })),
   "page-history": () => import("./NotesPageVersionHistoryModal.svelte")
     .then((module) => ({ default: { kind: "page-history" as const, component: module.default } })),

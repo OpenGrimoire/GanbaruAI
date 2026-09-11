@@ -6,10 +6,17 @@ import { getMusicPlayer } from "$lib/stores/music-player.svelte";
 import { getPreferences } from "$lib/stores/preferences.svelte";
 import { createPomodoroNativeTrayPolicy } from "./pomodoro-native-update-policy";
 import { shouldResumePomodoroPausedMusic } from "$lib/music/music-automation-ownership";
+import type {
+  PomodoroEffects,
+  PomodoroEffectsContext,
+  PomodoroTrayUpdateOptions,
+} from "./pomodoro-effects-contracts";
 
-interface PomodoroTrayUpdateOptions {
-  publishSnapshot?: boolean;
-}
+export type {
+  PomodoroEffects,
+  PomodoroEffectsContext,
+  PomodoroTrayUpdateOptions,
+} from "./pomodoro-effects-contracts";
 
 interface PomodoroTrayUpdatePayload {
   phase: PomodoroPhase;
@@ -20,42 +27,6 @@ interface PomodoroTrayUpdatePayload {
   canPauseResume: boolean;
   canAddFocusTime: boolean;
   pausedPulseFrame: number | null;
-}
-
-export interface PomodoroEffectsContext {
-  isCoordinator(): boolean;
-  phase(): PomodoroPhase;
-  remainingSeconds(): number;
-  totalSeconds(): number;
-  isRunning(): boolean;
-  phaseEndTime(): number | null;
-  isActive(): boolean;
-  canPauseResume(): boolean;
-  canAddFocusTime(): boolean;
-  pausedFocusPulseActive(): boolean;
-  notificationShown(): boolean;
-  setNotificationShown(value: boolean): void;
-  publishWindowSnapshot(): void;
-  writeDoomscrollingRuntimeState(force?: boolean): void;
-  initListeners(): void;
-}
-
-export interface PomodoroEffects {
-  currentPausedTrayPulseFrame(): number | null;
-  currentPausedPulseAmount(): number | null;
-  clearBreakEndWarning(): void;
-  scheduleBreakEndWarning(): void;
-  clearMusicPausedByPomodoro(): void;
-  pauseMusicForPomodoroPause(): void;
-  resumeMusicFromPomodoroPause(): void;
-  resetPausedFocusNotificationState(): void;
-  suppressPausedFocusNotificationsForCurrentPause(): void;
-  updateTray(options?: PomodoroTrayUpdateOptions): void;
-  showBreakOverlay(breakSeconds: number): void;
-  closePomodoroOverlay(): void;
-  showNotification(): void;
-  playBreakFinishedAlert(): void;
-  startConfiguredBreakFinishedAlertInterval(): ReturnType<typeof setInterval> | null;
 }
 
 const PAUSED_PULSE_AMOUNTS = [
@@ -174,6 +145,7 @@ export function createPomodoroEffects(context: PomodoroEffectsContext): Pomodoro
   function updateTray(options: PomodoroTrayUpdateOptions = {}): void {
     if (options.publishSnapshot !== false) context.publishWindowSnapshot();
     if (!context.isCoordinator()) return;
+    if (!context.desktopIntegrationsAvailable()) return;
     context.writeDoomscrollingRuntimeState();
     syncPausedTrayPulse();
     syncPausedFocusNotification();
@@ -237,7 +209,8 @@ export function createPomodoroEffects(context: PomodoroEffectsContext): Pomodoro
 
   function pauseMusicForPomodoroPause(): void {
     if (
-      !context.isCoordinator()
+      !context.desktopIntegrationsAvailable()
+      || !context.isCoordinator()
       || context.phase() !== "focus"
       || !context.isActive()
       || !getPreferences().musicPauseOnPomodoroPause
@@ -264,7 +237,11 @@ export function createPomodoroEffects(context: PomodoroEffectsContext): Pomodoro
   function resumeMusicFromPomodoroPause(): void {
     if (!musicPausedByPomodoroPause) return;
     musicPausedByPomodoroPause = false;
-    if (!context.isCoordinator() || !getPreferences().musicPauseOnPomodoroPause) {
+    if (
+      !context.desktopIntegrationsAvailable()
+      || !context.isCoordinator()
+      || !getPreferences().musicPauseOnPomodoroPause
+    ) {
       clearMusicPausedByPomodoro();
       return;
     }
@@ -292,6 +269,7 @@ export function createPomodoroEffects(context: PomodoroEffectsContext): Pomodoro
   }
 
   function showBreakOverlay(breakSeconds: number): void {
+    if (!context.desktopIntegrationsAvailable()) return;
     context.initListeners();
     const breakEndsAtMs = Math.max(
       0,
@@ -308,6 +286,7 @@ export function createPomodoroEffects(context: PomodoroEffectsContext): Pomodoro
   }
 
   function closePomodoroOverlay(): void {
+    if (!context.desktopIntegrationsAvailable()) return;
     invoke("close_pomodoro_overlay").catch((e) =>
       console.warn("Failed to close pomodoro overlay:", e),
     );
@@ -316,6 +295,7 @@ export function createPomodoroEffects(context: PomodoroEffectsContext): Pomodoro
   function showNotification(): void {
     if (context.notificationShown()) return;
     context.setNotificationShown(true);
+    if (!context.desktopIntegrationsAvailable()) return;
 
     invoke("show_pomodoro_notification", {
       remainingSeconds: 60,
@@ -327,10 +307,12 @@ export function createPomodoroEffects(context: PomodoroEffectsContext): Pomodoro
   }
 
   function playBreakFinishedAlert(): void {
+    if (!context.desktopIntegrationsAvailable()) return;
     playAppSound(APP_SOUND_IDS.breakFinished).catch(() => {});
   }
 
   function startConfiguredBreakFinishedAlertInterval(): ReturnType<typeof setInterval> | null {
+    if (!context.desktopIntegrationsAvailable()) return null;
     const repeatSeconds = getPreferences().focusBreakFinishedRepeatSeconds;
     if (repeatSeconds <= 0) return null;
     return setInterval(playBreakFinishedAlert, repeatSeconds * 1000);

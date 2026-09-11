@@ -195,7 +195,7 @@ describe("ChatComposerController", () => {
   it("supersedes a bind that is still flushing the previous draft", async () => {
     let resolveSave: ((value: ChatDraftRead) => void) | undefined;
     const api = fakeApi({
-      save: vi.fn((value) => new Promise<ChatDraftRead>((resolve) => {
+      save: vi.fn(() => new Promise<ChatDraftRead>((resolve) => {
         resolveSave = resolve;
       })),
       read: vi.fn(async (id) => draft({

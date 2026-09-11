@@ -9,6 +9,7 @@ export const calendar = {
     workCycleView: "Work cycle view",
     weekView: "Week view",
     monthView: "Month view",
+    views: "Calendar views",
     zoomOut: "Zoom out",
     zoomOutTitle: "Zoom out (Shift + -)",
     zoomIn: "Zoom in",
@@ -18,6 +19,10 @@ export const calendar = {
     readOnly: "read-only",
     settings: "Settings",
   },
+  timePicker: {
+    durationHours: (hours: string, singular: boolean) => `${hours} ${singular ? "hr" : "hrs"}`,
+  },
+  moreEvents: (count: string) => `+${count} more`,
   recurrence: {
     daily: "Daily",
     weekly: "Weekly",
@@ -103,6 +108,18 @@ export const calendar = {
     before: "before",
     custom: "Custom",
     removeCustom: "Remove custom notification",
+    androidChannelName: "Calendar events",
+    androidChannelDescription: "Reminders for upcoming Ganbaru AI calendar events",
+    permissionRequired:
+      "Android notifications are off. Allow them to receive event reminders when Ganbaru AI is closed.",
+    exactAlarmRequired:
+      "Android exact alarms are off. Reminders can arrive late until Alarms and reminders access is allowed.",
+    channelRestricted:
+      "Android has muted or disabled the Calendar reminder channel. Update its sound settings to receive audible reminders.",
+    allowNotifications: "Allow notifications",
+    openNotificationSettings: "Open notification settings",
+    allowExactAlarms: "Allow exact alarms",
+    openSoundSettings: "Open sound settings",
   },
   pomodoro: {
     title: "Pomodoro",
@@ -122,6 +139,15 @@ export const calendar = {
     longBreakCompact: "LB",
     longBreakAfter: "Long break after",
     cycleCompact: "C",
+    sequenceSummary: (
+      steps: string,
+      singular: boolean,
+      focusMinutes: string,
+      breakMinutes: string,
+    ) => `Sequence (${steps} ${singular ? "step" : "steps"}, ${focusMinutes} min focus, ${breakMinutes} min break)`,
+    sequencePreserved: (count: string, _singular: boolean) =>
+      `${count}-step sequence preserved`,
+    convertSequenceToSimple: "Convert to simple rhythm",
     pauseOnInactivity: "Pause on inactivity",
   },
   meeting: {
@@ -139,7 +165,7 @@ export const calendar = {
     seeList: "See list",
     seeGuestList: "See guest list",
     youWithEmail: (email: string) => `You (${email})`,
-    youLocalNoEmail: "You (Local, no email provided)",
+    youLocalNoEmail: "You (no email provided)",
     organizer: "organizer",
     statusPending: "pending",
     statusAccepted: "accepted",
@@ -208,6 +234,7 @@ export const calendar = {
     following: "Following",
     all: "All",
     titlePlaceholder: "Session title...",
+    metadataControls: "Event timing and visibility",
     allDay: "All day",
     timed: "Timed",
     busy: "Busy",

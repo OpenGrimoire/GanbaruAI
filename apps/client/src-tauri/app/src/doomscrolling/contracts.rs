@@ -111,7 +111,6 @@ pub struct DoomscrollingForegroundDesktopAppExpectation {
     pub(crate) app_name: Option<String>,
     pub(crate) process_name: Option<String>,
     pub(crate) process_id: Option<u32>,
-    #[serde(default)]
     pub(crate) match_names: Vec<String>,
 }
 

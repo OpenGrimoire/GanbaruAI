@@ -714,7 +714,7 @@ fn deletion_requires_current_impact_and_repairs_assignments_atomically() {
 }
 
 #[test]
-fn legacy_deferred_review_items_remain_visible_before_and_after_their_optional_date() {
+fn deferred_review_items_remain_visible_before_and_after_their_optional_date() {
     tauri::async_runtime::block_on(async {
         let pool = pool().await;
         seed_item(&pool, "item-1", "local:item-1").await;

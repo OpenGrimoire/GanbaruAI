@@ -12,7 +12,6 @@ import {
   middleTruncate,
   panelSizeWithCollapseSnap,
   panelWidthFromKey,
-  preferredPanelWidth,
   type ChatLayoutVariant,
 } from "./responsive-layout";
 
@@ -209,12 +208,6 @@ describe("Chat responsive layout", () => {
     expect(resize("End")).toBe(520);
     expect(resize("Enter")).toBe(260);
     expect(resize("Escape")).toBeNull();
-  });
-
-  it("uses cached custom panel widths on the first layout", () => {
-    expect(preferredPanelWidth(412, 260, 320)).toBe(412);
-    expect(preferredPanelWidth(260, 260, 320)).toBe(320);
-    expect(preferredPanelWidth(undefined, 260, 320)).toBe(320);
   });
 
   it("aligns pointer resize dimensions and fractional bounds to whole pixels", () => {

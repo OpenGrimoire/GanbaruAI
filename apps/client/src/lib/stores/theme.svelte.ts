@@ -41,7 +41,6 @@ import {
   toUserThemeSnapshot,
 } from "./themeOperations";
 import { getConfigKey, setConfigKey } from "../vault/config";
-import { emit, listen } from "@tauri-apps/api/event";
 import {
   deleteTheme as dbDeleteTheme,
   insertTheme as dbInsertTheme,
@@ -58,6 +57,10 @@ import {
   isForeignWindowSyncEnvelope,
   isWindowSyncEnvelope,
 } from "$lib/window-sync";
+import {
+  emitWindowSync,
+  listenWindowSync,
+} from "$lib/window-sync-transport";
 
 const ACTIVE_KEY = "theme.activeId";
 const QUICK_TOGGLE_LIGHT_KEY = "theme.quickToggleLightId";
@@ -150,7 +153,13 @@ function applyThemeToDom(): void {
   const theme = resolveActive();
   const root = document.documentElement;
   try {
-    root.classList.toggle("dark", isThemeDark(theme));
+    const dark = isThemeDark(theme);
+    root.classList.toggle("dark", dark);
+    try {
+      window.GanbaruAndroidAppearance?.setLightTheme(!dark);
+    } catch (error) {
+      console.warn("Android system-bar appearance update failed", error);
+    }
     const { toSet, toClear, applied } = computeThemeTokenOps(
       theme,
       appliedTokenKeys,
@@ -192,7 +201,7 @@ function applyThemeSyncPayload(payload: ThemeWindowSyncPayload): void {
 }
 
 function publishThemeSync(): void {
-  emit(
+  emitWindowSync(
     THEME_WINDOW_SYNC_EVENT,
     createWindowSyncEnvelope(currentThemeSyncPayload()),
   ).catch((err) => console.warn("theme window sync failed", err));
@@ -201,7 +210,7 @@ function publishThemeSync(): void {
 function initThemeSync(): void {
   if (themeSyncInitialized) return;
   themeSyncInitialized = true;
-  listen<unknown>(THEME_WINDOW_SYNC_EVENT, (event) => {
+  listenWindowSync<unknown>(THEME_WINDOW_SYNC_EVENT, (event) => {
     const envelope = event.payload;
     if (!isWindowSyncEnvelope(envelope, isThemeWindowSyncPayload)) return;
     if (!isForeignWindowSyncEnvelope(envelope)) return;
@@ -1143,19 +1152,19 @@ function exportTheme(id: ThemeId): string | undefined {
   return serializeTheme(toUserThemeSnapshot(theme));
 }
 
-export type ReplaceThemeResult =
+export type ReplaceThemeDraftResult =
   | { ok: true }
   | { ok: false; errors: string[] };
 
 /**
- * Replace a user theme in place from raw JSON. The id is locked to the
- * existing slot so the editor's "Apply changes" path cannot accidentally
- * fork into a new theme. Built-in ids and unknown ids are rejected.
+ * Replace an in-memory user-theme draft from raw JSON. The id is locked to
+ * the existing slot so direct JSON editing cannot accidentally fork a theme.
+ * Persistence remains owned by the editor session's final Save action.
  */
-async function replaceTheme(
+function replaceThemeDraft(
   id: ThemeId,
   json: string,
-): Promise<ReplaceThemeResult> {
+): ReplaceThemeDraftResult {
   if (isBuiltinThemeId(id)) {
     return { ok: false, errors: ["built-in themes cannot be edited"] };
   }
@@ -1183,7 +1192,6 @@ async function replaceTheme(
   const next: UserTheme = { ...result.theme, id };
   customThemes[id] = next;
   if (id === activeId) applyThemeToDom();
-  await persistThemeToDb(id);
   return { ok: true };
 }
 
@@ -1238,7 +1246,7 @@ export function getTheme() {
     deleteTheme,
     importTheme,
     exportTheme,
-    replaceTheme,
+    replaceThemeDraft,
     updateSourceValue,
     isolateToken,
     relinkToken,

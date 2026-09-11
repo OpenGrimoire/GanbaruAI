@@ -379,22 +379,22 @@ fn event_music_assignments_share_the_calendar_update_transaction() {
             None,
         )
         .await;
-        let snapshot = crate::music::library::MusicContextAssignmentDraft {
-            phase: crate::music::library::MusicActivityPhase::Focus,
-            behavior: crate::music::library::MusicAssignmentBehavior::PlayAutomatically,
+        let snapshot = crate::music_context::MusicContextAssignmentDraft {
+            phase: crate::music_context::MusicActivityPhase::Focus,
+            behavior: crate::music_context::MusicAssignmentBehavior::PlayAutomatically,
             playlist_id: Some("playlist-1".to_string()),
             soundscape_id: None,
-            soundscape_behavior: crate::music::library::MusicSoundscapeBehavior::Inherit,
-            provenance_kind: crate::music::library::MusicAssignmentProvenanceKind::CopiedProject,
+            soundscape_behavior: crate::music_context::MusicSoundscapeBehavior::Inherit,
+            provenance_kind: crate::music_context::MusicAssignmentProvenanceKind::CopiedProject,
             provenance_id: Some("project-1".to_string()),
         };
-        let override_assignment = crate::music::library::MusicContextAssignmentDraft {
-            phase: crate::music::library::MusicActivityPhase::ShortBreak,
-            behavior: crate::music::library::MusicAssignmentBehavior::PauseMusic,
+        let override_assignment = crate::music_context::MusicContextAssignmentDraft {
+            phase: crate::music_context::MusicActivityPhase::ShortBreak,
+            behavior: crate::music_context::MusicAssignmentBehavior::PauseMusic,
             playlist_id: None,
             soundscape_id: None,
-            soundscape_behavior: crate::music::library::MusicSoundscapeBehavior::Inherit,
-            provenance_kind: crate::music::library::MusicAssignmentProvenanceKind::Explicit,
+            soundscape_behavior: crate::music_context::MusicSoundscapeBehavior::Inherit,
+            provenance_kind: crate::music_context::MusicAssignmentProvenanceKind::Explicit,
             provenance_id: None,
         };
         let mut tx = pool.begin().await.unwrap();

@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { applyBlockUpdate, createBlockWrite } from "$lib/notes/block-factory";
+import { createBlockWrite } from "$lib/notes/block-factory";
 import {
   buildNotesChildIdsByParent,
   flattenNotesBlockTree,
@@ -21,7 +21,6 @@ import {
   type NotesBlockActionsContext,
 } from "./notes-store-block-actions";
 import { notesTreeStateWithoutLeafBlock } from "./notes-store-block-tree";
-import { applyNotesPostMutationToTree } from "$lib/notes/post-mutation";
 import { collectLoadedBlockSubtreeIds } from "$lib/notes/block-duplicate";
 
 const notesApi = vi.hoisted(() => ({

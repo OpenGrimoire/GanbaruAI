@@ -7,7 +7,7 @@
   import { getDoomscrolling } from "$lib/stores/doomscrolling.svelte";
   import { cn } from "$lib/utils";
   import ConfirmDialog from "$lib/components/ui/ConfirmDialog.svelte";
-  import DoomscrollingAppSelector from "./DoomscrollingAppSelector.svelte";
+  import DoomscrollingAppSelector from "$lib/components/settings/doomscrolling-desktop-selector";
   import DoomscrollingConfigurationSection from "./DoomscrollingConfigurationSection.svelte";
   import DoomscrollingRuleList from "./DoomscrollingRuleList.svelte";
 

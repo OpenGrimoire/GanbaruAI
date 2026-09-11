@@ -52,8 +52,8 @@ fn direct_and_shadow_homes_share_continuation_identity() {
     .unwrap();
 
     assert_eq!(
-        direct.continuation_group().unwrap(),
-        shadowed.continuation_group().unwrap()
+        direct.continuation_group_with_authority(false).unwrap(),
+        shadowed.continuation_group_with_authority(false).unwrap()
     );
     let other = TestDirectory::new("other-home");
     let other_config = configuration(other.path(), None);
@@ -63,8 +63,10 @@ fn direct_and_shadow_homes_share_continuation_identity() {
     )
     .unwrap();
     assert_ne!(
-        direct.continuation_group().unwrap(),
-        other_layout.continuation_group().unwrap()
+        direct.continuation_group_with_authority(false).unwrap(),
+        other_layout
+            .continuation_group_with_authority(false)
+            .unwrap()
     );
 }
 

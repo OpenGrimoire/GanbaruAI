@@ -7,7 +7,7 @@ use crate::chat::models::{
     ProviderInstanceId, ProviderThreadId, SafetyMode, TurnModeSnapshot, UtcTimestamp,
     VersionedJson,
 };
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
 use sqlx::{Row, SqlitePool};
 use std::collections::BTreeSet;
 
@@ -28,11 +28,18 @@ pub struct ChatProjectShellRead {
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct StoredModelSelection {
-    #[serde(default)]
+    #[serde(deserialize_with = "required_nullable")]
     model_id: Option<ModelId>,
-    #[serde(default)]
-    #[serde(alias = "options")]
+    #[serde(rename = "options")]
     model_options: Vec<ModelOptionSelection>,
+}
+
+fn required_nullable<'de, D, T>(deserializer: D) -> Result<Option<T>, D::Error>
+where
+    D: Deserializer<'de>,
+    T: Deserialize<'de>,
+{
+    Option::<T>::deserialize(deserializer)
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -705,4 +712,31 @@ fn corrupt_data() -> ChatError {
         "Stored Chat record is invalid",
         false,
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::StoredModelSelection;
+
+    #[test]
+    fn stored_model_selection_requires_current_nullable_id_and_options_fields() {
+        let current = serde_json::json!({ "modelId": null, "options": [] });
+        assert!(serde_json::from_value::<StoredModelSelection>(current.clone()).is_ok());
+
+        let mut missing_model_id = current.clone();
+        missing_model_id.as_object_mut().unwrap().remove("modelId");
+        assert!(serde_json::from_value::<StoredModelSelection>(missing_model_id).is_err());
+
+        let mut missing_options = current.clone();
+        missing_options.as_object_mut().unwrap().remove("options");
+        assert!(serde_json::from_value::<StoredModelSelection>(missing_options).is_err());
+
+        assert!(
+            serde_json::from_value::<StoredModelSelection>(serde_json::json!({
+                "modelId": null,
+                "modelOptions": []
+            }))
+            .is_err()
+        );
+    }
 }

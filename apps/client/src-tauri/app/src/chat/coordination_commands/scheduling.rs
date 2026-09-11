@@ -9,6 +9,7 @@ use super::{
 };
 use chrono::{DateTime, Duration, SecondsFormat, Utc};
 use sqlx::{Row, Sqlite, SqlitePool, Transaction};
+use std::time::SystemTime;
 
 const MIN_SCHEDULE_LEAD_SECONDS: i64 = 30;
 const MAX_SCHEDULE_DAYS: i64 = 366;
@@ -519,8 +520,9 @@ pub(super) async fn dispatch_due_scheduled_messages(
                 } else {
                     "scheduled"
                 };
-                let retry_at = (Utc::now() + Duration::seconds(SCHEDULE_RETRY_SECONDS))
-                    .to_rfc3339_opts(SecondsFormat::Millis, true);
+                let retry_at = (DateTime::<Utc>::from(SystemTime::now())
+                    + Duration::seconds(SCHEDULE_RETRY_SECONDS))
+                .to_rfc3339_opts(SecondsFormat::Millis, true);
                 let last_error = error.message.chars().take(4000).collect::<String>();
                 sqlx::query(
                     "UPDATE chat_scheduled_messages

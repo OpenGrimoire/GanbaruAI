@@ -79,6 +79,21 @@ fn emit_control(app: &tauri::AppHandle, payload: MusicHardwareControlPayload) {
     let _ = app.emit("music-hardware-control", payload);
 }
 
+#[cfg(any(target_os = "windows", test))]
+fn run_windows_media_callback(callback: impl FnOnce()) -> bool {
+    // windows-rs dispatches these closures through a non-unwind COM ABI. Keep
+    // every application and listener call inside this barrier. A panic payload
+    // may itself panic when dropped, so leak that payload on this exceptional
+    // path instead of risking a second unwind through the COM thunk.
+    match std::panic::catch_unwind(std::panic::AssertUnwindSafe(callback)) {
+        Ok(()) => true,
+        Err(payload) => {
+            std::mem::forget(payload);
+            false
+        }
+    }
+}
+
 #[cfg(any(target_os = "linux", target_os = "windows"))]
 fn control(action: &'static str) -> MusicHardwareControlPayload {
     MusicHardwareControlPayload {
@@ -724,8 +739,8 @@ mod linux {
 mod windows {
     use super::{
         clamp_playback_rate, control, control_delta, control_position, control_rate,
-        control_shuffle, emit_control, ms_to_windows_ticks, windows_ticks_to_ms_u64,
-        MediaControlsUpdate, MusicHardwareControlPayload,
+        control_shuffle, emit_control, ms_to_windows_ticks, run_windows_media_callback,
+        windows_ticks_to_ms_u64, MediaControlsUpdate, MusicHardwareControlPayload,
     };
     use std::sync::{LazyLock, Mutex};
     use tauri::Manager;
@@ -938,6 +953,9 @@ mod windows {
     ) -> windows::core::Result<SystemMediaTransportControls> {
         let interop: ISystemMediaTransportControlsInterop =
             factory::<SystemMediaTransportControls, ISystemMediaTransportControlsInterop>()?;
+        // SAFETY: The caller obtains `hwnd` from the live Tauri main window in
+        // this process. `interop` is the matching WinRT activation factory, so
+        // its typed wrapper supplies the required interface ID and output slot.
         unsafe { interop.GetForWindow(hwnd) }
     }
 
@@ -963,13 +981,15 @@ mod windows {
             SystemMediaTransportControls,
             SystemMediaTransportControlsButtonPressedEventArgs,
         >::new(move |_sender, args| {
-            if let Some(args) = args.as_ref() {
-                if let Ok(button) = args.Button() {
-                    if let Some(payload) = payload_for_button(button) {
-                        emit_control(&app, payload);
+            run_windows_media_callback(|| {
+                if let Some(args) = args.as_ref() {
+                    if let Ok(button) = args.Button() {
+                        if let Some(payload) = payload_for_button(button) {
+                            emit_control(&app, payload);
+                        }
                     }
                 }
-            }
+            });
             Ok(())
         }))
     }
@@ -982,14 +1002,16 @@ mod windows {
             SystemMediaTransportControls,
             PlaybackPositionChangeRequestedEventArgs,
         >::new(move |_sender, args| {
-            if let Some(args) = args.as_ref() {
-                if let Ok(position) = args.RequestedPlaybackPosition() {
-                    emit_control(
-                        &app,
-                        control_position("seekTo", windows_ticks_to_ms_u64(position.Duration)),
-                    );
+            run_windows_media_callback(|| {
+                if let Some(args) = args.as_ref() {
+                    if let Ok(position) = args.RequestedPlaybackPosition() {
+                        emit_control(
+                            &app,
+                            control_position("seekTo", windows_ticks_to_ms_u64(position.Duration)),
+                        );
+                    }
                 }
-            }
+            });
             Ok(())
         }))
     }
@@ -1002,11 +1024,13 @@ mod windows {
             SystemMediaTransportControls,
             PlaybackRateChangeRequestedEventArgs,
         >::new(move |_sender, args| {
-            if let Some(args) = args.as_ref() {
-                if let Ok(rate) = args.RequestedPlaybackRate() {
-                    emit_control(&app, control_rate("setRate", clamp_playback_rate(rate)));
+            run_windows_media_callback(|| {
+                if let Some(args) = args.as_ref() {
+                    if let Ok(rate) = args.RequestedPlaybackRate() {
+                        emit_control(&app, control_rate("setRate", clamp_playback_rate(rate)));
+                    }
                 }
-            }
+            });
             Ok(())
         }))
     }
@@ -1019,11 +1043,13 @@ mod windows {
             SystemMediaTransportControls,
             ShuffleEnabledChangeRequestedEventArgs,
         >::new(move |_sender, args| {
-            if let Some(args) = args.as_ref() {
-                if let Ok(shuffle_enabled) = args.RequestedShuffleEnabled() {
-                    emit_control(&app, control_shuffle("setShuffle", shuffle_enabled));
+            run_windows_media_callback(|| {
+                if let Some(args) = args.as_ref() {
+                    if let Ok(shuffle_enabled) = args.RequestedShuffleEnabled() {
+                        emit_control(&app, control_shuffle("setShuffle", shuffle_enabled));
+                    }
                 }
-            }
+            });
             Ok(())
         }))
     }
@@ -1162,5 +1188,26 @@ mod tests {
         assert_eq!(ms_to_us_i64(u64::MAX), i64::MAX);
         assert_eq!(us_to_ms_i64(-1_500), -1);
         assert_eq!(us_to_ms_u64(-1), 0);
+    }
+
+    #[test]
+    fn windows_media_callback_barrier_contains_panics() {
+        struct PanicOnDrop(std::sync::Arc<std::sync::atomic::AtomicBool>);
+
+        impl Drop for PanicOnDrop {
+            fn drop(&mut self) {
+                self.0.store(true, std::sync::atomic::Ordering::SeqCst);
+                panic!("panic payload drop fixture");
+            }
+        }
+
+        assert!(!run_windows_media_callback(|| panic!("callback fixture")));
+        let dropped = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let payload = PanicOnDrop(std::sync::Arc::clone(&dropped));
+        assert!(!run_windows_media_callback(|| std::panic::panic_any(
+            payload
+        )));
+        assert!(!dropped.load(std::sync::atomic::Ordering::SeqCst));
+        assert!(run_windows_media_callback(|| {}));
     }
 }

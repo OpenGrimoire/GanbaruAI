@@ -94,6 +94,11 @@ const defaultApi: MusicSourcesControllerApi = {
   cancelRelink: cancelMusicRelinkPlan,
 };
 
+function refreshFailure(statuses: readonly MusicSourceRefreshStatus[]): string | null {
+  const failed = statuses.find((status) => status.state === "failed");
+  return failed ? failed.error ?? `Failed to refresh ${failed.name}.` : null;
+}
+
 export class MusicSourcesController {
   vaultId = $state<string | null>(null);
   roots = $state<MusicLocalRoot[]>([]);
@@ -274,7 +279,7 @@ export class MusicSourcesController {
     try {
       const collectionId = await this.addLocalFolder(
         selection,
-        musicFolderDisplayName(selection.folderPath),
+        selection.displayName ?? musicFolderDisplayName(selection.folderPath),
         waitForRefresh,
       );
       this.detectedDefaultFolder = null;
@@ -290,7 +295,7 @@ export class MusicSourcesController {
     const existingPaths = this.bindings.flatMap((binding) => binding.folderPath ? [binding.folderPath] : []);
     return {
       selection,
-      name: musicFolderDisplayName(selection.folderPath),
+      name: selection.displayName ?? musicFolderDisplayName(selection.folderPath),
       relationship: musicFolderRelationship(selection.folderPath, existingPaths),
     };
   }
@@ -314,11 +319,19 @@ export class MusicSourcesController {
     const target = this.localTarget(collectionId, rootId, trimmedName, selection.folderPath, createdAt);
     const plan = this.refresh.prepare([target]);
     if (waitForRefresh) {
-      await this.runRefresh(plan, true);
+      const failure = refreshFailure(await this.runRefresh(plan, true));
+      if (failure) {
+        this.error = failure;
+        throw new Error(failure);
+      }
       notifyMusicLibraryChanged();
     } else {
       void this.runRefresh(plan, true)
-        .then(notifyMusicLibraryChanged)
+        .then((statuses) => {
+          const failure = refreshFailure(statuses);
+          if (failure) this.error = failure;
+          else notifyMusicLibraryChanged();
+        })
         .catch((error: unknown) => { this.error = error instanceof Error ? error.message : String(error); });
     }
     return collectionId;
@@ -413,9 +426,24 @@ export class MusicSourcesController {
     return this.refresh.prepare(targets);
   }
 
+  prepareUninitializedLocalRefresh(): MusicSourceRefreshPlan {
+    const availableRootIds = new Set(this.bindings.flatMap((binding) =>
+      binding.status === "available" && binding.folderPath ? [binding.rootId] : []));
+    return this.prepareRefresh(this.collections.flatMap((collection) =>
+      collection.kind === "local-root"
+        && collection.localRootId
+        && collection.discoveryEnabled
+        && collection.snapshotGeneration === 0
+        && availableRootIds.has(collection.localRootId)
+        ? [collection.id]
+        : []));
+  }
+
   async runRefresh(plan: MusicSourceRefreshPlan, allowNetwork: boolean): Promise<MusicSourceRefreshStatus[]> {
     const statuses = await this.refresh.run(plan, { allowNetwork });
+    const failure = refreshFailure(statuses);
     await this.load();
+    if (failure) this.error = failure;
     return statuses;
   }
 
@@ -430,6 +458,32 @@ export class MusicSourcesController {
     if (!this.vaultId) throw new Error("The active Ganbaru AI folder is unavailable.");
     await this.api.clearBinding(this.vaultId, rootId);
     await this.load();
+  }
+
+  /** Replace an Android document-tree grant while preserving the logical source identity. */
+  async reselectLocalRoot(collection: MusicSourceCollection): Promise<boolean> {
+    if (!this.vaultId) throw new Error("The active Ganbaru AI folder is unavailable.");
+    if (collection.kind !== "local-root" || !collection.localRootId) {
+      throw new Error("The local music source is unavailable.");
+    }
+    const selection = await this.api.pickFolder();
+    if (!selection) return false;
+    await this.api.bindRoot(this.vaultId, collection.localRootId, selection.folderPath);
+    await this.load();
+    const target = this.localTarget(
+      collection.id,
+      collection.localRootId,
+      collection.name,
+      selection.folderPath,
+      this.now(),
+    );
+    const failure = refreshFailure(await this.runRefresh(this.refresh.prepare([target]), true));
+    if (failure) {
+      this.error = failure;
+      throw new Error(failure);
+    }
+    notifyMusicLibraryChanged();
+    return true;
   }
 
   async chooseItemRepair(itemId: string): Promise<MusicItemRepairPreview | null> {

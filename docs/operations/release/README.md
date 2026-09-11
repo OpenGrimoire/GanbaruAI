@@ -1,0 +1,87 @@
+# Release process
+
+Ganbaru AI releases are built from explicit `app-v*` tags and staged as draft GitHub Releases. Publishing the draft makes the release public and then updates the Linux package repositories and AUR package.
+
+The release workflow builds Linux x64 packages, Windows x64 installers, a signed Android universal APK, and a signed Android AAB. It signs desktop updater assets, produces checksums and `latest.json`, and keeps all signing or publishing jobs behind the protected `release` environment.
+
+## Authority and safety
+
+- Normal work enters `dev` through topic-branch pull requests.
+- A release is promoted through a pull request from `dev` to `main`.
+- The `main` merge queue validates the merge result without merging `main` back into `dev`.
+- A merge to `main` does not publish anything.
+- Only an authorized organization administrator creates an `app-v*` tag, approves the `release` environment, and publishes the draft GitHub Release.
+- Release jobs use fixed runner images, SHA-pinned actions, read-only default permissions, and no dependency caches.
+- Signing, repository publication, and AUR credentials are scoped to the jobs that require them.
+
+The intended enforcement is defined in [Repository policy](../repository-policy.md). Current GitHub settings must be checked against that document before a public release.
+
+## Release targets
+
+| Target | Artifact or channel |
+| --- | --- |
+| Linux x64 | `.deb`, `.rpm`, and `.AppImage` |
+| Windows x64 | Tauri `.msi` and setup executable |
+| Android 10 or newer | Signed universal APK and AAB with ARM64, ARMv7, x86, and x86_64 libraries |
+| macOS and iOS | Not part of the current release workflow |
+
+Linux builds use Ubuntu 22.04 to preserve broader glibc compatibility. Windows builds use the pinned Windows runner. Android release artifacts are separate from the desktop updater feed.
+
+## Required repository setup
+
+Before releasing:
+
+1. Create the protected GitHub environment named `release`.
+2. Configure its required reviewer and restrict it to `main` and `app-v*` deployment refs.
+3. Add the signing secrets listed in [Signing](signing.md).
+4. Add the updater and package-repository public-key variables.
+5. Enable GitHub Pages from the `gh-pages` branch root.
+6. Verify branch, tag, Actions, workflow, and environment protection against [Repository policy](../repository-policy.md).
+
+## Version preparation
+
+Update the version in all three files through a normal pull request into `dev`:
+
+- `apps/client/package.json`
+- `apps/client/src-tauri/Cargo.toml`
+- `apps/client/src-tauri/tauri.conf.json`
+
+Check whether release notes, migrations, generated artifacts, signing expectations, or platform compatibility statements also changed.
+
+## Publishing checklist
+
+1. Run `pnpm -w run validate:full` on the release candidate.
+2. Open a release pull request from `dev` into `main`.
+3. Review it and add it to the `main` merge queue after pull request checks pass.
+4. Wait for the merge queue to validate and merge the release result.
+5. Create `app-v<version>` at the release commit and push the tag.
+6. Approve the protected `release` environment.
+7. Wait for the release workflow to create and populate the draft GitHub Release.
+8. Download and smoke-test the desktop installers and signed Android APK.
+9. On Android, verify that production and `.dev` identities coexist and that the installed production build restarts offline.
+10. Inspect generated release notes, `SHA256SUMS`, signatures, and `latest.json`.
+11. Publish the draft GitHub Release.
+12. Verify the package-repository and AUR publication jobs.
+13. Verify the GitHub Pages apt and RPM metadata and the released AUR version.
+
+Do not publish when required checks, signatures, expected artifacts, environment protection, or update metadata are missing.
+
+## Manual dispatch
+
+Treat manual dispatch as a guarded recovery entry, not as a way to create a release tag. Under the intended tag ruleset, only an authorized organization administrator can create an `app-v*` tag. The workflow token is not that administrator bypass actor, so a dispatch cannot safely create a missing protected tag.
+
+Before a recovery dispatch, an administrator must create the expected tag at the release commit and the operator must verify that the tag resolves to the same commit as the default-branch workflow run. The current workflow validates the application version and default branch, but it does not verify that an existing tag points to `GITHUB_SHA`. Do not use manual dispatch when either check is uncertain.
+
+A pushed tag is the normal public-release trigger because it binds the workflow run directly to the reviewed release commit. Hardening or removing the manual entry remains release-infrastructure work.
+
+## Release notes
+
+The workflow prepends `.github/release-notes-template.md` and appends GitHub-generated notes categorized by `.github/release.yml`.
+
+Use concise pull request titles because they become release entries. Labels control categories. Use `skip-changelog` or `ignore-for-release` only when a pull request should be omitted.
+
+## After publication
+
+Publishing triggers the package repository and AUR jobs. The signed draft artifacts exist before publication, but apt, RPM, and AUR channels must not update from an unpublished draft.
+
+Distribution details and recovery boundaries are in [Distribution](distribution.md).

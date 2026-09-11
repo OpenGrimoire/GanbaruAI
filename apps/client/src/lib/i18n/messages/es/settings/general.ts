@@ -165,6 +165,8 @@ export const general = {
       "Descarga e instala la actualización disponible de Ganbaru AI.",
     manualInstallUpdateDescription:
       "Usa tu gestor de paquetes para instalar la actualización disponible de Ganbaru AI.",
+    manualInstallUpdateDescriptionMobile:
+      "Usa la página de versión para descargar e instalar el APK para esta actualización.",
     updateAndRestart: "Actualizar y reiniciar",
     copyCommand: "Copiar comando",
     commandCopied: "Copiado",
@@ -179,6 +181,19 @@ export const general = {
       "Pausa la música mientras el enfoque está pausado y la reanuda cuando continúa",
   },
   data: {
+    backupHeading: "Copias de seguridad",
+    backupNow: "Crear copia de seguridad",
+    backupNowDescription:
+      "Guarda una copia completa sin cifrar en Descargas que permanece tras desinstalar",
+    backupAction: "Crear copia",
+    backupSaved: (fileName: string) => `Se guardó ${fileName} en Descargas`,
+    restoreBackup: "Restaurar copia",
+    restoreBackupDescription: "Reemplaza los datos de este dispositivo con una copia de Ganbaru AI",
+    restoreAction: "Restaurar",
+    restoreConfirmTitle: "¿Restaurar esta copia?",
+    restoreConfirmMessage:
+      "Tus datos actuales en este dispositivo serán reemplazados. Crea primero una copia actual si podrías necesitarla.",
+    restoreConfirmAction: "Elegir copia",
     folderHeading: "Carpeta",
     loadingFolder: "Cargando carpeta...",
     noActiveFolder: "No hay carpeta activa",

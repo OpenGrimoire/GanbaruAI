@@ -25,7 +25,7 @@
   <button
     type="button"
     class={cn(
-      "flex h-5 w-5 shrink-0 cursor-pointer items-center justify-center rounded border transition-opacity",
+      "project-list-selection-control flex h-5 w-5 shrink-0 cursor-pointer items-center justify-center rounded border transition-opacity",
       allSelected
         ? "border-primary bg-primary text-primary-foreground opacity-100"
         : cn(
@@ -47,3 +47,9 @@
     {/if}
   </button>
 </div>
+
+<style>
+  @media (hover: none) and (pointer: coarse) {
+    .project-list-selection-control { opacity: 1; }
+  }
+</style>

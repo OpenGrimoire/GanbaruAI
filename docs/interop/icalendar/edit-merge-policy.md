@@ -1,27 +1,27 @@
 # Edit merge policy
 
-This policy defines how Ganbaru AI edits projected calendar data while preserving full iCalendar components.
+This policy separates the implemented export-overlay behavior from safeguards that remain planned.
 
 ## Core rule
 
-Supported user edits update both the normalized projection and the preserved component. Unsupported fields remain untouched in preservation storage unless the edit structurally invalidates them.
+Supported user edits currently update normalized projection rows. Imported relational component rows remain source provenance. During export, Ganbaru AI reconstructs the preserved component and overlays generated values for fields owned by the projection.
 
-The app must never silently discard unsupported legal data just because the UI does not show it.
+Unsupported structured fields remain in preservation storage and are merged where the current serializer supports them. The app must not silently discard accepted legal data just because the UI does not show it.
 
 ## Supported field merge
 
-For linked `VEVENT` components:
+For linked `VEVENT` components, export currently replaces or regenerates these supported fields from projection data:
 
-- Editing title updates `SUMMARY`.
-- Editing description updates `DESCRIPTION`, after sanitization for UI rendering and safe serialization.
-- Editing start/end updates `DTSTART`, `DTEND`, or `DURATION` according to the component's chosen representation.
-- Editing all-day status updates value types and exclusive `DTEND` semantics.
-- Editing recurrence updates `RRULE`, `RDATE`, `EXDATE`, and override relationships.
-- Editing status updates `STATUS`.
-- Editing transparency updates `TRANSP`.
-- Editing visibility updates `CLASS` as `PUBLIC` or `PRIVATE`; imported `CONFIDENTIAL` values are normalized to `PRIVATE`.
-- Editing attendees updates supported `ATTENDEE` fields while preserving unsupported attendee parameters where possible.
-- Editing alarms updates supported `VALARM` fields while preserving unsupported alarm fields where possible.
+- Title maps to `SUMMARY`.
+- Description maps to `DESCRIPTION` after persistence sanitization and safe serialization.
+- Start and end map to `DTSTART`, `DTEND`, or an updated imported `DURATION` shape.
+- All-day state controls date value types and exclusive `DTEND` semantics.
+- Recurrence maps to the supported `RRULE`, `RDATE`, `EXDATE`, and override subset.
+- Status maps to `STATUS`.
+- Transparency maps to `TRANSP`.
+- Visibility maps to `CLASS` as `PUBLIC` or `PRIVATE`; imported `CONFIDENTIAL` values project as `PRIVATE`.
+- Supported attendee values replace generated-owned parts of `ATTENDEE`, while preserved parameters are merged where the property remains.
+- Supported alarm values replace generated-owned parts of `VALARM`, while unsupported alarm fields are retained where the linked alarm merge applies.
 
 ## Unsupported field preservation
 
@@ -37,7 +37,7 @@ Fields the UI does not model remain in the preserved component. Examples:
 - scheduling request metadata
 - custom `VTIMEZONE` definitions
 
-When exporting, these fields should remain unless the user deleted the component or accepted a lossy repair.
+When exporting a linked projected event, these fields remain where covered by the structured merge unless the corresponding property is intentionally replaced or removed by projection semantics.
 
 ## Structural edit risks
 
@@ -52,26 +52,29 @@ Some edits can make preserved data questionable:
 - modifying a component with unknown recurrence properties
 - editing a `VTODO` or `VJOURNAL` before those have projection models
 
-If the merge cannot be proven safe, set preservation status to `needs-review` and keep diagnostics.
+These cases should eventually set preservation status to `needs-review` and retain diagnostics when the merge cannot be proven safe. Automatic edit-time status changes are not implemented yet.
 
 ## Status transitions
 
-Suggested transitions:
+Planned transitions:
 
-- `lossless` to `projected`: component was mapped into app rows without known loss.
-- `projected` to `partial`: unsupported data exists but remains preserved.
-- `partial` to `needs-review`: user made a structural edit whose merge is uncertain.
+- `lossless` to `partial`: projection or editing narrows semantics while retaining source data.
+- `partial` to `needs-review`: a structural edit makes the export merge uncertain.
 - `needs-review` to `regenerated`: user accepts app-generated output that may drop unsupported data.
 - any status to `invalid`: parser or export validation found unrecoverable structure.
 
+The schema supports these status values, but the current edit path does not perform these transitions automatically.
+
 ## Delete behavior
 
-Deleting a projected event linked to a preserved component must also remove or tombstone the preserved component for that calendar. Otherwise an export would reintroduce a deleted event.
+Current deletion or archival removes the event from the active projection but retains its linked preservation rows. Calendar export begins with active projected events and does not pass through preserved top-level `VEVENT` components, so the deleted event is not reintroduced.
+
+Future retention work should choose between tombstoning and removing orphaned preservation rows. This is needed for storage cleanup and unambiguous provenance, not to prevent current export from resurrecting the event.
 
 If the component is part of a recurring series:
 
 - deleting one instance should add or update `EXDATE` or an override according to recurrence policy.
-- deleting the whole series should remove or tombstone all linked master and override components.
+- deleting the whole series currently removes or archives its projected master and overrides; explicit preservation cleanup remains planned.
 
 ## Attendee behavior
 
@@ -92,9 +95,9 @@ Offline edits do not notify anyone. If a component has scheduling metadata:
 - do not imply that attendees were notified.
 - require a future transport before sending scheduling messages.
 
-## Export warnings
+## Planned export warnings
 
-Before export, warn when:
+The export UI should eventually warn when:
 
 - any component is `needs-review` or `invalid`.
 - unsupported fields were dropped by an accepted regeneration.
@@ -102,10 +105,10 @@ Before export, warn when:
 - a custom timezone could not be interpreted for projection.
 - recurrence expansion was capped or partially unsupported.
 
-Warnings should be specific and include component `UID` when available.
+Warnings should be specific and include component `UID` when available. The full user-visible warning flow is not implemented today.
 
 ## Repair behavior
 
 Re-importing the original `.ics` source file is the preferred repair path when a row has no preserved component or when preservation data is known to be incomplete. Unsupported values that were never stored in Ganbaru AI must not be invented from the normalized projection.
 
-Repair actions must be explicit. If a user accepts regenerated output, diagnostics should make clear that unsupported original fields may be absent from export.
+Future repair actions must be explicit. If a user accepts regenerated output, diagnostics should make clear that unsupported original fields may be absent from export.

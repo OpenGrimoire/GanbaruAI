@@ -3,6 +3,12 @@
   import Settings2 from "@lucide/svelte/icons/settings-2";
   import { getLocalization } from "$lib/i18n/translator.svelte";
   import {
+    beginLazyComponentLoad,
+    rejectLazyComponentLoad,
+    resolveLazyComponentLoad,
+    type LazyComponentLoadState,
+  } from "$lib/lazy-component-loader";
+  import {
     COMPACT_IDENTITY_EMOJI_SCALE,
     COMPACT_IDENTITY_ICON_SIZE,
     COMPACT_IDENTITY_ICON_STROKE_WIDTH,
@@ -30,10 +36,16 @@
   } from "$lib/projects/project-toolbar";
   import type { Project, ProjectGroup } from "$lib/projects/types";
   import { getNotes } from "$lib/stores/notes.svelte";
+  import { getProjects } from "$lib/stores/projects.svelte";
   import { getViewport } from "$lib/stores/viewport.svelte";
   import { cn } from "$lib/utils";
   import ProjectIcon from "$lib/components/projects/ProjectIcon.svelte";
   import WorkspaceBreadcrumbTerminalIcon from "$lib/components/WorkspaceBreadcrumbTerminalIcon.svelte";
+  import {
+    loadNotesOptionalComponent,
+    retryNotesOptionalComponent,
+    type LoadedNotesOptionalComponent,
+  } from "./notes-component-registry";
   import NotesHierarchyPickerPanel from "./NotesHierarchyPickerPanel.svelte";
   import NotesPageIcon from "./NotesPageIcon.svelte";
   import NotesProjectNavigator from "./NotesProjectNavigator.svelte";
@@ -41,6 +53,7 @@
   type NotesNavigatorMode = ProjectNavigatorPanelMode | "notes";
 
   let {
+    mobileLayout = false,
     selectedProject,
     selectedGroup,
     selectedProjectId,
@@ -54,6 +67,7 @@
     projectSettingsOpen,
     onToggleProjectSettings,
   }: {
+    mobileLayout?: boolean;
     selectedProject: Project | undefined;
     selectedGroup: ProjectGroup | undefined;
     selectedProjectId: string | null;
@@ -69,6 +83,7 @@
   } = $props();
 
   const notes = getNotes();
+  const projects = getProjects();
   const viewport = getViewport();
   const { t } = getLocalization();
   const identityIconSize = COMPACT_IDENTITY_ICON_SIZE;
@@ -80,6 +95,11 @@
   let navigatorOpen = $state(false);
   let navigatorMode = $state<NotesNavigatorMode>("groups");
   let notesNavigatorParent = $state<NotesHierarchyParent>({ kind: "root" });
+  let notesNavigatorTitle = $state("");
+  let notesNavigatorAncestors = $state<Array<{
+    parent: NotesHierarchyParent;
+    title: string;
+  }>>([]);
   let notesNavigatorSourceKey = $state("root");
   let notesHeaderElement = $state<HTMLDivElement | null>(null);
   let notesIdentityElement = $state<HTMLDivElement | null>(null);
@@ -90,6 +110,10 @@
   let navigatorPanelElement = $state<HTMLDivElement | null>(null);
   let navigatorPanelStyle = $state("");
   let navigatorPanelMaxHeight = $state(0);
+  let mobileProjectPickerLoadState = $state<LazyComponentLoadState<
+    "mobile-project-picker",
+    LoadedNotesOptionalComponent
+  > | null>(null);
   interface NavigatorBounds {
     left: number;
     right: number;
@@ -125,7 +149,14 @@
     selectedProjectFolders,
     notes.sidebarPageIdsWithChildren,
   ));
-  const showSelectedPagePath = $derived(explorerCollapsed && selectedPagePath.length > 0);
+  const visibleSelectedPagePath = $derived(
+    mobileLayout && selectedPagePath.length > 1
+      ? selectedPagePath.slice(-1)
+      : selectedPagePath,
+  );
+  const showSelectedPagePath = $derived(
+    (mobileLayout || explorerCollapsed) && selectedPagePath.length > 0,
+  );
   const notesNavigatorItemCount = $derived(notesHierarchyChildren(
     selectedProjectPages,
     selectedProjectFolders,
@@ -140,7 +171,8 @@
 
   function toolbarIconButtonClass(active = false, open = false, primary = false): string {
     return cn(
-      "flex h-7 w-7 shrink-0 items-center justify-center rounded-md transition-colors",
+      "flex shrink-0 items-center justify-center rounded-md transition-colors",
+      mobileLayout ? "h-12 w-12" : "h-7 w-7",
       primary
         ? "bg-primary text-primary-foreground hover:bg-primary/90"
         : "hover:bg-accent",
@@ -151,7 +183,8 @@
 
   function inlineNewPageButtonClass(): string {
     return cn(
-      "flex h-7 w-5 shrink-0 items-center justify-center rounded-md text-foreground transition-colors",
+      "flex shrink-0 items-center justify-center rounded-md text-foreground transition-colors",
+      mobileLayout ? "h-12 w-12" : "h-7 w-5",
       "hover:bg-accent",
     );
   }
@@ -177,6 +210,11 @@
   }
 
   function refreshNavigatorPanelGeometry(): void {
+    if (mobileLayout) {
+      navigatorPanelStyle = "";
+      navigatorPanelMaxHeight = 0;
+      return;
+    }
     if (!navigatorOpen || !navigatorAnchorElement) return;
     const rect = navigatorAnchorElement.getBoundingClientRect();
     const bounds = navigatorBounds();
@@ -211,6 +249,7 @@
     navigatorMode = mode;
     navigatorAnchorElement = anchor;
     navigatorOpen = true;
+    if (mobileLayout) requestMobileProjectPicker();
     refreshNavigatorPanelGeometry();
     requestAnimationFrame(refreshNavigatorPanelGeometry);
   }
@@ -220,8 +259,33 @@
     anchor: EventTarget | null,
   ): void {
     notesNavigatorParent = notesHierarchyNodeParent(node);
+    const nodeIndex = selectedPagePath.findIndex((candidate) => candidate.key === node.key);
+    const precedingNodes = nodeIndex < 0 ? [] : selectedPagePath.slice(0, nodeIndex);
+    notesNavigatorTitle = precedingNodes.length > 0
+      ? hierarchyNodeTitle(precedingNodes[precedingNodes.length - 1])
+      : selectedProject?.name ?? t("notes.noteNavigatorLabel");
+    notesNavigatorAncestors = precedingNodes.length === 0
+      ? []
+      : [
+          {
+            parent: { kind: "root" },
+            title: selectedProject?.name ?? t("notes.noteNavigatorLabel"),
+          },
+          ...precedingNodes.slice(0, -1).map((ancestor) => ({
+            parent: ancestor.kind === "folder"
+              ? { kind: "folder" as const, id: ancestor.folder.id }
+              : { kind: "page" as const, id: ancestor.page.id },
+            title: hierarchyNodeTitle(ancestor),
+          })),
+        ];
     notesNavigatorSourceKey = node.key;
     openNavigator("notes", anchor instanceof HTMLButtonElement ? anchor : null);
+  }
+
+  function hierarchyNodeTitle(node: NotesHierarchyNode): string {
+    return node.kind === "folder"
+      ? node.folder.name
+      : notesPageTitle(node.page, t("notes.untitled"));
   }
 
   function toggleHierarchyNavigator(
@@ -244,6 +308,10 @@
   }
 
   function handleProjectTriggerClick(): void {
+    if (mobileLayout) {
+      toggleNavigator("projects");
+      return;
+    }
     if (selectedPageTitle) {
       navigatorOpen = false;
       onShowHome();
@@ -253,6 +321,7 @@
   }
 
   function handleWindowPointerDown(event: PointerEvent): void {
+    if (mobileLayout) return;
     const target = event.target;
     if (!(target instanceof Node)) return;
     if (
@@ -273,6 +342,49 @@
     });
   }
 
+  async function openMobileProject(project: Project): Promise<void> {
+    await projects.selectProject(project.id);
+    onProjectSelected();
+    notesNavigatorParent = { kind: "root" };
+    notesNavigatorTitle = project.name;
+    notesNavigatorAncestors = [];
+    navigatorMode = "notes";
+  }
+
+  function requestMobileProjectPicker(): void {
+    if (
+      mobileProjectPickerLoadState?.status === "loading"
+      || mobileProjectPickerLoadState?.status === "ready"
+    ) return;
+    const shouldRetry = mobileProjectPickerLoadState?.status === "failed";
+    const loadingState = beginLazyComponentLoad(
+      mobileProjectPickerLoadState,
+      "mobile-project-picker",
+    );
+    mobileProjectPickerLoadState = loadingState;
+    const request = shouldRetry
+      ? retryNotesOptionalComponent("mobile-project-picker")
+      : loadNotesOptionalComponent("mobile-project-picker");
+    void request.then((component) => {
+      if (!mobileProjectPickerLoadState) return;
+      mobileProjectPickerLoadState = resolveLazyComponentLoad(
+        mobileProjectPickerLoadState,
+        "mobile-project-picker",
+        loadingState.requestId,
+        component,
+      );
+    }).catch((error: unknown) => {
+      if (!mobileProjectPickerLoadState) return;
+      mobileProjectPickerLoadState = rejectLazyComponentLoad(
+        mobileProjectPickerLoadState,
+        "mobile-project-picker",
+        loadingState.requestId,
+        error,
+      );
+      console.error("load Notes mobile project picker failed", error);
+    });
+  }
+
   $effect(() => {
     if (!navigatorOpen) return;
     const viewportWidth = viewport.width;
@@ -287,33 +399,52 @@
 
 <div
   bind:this={notesHeaderElement}
-  class="flex shrink-0 items-center gap-1 overflow-x-auto px-3"
+  class={cn(
+    "flex shrink-0 items-center gap-1 px-3",
+    mobileLayout ? "overflow-hidden" : "overflow-x-auto",
+  )}
   style="height: var(--cal-header-row-h); background-color: var(--cal-header-bg); border-bottom: 1px solid var(--sidebar);"
   onscroll={refreshNavigatorPanelGeometry}
   data-notes-workspace-header
 >
-  <div bind:this={notesIdentityElement} class="relative min-w-36 shrink-0 min-[760px]:max-w-xl">
-    <div class="flex h-7 min-w-0 max-w-full items-center gap-0.5 text-identity font-medium">
+  <div
+    bind:this={notesIdentityElement}
+    class={cn(
+      "relative",
+      mobileLayout
+        ? "min-w-0 flex-1 overflow-hidden"
+        : "min-w-36 shrink-0 min-[760px]:max-w-xl",
+    )}
+  >
+    <div class={cn(
+      "flex min-w-0 max-w-full items-center gap-0.5 overflow-hidden text-identity font-medium",
+      mobileLayout ? "h-12" : "h-7",
+    )}>
       {#if selectedProject && selectedGroup}
         <button
           bind:this={groupTriggerElement}
           type="button"
           class={cn(
-            "flex h-7 min-w-0 items-center gap-1.5 rounded-md px-1.5 text-left hover:bg-accent",
+            "flex min-w-0 items-center gap-1.5 rounded-md px-1.5 text-left hover:bg-accent",
+            mobileLayout ? "h-12" : "h-7",
             navigatorOpen && navigatorMode === "groups" && "bg-accent",
           )}
           aria-label={t("projects.navigator.open")}
           aria-expanded={navigatorOpen && navigatorMode === "groups"}
-          onpointerenter={() => openNavigator("groups")}
+          onpointerenter={() => {
+            if (!mobileLayout) openNavigator("groups");
+          }}
           onclick={() => toggleNavigator("groups")}
         >
-          <ProjectIcon
-            name={selectedGroup.icon}
-            size={identityIconSize}
-            strokeWidth={identityIconStrokeWidth}
-            emojiScale={projectIdentityEmojiScale}
-            class="shrink-0"
-          />
+          {#if !mobileLayout}
+            <ProjectIcon
+              name={selectedGroup.icon}
+              size={identityIconSize}
+              strokeWidth={identityIconStrokeWidth}
+              emojiScale={projectIdentityEmojiScale}
+              class="shrink-0"
+            />
+          {/if}
           <span class="min-w-0 truncate text-foreground">{selectedGroup.name}</span>
         </button>
         <span class="shrink-0 px-0.5 text-muted-foreground">/</span>
@@ -321,22 +452,27 @@
           bind:this={projectTriggerElement}
           type="button"
           class={cn(
-            "flex h-7 min-w-0 items-center gap-1.5 rounded-md pl-1.5 text-left hover:bg-accent",
+            "flex min-w-0 items-center gap-1.5 rounded-md pl-1.5 text-left hover:bg-accent",
+            mobileLayout ? "h-12" : "h-7",
             selectedPageTitle ? "pr-1.5" : "pr-0.5",
             navigatorOpen && navigatorMode === "projects" && "bg-accent",
           )}
           aria-label={selectedPageTitle ? t("notes.showProjectHome") : t("projects.navigator.open")}
           aria-expanded={navigatorOpen && navigatorMode === "projects"}
-          onpointerenter={() => openNavigator("projects")}
+          onpointerenter={() => {
+            if (!mobileLayout) openNavigator("projects");
+          }}
           onclick={handleProjectTriggerClick}
         >
-          <ProjectIcon
-            name={selectedProject.icon}
-            size={identityIconSize}
-            strokeWidth={identityIconStrokeWidth}
-            emojiScale={projectIdentityEmojiScale}
-            class="shrink-0"
-          />
+          {#if !mobileLayout}
+            <ProjectIcon
+              name={selectedProject.icon}
+              size={identityIconSize}
+              strokeWidth={identityIconStrokeWidth}
+              emojiScale={projectIdentityEmojiScale}
+              class="shrink-0"
+            />
+          {/if}
           <span class="min-w-0 truncate text-foreground">{selectedProject.name}</span>
           {#if selectedProject.status !== "active"}
             <span class={cn("shrink-0 rounded border px-1.5 py-0.5 text-[0.666667rem]", projectLifecycleBadgeClass(selectedProject.status))}>
@@ -360,7 +496,7 @@
           </button>
         {/if}
         {#if showSelectedPagePath}
-          {#each selectedPagePath as node, nodeIndex (node.key)}
+          {#each visibleSelectedPagePath as node, nodeIndex (node.key)}
             {@const pathTitle = node.kind === "folder"
               ? node.folder.name
               : node.page.id === selectedPageId && selectedPageTitle
@@ -370,7 +506,8 @@
             <button
               type="button"
               class={cn(
-                "flex h-7 min-w-0 items-center gap-1.5 rounded-md px-1.5 text-left hover:bg-accent",
+                "flex min-w-0 items-center gap-1.5 rounded-md px-1.5 text-left hover:bg-accent",
+                mobileLayout ? "h-12" : "h-7",
                 navigatorOpen
                   && navigatorMode === "notes"
                   && notesNavigatorSourceKey === node.key
@@ -378,26 +515,30 @@
               )}
               aria-label={pathTitle}
               aria-expanded={navigatorOpen && navigatorMode === "notes" && notesNavigatorSourceKey === node.key}
-              onpointerenter={(event) => openHierarchyNavigator(node, event.currentTarget)}
+              onpointerenter={(event) => {
+                if (!mobileLayout) openHierarchyNavigator(node, event.currentTarget);
+              }}
               onclick={(event) => toggleHierarchyNavigator(node, event.currentTarget)}
             >
-              {#if node.kind === "folder"}
-                <Folder
-                  size={identityIconSize}
-                  strokeWidth={identityIconStrokeWidth}
-                  class="shrink-0"
-                />
-              {:else}
-                <NotesPageIcon
-                  icon={node.page.icon}
-                  size={identityIconSize}
-                  strokeWidth={identityIconStrokeWidth}
-                  emojiScale={NOTES_PAGE_CHROME_EMOJI_SCALE}
-                  class="shrink-0"
-                />
+              {#if !mobileLayout}
+                {#if node.kind === "folder"}
+                  <Folder
+                    size={identityIconSize}
+                    strokeWidth={identityIconStrokeWidth}
+                    class="shrink-0"
+                  />
+                {:else}
+                  <NotesPageIcon
+                    icon={node.page.icon}
+                    size={identityIconSize}
+                    strokeWidth={identityIconStrokeWidth}
+                    emojiScale={NOTES_PAGE_CHROME_EMOJI_SCALE}
+                    class="shrink-0"
+                  />
+                {/if}
               {/if}
               <span class="min-w-0 truncate text-foreground">{pathTitle}</span>
-              {#if nodeIndex === selectedPagePath.length - 1}
+              {#if nodeIndex === visibleSelectedPagePath.length - 1}
                 <WorkspaceBreadcrumbTerminalIcon kind="chevron" context="notes" class="shrink-0 text-muted-foreground" />
               {/if}
             </button>
@@ -418,20 +559,23 @@
           bind:this={noteTriggerElement}
           type="button"
           class={cn(
-            "flex h-7 min-w-0 items-center gap-1.5 rounded-md pl-1.5 pr-0.5 text-left hover:bg-accent",
+            "flex min-w-0 items-center gap-1.5 rounded-md pl-1.5 pr-0.5 text-left hover:bg-accent",
+            mobileLayout ? "h-12" : "h-7",
             navigatorOpen && navigatorMode === "notes" && "bg-accent",
           )}
           aria-label={t("notes.openNoteNavigator")}
           aria-expanded={navigatorOpen && navigatorMode === "notes"}
           onclick={() => toggleNavigator("notes")}
         >
-          <NotesPageIcon
-            icon={selectedPage?.icon ?? null}
-            size={identityIconSize}
-            strokeWidth={identityIconStrokeWidth}
-            emojiScale={NOTES_PAGE_CHROME_EMOJI_SCALE}
-            class="shrink-0"
-          />
+          {#if !mobileLayout}
+            <NotesPageIcon
+              icon={selectedPage?.icon ?? null}
+              size={identityIconSize}
+              strokeWidth={identityIconStrokeWidth}
+              emojiScale={NOTES_PAGE_CHROME_EMOJI_SCALE}
+              class="shrink-0"
+            />
+          {/if}
           <span class="min-w-0 truncate text-foreground">{selectedPageTitle ?? t("notes.title")}</span>
           <WorkspaceBreadcrumbTerminalIcon kind="chevron" class="shrink-0 text-muted-foreground" />
         </button>
@@ -448,48 +592,91 @@
       {/if}
     </div>
     {#if navigatorOpen}
-      <div
-        bind:this={navigatorPanelElement}
-        class="fixed z-80"
-        style={navigatorPanelStyle}
-        role="dialog"
-        tabindex="-1"
-        aria-label={navigatorMode === "notes" ? t("notes.noteNavigatorLabel") : t("projects.navigator.pickerLabel")}
-      >
-        {#if navigatorMode === "notes"}
-          <NotesHierarchyPickerPanel
-            projectId={selectedProjectId}
-            parent={notesNavigatorParent}
-            frameStyle={`width: 100%; height: ${notesNavigatorPanelHeight}px; max-height: ${notesNavigatorPanelHeight}px;`}
-            className="relative"
-            zIndexClass=""
-            onPageSelected={() => {
-              navigatorOpen = false;
-            }}
-          />
-        {:else}
-          <NotesProjectNavigator
-            {selectedProjectId}
-            selectedGroupId={selectedGroup?.id ?? null}
-            {showInactiveProjects}
-            panelMode={navigatorMode}
-            panelMaxHeight={navigatorPanelMaxHeight}
-            onShowInactiveProjectsChange={onShowInactiveProjectsChange}
-            onProjectSelected={() => {
-              navigatorOpen = false;
-              onProjectSelected();
-            }}
-            onPageSelected={() => {
-              navigatorOpen = false;
-            }}
-          />
+      {#if mobileLayout}
+        {#if mobileProjectPickerLoadState?.status === "ready" && mobileProjectPickerLoadState.component.kind === "mobile-project-picker"}
+          {@const ProjectPickerMobileDialog = mobileProjectPickerLoadState.component.dialog}
+          {@const ProjectPickerPanels = mobileProjectPickerLoadState.component.panels}
+          <ProjectPickerMobileDialog
+            label={navigatorMode === "notes" ? t("notes.noteNavigatorLabel") : t("projects.navigator.pickerLabel")}
+            closeLabel={t("common.close")}
+            onClose={() => { navigatorOpen = false; }}
+          >
+            {#if navigatorMode === "notes"}
+              <NotesHierarchyPickerPanel
+                projectId={selectedProjectId}
+                parent={notesNavigatorParent}
+                frameStyle="height:100%;max-height:100%"
+                className="relative"
+                zIndexClass=""
+                mobileLayout
+                title={notesNavigatorTitle || selectedProject?.name}
+                initialMobileAncestors={notesNavigatorAncestors}
+                onBack={() => { navigatorMode = "projects"; }}
+                onClose={() => { navigatorOpen = false; }}
+                onPageSelected={() => { navigatorOpen = false; }}
+              />
+            {:else}
+              <ProjectPickerPanels
+                {selectedProjectId}
+                selectedGroupId={selectedGroup?.id ?? null}
+                mode="groups"
+                {showInactiveProjects}
+                showInactiveToggle
+                showLifecycleBadges
+                {onShowInactiveProjectsChange}
+                onProjectSelected={openMobileProject}
+                onProjectDrilldown={openMobileProject}
+                mobileLayout
+                initialMobileGroupId={navigatorMode === "projects" ? selectedGroup?.id ?? null : null}
+                onClose={() => { navigatorOpen = false; }}
+              />
+            {/if}
+          </ProjectPickerMobileDialog>
         {/if}
-      </div>
+      {:else}
+        <div
+          bind:this={navigatorPanelElement}
+          class="fixed z-80"
+          style={navigatorPanelStyle}
+          role="dialog"
+          tabindex="-1"
+          aria-label={navigatorMode === "notes" ? t("notes.noteNavigatorLabel") : t("projects.navigator.pickerLabel")}
+        >
+          {#if navigatorMode === "notes"}
+            <NotesHierarchyPickerPanel
+              projectId={selectedProjectId}
+              parent={notesNavigatorParent}
+              frameStyle={`width: 100%; height: ${notesNavigatorPanelHeight}px; max-height: ${notesNavigatorPanelHeight}px;`}
+              className="relative"
+              zIndexClass=""
+              onPageSelected={() => {
+                navigatorOpen = false;
+              }}
+            />
+          {:else}
+            <NotesProjectNavigator
+              {selectedProjectId}
+              selectedGroupId={selectedGroup?.id ?? null}
+              {showInactiveProjects}
+              panelMode={navigatorMode}
+              panelMaxHeight={navigatorPanelMaxHeight}
+              onShowInactiveProjectsChange={onShowInactiveProjectsChange}
+              onProjectSelected={() => {
+                navigatorOpen = false;
+                onProjectSelected();
+              }}
+              onPageSelected={() => {
+                navigatorOpen = false;
+              }}
+            />
+          {/if}
+        </div>
+      {/if}
     {/if}
   </div>
-  <div class="flex-1"></div>
+  {#if !mobileLayout}<div class="flex-1"></div>{/if}
   <div class="flex shrink-0 items-center gap-1">
-    {#if selectedProject}
+    {#if selectedProject && !mobileLayout}
       <button
         type="button"
         data-notes-toolbar-trigger="settings"

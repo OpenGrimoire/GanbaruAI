@@ -128,7 +128,19 @@ describe("provider setup", () => {
     expect(validateProviderSetup(draft, new Set()).valid).toBe(true);
   });
 
-  it("accepts loopback HTTP and legacy OpenCode endpoint settings", () => {
+  it("accepts a loopback HTTP OpenCode server URL", () => {
+    const draft = createProviderSetupDraft();
+    Object.assign(draft, {
+      familyId: "opencode",
+      label: "OpenCode",
+      instanceId: "opencode",
+      executable: "opencode",
+      providerConfig: { schemaVersion: 1, value: { mode: "external", serverUrl: "http://127.0.0.1:4096", confirmExternalWorkspaceAccess: true } },
+    });
+    expect(validateProviderSetup(draft, new Set()).valid).toBe(true);
+  });
+
+  it("rejects the predecessor OpenCode endpoint field", () => {
     const draft = createProviderSetupDraft();
     Object.assign(draft, {
       familyId: "opencode",
@@ -137,6 +149,18 @@ describe("provider setup", () => {
       executable: "opencode",
       providerConfig: { schemaVersion: 1, value: { mode: "external", endpoint: "http://127.0.0.1:4096", confirmExternalWorkspaceAccess: true } },
     });
-    expect(validateProviderSetup(draft, new Set()).valid).toBe(true);
+    expect(validateProviderSetup(draft, new Set()).fields["providerConfig.serverUrl"]).toBeDefined();
+  });
+
+  it("requires an explicit OpenCode connection mode", () => {
+    const draft = createProviderSetupDraft();
+    Object.assign(draft, {
+      familyId: "opencode",
+      label: "OpenCode",
+      instanceId: "opencode",
+      executable: "opencode",
+      providerConfig: { schemaVersion: 1, value: { serverUrl: "https://example.com" } },
+    });
+    expect(validateProviderSetup(draft, new Set()).fields["providerConfig.mode"]).toBeDefined();
   });
 });

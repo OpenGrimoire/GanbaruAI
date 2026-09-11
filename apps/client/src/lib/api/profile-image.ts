@@ -5,11 +5,6 @@ export interface ProfileImageAsset {
   relativePath: string;
 }
 
-/** Opens the native image picker and copies the selection into managed profile assets. */
-export async function pickProfileImageFile(title: string): Promise<ProfileImageAsset | null> {
-  return invoke<ProfileImageAsset | null>("profile_image_pick_file", { title });
-}
-
 /** Loads a managed profile image through the bounded vault-scoped asset cache. */
 export async function profileImageAssetUrl(relativePath: string): Promise<string> {
   return loadAssetUrl("profile-image", relativePath, () =>

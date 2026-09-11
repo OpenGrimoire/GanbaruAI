@@ -1,9 +1,12 @@
-import { emit, listen } from "@tauri-apps/api/event";
 import {
   createWindowSyncEnvelope,
   isForeignWindowSyncEnvelope,
   isWindowSyncEnvelope,
 } from "$lib/window-sync";
+import {
+  emitWindowSync,
+  listenWindowSync,
+} from "$lib/window-sync-transport";
 
 const CALENDAR_WINDOW_SYNC_EVENT = "calendar-window-sync";
 
@@ -20,7 +23,7 @@ function isCalendarWindowSyncPayload(value: unknown): value is CalendarWindowSyn
 }
 
 export function publishCalendarWindowSync(): void {
-  emit(
+  emitWindowSync(
     CALENDAR_WINDOW_SYNC_EVENT,
     createWindowSyncEnvelope<CalendarWindowSyncPayload>({ kind: "data-changed" }),
   ).catch((err) => console.warn("calendar window sync failed", err));
@@ -29,7 +32,7 @@ export function publishCalendarWindowSync(): void {
 export function initCalendarWindowSync(reloadCurrentWindow: () => Promise<void>): void {
   if (calendarSyncInitialized) return;
   calendarSyncInitialized = true;
-  listen<unknown>(CALENDAR_WINDOW_SYNC_EVENT, (event) => {
+  listenWindowSync<unknown>(CALENDAR_WINDOW_SYNC_EVENT, (event) => {
     const envelope = event.payload;
     if (!isWindowSyncEnvelope(envelope, isCalendarWindowSyncPayload)) return;
     if (!isForeignWindowSyncEnvelope(envelope)) return;

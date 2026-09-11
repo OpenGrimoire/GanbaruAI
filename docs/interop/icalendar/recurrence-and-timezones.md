@@ -1,6 +1,6 @@
 # Recurrence and timezones
 
-Recurrence and timezones are the highest-risk part of iCalendar compatibility. The implementation must preserve exact source data and project only what it can expand correctly.
+Recurrence and timezones are the highest-risk part of iCalendar compatibility. The implementation must preserve accepted source semantics and project only what it can expand correctly.
 
 ## Time value categories
 
@@ -13,7 +13,7 @@ Ganbaru AI must distinguish:
 - duration values, such as `DURATION:PT1H`
 - period values, such as `FREEBUSY:20260513T090000Z/20260513T100000Z`
 
-Projection can convert these to app row fields, but preservation must retain the original value type and parameters.
+Projection can convert these to app row fields, but preservation must retain the semantic value type and parameters. Original lexical formatting is not guaranteed.
 
 ## All-day events
 
@@ -32,7 +32,7 @@ Floating date-times have no UTC marker and no `TZID`. They are not the same as d
 
 Initial behavior:
 
-- preserve floating status exactly in the lossless layer.
+- preserve floating value shape in the structured preservation layer.
 - project into the current render zone for display only.
 - mark as partial if editing would convert it to a specific timezone.
 - export as floating if the user did not make a timezone-changing edit.
@@ -67,7 +67,7 @@ Projection may continue to store normalized recurrence config for rendering, but
 
 ## RRULE completeness
 
-Track all rule parts:
+RFC 5545 defines these rule parts, all of which must survive structured preservation when accepted:
 
 - `FREQ`
 - `UNTIL`
@@ -84,7 +84,7 @@ Track all rule parts:
 - `BYSETPOS`
 - `WKST`
 
-Projection can support these incrementally, but preservation must retain all legal parts.
+Current projection supports `FREQ`, `UNTIL`, `COUNT`, `INTERVAL`, `BYDAY`, `BYMONTHDAY`, `BYYEARDAY`, `BYWEEKNO`, `BYMONTH`, `BYSETPOS`, and `WKST` to varying depths. `BYSECOND`, `BYMINUTE`, and `BYHOUR` are not represented in `RecurrenceConfig` and are not editable or expanded by the app. They remain preservation-only for linked exports.
 
 ## RDATE and EXDATE
 

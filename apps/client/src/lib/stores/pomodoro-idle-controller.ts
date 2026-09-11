@@ -16,11 +16,21 @@ import type { PomodoroSegmentController } from "./pomodoro-segment-controller";
 import type { IdlePauseState } from "./pomodoro-window-sync";
 
 interface IdleStatus {
-  idle_ms: number;
+  idle_ms: number | null;
   webcam_in_use: boolean;
 }
 
+export function nextIdleStatusCheckDelayMs(
+  idleTimeoutMs: number,
+  idleMs: number | null,
+  webcamInUse: boolean,
+): number {
+  if (idleMs === null) return IDLE_CHECK_MAX_INTERVAL_MS;
+  return nextIdleCheckDelayMs({ idleTimeoutMs, idleMs, webcamInUse });
+}
+
 interface PomodoroIdleContext {
+  nativeIdleDetectionAvailable: boolean;
   phase: PomodoroPhase;
   isRunning: boolean;
   suspendedAway: { awaySeconds: number } | null;
@@ -29,6 +39,7 @@ interface PomodoroIdleContext {
   phaseEndTime: number | null;
   activeBlockEndMs: number | null;
   activeBlockId: string | null;
+  activeBlockTitle: string | null;
   dismissedBlockId: string | null;
   activeRunId: string | null;
   config: PomodoroConfig;
@@ -91,20 +102,23 @@ export function createPomodoroIdleController(
 
   function startChecking(): void {
     stopChecking();
+    if (!context.nativeIdleDetectionAvailable) return;
     if (!shouldRunChecks()) return;
     scheduleCheck(0, idleCheckGeneration);
   }
 
   function setActiveThresholdMinutes(minutes: number): void {
+    if (!context.nativeIdleDetectionAvailable) return;
     if (!Number.isFinite(minutes) || minutes <= 0 || context.idleTimeoutMs === null) return;
     const nextIdleMs = Math.round(minutes) * 60_000;
     setActiveTimeoutMs(nextIdleMs);
   }
 
   function setActiveTimeoutMs(nextIdleMs: number | null): void {
-    if (context.idleTimeoutMs === nextIdleMs) return;
-    context.idleTimeoutMs = nextIdleMs;
-    if (nextIdleMs === null) {
+    const supportedTimeoutMs = context.nativeIdleDetectionAvailable ? nextIdleMs : null;
+    if (context.idleTimeoutMs === supportedTimeoutMs) return;
+    context.idleTimeoutMs = supportedTimeoutMs;
+    if (supportedTimeoutMs === null) {
       stopChecking();
     } else {
       startChecking();
@@ -269,11 +283,12 @@ export function createPomodoroIdleController(
       const nowMs = Date.now();
       const currentIdleTimeoutMs = context.idleTimeoutMs;
       if (currentIdleTimeoutMs === null) return;
-      nextDelayMs = nextIdleCheckDelayMs({
-        idleTimeoutMs: currentIdleTimeoutMs,
-        idleMs: status.idle_ms,
-        webcamInUse: status.webcam_in_use,
-      });
+      nextDelayMs = nextIdleStatusCheckDelayMs(
+        currentIdleTimeoutMs,
+        status.idle_ms,
+        status.webcam_in_use,
+      );
+      if (status.idle_ms === null) return;
 
       const result = decideIdleCheck(
         {
@@ -392,6 +407,7 @@ export function createPomodoroIdleController(
       context.phaseEndTime = null;
       context.dismissedBlockId = context.activeBlockId;
       context.activeBlockId = null;
+      context.activeBlockTitle = null;
       context.activeBlockEndMs = null;
       context.lastTickMs = null;
       context.phase = "focus";

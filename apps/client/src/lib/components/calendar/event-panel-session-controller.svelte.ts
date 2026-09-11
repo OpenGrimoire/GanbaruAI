@@ -29,10 +29,10 @@ import {
   buildEventPanelPomodoroConfig,
   buildEventPanelSaveData,
   collectEventPanelNotifications,
-  hasMeetingState,
   type EventPanelPayloadInput,
   type PanelSaveData,
 } from "./event-panel-payloads";
+import { hasMeetingState } from "$lib/calendar/meeting-state";
 import {
   COUNT_PRESET_RHYTHMS,
   type SequencePomodoroRhythmStep,

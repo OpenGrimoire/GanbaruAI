@@ -1,7 +1,6 @@
 use crate::chat::{
     device_state::{
         full_access_is_trusted, set_full_access_trust, ChatDeviceScope, ChatDeviceState,
-        CHAT_DEVICE_STATE_SCHEMA_VERSION, DEFAULT_DIAGNOSTIC_RETENTION_DAYS,
     },
     models::{ProjectWorkingFolderId, ProviderInstanceId, RepositoryKind, UtcTimestamp},
 };
@@ -16,7 +15,7 @@ fn bindings_are_scoped_by_vault_and_device() {
     let working_folder_id = ProjectWorkingFolderId::new("workspace-1").unwrap();
     let binding = ProjectWorkingFolderBindingState {
         canonical_path: "/mnt/work/ganbaru".to_string(),
-        filesystem_identity: Some("filesystem-sha256:folder".to_string()),
+        filesystem_identity: "filesystem-sha256:folder".to_string(),
         repository_kind: RepositoryKind::Git,
         repository_identity: Some("git:example/ganbaru".to_string()),
         repository_storage_identity: Some("filesystem-sha256:git".to_string()),
@@ -45,7 +44,7 @@ fn working_folder_device_state_round_trips_typed_map_keys() {
         ProjectWorkingFolderId::new("workspace-1").unwrap(),
         ProjectWorkingFolderBindingState {
             canonical_path: "/mnt/work/ganbaru".to_string(),
-            filesystem_identity: Some("filesystem-sha256:folder".to_string()),
+            filesystem_identity: "filesystem-sha256:folder".to_string(),
             repository_kind: RepositoryKind::Git,
             repository_identity: Some("git:example/ganbaru".to_string()),
             repository_storage_identity: Some("filesystem-sha256:git".to_string()),
@@ -64,42 +63,32 @@ fn working_folder_device_state_round_trips_typed_map_keys() {
 }
 
 #[test]
-fn legacy_working_folder_binding_defaults_new_identity_fields() {
-    let binding: ProjectWorkingFolderBindingState = serde_json::from_value(serde_json::json!({
+fn working_folder_binding_requires_current_identity_fields() {
+    let binding = serde_json::from_value::<ProjectWorkingFolderBindingState>(serde_json::json!({
         "canonicalPath": "/mnt/work/ganbaru",
         "repositoryKind": "git",
-        "repositoryIdentity": "git-sha256:legacy",
+        "repositoryIdentity": "git-sha256:repository",
+        "repositoryStorageIdentity": null,
         "lastVerifiedAt": "2026-07-20T12:00:00Z"
-    }))
-    .unwrap();
+    }));
 
-    assert_eq!(binding.filesystem_identity, None);
-    assert_eq!(binding.repository_storage_identity, None);
+    assert!(binding.is_err());
 }
 
 #[test]
-fn missing_legacy_chat_state_defaults_to_the_current_schema() {
-    let restored: crate::vault::VaultAppState = serde_json::from_value(serde_json::json!({
+fn app_state_requires_the_current_device_state_sections() {
+    let restored = serde_json::from_value::<crate::vault::VaultAppState>(serde_json::json!({
         "activeVaultPath": null,
         "recentVaultPaths": []
-    }))
-    .unwrap();
+    }));
 
-    assert_eq!(
-        restored.chat.schema_version,
-        CHAT_DEVICE_STATE_SCHEMA_VERSION
-    );
-    assert!(restored.chat.vaults.is_empty());
+    assert!(restored.is_err());
 }
 
 #[test]
-fn legacy_device_scope_defaults_to_disabled_bounded_diagnostics() {
-    let scope: ChatDeviceScope = serde_json::from_value(serde_json::json!({})).unwrap();
-    assert!(!scope.diagnostics.capture_enabled);
-    assert_eq!(
-        scope.diagnostics.retention_days,
-        DEFAULT_DIAGNOSTIC_RETENTION_DAYS
-    );
+fn device_scope_requires_current_preferences_and_diagnostics() {
+    let scope = serde_json::from_value::<ChatDeviceScope>(serde_json::json!({}));
+    assert!(scope.is_err());
 }
 
 #[test]

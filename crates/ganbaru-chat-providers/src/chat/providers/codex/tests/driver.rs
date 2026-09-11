@@ -260,7 +260,7 @@ fn driver_fixture_covers_native_resume_and_confirmed_missing_fallback() {
                 },
                 "providerInstanceId": "codex-instance-1",
                 "providerThreadId": "provider-thread-existing",
-                "continuationGroupId": layout.continuation_group().unwrap(),
+                "continuationGroupId": layout.continuation_group_with_authority(false).unwrap(),
                 "resumeCursor": {
                     "schemaVersion": 1,
                     "value": { "threadId": "provider-thread-existing" }

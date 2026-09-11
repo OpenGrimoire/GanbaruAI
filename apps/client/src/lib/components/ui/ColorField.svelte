@@ -2,6 +2,10 @@
   import { untrack } from "svelte";
   import ChevronDown from "@lucide/svelte/icons/chevron-down";
   import RotateCcw from "@lucide/svelte/icons/rotate-ccw";
+  import X from "@lucide/svelte/icons/x";
+  import { getLocalization } from "$lib/i18n/translator.svelte";
+  import { BUILD_PLATFORM_PROFILE } from "$lib/platform";
+  import { getMobileBackStack } from "$lib/stores/mobile-back-stack.svelte";
   import { cn } from "$lib/utils";
   import { portal } from "$lib/utils/portal";
   import {
@@ -64,6 +68,12 @@
   const THUMB_OUTLINE_LIGHT = "#ffffff";
   const THUMB_OUTLINE_DARK = "#000000";
   const ALPHA_RAIL_CHECKER_BG = checkerboardBackground(12);
+  const { t } = getLocalization();
+  const mobileShell = BUILD_PLATFORM_PROFILE.shell === "mobile";
+  const mobileBackStack = getMobileBackStack();
+  const effectiveSwatchSize = $derived(
+    mobileShell ? Math.max(swatchSize, 32) : swatchSize,
+  );
 
   let open = $state(false);
   let triggerEl: HTMLButtonElement | undefined = $state();
@@ -93,6 +103,13 @@
 
   function computePosition() {
     if (!triggerEl) return;
+    if (mobileShell) {
+      pickerGeometry = {
+        layout: "fullscreen",
+        rect: { x: 0, y: 0, width: window.innerWidth, height: window.innerHeight },
+      };
+      return;
+    }
     const rect = triggerEl.getBoundingClientRect();
     pickerGeometry = pickColorPickerGeometry({
       viewport: { width: window.innerWidth, height: window.innerHeight },
@@ -148,7 +165,7 @@
   const alphaPercentDisplay = $derived(Math.round((alpha / 255) * 100));
   const swatchHasTransparency = $derived(alpha < 255);
   const swatchCheckerBg = $derived(
-    checkerboardBackgroundForCells(swatchSize, 3),
+    checkerboardBackgroundForCells(effectiveSwatchSize, 3),
   );
   const activeFormatLabel = $derived(
     COLOR_FORMAT_OPTIONS.find((option) => option.value === activeFormat)?.label ??
@@ -345,6 +362,11 @@
   }
 
   $effect(() => {
+    if (!open || !mobileShell) return;
+    return mobileBackStack.activate({ handle: close });
+  });
+
+  $effect(() => {
     if (!open) return;
     updateThumbContour();
     const root = document.documentElement;
@@ -386,6 +408,15 @@
   });
 
   const pickerStyle = $derived.by(() => {
+    if (mobileShell) {
+      return [
+        "top: var(--visual-viewport-offset-top)",
+        "left: var(--visual-viewport-offset-left)",
+        "width: var(--visual-viewport-width)",
+        "height: var(--visual-viewport-height)",
+        "padding: var(--safe-area-top) var(--safe-area-right) var(--safe-area-bottom) var(--safe-area-left)",
+      ].join("; ");
+    }
     const { rect, layout } = pickerGeometry;
     const sizeRule =
       layout === "fullscreen"
@@ -416,21 +447,24 @@
     onclick={toggleOpen}
     class={cn(
       "relative shrink-0 overflow-hidden rounded-md border transition-shadow",
-      swatchHasTransparency
-        ? "border-transparent bg-clip-padding shadow-none"
-        : "border-border shadow-sm",
-      readOnly
-        ? "cursor-not-allowed"
+      mobileShell
+        ? "border-border shadow-none"
         : swatchHasTransparency
-          ? "hover:shadow-none"
-          : "hover:shadow-md",
+          ? "border-transparent bg-clip-padding shadow-none"
+          : "border-border shadow-sm",
+      readOnly ? "cursor-not-allowed" : !mobileShell && !swatchHasTransparency && "hover:shadow-md",
     )}
-    style="width: {swatchSize}px; height: {swatchSize}px;{swatchHasTransparency ? ` background: ${swatchCheckerBg};` : ''}"
+    style="width: {effectiveSwatchSize}px; height: {effectiveSwatchSize}px;{swatchHasTransparency && !mobileShell ? ` background: ${swatchCheckerBg};` : ''}"
   >
     <span
-      class="absolute inset-0 block"
-      style="background: {normalizeHex(value) ?? '#000000'};"
-    ></span>
+      class="absolute inset-0 block overflow-hidden"
+      style={swatchHasTransparency ? `background: ${swatchCheckerBg};` : ""}
+    >
+      <span
+        class="absolute inset-0 block"
+        style="background: {normalizeHex(value) ?? '#000000'};"
+      ></span>
+    </span>
   </button>
   <input
     type="text"
@@ -450,6 +484,7 @@
     }}
     class={cn(
       "h-7 rounded-md border border-border bg-card px-2 text-[0.8rem] leading-6.5 text-foreground focus:outline-none focus:ring-1 focus:ring-ring",
+      mobileShell && "h-9",
       fluid ? "min-w-0 flex-1" : "w-19",
       readOnly && "cursor-not-allowed opacity-60",
     )}
@@ -462,10 +497,13 @@
       aria-label="Reset color"
       data-app-tooltip-disabled="true"
       class={cn(
-        "flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-border bg-secondary text-secondary-foreground transition-colors",
+        "flex shrink-0 items-center justify-center text-secondary-foreground transition-colors",
+        mobileShell
+          ? "size-8 rounded-md border border-border bg-secondary active:bg-accent"
+          : "h-7 w-7 rounded-md border border-border bg-secondary",
         canReset
           ? "hover:bg-accent hover:text-accent-foreground"
-          : "cursor-not-allowed opacity-40",
+          : "cursor-not-allowed opacity-40 hover:bg-transparent",
       )}
     >
       <RotateCcw size={12} strokeWidth={2.25} />
@@ -480,13 +518,30 @@
       aria-label={label ? `${label} color picker` : "Color picker"}
       class={cn(
         "fixed z-80 overflow-y-auto border border-border bg-popover p-3 shadow-xl",
+        mobileShell && "mobile-color-picker z-95 flex flex-col border-0 p-0",
         pickerGeometry.layout === "popover" && "rounded-lg",
         pickerGeometry.layout === "sheet" && "rounded-lg",
         pickerGeometry.layout === "fullscreen" && "rounded-none border-x-0 border-b-0",
       )}
       style={pickerStyle}
     >
-      <div
+      {#if mobileShell}
+        <header class="flex min-h-14 shrink-0 items-center justify-between border-b border-border px-2">
+          <h2 class="px-2 text-base font-semibold">
+            {label ?? t("settings.theme.editor.colorPicker")}
+          </h2>
+          <button
+            type="button"
+            onclick={close}
+            aria-label={t("common.close")}
+            class="flex size-12 items-center justify-center rounded-xl active:bg-accent"
+          >
+            <X size={21} aria-hidden="true" />
+          </button>
+        </header>
+      {/if}
+      <div class={mobileShell ? "min-h-0 flex-1 overflow-y-auto p-4" : "contents"}>
+        <div
         bind:this={svEl}
         onpointerdown={startSvDrag}
         role="slider"
@@ -512,7 +567,10 @@
         aria-label="Hue"
         aria-valuenow={Math.round(hsv.h)}
         tabindex="0"
-        class="relative mt-3 h-3 w-full touch-none rounded-full"
+        class={cn(
+          "relative mt-3 w-full touch-none rounded-full",
+          mobileShell ? "h-11" : "h-3",
+        )}
         style="background: linear-gradient(to right, #f00 0%, #ff0 17%, #0f0 33%, #0ff 50%, #00f 67%, #f0f 83%, #f00 100%);"
       >
         <div
@@ -528,7 +586,10 @@
         aria-label="Alpha"
         aria-valuenow={alphaPercentDisplay}
         tabindex="0"
-        class="relative mt-2 h-3 w-full touch-none rounded-full"
+        class={cn(
+          "relative mt-2 w-full touch-none rounded-full",
+          mobileShell ? "h-11" : "h-3",
+        )}
         style="background: {ALPHA_RAIL_CHECKER_BG};"
       >
         <div
@@ -677,6 +738,7 @@
           </div>
         {/if}
       </div>
+      </div>
     </div>
   {/if}
 </div>
@@ -692,4 +754,5 @@
     margin: 0;
     -webkit-appearance: none;
   }
+
 </style>

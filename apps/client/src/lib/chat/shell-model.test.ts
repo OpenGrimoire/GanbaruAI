@@ -6,7 +6,6 @@ import {
   chatHeaderShowsResourcePath,
   chatNavigationFolders,
   contextualChatFolders,
-  filterArchivedThreads,
   filterThreadTitles,
   isDirectChatThreadShell,
   nextThreadIndex,
@@ -218,11 +217,9 @@ describe("Chat shell model", () => {
     expect(nextThreadIndex(-1, 0, "next")).toBe(-1);
   });
 
-  it("partitions search results and filters the archive by project", () => {
+  it("partitions search results", () => {
     const active = thread("active");
     const archived = thread("archived", { archivedAt: timestamp, projectId: "project-2", title: "Archived calendar" });
     expect(partitionThreadSearchResults([archived, active])).toEqual({ active: [active], archived: [archived] });
-    expect(filterArchivedThreads([active, archived], "calendar", "project-2")).toEqual([archived]);
-    expect(filterArchivedThreads([active, archived], "calendar", "project")).toEqual([]);
   });
 });

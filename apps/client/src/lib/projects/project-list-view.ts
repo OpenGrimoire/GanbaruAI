@@ -457,6 +457,15 @@ export function projectTaskListGridTemplate(
     .join(" ");
 }
 
+export function projectTaskListLeadingGridTemplate(
+  input: readonly ProjectTaskListColumn[] | ProjectTaskListGridInput,
+): string {
+  const leadingTracks = projectTaskListGridColumnWidths(input)
+    .slice(0, 2)
+    .map(formatProjectTaskListRem);
+  return [...leadingTracks, "minmax(0, 1fr)"].join(" ");
+}
+
 export function projectTaskListGridMinWidth(
   input: readonly ProjectTaskListColumn[] | ProjectTaskListGridInput,
 ): string {

@@ -1,55 +1,25 @@
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { updateMediaControls } from "$lib/api/media-controls";
+import { createMusicBrowserControls } from "$lib/stores/music-browser-controls";
 import {
-  musicHardwareActionFromKey,
   parseMusicHardwareControlPayload,
   type MusicHardwareControlPayload,
 } from "$lib/music/hardware-controls";
-import type { MusicSource } from "$lib/music/sources";
-import type { PlaybackSnapshot } from "$lib/music/playback";
+import type {
+  MusicExternalControls,
+  MusicExternalControlsContext,
+} from "$lib/stores/music-external-controls-contracts";
 
-interface MusicExternalControlsContext {
-  currentSource(): MusicSource | null;
-  snapshot(): PlaybackSnapshot;
-  title(): string;
-  sourceKindLabel(): string;
-  artworkUrl(): string | null;
-  isBusy(): boolean;
-  canPrevious(): boolean;
-  canNext(): boolean;
-  volume(): number;
-  muted(): boolean;
-  shuffleEnabled(): boolean;
-  play(): Promise<void>;
-  pause(): Promise<void>;
-  togglePlay(): Promise<void>;
-  stop(): Promise<void>;
-  previous(): Promise<void>;
-  next(): Promise<void>;
-  seekBy(deltaMs: number): Promise<void>;
-  seekTo(positionMs: number): Promise<void>;
-  setVolume(volume: number): Promise<void>;
-  setRate(rate: number): Promise<void>;
-  toggleShuffle(): void;
-  handleWindowMessage(event: MessageEvent<unknown>): void;
-  inspectAssignment(): void;
+interface DesktopMusicExternalControlsContext extends MusicExternalControlsContext {
   listen?: typeof listen;
-}
-
-export interface MusicExternalControls {
-  init(): void;
-  destroy(): void;
-  isInitialized(): boolean;
-  update(): void;
-  updateBrowser(): void;
-  updateNative(): void;
 }
 
 /** Owns app-level media listeners, Media Session handlers, and native controls. */
 export function createMusicExternalControls(
-  context: MusicExternalControlsContext,
+  context: DesktopMusicExternalControlsContext,
 ): MusicExternalControls {
   const listenToEvent = context.listen ?? listen;
+  const browser = createMusicBrowserControls(context);
   const unlisteners: UnlistenFn[] = [];
   let initialized = false;
 
@@ -95,14 +65,6 @@ export function createMusicExternalControls(
     }
   }
 
-  const handleHardwareKeydown = (event: KeyboardEvent): void => {
-    const action = musicHardwareActionFromKey(event);
-    if (!action) return;
-    event.preventDefault();
-    event.stopPropagation();
-    void handleHardwareControl({ action });
-  };
-
   function trackListener(
     eventName: string,
     handler: Parameters<typeof listen>[1],
@@ -129,84 +91,15 @@ export function createMusicExternalControls(
   function init(): void {
     if (initialized) return;
     initialized = true;
-    if (typeof window !== "undefined") {
-      window.addEventListener("message", context.handleWindowMessage);
-      window.addEventListener("keydown", handleHardwareKeydown, { capture: true });
-    }
+    browser.init();
     installTrayListeners();
     update();
   }
 
   function destroy(): void {
-    if (typeof window !== "undefined") {
-      window.removeEventListener("message", context.handleWindowMessage);
-      window.removeEventListener("keydown", handleHardwareKeydown, { capture: true });
-    }
+    browser.destroy();
     initialized = false;
     for (const unlisten of unlisteners.splice(0)) unlisten();
-    if (typeof navigator !== "undefined" && "mediaSession" in navigator) {
-      navigator.mediaSession.metadata = null;
-      navigator.mediaSession.playbackState = "none";
-      for (const action of ["play", "pause", "previoustrack", "nexttrack", "stop"] as const) {
-        navigator.mediaSession.setActionHandler(action, null);
-      }
-    }
-  }
-
-  function updateBrowserPositionState(snapshot: PlaybackSnapshot): void {
-    if (typeof navigator === "undefined" || !("mediaSession" in navigator)) return;
-    if (!("setPositionState" in navigator.mediaSession)) return;
-    const durationSeconds = snapshot.durationMs === null
-      ? null
-      : snapshot.durationMs / 1_000;
-    if (durationSeconds === null || durationSeconds <= 0) return;
-    try {
-      navigator.mediaSession.setPositionState({
-        duration: durationSeconds,
-        playbackRate: snapshot.rate,
-        position: Math.max(
-          0,
-          Math.min(snapshot.positionMs / 1_000, durationSeconds),
-        ),
-      });
-    } catch {
-      // Invalid position state must not break normal playback controls.
-    }
-  }
-
-  function updateBrowserMediaSession(): void {
-    if (typeof navigator === "undefined" || !("mediaSession" in navigator)) return;
-    const source = context.currentSource();
-    const snapshot = context.snapshot();
-    if (!source) {
-      navigator.mediaSession.playbackState = "none";
-      return;
-    }
-    if (typeof MediaMetadata !== "undefined") {
-      const artworkUrl = context.artworkUrl();
-      navigator.mediaSession.metadata = new MediaMetadata({
-        title: context.title(),
-        artist: context.sourceKindLabel(),
-        artwork: artworkUrl ? [{ src: artworkUrl }] : [],
-      });
-    }
-    navigator.mediaSession.playbackState = snapshot.status === "playing"
-      ? "playing"
-      : snapshot.status === "paused"
-        ? "paused"
-        : "none";
-    updateBrowserPositionState(snapshot);
-    navigator.mediaSession.setActionHandler("play", () => { void context.play(); });
-    navigator.mediaSession.setActionHandler("pause", () => { void context.pause(); });
-    navigator.mediaSession.setActionHandler(
-      "previoustrack",
-      context.canPrevious() ? () => { void context.previous(); } : null,
-    );
-    navigator.mediaSession.setActionHandler(
-      "nexttrack",
-      context.canNext() ? () => { void context.next(); } : null,
-    );
-    navigator.mediaSession.setActionHandler("stop", () => { void context.stop(); });
   }
 
   function updateNativeMediaControls(): void {
@@ -233,7 +126,7 @@ export function createMusicExternalControls(
   }
 
   function update(): void {
-    updateBrowserMediaSession();
+    browser.update();
     updateNativeMediaControls();
   }
 
@@ -242,7 +135,7 @@ export function createMusicExternalControls(
     destroy,
     isInitialized: () => initialized,
     update,
-    updateBrowser: updateBrowserMediaSession,
+    updateBrowser: browser.update,
     updateNative: updateNativeMediaControls,
   };
 }

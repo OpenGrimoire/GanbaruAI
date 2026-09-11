@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-scheduleCalendarNotifications"
+description = "Enables the scheduleCalendarNotifications command without any pre-configured scope."
+commands.allow = ["scheduleCalendarNotifications"]
+
+[[permission]]
+identifier = "deny-scheduleCalendarNotifications"
+description = "Denies the scheduleCalendarNotifications command without any pre-configured scope."
+commands.deny = ["scheduleCalendarNotifications"]

@@ -1,6 +1,7 @@
 //! Provider processes, transports, drivers, event sinks, and registry.
 
-#![allow(dead_code)]
+#![deny(clippy::undocumented_unsafe_blocks)]
+#![deny(unsafe_op_in_unsafe_fn)]
 
 pub mod chat;
 

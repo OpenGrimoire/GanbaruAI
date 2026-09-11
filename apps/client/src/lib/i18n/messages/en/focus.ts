@@ -17,7 +17,7 @@ export const pomodoroOverlay = {
   focusPausedTitle: "Focus session paused",
   focusPausedBody: "No activity detected. Return to resume your session.",
   focusFailedTitle: "Focus session failed",
-  breakCompleteTitle: "Break complete",
+  breakCompleteTitle: "Ready to return",
   eventFinishedTitle: "Event finished",
   dayCompletedTitle: "Day completed",
   workweekCompletedTitle: "Workweek completed",
@@ -31,4 +31,23 @@ export const pomodoroOverlay = {
   keyHint: (key: string, label: string) => `Press ${key} to ${label}`,
   extendBreakHint: (shortcut: string) => `Press ${shortcut} to extend the break`,
   endBreakHint: (shortcut: string) => `Press ${shortcut} to end your break now`,
+} as const;
+
+export const pomodoroNotification = {
+  startScheduledSession: "Start scheduled session",
+  noCommitmentDue: "No focus session is due. Schedule one in Calendar.",
+  startFailed: "The session could not be saved. Try starting it again.",
+  commitmentDueTitle: "Focus session due",
+  commitmentDueText: "Your scheduled session is due. Open Ganbaru AI when you are ready to start.",
+  channelName: "Focus sessions",
+  channelDescription: "Persistent progress for active focus sessions",
+  alertsChannelName: "Focus alerts",
+  alertsChannelDescription: "Alerts when focus and break phases end",
+  focusTitle: "Focus",
+  shortBreakTitle: "Short break",
+  longBreakTitle: "Long break",
+  pausedText: "Paused",
+  focusCompleteTitle: "Focus complete",
+  breakCompleteTitle: "Ready to return",
+  sessionCompleteText: "Open Ganbaru AI to continue.",
 } as const;

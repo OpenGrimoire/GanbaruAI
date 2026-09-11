@@ -16,6 +16,7 @@
     section,
     gridTemplate,
     gridMinWidth,
+    leadingGridTemplate,
     taskCount,
     allSelected,
     partiallySelected,
@@ -41,6 +42,7 @@
     section: ProjectSection;
     gridTemplate: string;
     gridMinWidth: string;
+    leadingGridTemplate: string;
     taskCount: number;
     allSelected: boolean;
     partiallySelected: boolean;
@@ -90,61 +92,65 @@
   ondragstart={onDragStart}
   ondragend={onDragEnd}
 >
-  <ProjectListSelectionButton
-    mode="section"
-    {allSelected}
-    {partiallySelected}
-    disabled={taskCount === 0}
-    ariaLabel={allSelected
-      ? t("projects.actions.unselectTaskGroup", section.name)
-      : t("projects.actions.selectTaskGroup", section.name)}
-    onToggle={onToggleSelection}
-  />
-  <button
-    type="button"
-    class="flex h-7 w-7 shrink-0 cursor-pointer items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
-    aria-label={collapseLabel}
-    title={collapseLabel}
-    onclick={() => { void onToggleCollapsed(); }}
-  >
-    {#if section.collapsed}
-      <ChevronRight size={14} strokeWidth={1.75} />
-    {:else}
-      <ChevronDown size={14} strokeWidth={1.75} />
-    {/if}
-  </button>
   <div
-    class={cn(
-      "flex min-h-8 min-w-0 flex-1 items-center gap-2 rounded-md px-2 transition-colors focus-within:bg-card focus-within:ring-1 focus-within:ring-inset focus-within:ring-foreground/50",
-      draftDirty
-        ? "bg-card shadow-sm ring-1 ring-inset ring-border"
-        : "bg-transparent ring-0 hover:bg-card/60",
-    )}
+    class="project-list-leading-row grid min-h-11 items-center"
+    style={`grid-column: 1 / span 3; grid-template-columns: ${leadingGridTemplate};`}
   >
-    <input
-      value={draft}
-      data-list-section-drag-source="true"
-      class="min-h-7 min-w-0 flex-1 bg-transparent text-[0.866667rem] font-semibold disabled:text-muted-foreground"
-      aria-label={t("projects.list.sectionName")}
-      {disabled}
-      oninput={(event) => onDraftChange(event.currentTarget.value)}
-      onkeydown={(event) => {
-        if (event.key === "Enter") {
-          event.preventDefault();
-          void onSave();
-        }
-      }}
+    <ProjectListSelectionButton
+      mode="section"
+      {allSelected}
+      {partiallySelected}
+      disabled={taskCount === 0}
+      ariaLabel={allSelected
+        ? t("projects.actions.unselectTaskGroup", section.name)
+        : t("projects.actions.selectTaskGroup", section.name)}
+      onToggle={onToggleSelection}
     />
-    {#if draftSaveable}
-      <button
-        type="button"
-        class="flex h-7 shrink-0 cursor-pointer items-center justify-center rounded-md border border-border bg-card px-2 text-[0.733333rem] text-muted-foreground hover:bg-accent hover:text-foreground"
-        onclick={() => { void onSave(); }}
-      >
-        {t("common.save")}
-      </button>
-    {/if}
-    <div class="relative" data-section-options-root="true">
+    <button
+      type="button"
+      class="flex h-7 w-7 shrink-0 cursor-pointer items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
+      aria-label={collapseLabel}
+      title={collapseLabel}
+      onclick={() => { void onToggleCollapsed(); }}
+    >
+      {#if section.collapsed}
+        <ChevronRight size={14} strokeWidth={1.75} />
+      {:else}
+        <ChevronDown size={14} strokeWidth={1.75} />
+      {/if}
+    </button>
+    <div
+      class={cn(
+        "flex min-h-8 min-w-0 flex-1 items-center gap-2 rounded-md px-2 transition-colors focus-within:bg-card focus-within:ring-1 focus-within:ring-inset focus-within:ring-foreground/50",
+        draftDirty
+          ? "bg-card shadow-sm ring-1 ring-inset ring-border"
+          : "bg-transparent ring-0 hover:bg-card/60",
+      )}
+    >
+      <input
+        value={draft}
+        data-list-section-drag-source="true"
+        class="min-h-7 min-w-0 flex-1 bg-transparent text-[0.866667rem] font-semibold disabled:text-muted-foreground"
+        aria-label={t("projects.list.sectionName")}
+        {disabled}
+        oninput={(event) => onDraftChange(event.currentTarget.value)}
+        onkeydown={(event) => {
+          if (event.key === "Enter") {
+            event.preventDefault();
+            void onSave();
+          }
+        }}
+      />
+      {#if draftSaveable}
+        <button
+          type="button"
+          class="flex h-7 shrink-0 cursor-pointer items-center justify-center rounded-md border border-border bg-card px-2 text-[0.733333rem] text-muted-foreground hover:bg-accent hover:text-foreground"
+          onclick={() => { void onSave(); }}
+        >
+          {t("common.save")}
+        </button>
+      {/if}
+      <div class="relative" data-section-options-root="true">
       <button
         type="button"
         class={cn(
@@ -196,6 +202,7 @@
           {/if}
         </div>
       {/if}
+      </div>
     </div>
   </div>
 </div>

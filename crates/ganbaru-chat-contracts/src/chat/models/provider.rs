@@ -72,7 +72,6 @@ impl ProviderCapabilities {
 pub struct ProviderAuthoritySupport {
     /// The adapter can run a teammate from an application-managed neutral
     /// directory without receiving project-folder or persistent-scratch grants.
-    #[serde(default)]
     pub isolated_conversation: bool,
     pub internal_host_tools: bool,
     pub deny_shell: bool,
@@ -108,7 +107,6 @@ pub struct ProviderProbeResult {
     pub negotiated_protocol_version: Option<String>,
     pub account_label: Option<String>,
     pub capabilities: ProviderCapabilities,
-    #[serde(default)]
     pub authority_support: ProviderAuthoritySupport,
     pub checked_at: UtcTimestamp,
     pub detail: Option<String>,

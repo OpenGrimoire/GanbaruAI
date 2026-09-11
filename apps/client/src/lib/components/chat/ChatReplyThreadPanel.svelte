@@ -13,14 +13,17 @@
   } from "$lib/chat/reply-thread-model";
   import { formatDateTime } from "$lib/i18n/formatters";
   import { organizationalScrollFollowsEnd } from "$lib/chat/organizational-scroll";
+  import {
+    loadChatScratchManager,
+    type ChatScratchManagerComponent,
+  } from "$lib/chat/local-execution-ui";
   import { getLocalization } from "$lib/i18n/translator.svelte";
+  import { BUILD_PLATFORM_PROFILE, platformHasCapability } from "$lib/platform";
   import { getChat } from "$lib/stores/chat.svelte";
   import ChatExecutionTimeline from "./ChatExecutionTimeline.svelte";
   import ChatMessageComposer from "./ChatMessageComposer.svelte";
   import ChatOrganizationalMessage from "./ChatOrganizationalMessage.svelte";
   import ChatRequestPanel from "./ChatRequestPanel.svelte";
-
-  type ChatScratchManagerComponent = typeof import("$lib/components/settings/chat/ChatScratchManager.svelte").default;
 
   interface ExactExecutionRead {
     timelinePage: ChatTimelinePageRead;
@@ -40,6 +43,10 @@
   const chat = getChat();
   const localization = getLocalization();
   const { t } = localization;
+  const localExecutionAvailable = platformHasCapability(
+    BUILD_PLATFORM_PROFILE,
+    "chat.local-execution",
+  );
   let scroller = $state<HTMLDivElement | null>(null);
   let actionError = $state<string | null>(null);
   let executionSelectionRequest = 0;
@@ -126,8 +133,8 @@
 
   function loadScratchManager(): Promise<void> {
     if (ChatScratchManager) return Promise.resolve();
-    scratchManagerLoad ??= import("$lib/components/settings/chat/ChatScratchManager.svelte")
-      .then((module) => { ChatScratchManager = module.default; })
+    scratchManagerLoad ??= loadChatScratchManager()
+      .then((component) => { ChatScratchManager = component; })
       .finally(() => { scratchManagerLoad = null; });
     return scratchManagerLoad;
   }
@@ -297,7 +304,7 @@
       <button type="button" class="tab-close" data-thread-close aria-label={t("chat.organization.closeThread")} onmousedown={preventMiddleButtonScroll} onauxclick={closeFromMiddleClick} onclick={onClose}><X size={11} /></button>
     </div>
     <span></span>
-    {#if hasPrivateScratch}
+    {#if localExecutionAvailable && hasPrivateScratch}
       <button
         type="button"
         class="scratch-inspector"

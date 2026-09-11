@@ -6,6 +6,7 @@ import type {
 } from "$lib/music/library-contracts";
 import { musicArtworkDataUrl, musicEmbeddedArtworkDataUrl } from "$lib/music/music-artwork-cache";
 import { orderMusicPlaylists } from "$lib/music/music-system-playlists";
+import { resolveLocalMusicPath } from "$lib/music/platform-paths";
 import { localFileSourceFromPath, parseMusicSourceInput, type MusicSource } from "$lib/music/sources";
 
 export function parseMusicReviewAutoplay(value: unknown): boolean {
@@ -24,16 +25,13 @@ export function musicReviewSource(
   if (!available) return null;
   const folder = bindings.find((binding) => binding.rootId === available.rootId)?.folderPath;
   if (!folder) return null;
-  const separator = folder.includes("\\") && !folder.includes("/") ? "\\" : "/";
-  const root = folder.replace(/[\\/]+$/, "");
-  const relative = available.relativePath.replace(/[\\/]+/g, separator);
   const originalSidecar = item.originalArtworkIdentity?.startsWith("sidecar:")
-    ? item.originalArtworkIdentity.slice("sidecar:".length).replace(/[\\/]+/g, separator)
+    ? item.originalArtworkIdentity.slice("sidecar:".length)
     : null;
   const artworkPath = item.artworkOverride
-    ?? (originalSidecar ? `${root}${separator}${originalSidecar}` : null);
+    ?? (originalSidecar ? resolveLocalMusicPath(folder, originalSidecar) : null);
   return localFileSourceFromPath(
-    `${root}${separator}${relative}`,
+    resolveLocalMusicPath(folder, available.relativePath),
     item.titleOverride ?? item.originalTitle,
     artworkPath,
   );

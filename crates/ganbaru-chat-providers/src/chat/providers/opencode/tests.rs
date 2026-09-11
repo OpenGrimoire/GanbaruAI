@@ -101,10 +101,7 @@ fn openapi_artifact_covers_the_stable_provider_surface() {
 
 #[test]
 fn server_origin_policy_requires_tls_or_an_explicit_override() {
-    assert_eq!(
-        settings(json!({})).connection,
-        OpenCodeConnectionMode::Local
-    );
+    assert!(OpenCodeProviderSettings::parse(&configuration(json!({}))).is_err());
     assert_eq!(
         settings(json!({
             "mode": "local",
@@ -113,43 +110,55 @@ fn server_origin_policy_requires_tls_or_an_explicit_override() {
         .connection,
         OpenCodeConnectionMode::Local
     );
-    assert_eq!(
-        settings(json!({
-            "mode": "external",
-            "endpoint": "https://legacy.example.test"
-        }))
-        .connection,
-        OpenCodeConnectionMode::External {
-            origin: "https://legacy.example.test".to_string(),
-            insecure_http: false,
-        }
-    );
+    assert!(OpenCodeProviderSettings::parse(&configuration(json!({
+        "mode": "external",
+        "endpoint": "https://unsupported.example.test"
+    })))
+    .is_err());
     assert!(OpenCodeProviderSettings::parse(&configuration(json!({
         "mode": "external"
     })))
     .is_err());
     assert_eq!(
-        settings(json!({ "serverUrl": "HTTP://LOCALHOST:80/" })).connection,
+        settings(json!({
+            "mode": "external",
+            "serverUrl": "HTTP://LOCALHOST:80/",
+            "confirmExternalWorkspaceAccess": true
+        }))
+        .connection,
         OpenCodeConnectionMode::External {
             origin: "http://localhost".to_string(),
             insecure_http: false,
         }
     );
     assert_eq!(
-        settings(json!({ "serverUrl": "https://Example.Test:443" })).connection,
+        settings(json!({
+            "mode": "external",
+            "serverUrl": "https://Example.Test:443",
+            "confirmExternalWorkspaceAccess": true
+        }))
+        .connection,
         OpenCodeConnectionMode::External {
             origin: "https://example.test".to_string(),
             insecure_http: false,
         }
     );
     assert!(OpenCodeProviderSettings::parse(&configuration(json!({
+        "mode": "external",
+        "serverUrl": "https://confirmation-required.example.test"
+    })))
+    .is_err());
+    assert!(OpenCodeProviderSettings::parse(&configuration(json!({
+        "mode": "external",
         "serverUrl": "http://example.test"
     })))
     .is_err());
     assert_eq!(
         settings(json!({
+            "mode": "external",
             "serverUrl": "http://example.test:8080",
-            "allowInsecureExternalHttp": true
+            "allowInsecureExternalHttp": true,
+            "confirmExternalWorkspaceAccess": true
         }))
         .connection,
         OpenCodeConnectionMode::External {
@@ -165,6 +174,7 @@ fn server_origin_policy_requires_tls_or_an_explicit_override() {
         "http://localhost.evil.test",
     ] {
         assert!(OpenCodeProviderSettings::parse(&configuration(json!({
+            "mode": "external",
             "serverUrl": invalid
         })))
         .is_err());
@@ -173,7 +183,11 @@ fn server_origin_policy_requires_tls_or_an_explicit_override() {
 
 #[test]
 fn password_is_extracted_and_redacted_from_driver_configuration() {
-    let mut configuration = configuration(json!({ "serverUrl": "https://example.test" }));
+    let mut configuration = configuration(json!({
+        "mode": "external",
+        "serverUrl": "https://example.test",
+        "confirmExternalWorkspaceAccess": true
+    }));
     configuration.environment.insert(
         OPENCODE_PASSWORD_ENVIRONMENT.to_string(),
         "sentinel-secret".to_string(),
@@ -192,7 +206,7 @@ fn password_is_extracted_and_redacted_from_driver_configuration() {
 #[test]
 fn process_environment_uses_the_configured_opencode_directory() {
     let home = TestDirectory::new("config-directory");
-    let mut provider = configuration(json!({}));
+    let mut provider = configuration(json!({ "mode": "local" }));
     provider.provider_home = Some(home.path().to_string_lossy().into_owned());
     let environment = process_environment(&provider).unwrap();
     assert_eq!(
@@ -208,7 +222,7 @@ fn typed_http_scopes_requests_and_redacts_authorization_failures() {
             "HTTP/1.1 401 Unauthorized\r\nContent-Type: application/json\r\nContent-Length: 30\r\nConnection: close\r\n\r\n{\"name\":\"AuthenticationError\"}",
         );
         let workspace = TestDirectory::new("http-auth");
-        let mut configuration = configuration(json!({}));
+        let mut configuration = configuration(json!({ "mode": "local" }));
         configuration.environment.insert(
             OPENCODE_PASSWORD_ENVIRONMENT.to_string(),
             "sentinel-secret".to_string(),
@@ -341,8 +355,12 @@ fn event_stream_decoder_handles_chunks_replay_fields_and_bounds() {
 
 #[test]
 fn continuation_identity_uses_origin_and_account_but_not_password() {
-    let local = settings(json!({}));
-    let external = settings(json!({ "serverUrl": "https://example.test" }));
+    let local = settings(json!({ "mode": "local" }));
+    let external = settings(json!({
+        "mode": "external",
+        "serverUrl": "https://example.test",
+        "confirmExternalWorkspaceAccess": true
+    }));
     let first = continuation_group(&external, Some("account-one")).unwrap();
     let second = continuation_group(&external, Some("account-two")).unwrap();
     assert_ne!(continuation_group(&local, None).unwrap(), first);
@@ -499,25 +517,12 @@ fn server_commands_are_bounded_and_dispatched_only_as_plain_slash_requests() {
 }
 
 #[test]
-fn resume_not_found_classifier_is_narrow_and_cursor_is_versioned() {
+fn resume_cursor_is_versioned() {
     let cursor = resume_cursor("ses_fixture").unwrap();
     assert_eq!(
         parse_resume_cursor(&cursor).unwrap().session_id,
         "ses_fixture"
     );
-    assert!(confirmed_not_found(404, None));
-    assert!(confirmed_not_found(
-        0,
-        Some(&json!({ "name": "NotFoundError" }))
-    ));
-    assert!(!confirmed_not_found(
-        500,
-        Some(&json!({ "name": "NotFoundError" }))
-    ));
-    assert!(!confirmed_not_found(
-        0,
-        Some(&json!({ "message": "session not found" }))
-    ));
 }
 
 #[test]
@@ -557,17 +562,18 @@ fn owned_server_arguments_and_readiness_are_exact() {
 #[test]
 fn owned_server_fixture_stops_its_process_tree() {
     use std::os::unix::fs::PermissionsExt;
+    use std::time::Duration;
 
     crate::test_block_on(async {
         let directory = TestDirectory::new("owned-server");
         let executable = directory.path().join("opencode-fixture");
         std::fs::write(
             &executable,
-            "#!/bin/sh\nif [ \"$OPENCODE_SERVER_PASSWORD\" != \"sentinel-secret\" ]; then exit 12; fi\necho 'opencode server listening on http://127.0.0.1:43123'\nwhile :; do /bin/sleep 1; done\n",
+            "#!/bin/sh\nif [ \"$OPENCODE_SERVER_PASSWORD\" != \"sentinel-secret\" ]; then exit 12; fi\ntrap '' TERM\necho 'opencode server listening on http://127.0.0.1:43123'\nwhile :; do /bin/sleep 1; done\n",
         )
         .unwrap();
         std::fs::set_permissions(&executable, std::fs::Permissions::from_mode(0o700)).unwrap();
-        let mut configuration = configuration(json!({}));
+        let mut configuration = configuration(json!({ "mode": "local" }));
         configuration.executable = executable.to_string_lossy().into_owned();
         configuration.environment.insert(
             OPENCODE_PASSWORD_ENVIRONMENT.to_string(),
@@ -579,14 +585,30 @@ fn owned_server_fixture_stops_its_process_tree() {
                 .await
                 .unwrap();
         assert_eq!(server.origin, "http://127.0.0.1:43123");
-        let pid = server.process_id().unwrap();
+        let process_group_id = libc::pid_t::try_from(server.process_id().unwrap())
+            .ok()
+            .filter(|pid| *pid > 1)
+            .expect("fixture process ID must fit a process-group ID greater than one");
         server.stop().await.unwrap();
-        let result = unsafe { libc::kill(pid as i32, 0) };
-        assert_eq!(result, -1);
-        assert_eq!(
-            std::io::Error::last_os_error().raw_os_error(),
-            Some(libc::ESRCH)
-        );
+        let target = process_group_id
+            .checked_neg()
+            .expect("fixture process-group ID must be negatable");
+        let deadline = std::time::Instant::now() + Duration::from_secs(2);
+        loop {
+            // SAFETY: `target` is the checked negative form of the group ID greater
+            // than one created for this fixture. It cannot be zero or the broad -1
+            // selector, and signal zero only probes existence.
+            let result = unsafe { libc::kill(target, 0) };
+            let error = std::io::Error::last_os_error();
+            if result == -1 && error.raw_os_error() == Some(libc::ESRCH) {
+                break;
+            }
+            assert!(
+                std::time::Instant::now() < deadline,
+                "provider process group still exists after stop: {error}",
+            );
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
     });
 }
 
@@ -622,7 +644,7 @@ fn owned_server_reports_early_exit_timeout_and_oversized_output() {
                 std::fs::Permissions::from_mode(0o700),
             )
             .unwrap();
-            let mut configuration = configuration(json!({}));
+            let mut configuration = configuration(json!({ "mode": "local" }));
             configuration.executable = executable.to_string_lossy().into_owned();
             let result = OwnedOpenCodeServer::start_with_timeout(
                 &configuration,

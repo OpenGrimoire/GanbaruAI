@@ -3,11 +3,11 @@
  *
  * The harness drives deterministic workloads against a baseline dataset and
  * one or more dense calendar datasets, then emits compact markdown ready for
- * `docs/PERFORMANCE.md`. Each scenario declares whether it measures startup,
+ * `docs/performance/results.md`. Each scenario declares whether it measures startup,
  * memory, or feature latency so the runner avoids unrelated waits. Both
  * passes run after a cold restart against an isolated
  * `benchmark.sqlite` so the user's real DB and Ganbaru AI folder are never
- * touched. The rationale lives in `docs/features/performance-benchmark.md`.
+ * touched. The rationale lives in `docs/performance/harness.md`.
  */
 import type { CalendarEvent } from "$lib/components/calendar/types";
 

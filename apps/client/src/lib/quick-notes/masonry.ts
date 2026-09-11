@@ -1,5 +1,7 @@
 export const QUICK_NOTE_MASONRY_MIN_CARD_WIDTH = 210;
 export const QUICK_NOTE_MASONRY_GAP = 12;
+export const QUICK_NOTE_MOBILE_TABLET_MIN_WIDTH = 600;
+export const QUICK_NOTE_MOBILE_WIDE_MIN_WIDTH = 900;
 
 export interface MasonryPosition {
   left: number;
@@ -18,14 +20,27 @@ export interface MasonryInsertion {
   distanceSquared: number;
 }
 
+/** Bound mobile density to one phone column, two tablet columns, or three wide columns. */
+export function quickNoteMobileMasonryMaxColumns(containerWidth: number): number {
+  if (!Number.isFinite(containerWidth) || containerWidth < QUICK_NOTE_MOBILE_TABLET_MIN_WIDTH) return 1;
+  return containerWidth < QUICK_NOTE_MOBILE_WIDE_MIN_WIDTH ? 2 : 3;
+}
+
 export function quickNoteMasonryLayout(
   containerWidth: number,
   heights: readonly number[],
   minimumCardWidth = QUICK_NOTE_MASONRY_MIN_CARD_WIDTH,
   gap = QUICK_NOTE_MASONRY_GAP,
+  maximumColumns = Number.POSITIVE_INFINITY,
 ): MasonryLayout {
   const safeWidth = Math.max(0, containerWidth);
-  const columns = Math.max(1, Math.floor((safeWidth + gap) / (minimumCardWidth + gap)));
+  const boundedMaximum = Number.isFinite(maximumColumns)
+    ? Math.max(1, Math.floor(maximumColumns))
+    : Number.POSITIVE_INFINITY;
+  const columns = Math.min(
+    boundedMaximum,
+    Math.max(1, Math.floor((safeWidth + gap) / (minimumCardWidth + gap))),
+  );
   const cardWidth = columns === 1 ? safeWidth : (safeWidth - gap * (columns - 1)) / columns;
   const columnHeights = Array.from({ length: columns }, () => 0);
   const positions = heights.map((height) => {
@@ -52,6 +67,7 @@ export function quickNoteMasonryInsertion(
   targetLeft: number,
   targetTop: number,
   preferredIndex = draggedIndex,
+  maximumColumns = Number.POSITIVE_INFINITY,
 ): MasonryInsertion {
   if (draggedIndex < 0 || draggedIndex >= heights.length) {
     return { index: 0, distanceSquared: Number.POSITIVE_INFINITY };
@@ -61,7 +77,13 @@ export function quickNoteMasonryInsertion(
   let best: MasonryInsertion = { index: 0, distanceSquared: Number.POSITIVE_INFINITY };
   for (let index = 0; index <= remaining.length; index += 1) {
     const candidate = [...remaining.slice(0, index), draggedHeight, ...remaining.slice(index)];
-    const position = quickNoteMasonryLayout(containerWidth, candidate).positions[index];
+    const position = quickNoteMasonryLayout(
+      containerWidth,
+      candidate,
+      QUICK_NOTE_MASONRY_MIN_CARD_WIDTH,
+      QUICK_NOTE_MASONRY_GAP,
+      maximumColumns,
+    ).positions[index];
     if (!position) continue;
     const distanceSquared = (position.left - targetLeft) ** 2 + (position.top - targetTop) ** 2;
     const equallyClose = Math.abs(distanceSquared - best.distanceSquared) < 0.01;

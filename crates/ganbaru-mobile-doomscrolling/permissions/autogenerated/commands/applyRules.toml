@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-applyRules"
+description = "Enables the applyRules command without any pre-configured scope."
+commands.allow = ["applyRules"]
+
+[[permission]]
+identifier = "deny-applyRules"
+description = "Denies the applyRules command without any pre-configured scope."
+commands.deny = ["applyRules"]

@@ -15,8 +15,10 @@
   import { getTheme } from "$lib/stores/theme.svelte";
   import { getCalendarZoom } from "$lib/stores/calendarZoom.svelte";
   import { getPreferences } from "$lib/stores/preferences.svelte";
+  import { getMobileBackStack } from "$lib/stores/mobile-back-stack.svelte";
   import { getLocalization } from "$lib/i18n/translator.svelte";
   import { onDestroy, onMount, tick } from "svelte";
+  import Plus from "@lucide/svelte/icons/plus";
   import CalendarHeader from "./CalendarHeader.svelte";
   import WeekView from "./WeekView.svelte";
   import DayView from "./DayView.svelte";
@@ -79,6 +81,12 @@
     projectCalendarSurfaceStatuses,
     visibleCalendarEvents,
   } from "./calendar-view-display-projection";
+  import {
+    calendarSwipeAxis,
+    calendarSwipeDirection,
+    calendarSwipeNavigation,
+    type CalendarSwipeAxis,
+  } from "./calendar-mobile-gestures";
 
   const calendarStore = getCalendar();
   const calendarsStore = getCalendars();
@@ -87,6 +95,7 @@
   const calZoom = getCalendarZoom();
   const theme = getTheme();
   const preferences = getPreferences();
+  const mobileBackStack = getMobileBackStack();
   const { t } = getLocalization();
   const toasts = createCalendarViewToastController();
   const confirm = createCalendarViewConfirmationController({
@@ -112,13 +121,15 @@
   let {
     eventFilter,
     createDefaults,
-    initialViewMode = preferences.calendarViewMode,
+    initialViewMode,
     onViewModeChange,
+    mobileLayout = false,
   }: {
     eventFilter?: (event: CalendarEvent) => boolean;
     createDefaults?: (input: CalendarCreateDefaultsInput) => CalendarCreateDefaults;
     initialViewMode?: CalendarViewMode;
     onViewModeChange?: (mode: CalendarViewMode) => void;
+    mobileLayout?: boolean;
   } = $props();
 
   function closeSession() {
@@ -151,7 +162,7 @@
   const initialAnchorDate = new Date();
 
   function getInitialViewMode(): CalendarViewMode {
-    return initialViewMode;
+    return initialViewMode ?? (mobileLayout ? "day" : preferences.calendarViewMode);
   }
 
   let viewMode: CalendarViewMode = $state(getInitialViewMode());
@@ -656,7 +667,126 @@
     });
   }
 
+  let mobileSwipeSuppressClick = false;
+  let mobileSwipeState = $state<{
+    pointerId: number;
+    startX: number;
+    startY: number;
+    startedAt: number;
+    lastX: number;
+    lastY: number;
+    lastAt: number;
+    axis: CalendarSwipeAxis;
+  } | null>(null);
+
+  function removeMobileSwipeListeners(): void {
+    window.removeEventListener("pointermove", handleMobileSwipeMove);
+    window.removeEventListener("pointerup", handleMobileSwipeEnd);
+    window.removeEventListener("pointercancel", handleMobileSwipeCancel);
+  }
+
+  function resetMobileSwipe(): void {
+    removeMobileSwipeListeners();
+    mobileSwipeState = null;
+  }
+
+  function completeMobileSwipeNavigation(direction: "back" | "forward"): void {
+    removeMobileSwipeListeners();
+    mobileSwipeState = null;
+    navigate(direction, "touch");
+  }
+
+  function handleMobileSwipeStart(event: PointerEvent): void {
+    if (!mobileLayout || event.pointerType !== "touch" || !event.isPrimary || event.button !== 0
+      || session.state.mode !== "closed" || confirm.action) return;
+    mobileSwipeState = {
+      pointerId: event.pointerId,
+      startX: event.clientX,
+      startY: event.clientY,
+      startedAt: performance.now(),
+      lastX: event.clientX,
+      lastY: event.clientY,
+      lastAt: performance.now(),
+      axis: null,
+    };
+    window.addEventListener("pointermove", handleMobileSwipeMove);
+    window.addEventListener("pointerup", handleMobileSwipeEnd);
+    window.addEventListener("pointercancel", handleMobileSwipeCancel);
+  }
+
+  function handleMobileSwipeMove(event: PointerEvent): void {
+    const state = mobileSwipeState;
+    if (!state || event.pointerId !== state.pointerId) return;
+    state.lastX = event.clientX;
+    state.lastY = event.clientY;
+    state.lastAt = performance.now();
+    const deltaX = event.clientX - state.startX;
+    const deltaY = event.clientY - state.startY;
+    if (state.axis === null) {
+      const axis = calendarSwipeAxis(deltaX, deltaY);
+      if (axis === null) return;
+      if (axis === "vertical") {
+        resetMobileSwipe();
+        return;
+      }
+      state.axis = axis;
+    }
+    event.preventDefault();
+  }
+
+  function finishMobileSwipe(state: NonNullable<typeof mobileSwipeState>): void {
+    const direction = state.axis === "horizontal"
+      ? calendarSwipeNavigation({
+        deltaX: state.lastX - state.startX,
+        elapsedMs: state.lastAt - state.startedAt,
+        viewportWidth: viewportController.viewWrapper?.clientWidth ?? window.innerWidth,
+      })
+      : null;
+    if (state.axis === "horizontal") mobileSwipeSuppressClick = true;
+    if (direction) completeMobileSwipeNavigation(direction);
+    else resetMobileSwipe();
+  }
+
+  function handleMobileSwipeEnd(event: PointerEvent): void {
+    const state = mobileSwipeState;
+    if (!state || event.pointerId !== state.pointerId) return;
+    finishMobileSwipe(state);
+  }
+
+  function handleMobileSwipeCancel(event: PointerEvent): void {
+    const state = mobileSwipeState;
+    if (!state || state.pointerId !== event.pointerId) return;
+    if (state.axis !== "horizontal") {
+      resetMobileSwipe();
+      return;
+    }
+    const direction = calendarSwipeDirection(state.lastX - state.startX);
+    mobileSwipeSuppressClick = true;
+    if (direction) completeMobileSwipeNavigation(direction);
+    else resetMobileSwipe();
+  }
+
+  function handleMobileSwipeClick(event: MouseEvent): void {
+    if (!mobileSwipeSuppressClick) return;
+    mobileSwipeSuppressClick = false;
+    event.preventDefault();
+    event.stopImmediatePropagation();
+  }
+
+  function handleMobileContextMenu(event: MouseEvent): void {
+    if (mobileLayout) event.preventDefault();
+  }
+
+  function handleMobileTouchEditStart(): void {
+    resetMobileSwipe();
+  }
+
+  function handleMobileTouchEditEnd(): void {
+    mobileSwipeSuppressClick = true;
+  }
+
   onDestroy(() => {
+    resetMobileSwipe();
     toasts.destroy();
   });
 
@@ -673,6 +803,13 @@
     canRepeat: targetController.canRepeatHeldNavigation,
     waitForSettled: targetController.waitForSettled,
     mark: perfMark,
+  });
+
+  $effect(() => {
+    if (!mobileLayout || session.state.mode === "closed") return;
+    return mobileBackStack.activate({
+      handle: handlePanelClose,
+    });
   });
 
   onMount(() => {
@@ -724,7 +861,7 @@
 
   function navigate(
     direction: "today" | "back" | "forward",
-    source: "programmatic" | "wheel" | "key" | "hold-repeat" = "programmatic",
+    source: "programmatic" | "wheel" | "key" | "hold-repeat" | "touch" = "programmatic",
   ) {
     perfMark("nav.start", { dir: direction, source });
     if (direction === "today") {
@@ -801,6 +938,31 @@
     }
 
     await openCreate();
+  }
+
+  function formatMinuteOfDay(minute: number): string {
+    const hour = Math.floor(minute / 60);
+    const minutePart = minute % 60;
+    return `${String(hour).padStart(2, "0")}:${String(minutePart).padStart(2, "0")}`;
+  }
+
+  function openMobileEventCreate(target: HTMLButtonElement): void {
+    const today = new Date();
+    const sameDay = formatDatePart(anchorDate) === formatDatePart(today);
+    const start = new Date(anchorDate);
+    start.setHours(0, 0, 0, 0);
+    const startMinute = sameDay
+      ? Math.ceil((today.getHours() * 60 + today.getMinutes()) / 30) * 30
+      : 9 * 60;
+    start.setMinutes(startMinute);
+    const end = new Date(start.getTime() + 30 * 60 * 1000);
+    const rect = target.getBoundingClientRect();
+    void handleEventCreate(
+      `${formatDatePart(start)} ${formatMinuteOfDay(start.getHours() * 60 + start.getMinutes())}`,
+      `${formatDatePart(end)} ${formatMinuteOfDay(end.getHours() * 60 + end.getMinutes())}`,
+      false,
+      { x: rect.left, y: rect.top, width: rect.width, height: rect.height },
+    );
   }
 
   function panelAnchorFromRenderedEvent(eventId: string): PanelAnchor {
@@ -979,6 +1141,7 @@
     await pomodoro.startFromBlock(
       activeId,
       config,
+      event.title,
       event.end,
       event.start.split(" ")[0],
       config.idleTimeoutMinutes,
@@ -1035,6 +1198,7 @@
   <CalendarHeader
     {anchorDate}
     {viewMode}
+    {mobileLayout}
     onNavigate={navigate}
     onViewChange={changeView}
     onDaySelect={(date) => {
@@ -1045,7 +1209,15 @@
     }}
   />
 
-  <div bind:this={viewportController.viewWrapper} class="min-w-0 flex-1 overflow-hidden" style="background-color: var(--cal-bg);">
+  <div
+    bind:this={viewportController.viewWrapper}
+    class="min-w-0 flex-1 overflow-hidden"
+    style="background-color: var(--cal-bg); touch-action: {mobileLayout ? 'pan-y pinch-zoom' : 'auto'};"
+    onpointerdowncapture={handleMobileSwipeStart}
+    onclickcapture={handleMobileSwipeClick}
+    oncontextmenu={handleMobileContextMenu}
+  >
+    <div class="h-full min-h-0">
     {#if viewMode === "week" || viewMode === "workweek"}
       <WeekView
         {anchorDate}
@@ -1071,6 +1243,9 @@
         onTzAbbrModeChange={(mode) => { viewportController.timezoneAbbreviationMode = mode; }}
         onWheelNavigate={handleWheelNavigate}
         onDayHeaderClick={handleWeekDayHeaderClick}
+        {mobileLayout}
+        onMobileTouchEditStart={handleMobileTouchEditStart}
+        onMobileTouchEditEnd={handleMobileTouchEditEnd}
       />
     {:else if viewMode === "day"}
       <DayView
@@ -1096,6 +1271,10 @@
         onTzAbbrModeChange={(mode) => { viewportController.timezoneAbbreviationMode = mode; }}
         onWheelNavigate={handleWheelNavigate}
         onDayHeaderClick={handleDayHeaderClick}
+        allowPointerEditing={true}
+        {mobileLayout}
+        onMobileTouchEditStart={handleMobileTouchEditStart}
+        onMobileTouchEditEnd={handleMobileTouchEditEnd}
       />
     {:else}
       <MonthView
@@ -1109,7 +1288,19 @@
         onWheelNavigate={handleWheelNavigate}
       />
     {/if}
+    </div>
   </div>
+
+  {#if mobileLayout}
+    <button
+      type="button"
+      aria-label={t("mobile.createEvent")}
+      onclick={(event) => openMobileEventCreate(event.currentTarget)}
+      class="absolute bottom-4 right-4 z-50 flex min-h-14 min-w-14 items-center justify-center rounded-2xl bg-primary text-primary-foreground shadow-lg active:opacity-85"
+    >
+      <Plus size={25} strokeWidth={2} aria-hidden="true" />
+    </button>
+  {/if}
 
   {#if confirm.action}
     <ConfirmDialog
@@ -1124,16 +1315,11 @@
   {/if}
 
   <!-- Floating event panel -->
-  {#if session.state.mode === "create" || session.state.mode === "edit"}
-    <!-- svelte-ignore a11y_click_events_have_key_events -->
-    <!-- svelte-ignore a11y_no_static_element_interactions -->
-    <!-- Invisible backdrop: pointer-events pass through, clicks on empty space close panel -->
-    <div class="fixed inset-0 z-40 pointer-events-none"></div>
-  {/if}
   {#if panelLifecycle.component && panelRender}
     {@const Panel = panelLifecycle.component}
     {@const render = panelRender}
     <Panel
+      {mobileLayout}
       parked={render.parked}
       mode={render.mode}
       panelSessionKey={render.sessionKey}

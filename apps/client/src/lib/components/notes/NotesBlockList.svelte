@@ -2,7 +2,6 @@
   import { tick } from "svelte";
   import { getLocalization } from "$lib/i18n/translator.svelte";
   import { getCalendar } from "$lib/stores/calendar.svelte";
-  import { getMusicPlayer } from "$lib/stores/music-player.svelte";
   import { getNotes } from "$lib/stores/notes.svelte";
   import { getPomodoro } from "$lib/stores/pomodoro.svelte";
   import { getProjects } from "$lib/stores/projects.svelte";
@@ -80,6 +79,8 @@
   import { createNotesStructuralBlockLoader } from "./notes-structural-block-loader.svelte";
   import {
     buildNotesMentionTargets,
+    EMPTY_NOTES_MUSIC_MENTION_CONTEXT,
+    type NotesMusicMentionContext,
   } from "./notes-block-mention-targets";
   import { createNotesMentionDataController } from "./notes-mention-data-controller.svelte";
 
@@ -91,6 +92,7 @@
     onSelectPage,
     onFocusBlock,
     scrollViewport,
+    musicMentionContext = EMPTY_NOTES_MUSIC_MENTION_CONTEXT,
   }: {
     items: NotesBlockTreeItem[];
     pageId: string;
@@ -99,11 +101,11 @@
     onSelectPage: (pageId: string) => void;
     onFocusBlock: (blockId: string) => void;
     scrollViewport: HTMLDivElement | null;
+    musicMentionContext?: NotesMusicMentionContext;
   } = $props();
 
   const notes = getNotes();
   const calendar = getCalendar();
-  const musicPlayer = getMusicPlayer();
   const pomodoro = getPomodoro();
   const projects = getProjects();
   const { t } = getLocalization();
@@ -222,8 +224,8 @@
       calendarEvents: calendar.rawBlocks,
       activePomodoroRunId: pomodoro.activeRunId,
       pomodoroTime: pomodoro.formattedTime,
-      currentMusicSource: musicPlayer.currentSource,
-      musicQueue: musicPlayer.queue,
+      currentMusicSource: musicMentionContext.currentMusicSource,
+      musicQueue: musicMentionContext.musicQueue,
       translate: t,
     });
   }

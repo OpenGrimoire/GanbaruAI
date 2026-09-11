@@ -134,12 +134,14 @@
         <div class="mt-1.5 flex items-center gap-2">
           {#if mode !== "duplicate" && !protectedIdentity}
             <IconPicker value={icon} onChange={(value) => icon = value} ariaLabel={t("music.builder.selectPlaylistIcon")} showUpload={false}>
-              {#snippet trigger({ open, toggle })}
+              {#snippet trigger({ open, toggle, panelId })}
                 <button
                   type="button"
                   class={`grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-secondary text-foreground transition-colors hover:bg-accent ${open ? "bg-accent" : ""}`}
                   aria-label={t("music.builder.selectPlaylistIcon")}
+                  aria-haspopup="dialog"
                   aria-expanded={open}
+                  aria-controls={panelId}
                   title={t("music.builder.selectPlaylistIcon")}
                   onclick={toggle}
                 >

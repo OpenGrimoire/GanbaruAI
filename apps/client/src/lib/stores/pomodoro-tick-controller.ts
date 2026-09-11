@@ -6,6 +6,7 @@ import type { PomodoroWindowStateController } from "./pomodoro-window-state-cont
 
 interface PomodoroTickContext {
   runtime: PomodoroRuntime;
+  detectSuspendGaps: boolean;
   clock: Pick<
     PomodoroClockController,
     | "actualPhaseElapsedSeconds"
@@ -67,7 +68,9 @@ export function createPomodoroTickController(
 
   function tick(): void {
     const nowMs = currentMs();
-    const result = decideTick(context.windowState.buildTimerSnapshot(), nowMs);
+    const result = decideTick(context.windowState.buildTimerSnapshot(), nowMs, {
+      detectSuspendGaps: context.detectSuspendGaps,
+    });
     switch (result.kind) {
       case "suspend_and_block_expired":
         context.closeOverlay();

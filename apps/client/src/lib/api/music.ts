@@ -20,6 +20,7 @@ export interface MediaFolderTrack {
 
 export interface MediaFolderSelection {
   folderPath: string;
+  displayName?: string | null;
   tracks: MediaFolderTrack[];
   truncated: boolean;
 }

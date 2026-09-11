@@ -208,19 +208,18 @@ struct CompatibilityCases {
 fn compatibility_matrix_selects_native_transport_only_for_complete_protocol() {
     let matrix: CompatibilityMatrix =
         serde_json::from_str(include_str!("fixtures/compatibility-matrix.json")).unwrap();
-    let evidence = ClaudeCompatibilityEvidence {
-        version: parse_version(&matrix.minimum_claude_code_version).unwrap(),
-        partial_messages: matrix.required_cases.partial_messages,
-        session_uuid: matrix.required_cases.session_uuid,
-        resume: matrix.required_cases.resume,
-        approval_callback: matrix.required_cases.approval_callback,
-        structured_questions: matrix.required_cases.structured_questions,
-        interrupt: matrix.required_cases.interrupt,
-        model_change: matrix.required_cases.model_change,
-        native_plan: matrix.required_cases.native_plan,
-    };
-
-    assert!(evidence.supports_native_transport());
+    assert!(
+        ensure_supported_version(parse_version(&matrix.minimum_claude_code_version).unwrap())
+            .is_ok()
+    );
+    assert!(matrix.required_cases.partial_messages);
+    assert!(matrix.required_cases.session_uuid);
+    assert!(matrix.required_cases.resume);
+    assert!(matrix.required_cases.approval_callback);
+    assert!(matrix.required_cases.structured_questions);
+    assert!(matrix.required_cases.interrupt);
+    assert!(matrix.required_cases.model_change);
+    assert!(matrix.required_cases.native_plan);
     assert_eq!(matrix.decision, "native_rust_stdio");
     assert!(!matrix.installed_local_version_supported);
     assert!(ensure_supported_version(parse_version("1.0.92").unwrap()).is_err());

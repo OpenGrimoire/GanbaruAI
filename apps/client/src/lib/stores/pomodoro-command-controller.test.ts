@@ -1,11 +1,12 @@
-import { listen } from "@tauri-apps/api/event";
 import { describe, expect, it, vi } from "vitest";
 import { createPomodoroCommandController } from "./pomodoro-command-controller";
+import type { PomodoroNativeEventListener } from "./pomodoro-runtime-environment-contract";
 import { createPomodoroRuntimeFixture } from "./pomodoro-runtime.test-helpers";
 
 function createContext(isCoordinator = true) {
   const runtime = createPomodoroRuntimeFixture();
-  const listenMock = vi.fn(() => Promise.resolve(() => undefined)) as unknown as typeof listen;
+  const listenMock = vi.fn(() => Promise.resolve(() => undefined)) as unknown as
+    PomodoroNativeEventListener;
   return {
     runtime,
     isCoordinator: () => isCoordinator,
@@ -39,7 +40,7 @@ function createContext(isCoordinator = true) {
     pausedFocusPulseActive: () => false,
     suppressPausedFocusNotifications: vi.fn(),
     nowIso: () => "2026-07-12T00:00:00.000Z",
-    listen: listenMock,
+    nativeEventListener: listenMock,
   };
 }
 
@@ -51,7 +52,7 @@ describe("Pomodoro command controller", () => {
     controller.initListeners();
     controller.initListeners();
 
-    expect(context.listen).toHaveBeenCalledTimes(10);
+    expect(context.nativeEventListener).toHaveBeenCalledTimes(10);
   });
 
   it("ignores commands and listener initialization in secondary windows", () => {
@@ -62,7 +63,7 @@ describe("Pomodoro command controller", () => {
     controller.initListeners();
 
     expect(context.pause).not.toHaveBeenCalled();
-    expect(context.listen).not.toHaveBeenCalled();
+    expect(context.nativeEventListener).not.toHaveBeenCalled();
   });
 
   it("routes coordinator commands without changing their payload", () => {

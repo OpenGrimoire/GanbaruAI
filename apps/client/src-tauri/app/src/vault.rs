@@ -9,15 +9,24 @@
 //! on next read.
 
 use chrono::{DateTime, SecondsFormat, Utc};
+#[cfg(target_os = "android")]
+use ganbaru_mobile_documents::MobileDocumentsExt;
 use std::collections::BTreeMap;
 use std::fs;
-use std::io::{Read, Write};
+#[cfg(not(target_os = "android"))]
+use std::io::Read;
+use std::io::Write;
 use std::path::{Path, PathBuf};
 use tauri::{Manager, Runtime};
+#[cfg(not(target_os = "android"))]
 use tauri_plugin_dialog::{DialogExt, FilePath};
+#[cfg(target_os = "ios")]
+use tauri_plugin_fs::{FsExt, OpenOptions};
 
 static APP_STATE_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 static CONFIG_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+pub(crate) mod backup;
 
 pub const APP_SQLITE_FILE: &str = "ganbaru-ai.sqlite";
 const PRODUCTION_DATA_FOLDER_NAME: &str = "Ganbaru AI";
@@ -33,21 +42,32 @@ const MAX_CONFIG_PATCH_SEGMENT_BYTES: usize = 128;
 const MAX_CONFIG_PATCH_PATH_BYTES: usize = 1024;
 const MAX_CONFIG_PATCH_COUNT: usize = 256;
 const MAX_CONFIG_PATCH_BATCH_BYTES: usize = 1024 * 1024;
+#[cfg(target_os = "android")]
+const MOBILE_VAULT_IMPORT_MAX_FILES: u32 = 100_000;
+#[cfg(target_os = "android")]
+const MOBILE_VAULT_IMPORT_MAX_BYTES: u64 = 100 * 1024 * 1024 * 1024;
+#[cfg(target_os = "android")]
+const MOBILE_VAULT_IMPORT_MAX_DEPTH: u32 = 64;
 
 #[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct VaultAppState {
-    #[serde(default)]
+    #[serde(deserialize_with = "required_nullable")]
     pub device_id: Option<String>,
+    #[serde(deserialize_with = "required_nullable")]
     pub active_vault_path: Option<String>,
-    #[serde(default)]
     pub recent_vault_paths: Vec<String>,
-    #[serde(default)]
     pub music_root_bindings: BTreeMap<String, BTreeMap<String, String>>,
-    #[serde(default)]
     pub project_working_folders: ganbaru_working_folders::WorkingFolderDeviceState,
-    #[serde(default)]
     pub chat: crate::chat::device_state::ChatDeviceState,
+}
+
+fn required_nullable<'de, D, T>(deserializer: D) -> Result<Option<T>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+    T: serde::Deserialize<'de>,
+{
+    <Option<T> as serde::Deserialize>::deserialize(deserializer)
 }
 
 #[tauri::command]
@@ -326,6 +346,7 @@ fn select_vault<R: Runtime>(app: &tauri::AppHandle<R>, info: &VaultInfo) -> Resu
     })
 }
 
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 async fn pick_folder(
     app: &tauri::AppHandle,
     title: &str,
@@ -345,14 +366,23 @@ async fn pick_folder(
         .ok_or_else(|| "folder picker closed without returning a result".to_string())?
 }
 
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 fn existing_documents_directory(app: &tauri::AppHandle) -> Option<PathBuf> {
     app.path().document_dir().ok().filter(|path| path.is_dir())
 }
 
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 fn default_data_parent(app: &tauri::AppHandle) -> Result<PathBuf, String> {
     app.path()
         .document_dir()
         .map_err(|e| format!("find Documents folder: {e}"))
+}
+
+#[cfg(any(target_os = "android", target_os = "ios"))]
+fn default_data_parent(app: &tauri::AppHandle) -> Result<PathBuf, String> {
+    app.path()
+        .app_data_dir()
+        .map_err(|e| format!("find private application data folder: {e}"))
 }
 
 fn default_data_folder_path(app: &tauri::AppHandle) -> Result<PathBuf, String> {
@@ -402,6 +432,7 @@ pub fn vault_active_info(app: tauri::AppHandle) -> Result<Option<VaultInfo>, Str
     vault_info_from_path(&PathBuf::from(path)).map(Some)
 }
 
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 #[tauri::command]
 pub async fn vault_pick_create(app: tauri::AppHandle) -> Result<Option<VaultInfo>, String> {
     let Some(path) =
@@ -413,6 +444,7 @@ pub async fn vault_pick_create(app: tauri::AppHandle) -> Result<Option<VaultInfo
     Ok(Some(info))
 }
 
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 #[tauri::command]
 pub async fn vault_pick_open(app: tauri::AppHandle) -> Result<Option<VaultInfo>, String> {
     let Some(path) = pick_folder(
@@ -430,6 +462,57 @@ pub async fn vault_pick_open(app: tauri::AppHandle) -> Result<Option<VaultInfo>,
     Ok(Some(info))
 }
 
+#[cfg(target_os = "android")]
+#[tauri::command]
+pub fn vault_pick_open(app: tauri::AppHandle) -> Result<Option<VaultInfo>, String> {
+    let target = default_data_folder_path(&app)?;
+    let parent = target
+        .parent()
+        .ok_or_else(|| "Ganbaru AI folder has no parent directory".to_string())?;
+    fs::create_dir_all(parent).map_err(|error| format!("create app data directory: {error}"))?;
+    let staging = parent.join(format!(".{}.import", default_data_folder_name()));
+    if staging.exists() {
+        fs::remove_dir_all(&staging)
+            .map_err(|error| format!("remove stale folder import: {error}"))?;
+    }
+    if target.exists() {
+        if !folder_is_empty(&target)? {
+            return Err(
+                "the private Ganbaru AI folder already exists; use it or remove its test data first"
+                    .to_string(),
+            );
+        }
+        fs::remove_dir(&target)
+            .map_err(|error| format!("remove empty Ganbaru AI folder: {error}"))?;
+    }
+
+    let staging_path = path_to_string(&staging, "folder import staging")?;
+    let selected = app.mobile_documents().pick_vault_tree_to_path(
+        &staging_path,
+        MOBILE_VAULT_IMPORT_MAX_FILES,
+        MOBILE_VAULT_IMPORT_MAX_BYTES,
+        MOBILE_VAULT_IMPORT_MAX_DEPTH,
+    )?;
+    if selected.is_none() {
+        return Ok(None);
+    }
+
+    let result = (|| {
+        let imported = vault_info_from_path(&staging)?;
+        ensure_vault_skeleton(Path::new(&imported.path))?;
+        fs::rename(&staging, &target)
+            .map_err(|error| format!("activate imported Ganbaru AI folder: {error}"))?;
+        let info = vault_info_from_path(&target)?;
+        select_vault(&app, &info)?;
+        Ok(Some(info))
+    })();
+    if result.is_err() && staging.exists() {
+        let _ = fs::remove_dir_all(&staging);
+    }
+    result
+}
+
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 #[tauri::command]
 pub fn vault_select_recent(app: tauri::AppHandle, path: String) -> Result<VaultInfo, String> {
     let state = read_app_state(&app)?;
@@ -446,6 +529,7 @@ pub fn vault_select_recent(app: tauri::AppHandle, path: String) -> Result<VaultI
     Ok(info)
 }
 
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 #[tauri::command]
 pub fn vault_reveal_active(app: tauri::AppHandle) -> Result<(), String> {
     let path = active_vault_path(&app)?;
@@ -466,6 +550,7 @@ pub(crate) fn active_vault_id<R: Runtime>(app: &tauri::AppHandle<R>) -> Result<S
     Ok(read_vault_manifest(&path)?.vault_id)
 }
 
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 pub fn active_database_path<R: Runtime>(app: &tauri::AppHandle<R>) -> Result<PathBuf, String> {
     Ok(database_path(&active_vault_path(app)?))
 }
@@ -596,6 +681,7 @@ fn require_absolute_path(path: &Path) -> Result<(), String> {
     }
 }
 
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 fn require_extension(path: &Path, allowed: &[&str], label: &str) -> Result<(), String> {
     require_absolute_path(path)?;
     let ext = path
@@ -615,6 +701,7 @@ fn require_extension(path: &Path, allowed: &[&str], label: &str) -> Result<(), S
     }
 }
 
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 fn dialog_path(path: FilePath) -> Result<PathBuf, String> {
     path.into_path()
         .map_err(|e| format!("selected path is not a local file: {e}"))
@@ -638,6 +725,30 @@ fn default_file_name(input: &str, fallback_stem: &str, extension: &str) -> Strin
     }
 }
 
+#[cfg(not(target_os = "android"))]
+fn read_utf8_capped(reader: &mut impl Read, max_bytes: u64, label: &str) -> Result<String, String> {
+    let mut contents = String::new();
+    let mut limited = reader.take(max_bytes + 1);
+    limited
+        .read_to_string(&mut contents)
+        .map_err(|e| format!("failed to read {label} as UTF-8: {e}"))?;
+    if contents.len() as u64 > max_bytes {
+        return Err(format!("{label} exceeds the limit of {max_bytes} bytes"));
+    }
+    Ok(contents)
+}
+
+fn require_text_within_limit(contents: &str, max_bytes: u64, label: &str) -> Result<(), String> {
+    let byte_count = contents.len() as u64;
+    if byte_count > max_bytes {
+        return Err(format!(
+            "{label} is {byte_count} bytes, exceeding the limit of {max_bytes} bytes"
+        ));
+    }
+    Ok(())
+}
+
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 fn read_text_file_capped(path: &Path, max_bytes: u64, label: &str) -> Result<String, String> {
     require_absolute_path(path)?;
     let metadata = fs::metadata(path).map_err(|e| format!("failed to inspect {label}: {e}"))?;
@@ -649,15 +760,7 @@ fn read_text_file_capped(path: &Path, max_bytes: u64, label: &str) -> Result<Str
     }
 
     let mut file = fs::File::open(path).map_err(|e| format!("failed to open {label}: {e}"))?;
-    let mut contents = String::new();
-    let mut limited = std::io::Read::by_ref(&mut file).take(max_bytes + 1);
-    limited
-        .read_to_string(&mut contents)
-        .map_err(|e| format!("failed to read {label} as UTF-8: {e}"))?;
-    if contents.len() as u64 > max_bytes {
-        return Err(format!("{label} exceeds the limit of {max_bytes} bytes"));
-    }
-    Ok(contents)
+    read_utf8_capped(&mut file, max_bytes, label)
 }
 
 /// Write a UTF-8 text file atomically via `.tmp` plus rename so an
@@ -685,6 +788,7 @@ fn write_text_file_atomically(path: &Path, contents: &str) -> Result<(), String>
     Ok(())
 }
 
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 fn pick_open_path(
     app: &tauri::AppHandle,
     title: &str,
@@ -703,6 +807,7 @@ fn pick_open_path(
     picker.blocking_pick_file().map(dialog_path).transpose()
 }
 
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 fn pick_save_path(
     app: &tauri::AppHandle,
     title: &str,
@@ -724,25 +829,30 @@ fn pick_save_path(
 }
 
 #[cfg(target_os = "linux")]
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 fn reveal_vault_folder(path: &Path) -> Result<(), String> {
     spawn_file_manager_command("xdg-open", [path.as_os_str()])
 }
 
 #[cfg(target_os = "macos")]
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 fn reveal_vault_folder(path: &Path) -> Result<(), String> {
     spawn_file_manager_command("open", [path.as_os_str()])
 }
 
 #[cfg(windows)]
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 fn reveal_vault_folder(path: &Path) -> Result<(), String> {
     spawn_file_manager_command("explorer.exe", [path.as_os_str()])
 }
 
 #[cfg(not(any(target_os = "linux", target_os = "macos", windows)))]
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 fn reveal_vault_folder(_path: &Path) -> Result<(), String> {
     Err("opening Ganbaru AI folders is not implemented for this platform".to_string())
 }
 
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 fn spawn_file_manager_command<I, S>(program: &str, args: I) -> Result<(), String>
 where
     I: IntoIterator<Item = S>,
@@ -758,6 +868,7 @@ where
         .map_err(|e| format!("open Ganbaru AI folder: {e}"))
 }
 
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 fn existing_downloads_directory(app: &tauri::AppHandle) -> Option<PathBuf> {
     app.path().download_dir().ok().filter(|path| path.is_dir())
 }
@@ -767,25 +878,68 @@ fn existing_downloads_directory(app: &tauri::AppHandle) -> Option<PathBuf> {
 /// Calendar (one .ics per calendar a user owns or subscribes to is usually
 /// < 50) and protects against pathological inputs that could DoS the read
 /// loop.
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 const ICS_ZIP_MAX_ENTRIES: usize = 1024;
 
 /// Hard cap on the uncompressed size of a single entry, in bytes. 25 MiB
 /// is large enough for a multi-decade calendar with thousands of events
 /// (text-only iCalendar averages ~1 KiB per event) while clearly rejecting
 /// decompression bombs.
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 const ICS_ZIP_MAX_ENTRY_BYTES: u64 = 25 * 1024 * 1024;
 
 /// Hard cap on the aggregate uncompressed size across every entry. Keeps a
 /// zip with many oversized entries from defeating the per-entry guard.
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 const ICS_ZIP_MAX_TOTAL_BYTES: u64 = 250 * 1024 * 1024;
 
 /// Plain `.ics` imports share the zip per-entry cap so the import flow has
 /// one clear maximum payload size regardless of container.
-const ICS_PLAIN_MAX_BYTES: u64 = ICS_ZIP_MAX_ENTRY_BYTES;
+const ICS_PLAIN_MAX_BYTES: u64 = 25 * 1024 * 1024;
 
 /// Theme JSON is small configuration data. One MiB leaves room for custom
 /// comments and future tokens while rejecting accidental large-file picks.
 const THEME_JSON_MAX_BYTES: u64 = 1024 * 1024;
+
+#[cfg(target_os = "ios")]
+const THEME_JSON_DOCUMENT_FILTERS: &[&str] = &["json"];
+
+#[derive(Debug, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ThemeJsonWriteOutcome {
+    saved: bool,
+    destination: Option<&'static str>,
+    file_name: Option<String>,
+}
+
+impl ThemeJsonWriteOutcome {
+    #[cfg(not(target_os = "android"))]
+    fn cancelled() -> Self {
+        Self {
+            saved: false,
+            destination: None,
+            file_name: None,
+        }
+    }
+
+    #[cfg(not(target_os = "android"))]
+    fn saved_to_selected_file() -> Self {
+        Self {
+            saved: true,
+            destination: None,
+            file_name: None,
+        }
+    }
+
+    #[cfg(target_os = "android")]
+    fn saved_to_downloads(file_name: String) -> Self {
+        Self {
+            saved: true,
+            destination: Some("downloads"),
+            file_name: Some(file_name),
+        }
+    }
+}
 
 #[derive(Debug, serde::Serialize)]
 pub struct IcsZipEntry {
@@ -814,6 +968,7 @@ pub struct IcsZipEntry {
 /// - Only entries whose extension matches `.ics` are returned. Anything
 ///   else (`__MACOSX/`, `.DS_Store`, signature files, archived metadata)
 ///   is silently skipped so the importer never sees them.
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 fn read_ics_zip_entries_from_path(path: &Path) -> Result<Vec<IcsZipEntry>, String> {
     require_extension(path, &["zip"], "ICS zip import")?;
 
@@ -911,6 +1066,7 @@ fn read_ics_zip_entries_from_path(path: &Path) -> Result<Vec<IcsZipEntry>, Strin
     Ok(entries)
 }
 
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 fn read_plain_ics_entry_from_path(path: &Path) -> Result<IcsZipEntry, String> {
     require_extension(path, &["ics"], "ICS import")?;
     let contents = read_text_file_capped(path, ICS_PLAIN_MAX_BYTES, "ICS import")?;
@@ -924,6 +1080,7 @@ fn read_plain_ics_entry_from_path(path: &Path) -> Result<IcsZipEntry, String> {
 /// Open a native file picker and read one `.ics` file or every `.ics` entry
 /// inside one `.zip` bundle. The selected path never crosses the IPC
 /// boundary, and Rust re-validates the extension before reading.
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 #[tauri::command]
 pub async fn vault_pick_and_read_ics_import(
     app: tauri::AppHandle,
@@ -953,6 +1110,7 @@ pub async fn vault_pick_and_read_ics_import(
 
 /// Open a native save dialog and write a calendar `.ics` export. The
 /// selected path stays in Rust and must still have a `.ics` extension.
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 #[tauri::command]
 pub async fn vault_pick_and_write_ics_export(
     app: tauri::AppHandle,
@@ -976,7 +1134,69 @@ pub async fn vault_pick_and_write_ics_export(
     Ok(true)
 }
 
+/// Ask Android to select and read one bounded iCalendar document.
+#[cfg(target_os = "android")]
+#[tauri::command]
+pub async fn vault_pick_and_read_ics_import(
+    app: tauri::AppHandle,
+) -> Result<Option<Vec<IcsZipEntry>>, String> {
+    app.mobile_documents()
+        .pick_utf8_document_matching(
+            ICS_PLAIN_MAX_BYTES,
+            &["ics"],
+            &["text/calendar", "application/ics", "text/plain"],
+            "calendar",
+        )
+        .map(|selected| {
+            selected.map(|contents| {
+                vec![IcsZipEntry {
+                    name: "calendar.ics".to_string(),
+                    contents,
+                }]
+            })
+        })
+}
+
+/// Save an iCalendar export to Android's public Downloads collection.
+#[cfg(target_os = "android")]
+#[tauri::command]
+pub async fn vault_pick_and_write_ics_export(
+    app: tauri::AppHandle,
+    default_name: String,
+    contents: String,
+) -> Result<bool, String> {
+    let default_name = default_file_name(&default_name, "calendar", "ics");
+    app.mobile_documents().save_utf8_download_with_type(
+        &default_name,
+        &contents,
+        ICS_PLAIN_MAX_BYTES,
+        &["ics"],
+        "text/calendar",
+        "calendar",
+    )?;
+    Ok(true)
+}
+
+#[cfg(target_os = "ios")]
+#[tauri::command]
+pub async fn vault_pick_and_read_ics_import(
+    _app: tauri::AppHandle,
+) -> Result<Option<Vec<IcsZipEntry>>, String> {
+    Err("calendar document import is not available on iOS yet".to_string())
+}
+
+#[cfg(target_os = "ios")]
+#[tauri::command]
+pub async fn vault_pick_and_write_ics_export(
+    _app: tauri::AppHandle,
+    _default_name: String,
+    _contents: String,
+) -> Result<bool, String> {
+    Err("calendar document export is not available on iOS yet".to_string())
+}
+
 /// Open a native file picker and read a theme `.json` file with a small cap.
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 #[tauri::command]
 pub async fn vault_pick_and_read_theme_json(
     app: tauri::AppHandle,
@@ -989,12 +1209,14 @@ pub async fn vault_pick_and_read_theme_json(
 }
 
 /// Open a native save dialog and write a theme `.json` export.
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 #[tauri::command]
 pub async fn vault_pick_and_write_theme_json(
     app: tauri::AppHandle,
     default_name: String,
     contents: String,
-) -> Result<bool, String> {
+) -> Result<ThemeJsonWriteOutcome, String> {
+    require_text_within_limit(&contents, THEME_JSON_MAX_BYTES, "theme export")?;
     let default_name = default_file_name(&default_name, "theme", "json");
     let Some(path) = pick_save_path(
         &app,
@@ -1005,11 +1227,134 @@ pub async fn vault_pick_and_write_theme_json(
         existing_downloads_directory(&app),
     )?
     else {
-        return Ok(false);
+        return Ok(ThemeJsonWriteOutcome::cancelled());
     };
     require_extension(&path, &["json"], "theme export")?;
     write_text_file_atomically(&path, &contents)?;
-    Ok(true)
+    Ok(ThemeJsonWriteOutcome::saved_to_selected_file())
+}
+
+#[cfg(target_os = "ios")]
+fn finish_mobile_document_access<R: Runtime, T>(
+    app: &tauri::AppHandle<R>,
+    path: FilePath,
+    result: Result<T, String>,
+) -> Result<T, String> {
+    let cleanup = app
+        .fs()
+        .stop_accessing_security_scoped_resource(path)
+        .map_err(|e| format!("release selected theme document: {e}"));
+    match result {
+        Err(error) => Err(error),
+        Ok(value) => cleanup.map(|()| value),
+    }
+}
+
+#[cfg(target_os = "ios")]
+fn read_mobile_theme_document<R: Runtime>(
+    app: &tauri::AppHandle<R>,
+    path: FilePath,
+) -> Result<String, String> {
+    let mut options = OpenOptions::new();
+    options.read(true);
+    let result = (|| {
+        let mut file = app
+            .fs()
+            .open(path.clone(), options)
+            .map_err(|e| format!("failed to open theme import: {e}"))?;
+        read_utf8_capped(&mut file, THEME_JSON_MAX_BYTES, "theme import")
+    })();
+    finish_mobile_document_access(app, path, result)
+}
+
+#[cfg(target_os = "ios")]
+fn write_mobile_theme_document<R: Runtime>(
+    app: &tauri::AppHandle<R>,
+    path: FilePath,
+    contents: &str,
+) -> Result<(), String> {
+    require_text_within_limit(contents, THEME_JSON_MAX_BYTES, "theme export")?;
+    let mut options = OpenOptions::new();
+    options.write(true).truncate(true);
+    let result = (|| {
+        let mut file = app
+            .fs()
+            .open(path.clone(), options)
+            .map_err(|e| format!("failed to open theme export: {e}"))?;
+        file.write_all(contents.as_bytes())
+            .map_err(|e| format!("failed to write theme export: {e}"))?;
+        file.flush()
+            .map_err(|e| format!("failed to flush theme export: {e}"))?;
+        Ok(())
+    })();
+    finish_mobile_document_access(app, path, result)
+}
+
+/// Open iOS document storage and read one bounded theme JSON file.
+#[cfg(target_os = "ios")]
+#[tauri::command]
+pub async fn vault_pick_and_read_theme_json(
+    app: tauri::AppHandle,
+) -> Result<Option<String>, String> {
+    let selected = app
+        .dialog()
+        .file()
+        .add_filter("Theme JSON", THEME_JSON_DOCUMENT_FILTERS)
+        .blocking_pick_file();
+    selected
+        .map(|path| read_mobile_theme_document(&app, path))
+        .transpose()
+}
+
+/// Create a theme JSON document through iOS document storage.
+#[cfg(target_os = "ios")]
+#[tauri::command]
+pub async fn vault_pick_and_write_theme_json(
+    app: tauri::AppHandle,
+    default_name: String,
+    contents: String,
+) -> Result<ThemeJsonWriteOutcome, String> {
+    require_text_within_limit(&contents, THEME_JSON_MAX_BYTES, "theme export")?;
+    let default_name = default_file_name(&default_name, "theme", "json");
+    let selected = app
+        .dialog()
+        .file()
+        .set_file_name(default_name)
+        .add_filter("Theme JSON", THEME_JSON_DOCUMENT_FILTERS)
+        .blocking_save_file();
+    let Some(path) = selected else {
+        return Ok(ThemeJsonWriteOutcome::cancelled());
+    };
+    write_mobile_theme_document(&app, path, &contents)?;
+    Ok(ThemeJsonWriteOutcome::saved_to_selected_file())
+}
+
+/// Ask Android to select and read one bounded UTF-8 theme document.
+#[cfg(target_os = "android")]
+#[tauri::command]
+pub async fn vault_pick_and_read_theme_json(
+    app: tauri::AppHandle,
+) -> Result<Option<String>, String> {
+    app.mobile_documents()
+        .pick_utf8_document(THEME_JSON_MAX_BYTES)
+}
+
+/// Save a theme JSON export to Android's public Downloads collection.
+#[cfg(target_os = "android")]
+#[tauri::command]
+pub async fn vault_pick_and_write_theme_json(
+    app: tauri::AppHandle,
+    default_name: String,
+    contents: String,
+) -> Result<ThemeJsonWriteOutcome, String> {
+    require_text_within_limit(&contents, THEME_JSON_MAX_BYTES, "theme export")?;
+    let default_name = default_file_name(&default_name, "theme", "json");
+    let file_name = app.mobile_documents().save_utf8_download(
+        &default_name,
+        &contents,
+        THEME_JSON_MAX_BYTES,
+    )?;
+    Ok(ThemeJsonWriteOutcome::saved_to_downloads(file_name))
 }
 
 #[cfg(test)]
@@ -1056,6 +1401,33 @@ mod tests {
         let result = read_text_file_capped(&path, 1024, "test");
         let _ = fs::remove_file(&path);
         assert_eq!(result.unwrap(), "hello vault");
+    }
+
+    #[test]
+    fn read_utf8_capped_enforces_the_limit_while_streaming() {
+        let mut reader = std::io::Cursor::new(b"12345");
+        let error = read_utf8_capped(&mut reader, 4, "theme import").unwrap_err();
+        assert_eq!(error, "theme import exceeds the limit of 4 bytes");
+    }
+
+    #[test]
+    fn theme_export_rejects_oversized_text_before_opening_a_document() {
+        let contents = "x".repeat((THEME_JSON_MAX_BYTES + 1) as usize);
+        let error =
+            require_text_within_limit(&contents, THEME_JSON_MAX_BYTES, "theme export").unwrap_err();
+        assert!(error.contains("exceeding the limit"));
+    }
+
+    #[test]
+    fn default_file_name_drops_path_components_and_preserves_json_extension() {
+        assert_eq!(
+            default_file_name("../../midnight", "theme", "json"),
+            "midnight.json"
+        );
+        assert_eq!(
+            default_file_name("midnight.JSON", "theme", "json"),
+            "midnight.JSON"
+        );
     }
 
     #[test]
@@ -1196,30 +1568,47 @@ mod tests {
     }
 
     #[test]
-    fn legacy_app_state_defaults_music_root_bindings() {
-        let path = unique_path("legacy-app-state.json");
+    fn app_state_rejects_missing_current_device_state_sections() {
+        let path = unique_path("incomplete-app-state.json");
         fs::write(
             &path,
             r#"{"activeVaultPath":"/tmp/vault","recentVaultPaths":[]}"#,
         )
-        .expect("write legacy state");
+        .expect("write incomplete state");
 
-        let state = read_app_state_from_path(&path).expect("read legacy state");
+        let state = read_app_state_from_path(&path);
 
-        assert!(state.music_root_bindings.is_empty());
-        assert!(state.device_id.is_none());
+        assert!(state.is_err());
         let _ = fs::remove_file(&path);
     }
 
     #[test]
-    fn legacy_provider_probe_defaults_isolated_conversation_support() {
-        let path = unique_path("legacy-provider-probe-app-state.json");
+    fn app_state_requires_current_nullable_fields() {
+        let current = serde_json::to_value(VaultAppState::default()).expect("serialize app state");
+        assert!(serde_json::from_value::<VaultAppState>(current.clone()).is_ok());
+
+        for field in ["deviceId", "activeVaultPath"] {
+            let mut incomplete = current.clone();
+            incomplete.as_object_mut().unwrap().remove(field);
+
+            assert!(
+                serde_json::from_value::<VaultAppState>(incomplete).is_err(),
+                "missing {field} must be rejected"
+            );
+        }
+    }
+
+    #[test]
+    fn provider_probe_requires_current_authority_support_fields() {
+        let path = unique_path("incomplete-provider-probe-app-state.json");
         fs::write(
             &path,
             r#"{
   "deviceId": "device-test",
   "activeVaultPath": null,
   "recentVaultPaths": [],
+  "musicRootBindings": {},
+  "projectWorkingFolders": { "schemaVersion": 1, "vaults": {} },
   "chat": {
     "schemaVersion": 1,
     "vaults": {
@@ -1251,29 +1640,25 @@ mod tests {
               "lastSuccessfulProbeAt": null,
               "modelCatalog": null
             }
-          }
+          },
+          "fullAccessTrust": {},
+          "preferences": {
+            "restoreLastSelectedThread": false,
+            "lastSelectedThreadId": null
+          },
+          "diagnostics": { "captureEnabled": false, "retentionDays": 7 },
+          "executionEnvironmentPaths": {}
         }
       }
     }
   }
 }"#,
         )
-        .expect("write legacy provider probe state");
+        .expect("write incomplete provider probe state");
 
-        let state = read_app_state_from_path(&path).expect("read legacy provider probe state");
-        let provider = state
-            .chat
-            .scope("vault-test", "device-test")
-            .and_then(|scope| scope.provider_instances.values().next())
-            .expect("provider device state");
-        let support = provider
-            .last_probe
-            .as_ref()
-            .expect("provider probe")
-            .authority_support;
+        let state = read_app_state_from_path(&path);
 
-        assert!(!support.isolated_conversation);
-        assert!(support.internal_host_tools);
+        assert!(state.is_err());
         let _ = fs::remove_file(&path);
     }
 

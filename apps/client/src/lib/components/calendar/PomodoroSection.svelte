@@ -5,6 +5,7 @@
   import { commitIntegerDraft, moveRovingIndex, panelInputKeydown } from "./event-panel-utils";
   import Timer from "@lucide/svelte/icons/timer";
   import { getLocalization } from "$lib/i18n/translator.svelte";
+  import { formatNumber } from "$lib/i18n/formatters";
   import {
     COUNT_PRESET_RHYTHMS,
     MAX_FOCUS_MINUTES,
@@ -15,6 +16,7 @@
     MIN_LONG_BREAK_MINUTES,
     MIN_RHYTHM_POSITIONS,
     MIN_SHORT_BREAK_MINUTES,
+    summarizeSequencePomodoroRhythm,
     type SequencePomodoroRhythmStep,
   } from "$lib/pomodoro/rhythm";
 
@@ -57,6 +59,7 @@
     idleTimeoutEnabled = $bindable(true),
     expanded,
     readonlyInteractive = false,
+    idleDetectionAvailable = true,
     ontoggle,
     onexpand,
     onchange,
@@ -72,12 +75,15 @@
     idleTimeoutEnabled: boolean;
     expanded: boolean;
     readonlyInteractive?: boolean;
+    idleDetectionAvailable?: boolean;
     ontoggle: () => void;
     onexpand: () => void;
     onchange: () => void;
   } = $props();
 
-  const { t } = getLocalization();
+  const localization = getLocalization();
+  const { t } = localization;
+  const locale = $derived(localization.locale);
   let sectionEl: HTMLDivElement | undefined = $state();
   let presetFocusIndex = $state(0);
   let focusDurationDraft = $state("40");
@@ -106,10 +112,6 @@
       ? POMO_PRESET_ENTRIES.length
       : POMO_PRESET_ENTRIES.findIndex(([key]) => key === preset);
     if (index >= 0) presetFocusIndex = index;
-  });
-
-  $effect(() => {
-    if (preset === "custom" && customRhythmMode !== "simple") customRhythmMode = "simple";
   });
 
   const localizedPresetEntries = $derived(
@@ -170,10 +172,20 @@
       slotClass: "cycle-summary-slot" as SummarySlotClass,
     },
   ]);
+  const sequenceSummary = $derived(summarizeSequencePomodoroRhythm(sequenceSteps));
 
   const summary = $derived.by(() => {
     if (!enabled) return "";
     if (preset === "custom") {
+      if (customRhythmMode === "sequence") {
+        return t(
+          "calendar.pomodoro.sequenceSummary",
+          formatNumber(locale, sequenceSummary.stepCount),
+          sequenceSummary.stepCount === 1,
+          formatNumber(locale, sequenceSummary.focusMinutes),
+          formatNumber(locale, sequenceSummary.breakMinutes),
+        );
+      }
       return t("calendar.pomodoro.customSummary", focusDuration, shortBreak, longBreak);
     }
     return presetLabel(preset) ?? t("calendar.pomodoro.custom");
@@ -222,6 +234,7 @@
 
   function applyPreset(p: PomodoroPreset) {
     const wasCustom = preset === "custom";
+    if (p === "custom" && wasCustom) return;
     preset = p;
     if (p !== "custom") {
       const vals = POMO_PRESETS[p];
@@ -235,6 +248,11 @@
       longBreak = CUSTOM_COUNT_DEFAULT.longBreakMinutes;
       longBreakAfterFocusCount = CUSTOM_COUNT_DEFAULT.longBreakAfterFocusCount;
     }
+    customRhythmMode = "simple";
+    onchange();
+  }
+
+  function convertSequenceToSimpleRhythm() {
     customRhythmMode = "simple";
     onchange();
   }
@@ -406,22 +424,39 @@
           >
             {t("calendar.pomodoro.custom")}
           </button>
-          <span class="rhythm-summary ml-auto text-[0.733333rem] text-muted-foreground">
-            {#each customFields as field, fieldIndex}
-              <span>{field.compactLabel}</span>
-              <label class="contents">
-                <input type="text" inputmode="numeric" value={field.value} maxlength={field.maxLength}
-                  aria-label={field.label}
-                  oninput={(e) => field.setDraft(e.currentTarget.value)}
-                  onblur={field.commit}
-                  class="num-input rhythm-summary-number {field.slotClass} bg-transparent px-0 text-[0.733333rem] text-event-panel-input-text outline-none {readonlyInteractiveInputClass}"
-                  onkeydown={(e) => handleNumberDraftKeydown(e, field.commit, field.restore)} />
-              </label>
-              {#if fieldIndex < customFields.length - 1}
-                <span class="rhythm-summary-separator">/</span>
-              {/if}
-            {/each}
-          </span>
+          {#if customRhythmMode === "sequence"}
+            <span class="ml-auto text-[0.733333rem] text-muted-foreground">
+              {t(
+                "calendar.pomodoro.sequencePreserved",
+                formatNumber(locale, sequenceSteps.length),
+                sequenceSteps.length === 1,
+              )}
+            </span>
+            <button
+              type="button"
+              onclick={convertSequenceToSimpleRhythm}
+              class="text-[0.733333rem] text-primary hover:underline {readonlyInteractiveClass}"
+            >
+              {t("calendar.pomodoro.convertSequenceToSimple")}
+            </button>
+          {:else}
+            <span class="rhythm-summary ml-auto text-[0.733333rem] text-muted-foreground">
+              {#each customFields as field, fieldIndex}
+                <span>{field.compactLabel}</span>
+                <label class="contents">
+                  <input type="text" inputmode="numeric" value={field.value} maxlength={field.maxLength}
+                    aria-label={field.label}
+                    oninput={(e) => field.setDraft(e.currentTarget.value)}
+                    onblur={field.commit}
+                    class="num-input rhythm-summary-number {field.slotClass} bg-transparent px-0 text-[0.733333rem] text-event-panel-input-text outline-none {readonlyInteractiveInputClass}"
+                    onkeydown={(e) => handleNumberDraftKeydown(e, field.commit, field.restore)} />
+                </label>
+                {#if fieldIndex < customFields.length - 1}
+                  <span class="rhythm-summary-separator">/</span>
+                {/if}
+              {/each}
+            </span>
+          {/if}
         </div>
       {:else}
         <button
@@ -436,6 +471,7 @@
           <span>{t("calendar.pomodoro.custom")}</span>
         </button>
       {/if}
+      {#if idleDetectionAvailable}
       <div class="mt-1 border-t border-border/40 px-0 pt-0.5">
         <button
           onclick={() => { idleTimeoutEnabled = !idleTimeoutEnabled; onchange(); }}
@@ -447,6 +483,7 @@
           <span>{t("calendar.pomodoro.pauseOnInactivity")}</span>
         </button>
       </div>
+      {/if}
     </div>
   {/if}
 </div>

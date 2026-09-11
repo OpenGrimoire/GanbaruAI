@@ -36,7 +36,6 @@ export const NOTIFICATION_THRESHOLD = 60;
 export const BREAK_EXTENSION_SECONDS = 60;
 export const MAX_BREAK_EXTENSION_SECONDS = 180;
 export const BREAK_OVERTIME_RAIL_GRACE_SECONDS = 10;
-export const MAX_BREAK_OVERTIME_SECONDS = 1800;
 export const IDLE_ALERT_INTERVAL_SECONDS = 10;
 export const IDLE_FOCUS_FAILURE_DELAY_SECONDS = 60;
 export const BREAK_FINISHED_ALERT_INTERVAL_SECONDS = 10;
@@ -139,16 +138,30 @@ export type TickResult =
   | { kind: "countdown_with_notification"; remainingSeconds: number }
   | { kind: "countdown"; remainingSeconds: number };
 
+export interface PomodoroTickPolicy {
+  detectSuspendGaps: boolean;
+}
+
+const DEFAULT_TICK_POLICY: PomodoroTickPolicy = {
+  detectSuspendGaps: true,
+};
+
 /**
  * Pure function that decides what action to take on each timer tick.
  * Handles suspend/wake detection, block expiry, phase completion, and notifications.
  * @param snapshot - Current timer state snapshot.
  * @param nowMs - Current timestamp in milliseconds.
+ * @param policy - Platform policy for interpreting delayed JavaScript ticks.
  * @returns Action to take based on timer state.
  */
-export function decideTick(snapshot: TimerSnapshot, nowMs: number): TickResult {
+export function decideTick(
+  snapshot: TimerSnapshot,
+  nowMs: number,
+  policy: PomodoroTickPolicy = DEFAULT_TICK_POLICY,
+): TickResult {
   // 1. Suspend/wake detection (highest priority)
   if (
+    policy.detectSuspendGaps &&
     snapshot.lastTickMs !== null &&
     nowMs - snapshot.lastTickMs > SUSPEND_THRESHOLD_MS
   ) {

@@ -28,6 +28,8 @@
   import ThemeEditorNavigation from "./theme-editor/ThemeEditorNavigation.svelte";
   import ThemeSourcePairRow from "./theme-editor/ThemeSourcePairRow.svelte";
   import ThemeTokenEditor from "./theme-editor/ThemeTokenEditor.svelte";
+  import ActionToast from "$lib/components/ui/ActionToast.svelte";
+  import { BUILD_PLATFORM_PROFILE } from "$lib/platform";
   import {
     SOURCE_GROUPS,
     isCalendarGroup,
@@ -49,6 +51,7 @@
 
   const themeStore = getTheme();
   const { t } = getLocalization();
+  const mobileShell = BUILD_PLATFORM_PROFILE.shell === "mobile";
   const sourceGroups = $derived(localizedSourceGroups(t));
   const textActionGroups = $derived(sourceGroups.filter(isTextActionGroup));
   const calendarGroups = $derived(sourceGroups.filter(isCalendarGroup));
@@ -165,7 +168,7 @@
     class="theme-editor-chrome relative z-20 flex shrink-0 flex-col gap-1.5 border-b border-border/70 bg-sidebar px-3 py-2"
   >
     <div
-      class="flex h-9 min-w-0 items-center overflow-hidden rounded-md border border-border bg-card text-[0.733333rem] text-muted-foreground dark:bg-background"
+      class="theme-editor-identity flex h-9 min-w-0 items-center overflow-hidden rounded-md border border-border bg-card text-[0.733333rem] text-muted-foreground dark:bg-background"
     >
       <button
         type="button"
@@ -662,7 +665,9 @@
             jsonDraft={json.draft}
             jsonDirty={json.dirty}
             jsonErrors={json.errors}
-            jsonNotice={json.notice}
+            jsonNotice={mobileShell ? undefined : json.notice?.message}
+            jsonSaving={json.saving}
+            fileSaveAvailable={json.fileSaveAvailable}
             onCopy={json.copy}
             onSave={json.save}
             onApply={json.apply}
@@ -681,6 +686,15 @@
       />
     {/if}
   </div>
+
+  {#if mobileShell && json.notice}
+    <ActionToast
+      message={json.notice.message}
+      variant={json.notice.variant}
+      dismissLabel={t("settings.theme.editor.dismissFileNotification")}
+      onDismiss={json.dismissNotice}
+    />
+  {/if}
 </div>
 
 <style>

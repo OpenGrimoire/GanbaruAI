@@ -18,6 +18,8 @@ export const shell = {
     nextEvent: (title: string, start: string) => `Siguiente: ${title}, ${start}`,
   },
   toolbar: {
+    customization: "Personalización",
+    views: "Vistas del proyecto",
     customize: "Columnas",
     group: "Agrupar",
     sort: "Ordenar",
@@ -38,6 +40,10 @@ export const shell = {
   navigator: {
     open: "Abrir proyectos",
     pickerLabel: "Selector de proyectos",
+    backToGroups: "Volver a los grupos de proyectos",
+    backToProjects: "Volver a los proyectos",
+    closePicker: "Cerrar selector de proyectos",
+    clearSearch: "Limpiar búsqueda de proyectos",
     searchPlaceholder: "Buscar proyectos...",
     createGroup: "Crear grupo",
     createProject: "Crear proyecto",
@@ -96,6 +102,13 @@ export const shell = {
     emojiNamePlaceholder: "diviertete-con-esto",
     nameRequired: "El nombre del emoji es obligatorio.",
     uploadFailed: "No se pudo leer esta imagen.",
+    uploadUnsupportedType: "Usa una imagen PNG, JPG o WebP.",
+    uploadTooLarge: (megabytes: number) => `Usa una imagen de no más de ${megabytes} MB.`,
+    uploadInvalidImage: "El archivo tiene un encabezado PNG, JPG o WebP no válido o que no coincide.",
+    uploadDimensionsTooLarge: (pixels: number) =>
+      `Usa una imagen que no supere los ${pixels} píxeles de ancho ni de alto.`,
+    uploadPixelCountTooLarge: (megapixels: number) =>
+      `Usa una imagen de no más de ${megapixels} megapíxeles.`,
     selectRecent: "Seleccionar icono reciente",
     colorDefault: "Predeterminado",
     colorGray: "Gris",

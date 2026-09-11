@@ -1,6 +1,6 @@
 import type { CalendarEvent, DragState, EventColor, PositionedEvent } from "./types";
 import type { PanelAnchor } from "./edit-session.svelte";
-import { tick } from "svelte";
+import { onDestroy, tick } from "svelte";
 import {
   minuteOfDay,
   snapToGrid,
@@ -12,6 +12,7 @@ import {
 } from "./utils";
 import { getCalendarZoom } from "$lib/stores/calendarZoom.svelte";
 import { isPendingCreateEventId } from "./display-events";
+import { CalendarTouchHoldArbiter } from "./calendar-mobile-gestures";
 
 let cursorStyle: HTMLStyleElement | null = null;
 
@@ -55,6 +56,9 @@ export interface DragControllerConfig {
   isEventLocked?: (eventId: string) => boolean;
   /** Returns true when the rendered event is the currently active pomodoro occurrence. */
   isActiveEvent?: (event: CalendarEvent) => boolean;
+  mobileLayout: () => boolean;
+  onTouchEditStart?: () => void;
+  onTouchEditEnd?: () => void;
 }
 
 export function useDragController(config: DragControllerConfig) {
@@ -84,6 +88,7 @@ export function useDragController(config: DragControllerConfig) {
   let autoScrollRaf = 0;
   let scrollUpdateRaf = 0;
   let scrollUpdateContainer: HTMLElement | null = null;
+  const touchHold = new CalendarTouchHoldArbiter();
 
   // Auto-scroll
 
@@ -183,11 +188,39 @@ export function useDragController(config: DragControllerConfig) {
 
   // Existing event drag (move / resize)
 
-  function handleDragStart(eventId: string, e: PointerEvent, forceEdge?: "resize-top" | "resize-bottom") {
-    if (config.canDrag && !config.canDrag(eventId)) return;
+  function canStartDrag(
+    eventId: string,
+    forceEdge?: "resize-top" | "resize-bottom",
+  ): boolean {
+    if (config.canDrag && !config.canDrag(eventId)) return false;
+    const event = config.events().find((candidate) => candidate.id === eventId);
+    if (!event || event.allDay) return false;
+    if (config.isActiveEvent?.(event) && forceEdge !== "resize-bottom") return false;
+    return isPendingCreateEventId(eventId) || !config.isEventLocked?.(eventId);
+  }
 
+  function handleDragStart(eventId: string, e: PointerEvent, forceEdge?: "resize-top" | "resize-bottom") {
+    if (!canStartDrag(eventId, forceEdge)) return;
+    if (config.mobileLayout() && e.pointerType === "touch") {
+      touchHold.begin(e, () => {
+        if (!canStartDrag(eventId, forceEdge) || !beginDragStart(eventId, e, forceEdge)) {
+          touchHold.finish();
+          return;
+        }
+        config.onTouchEditStart?.();
+      });
+      return;
+    }
+    beginDragStart(eventId, e, forceEdge);
+  }
+
+  function beginDragStart(
+    eventId: string,
+    e: PointerEvent,
+    forceEdge?: "resize-top" | "resize-bottom",
+  ): boolean {
     const event = config.events().find((ev) => ev.id === eventId);
-    if (!event || event.allDay) return;
+    if (!event || event.allDay) return false;
 
     const dateStr = event.start.split(" ")[0];
     const startMin = minuteOfDay(event.start);
@@ -210,7 +243,7 @@ export function useDragController(config: DragControllerConfig) {
 
     if (forceEdge) {
       dragState.type = forceEdge;
-    } else {
+    } else if (!(config.mobileLayout() && e.pointerType === "touch")) {
       const blockEl = (e.target as HTMLElement).closest(".event-block-wrapper");
       if (blockEl) {
         const rect = blockEl.getBoundingClientRect();
@@ -233,14 +266,14 @@ export function useDragController(config: DragControllerConfig) {
     // pomodoro history.
     if (config.isActiveEvent?.(event) && dragState.type !== "resize-bottom") {
       dragState = null;
-      return;
+      return false;
     }
 
     // Locked saved events (past with completed progress): no drag/resize at all.
     // Unsaved create previews stay editable until the user commits them.
     if (!isPendingCreateEventId(eventId) && config.isEventLocked?.(eventId)) {
       dragState = null;
-      return;
+      return false;
     }
 
     if (dragState.type === "resize-top" || dragState.type === "resize-bottom") {
@@ -252,8 +285,10 @@ export function useDragController(config: DragControllerConfig) {
     lastPointerEvent = e;
     window.addEventListener("pointermove", handleDragMove);
     window.addEventListener("pointerup", handleDragEnd);
+    window.addEventListener("pointercancel", handleDragCancel);
     startScrollDrivenUpdates();
     if (dragInteractionActive) startAutoScroll();
+    return true;
   }
 
   function updateDragPreview() {
@@ -396,6 +431,7 @@ export function useDragController(config: DragControllerConfig) {
   async function handleDragEnd(e: PointerEvent) {
     window.removeEventListener("pointermove", handleDragMove);
     window.removeEventListener("pointerup", handleDragEnd);
+    window.removeEventListener("pointercancel", handleDragCancel);
     stopAutoScroll();
     stopScrollDrivenUpdates();
     unlockCursor();
@@ -413,16 +449,16 @@ export function useDragController(config: DragControllerConfig) {
     const state = dragState;
     const wasDragging = !!dragPreview;
 
+    if (wasDragging || touchHold.editingActive) {
+      _didDrag = true;
+      setTimeout(() => { _didDrag = false; }, 0);
+    }
+    finishTouchEditing();
+
     if (dragPreview && state) {
       // Always notify parent that drag ended (sets lastDragEndTime to prevent panel close).
       // The parent checks if position actually changed before doing DB update.
       await config.onEventUpdate(dragPreview.event);
-    }
-
-    // Suppress the click that fires after pointerup
-    if (wasDragging) {
-      _didDrag = true;
-      setTimeout(() => { _didDrag = false; }, 0);
     }
 
     dragState = null;
@@ -433,13 +469,53 @@ export function useDragController(config: DragControllerConfig) {
     dragInteractionActive = false;
   }
 
+  function handleDragCancel(): void {
+    window.removeEventListener("pointermove", handleDragMove);
+    window.removeEventListener("pointerup", handleDragEnd);
+    window.removeEventListener("pointercancel", handleDragCancel);
+    stopAutoScroll();
+    stopScrollDrivenUpdates();
+    unlockCursor();
+    dragState = null;
+    dragPreview = null;
+    dragPreviewDate = null;
+    grabbingId = null;
+    lastPointerEvent = null;
+    dragInteractionActive = false;
+    finishTouchEditing();
+  }
+
   // Create-by-drag
 
   function handleCreateStart(dateStr: string, timing: CreateStartTiming, e: PointerEvent) {
-    if (dragState) return; // don't start create while an event drag is active
+    if (config.mobileLayout() && e.pointerType === "touch") {
+      touchHold.begin(e, () => {
+        if (!beginCreateStart(dateStr, timing, e, true)) {
+          touchHold.finish();
+          return;
+        }
+        config.onTouchEditStart?.();
+      }, {
+        onTap: (releaseEvent) => {
+          if (!beginCreateStart(dateStr, timing, e, false)) return;
+          void handleCreateEnd(releaseEvent);
+        },
+      });
+      return;
+    }
+    beginCreateStart(dateStr, timing, e, false);
+  }
+
+  function beginCreateStart(
+    dateStr: string,
+    timing: CreateStartTiming,
+    e: PointerEvent,
+    selectImmediately: boolean,
+  ): boolean {
+    if (dragState) return false; // don't start create while an event drag is active
 
     const columnEl = (e.target as HTMLElement).closest("[data-day-column-shell]") as HTMLElement | null;
-    if (!columnEl) return;
+    if (!columnEl) return false;
 
     const roundedSelectionMinute = Math.round(timing.selectionMinute);
     const roundedClickMinute = Math.round(timing.clickMinute);
@@ -457,9 +533,14 @@ export function useDragController(config: DragControllerConfig) {
     lockCursor("ns-resize");
     window.addEventListener("pointermove", handleCreateMove);
     window.addEventListener("pointerup", handleCreateEnd);
-    createHoldTimer = window.setTimeout(() => {
-      enterCreateSelection();
-    }, CREATE_HOLD_PREVIEW_DELAY_MS);
+    window.addEventListener("pointercancel", handleCreateCancel);
+    if (selectImmediately) enterCreateSelection();
+    else {
+      createHoldTimer = window.setTimeout(() => {
+        enterCreateSelection();
+      }, CREATE_HOLD_PREVIEW_DELAY_MS);
+    }
+    return true;
   }
 
   function enterCreateSelection() {
@@ -530,6 +611,7 @@ export function useDragController(config: DragControllerConfig) {
   async function handleCreateEnd(e: PointerEvent) {
     window.removeEventListener("pointermove", handleCreateMove);
     window.removeEventListener("pointerup", handleCreateEnd);
+    window.removeEventListener("pointercancel", handleCreateCancel);
     clearCreateHoldTimer();
     stopAutoScroll();
     stopScrollDrivenUpdates();
@@ -548,6 +630,7 @@ export function useDragController(config: DragControllerConfig) {
     }
 
     const state = createState;
+    finishTouchEditing();
 
     if (state?.mode === "pending") {
       const endMinute = clampMinute(
@@ -588,6 +671,33 @@ export function useDragController(config: DragControllerConfig) {
       lastPointerEvent = null;
     }
   }
+
+  function handleCreateCancel(): void {
+    window.removeEventListener("pointermove", handleCreateMove);
+    window.removeEventListener("pointerup", handleCreateEnd);
+    window.removeEventListener("pointercancel", handleCreateCancel);
+    clearCreateHoldTimer();
+    stopAutoScroll();
+    stopScrollDrivenUpdates();
+    unlockCursor();
+    createState = null;
+    createPreview = null;
+    createPreviewDate = null;
+    lastPointerEvent = null;
+    finishTouchEditing();
+  }
+
+  function finishTouchEditing(): void {
+    const wasActive = touchHold.editingActive;
+    touchHold.finish();
+    if (wasActive) config.onTouchEditEnd?.();
+  }
+
+  onDestroy(() => {
+    handleDragCancel();
+    handleCreateCancel();
+    touchHold.finish();
+  });
 
   function buildPreview(
     dateStr: string,

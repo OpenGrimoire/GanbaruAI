@@ -4,6 +4,7 @@ use super::super::channel_commands::{identifier_error, persistence_error, u64_va
 use super::super::coordination::contracts::*;
 use super::super::models::*;
 use serde_json::Value;
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 use sha2::{Digest, Sha256};
 use std::collections::BTreeSet;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -23,6 +24,7 @@ pub(super) fn has_thread_eligible_mention(request: &PostChatMessageCommand) -> b
     })
 }
 
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 pub(super) fn validate_policy(
     app: &tauri::AppHandle,
     policy: &ChatTeammatePolicyInput,
@@ -50,6 +52,7 @@ pub(super) fn validate_policy(
     Ok(())
 }
 
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 pub(super) fn valid_teammate_effort(effort: &str) -> bool {
     matches!(
         effort,
@@ -162,6 +165,7 @@ fn reference_semantic_key(reference: &ChatMessageReference) -> String {
     }
 }
 
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 pub(super) fn validate_display_name(value: &str) -> ChatResult<String> {
     let value = value.trim();
     if value.is_empty() || value.chars().count() > 160 || value.chars().any(char::is_control) {
@@ -173,6 +177,7 @@ pub(super) fn validate_display_name(value: &str) -> ChatResult<String> {
     Ok(value.to_string())
 }
 
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 pub(super) fn validate_teammate_role(value: &str) -> ChatResult<String> {
     let value = value.trim();
     if value.is_empty() || value.chars().count() > 1_000 || value.chars().any(char::is_control) {
@@ -184,6 +189,7 @@ pub(super) fn validate_teammate_role(value: &str) -> ChatResult<String> {
     Ok(value.to_string())
 }
 
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 pub(super) fn validate_profile_text(value: &str, maximum: usize, field: &str) -> ChatResult<()> {
     if value.len() > maximum {
         return Err(ChatError::validation(
@@ -194,6 +200,7 @@ pub(super) fn validate_profile_text(value: &str, maximum: usize, field: &str) ->
     Ok(())
 }
 
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 pub(super) fn map_teammate_write_error(error: sqlx::Error) -> ChatError {
     let detail = error.to_string();
     if detail.contains("idx_chat_ai_teammate_display_name")
@@ -266,6 +273,7 @@ pub(super) fn reply_thread_id() -> ChatResult<ChatReplyThreadId> {
     ChatReplyThreadId::new(new_id("reply-thread")).map_err(identifier_error)
 }
 
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 pub(super) fn work_assignment_id() -> ChatResult<ChatWorkAssignmentId> {
     ChatWorkAssignmentId::new(new_id("assignment")).map_err(identifier_error)
 }
@@ -299,6 +307,7 @@ pub(super) fn parse_runtime_approval_policy(value: &str) -> ChatResult<ChatRunti
     }
 }
 
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 pub(super) fn wire_runtime_approval_policy(value: ChatRuntimeApprovalPolicy) -> &'static str {
     match value {
         ChatRuntimeApprovalPolicy::Ask => "ask",
@@ -319,6 +328,7 @@ pub(super) fn parse_folder_capability(value: &str) -> ChatResult<ChatFolderCapab
     }
 }
 
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 pub(super) fn wire_folder_capability(value: ChatFolderCapability) -> &'static str {
     match value {
         ChatFolderCapability::None => "none",
@@ -342,6 +352,7 @@ pub(super) fn parse_history_boundary(
     }
 }
 
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 pub(super) fn wire_history_boundary(value: &ChatHistoryBoundary) -> &'static str {
     match value {
         ChatHistoryBoundary::Entire => "entire",
@@ -386,6 +397,7 @@ pub(super) fn wire_participant_kind(value: ChatParticipantKind) -> &'static str 
     }
 }
 
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 pub(super) fn wire_approval_policy(value: ChatApprovalPolicy) -> &'static str {
     match value {
         ChatApprovalPolicy::AskForApproval => "ask_for_approval",
@@ -395,6 +407,7 @@ pub(super) fn wire_approval_policy(value: ChatApprovalPolicy) -> &'static str {
     }
 }
 
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 pub(super) fn wire_work_state(value: ChatWorkAssignmentState) -> &'static str {
     match value {
         ChatWorkAssignmentState::Queued => "queued",
@@ -412,10 +425,12 @@ pub(super) fn u32_value(value: i64) -> ChatResult<u32> {
     u32::try_from(value).map_err(|_| stored_value_error("schema version"))
 }
 
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 pub(super) fn sha256_hex(bytes: &[u8]) -> String {
     format!("{:x}", Sha256::digest(bytes))
 }
 
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 pub(super) fn truncate_utf8(value: &str, maximum: usize) -> &str {
     if value.len() <= maximum {
         return value;

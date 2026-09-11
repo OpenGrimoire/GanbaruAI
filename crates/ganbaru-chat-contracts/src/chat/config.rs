@@ -4,7 +4,7 @@ use super::models::{
     ChatError, ChatResult, CredentialReferenceId, InteractionMode, ModelId, ModelOptionSelection,
     ProjectWorkingFolderId, ProviderFamilyId, ProviderInstanceId, SafetyMode, VersionedJson,
 };
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::Value;
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -24,10 +24,6 @@ const MAX_TERMINAL_SCROLLBACK_LINES: u32 = 100_000;
 const MIN_IDLE_SESSION_TIMEOUT_SECONDS: u32 = 60;
 const MAX_IDLE_SESSION_TIMEOUT_SECONDS: u32 = 7_200;
 
-fn current_schema_version() -> u32 {
-    CHAT_VAULT_CONFIG_SCHEMA_VERSION
-}
-
 fn default_inspector_width_px() -> u32 {
     520
 }
@@ -38,10 +34,6 @@ fn default_terminal_scrollback_lines() -> u32 {
 
 fn default_idle_session_timeout_seconds() -> u32 {
     900
-}
-
-fn default_true() -> bool {
-    true
 }
 
 #[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
@@ -59,17 +51,11 @@ pub struct ChatPortableProviderConfig {
     pub instance_id: ProviderInstanceId,
     pub family_id: ProviderFamilyId,
     pub label: String,
-    #[serde(default = "default_true")]
     pub enabled: bool,
-    #[serde(default)]
     pub launch_arguments: Vec<String>,
-    #[serde(default)]
     pub environment: BTreeMap<String, String>,
-    #[serde(default)]
     pub credential_references: BTreeMap<String, CredentialReferenceId>,
-    #[serde(default)]
     pub visible_model_ids: Vec<ModelId>,
-    #[serde(default)]
     pub favorite_model_ids: Vec<ModelId>,
     pub provider_config: VersionedJson,
     #[serde(flatten)]
@@ -81,19 +67,25 @@ pub struct ChatPortableProviderConfig {
 pub struct RememberedComposerSelection {
     pub working_folder_id: ProjectWorkingFolderId,
     pub provider_instance_id: ProviderInstanceId,
+    #[serde(deserialize_with = "required_nullable")]
     pub model_id: Option<ModelId>,
-    #[serde(default)]
     pub provider_managed_model: bool,
-    #[serde(default)]
     pub model_options: Vec<ModelOptionSelection>,
     pub safety_mode: SafetyMode,
     pub interaction_mode: InteractionMode,
 }
 
+fn required_nullable<'de, D, T>(deserializer: D) -> Result<Option<T>, D::Error>
+where
+    D: Deserializer<'de>,
+    T: Deserialize<'de>,
+{
+    Option::<T>::deserialize(deserializer)
+}
+
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ChatPanelPreferences {
-    #[serde(default = "default_inspector_width_px")]
     pub inspector_width_px: u32,
 }
 
@@ -108,19 +100,12 @@ impl Default for ChatPanelPreferences {
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ChatBehaviorPreferences {
-    #[serde(default)]
     pub send_key: ChatSendKey,
-    #[serde(default = "default_true")]
     pub restore_last_selected_thread: bool,
-    #[serde(default = "default_true")]
     pub show_reasoning_summaries: bool,
-    #[serde(default = "default_true")]
     pub automatically_fold_settled_work: bool,
-    #[serde(default = "default_terminal_scrollback_lines")]
     pub terminal_scrollback_lines: u32,
-    #[serde(default = "default_idle_session_timeout_seconds")]
     pub idle_session_timeout_seconds: u32,
-    #[serde(default = "default_true")]
     pub confirm_multiline_terminal_paste: bool,
 }
 
@@ -141,19 +126,12 @@ impl Default for ChatBehaviorPreferences {
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ChatVaultConfig {
-    #[serde(default = "current_schema_version")]
     pub schema_version: u32,
-    #[serde(default)]
     pub providers: Vec<ChatPortableProviderConfig>,
-    #[serde(default)]
     pub automatic_provider_setup_disabled: BTreeSet<ProviderFamilyId>,
-    #[serde(default)]
     pub remembered_selections: Vec<RememberedComposerSelection>,
-    #[serde(default)]
     pub working_folder_provider_preferences: BTreeMap<ProjectWorkingFolderId, ProviderInstanceId>,
-    #[serde(default)]
     pub panels: ChatPanelPreferences,
-    #[serde(default)]
     pub behavior: ChatBehaviorPreferences,
     #[serde(flatten)]
     pub unknown_fields: BTreeMap<String, Value>,

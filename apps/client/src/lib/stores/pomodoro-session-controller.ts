@@ -98,6 +98,7 @@ export function createPomodoroSessionController(
       runtime.dismissedBlockId = runtime.activeBlockId;
     }
     runtime.activeBlockId = null;
+    runtime.activeBlockTitle = null;
     runtime.activeRunId = null;
     runtime.activeBlockEndMs = null;
     runtime.idleTimeoutMs = null;

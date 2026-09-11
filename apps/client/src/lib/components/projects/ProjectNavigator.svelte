@@ -13,6 +13,9 @@
     onProjectSelected,
     panelMode = "groups",
     panelMaxHeight = null,
+    mobileLayout = false,
+    initialMobileGroupId = null,
+    onClose = undefined,
   }: {
     selectedProjectId: string | null;
     selectedGroupId?: string | null;
@@ -22,6 +25,9 @@
     onProjectSelected: () => void;
     panelMode?: ProjectNavigatorPanelMode;
     panelMaxHeight?: number | null;
+    mobileLayout?: boolean;
+    initialMobileGroupId?: string | null;
+    onClose?: () => void;
   } = $props();
 
   const projects = getProjects();
@@ -50,4 +56,7 @@
   bind:projectSearch
   onShowInactiveProjectsChange={onShowInactiveProjectsChange}
   onProjectSelected={selectProjectInNavigator}
+  {mobileLayout}
+  {initialMobileGroupId}
+  {onClose}
 />

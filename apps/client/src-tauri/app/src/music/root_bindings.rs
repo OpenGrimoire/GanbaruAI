@@ -1,7 +1,7 @@
 use serde::Serialize;
 use std::collections::BTreeMap;
-use std::fs;
-use std::path::{Path, PathBuf};
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
+use std::{fs, path::Path};
 use tauri::Runtime;
 
 use crate::vault::{active_vault_id, read_app_state, update_app_state, VaultAppState};
@@ -53,8 +53,9 @@ fn require_active_vault<R: Runtime>(
     Ok(active_vault_id)
 }
 
-fn canonical_existing_directory(folder_path: &str) -> Result<PathBuf, String> {
-    let path = PathBuf::from(folder_path.trim());
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
+fn canonical_existing_directory(folder_path: &str) -> Result<String, String> {
+    let path = std::path::PathBuf::from(folder_path.trim());
     if !path.is_absolute() {
         return Err("music root folder path must be absolute".to_string());
     }
@@ -63,7 +64,20 @@ fn canonical_existing_directory(folder_path: &str) -> Result<PathBuf, String> {
     if !metadata.is_dir() {
         return Err("music root folder path must be a directory".to_string());
     }
-    fs::canonicalize(path).map_err(|error| format!("canonicalize music root folder: {error}"))
+    fs::canonicalize(path)
+        .map_err(|error| format!("canonicalize music root folder: {error}"))?
+        .to_str()
+        .ok_or_else(|| "music root folder path contains non-utf8 characters".to_string())
+        .map(str::to_string)
+}
+
+#[cfg(target_os = "android")]
+fn canonical_existing_directory(folder_path: &str) -> Result<String, String> {
+    let folder_path = folder_path.trim();
+    if !folder_path.starts_with("content://") || folder_path.len() > 8_192 {
+        return Err("music root must be a selected Android document folder".to_string());
+    }
+    Ok(folder_path.to_string())
 }
 
 fn root_bindings_for_vault<'a>(
@@ -73,11 +87,21 @@ fn root_bindings_for_vault<'a>(
     state.music_root_bindings.get(vault_id)
 }
 
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 fn binding_status(path: Option<&str>) -> LocalRootBindingStatus {
     match path {
         None => LocalRootBindingStatus::NeedsRelink,
         Some(path) if Path::new(path).is_dir() => LocalRootBindingStatus::Available,
         Some(_) => LocalRootBindingStatus::Missing,
+    }
+}
+
+#[cfg(target_os = "android")]
+fn binding_status(path: Option<&str>) -> LocalRootBindingStatus {
+    match path {
+        Some(path) if path.starts_with("content://") => LocalRootBindingStatus::Available,
+        Some(_) => LocalRootBindingStatus::Missing,
+        None => LocalRootBindingStatus::NeedsRelink,
     }
 }
 
@@ -144,10 +168,7 @@ pub fn music_set_local_root_binding(
 ) -> Result<LocalRootBindingRead, String> {
     let vault_id = require_active_vault(&app, &vault_id)?;
     let root_id = validate_root_id(&root_id)?.to_string();
-    let folder_path = canonical_existing_directory(&folder_path)?
-        .to_str()
-        .ok_or_else(|| "music root folder path contains non-utf8 characters".to_string())?
-        .to_string();
+    let folder_path = canonical_existing_directory(&folder_path)?;
     update_app_state(&app, |state| {
         set_binding(state, &vault_id, &root_id, folder_path);
         Ok(binding_read(state, &vault_id, &root_id))

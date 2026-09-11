@@ -13,11 +13,11 @@ import {
 import { fmtYMD, parseYMD } from "$lib/components/calendar/recurrence";
 import { recurrenceConfigsEqual, recurrenceToRrule } from "$lib/components/calendar/rrule";
 import { sanitizeCalendarDescriptionHtml } from "$lib/calendar/description-sanitizer";
+import { hasMeetingState } from "$lib/calendar/meeting-state";
 import { dbUrl } from "$lib/api/db";
 import { toDbTime } from "./map-row";
 import {
   hasEventPatchKey,
-  hasMeetingState,
   localTimezone,
   nowIso,
   prepareUpdateBlockPayload,

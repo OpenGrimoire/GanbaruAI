@@ -33,7 +33,17 @@ export interface NotesMentionTask {
   archivedAt?: string | null;
 }
 
-export interface NotesMentionTargetInput {
+export interface NotesMusicMentionContext {
+  currentMusicSource: MusicSource | null;
+  musicQueue: readonly MusicSource[];
+}
+
+export const EMPTY_NOTES_MUSIC_MENTION_CONTEXT: NotesMusicMentionContext = {
+  currentMusicSource: null,
+  musicQueue: [],
+};
+
+export interface NotesMentionTargetInput extends NotesMusicMentionContext {
   pages: readonly NotesPage[];
   localUser: NotesLocalUser | null;
   dataSources: readonly NotesDataSource[];
@@ -43,8 +53,6 @@ export interface NotesMentionTargetInput {
   calendarEvents: readonly CalendarEvent[];
   activePomodoroRunId: string | null;
   pomodoroTime: string;
-  currentMusicSource: MusicSource | null;
-  musicQueue: readonly MusicSource[];
   translate: Translate;
 }
 

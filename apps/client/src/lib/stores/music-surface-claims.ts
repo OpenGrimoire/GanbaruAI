@@ -11,12 +11,6 @@ export class MusicSurfaceClaims {
 
   constructor(private readonly apply: (element: HTMLElement | null) => void) {}
 
-  setLegacy(element: HTMLElement | null): void {
-    if (element) this.claims.set("legacy", { element, priority: 0, order: ++this.nextOrder });
-    else this.claims.delete("legacy");
-    this.sync();
-  }
-
   claim(owner: string, element: HTMLElement, priority: number): () => void {
     this.claims.set(owner, { element, priority, order: ++this.nextOrder });
     this.sync();

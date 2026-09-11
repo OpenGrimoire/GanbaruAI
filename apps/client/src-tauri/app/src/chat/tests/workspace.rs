@@ -89,7 +89,7 @@ fn binding(
             .to_str()
             .expect("test path should be UTF-8")
             .to_string(),
-        filesystem_identity: None,
+        filesystem_identity: filesystem_identity(path, b"working-folder").unwrap(),
         repository_kind: kind,
         repository_identity: identity,
         repository_storage_identity: None,
@@ -126,13 +126,13 @@ fn another_device_without_a_binding_remains_unbound() {
 
 #[test]
 fn missing_and_stale_bindings_are_rejected() {
-    let missing = std::env::temp_dir().join("ganbaru-chat-definitely-missing");
     let workspace = workspace("workspace-1", RepositoryKind::None, None);
     let mut scope = WorkingFolderDeviceScope::default();
-    scope.bindings.insert(
-        workspace.id.clone(),
-        binding(&missing, RepositoryKind::None, None),
-    );
+    let missing_binding = {
+        let directory = TestDirectory::new("missing");
+        binding(directory.path(), RepositoryKind::None, None)
+    };
+    scope.bindings.insert(workspace.id.clone(), missing_binding);
     assert!(authorize_workspace(
         &workspace,
         &scope,
@@ -161,7 +161,7 @@ fn replaced_folder_is_rejected_even_when_its_canonical_path_is_unchanged() {
     let workspace = workspace("workspace-1", RepositoryKind::None, None);
     let mut replaced_binding = binding(replacement.path(), RepositoryKind::None, None);
     replaced_binding.filesystem_identity =
-        Some(filesystem_identity(original.path(), b"working-folder").unwrap());
+        filesystem_identity(original.path(), b"working-folder").unwrap();
     let mut scope = WorkingFolderDeviceScope::default();
     scope
         .bindings
@@ -257,7 +257,7 @@ fn repository_replacement_blocks_git_but_not_bound_folder_access() {
         Some("logical-repo".into()),
     );
     replaced_binding.filesystem_identity =
-        Some(filesystem_identity(second.path(), b"working-folder").unwrap());
+        filesystem_identity(second.path(), b"working-folder").unwrap();
     replaced_binding.repository_storage_identity = first_probe.identity;
     let mut scope = WorkingFolderDeviceScope::default();
     scope
@@ -288,7 +288,7 @@ fn malformed_git_metadata_does_not_block_bound_folder_access() {
     let workspace = workspace("workspace-1", RepositoryKind::None, None);
     let mut current_binding = binding(directory.path(), RepositoryKind::None, None);
     current_binding.filesystem_identity =
-        Some(filesystem_identity(directory.path(), b"working-folder").unwrap());
+        filesystem_identity(directory.path(), b"working-folder").unwrap();
     let mut scope = WorkingFolderDeviceScope::default();
     scope.bindings.insert(workspace.id.clone(), current_binding);
 
@@ -315,13 +315,7 @@ fn prepared_binding_records_folder_and_git_storage_identity() {
     let (probe, prepared_binding) =
         prepare_workspace_binding(&workspace, repository.path()).unwrap();
 
-    assert_eq!(
-        prepared_binding
-            .filesystem_identity
-            .as_deref()
-            .map(str::len),
-        Some(82)
-    );
+    assert_eq!(prepared_binding.filesystem_identity.len(), 82);
     assert_eq!(prepared_binding.repository_kind, RepositoryKind::Git);
     assert_eq!(prepared_binding.repository_storage_identity, probe.identity);
     assert_eq!(

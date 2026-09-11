@@ -1,6 +1,6 @@
 # Fixtures and clients
 
-This document defines automated fixture coverage and manual client testing. Standards fixtures prove correctness. Client fixtures prove practical interoperability.
+This document defines automated fixture coverage and manual client testing. Standards fixtures provide repeatable evidence for specific behaviors. Client fixtures provide practical interoperability evidence.
 
 ## Fixture principles
 
@@ -24,68 +24,57 @@ Current files:
 - `components.ics`: mixed `VEVENT`, `VTODO`, `VJOURNAL`, `VFREEBUSY`, `VTIMEZONE`, and nested `VALARM`.
 - `attachments-extensions.ics`: URI attachment, binary attachment, RFC 7986 properties, object-level `X-*`, and component-level `X-*`.
 
-The suite links preserved jCal back to projected events before export so it exercises the same merge path used by imported calendars with preservation rows.
+The suite links preserved jCal back to projected events before export so it exercises the same overlay path used by imported calendars with preservation rows.
 
-Core event fixtures:
+Additional current client-oriented fixtures live at:
 
-- minimal UTC `VEVENT`
-- zoned timed `VEVENT`
-- floating timed `VEVENT`
-- single-day all-day event
-- multi-day all-day event
-- event with `DURATION` instead of `DTEND`
-- event with omitted optional fields
-- event with rich text, commas, semicolons, backslashes, and newlines
-- event with non-ASCII text and long folded lines
+- `apps/client/test-fixtures/ics/google-calendar-sample.ics`
+- `apps/client/test-fixtures/ics/outlook-sample.ics`
+- `apps/client/test-fixtures/ics/edge-cases.ics`
 
-Recurrence fixtures:
+Parser, serializer, round-trip, and fixture-suite tests provide additional inline cases. See [conformance fixture coverage](./conformance/serialization-and-fixtures.md#current-automated-fixture-coverage) for the audited status.
 
-- daily, weekly, monthly, and yearly recurrence
-- `COUNT` and `UNTIL`
-- all `BY*` families supported by RFC 5545
-- `WKST`
-- `RDATE` date and date-time values
-- `EXDATE` date and date-time values
-- override with `RECURRENCE-ID`
-- override with `RECURRENCE-ID;VALUE=DATE`
-- `RECURRENCE-ID` with `RANGE=THISANDFUTURE`
-- recurrence across DST start and end
-- recurrence with custom `VTIMEZONE`
+## Planned fixture backlog
 
-Component fixtures:
+The following cases are coverage goals. They are not all present as standalone fixture files or fully supported app semantics.
 
-- `VTODO` with due date, completion, status, percent, alarms, and recurrence
-- `VJOURNAL` with summary and description
-- `VFREEBUSY` with multiple `FREEBUSY` periods and `FBTYPE`
-- standalone `VTIMEZONE`
-- mixed `VEVENT`, `VTODO`, `VJOURNAL`, `VFREEBUSY`, and `VTIMEZONE`
+Recurrence and timezone priorities:
 
-People and scheduling fixtures:
+- explicit `BYSECOND`, `BYMINUTE`, and `BYHOUR` preservation cases, which are not projected today
+- broader combinations of the supported `BY*` parts
+- date-only and period-valued `RDATE`
+- date-only and parameter-rich `EXDATE`
+- all-day `RECURRENCE-ID;VALUE=DATE`
+- recurrence across both DST transitions using custom `VTIMEZONE` rules
 
-- `ORGANIZER` with `CN`, `DIR`, `SENT-BY`, and `LANGUAGE`
-- `ATTENDEE` with role, participation status, RSVP, delegation, member, and calendar address
-- `METHOD:REQUEST`
+Component priorities:
+
+- comprehensive `VTODO` fields, recurrence, and alarms
+- broader `VJOURNAL` properties
+- multiple `VFREEBUSY` periods and `FBTYPE` variants
+- nested custom and future components
+
+Scheduling and people priorities:
+
 - `METHOD:CANCEL`
 - `METHOD:REPLY`
-- `REQUEST-STATUS`
+- multiple parameter values, quoted values, and broader RFC 6868 cases
+- edited offline scheduling objects with export diagnostics
 
-Alarm fixtures:
+Alarm priorities:
 
-- display alarm with relative trigger
 - absolute trigger alarm
 - audio alarm with attachment
 - email alarm with attendees and summary
-- alarm with `REPEAT` and `DURATION`
-- unknown alarm extension properties
+- complete `REPEAT` and `DURATION` semantics
 
-Attachment and extension fixtures:
+Attachment and extension priorities:
 
-- URI attachment with `FMTTYPE`
-- binary attachment with encoding
-- `X-*` properties at object, component, and property level
-- RFC 7986 fields such as `COLOR`, `IMAGE`, `NAME`, and `CONFERENCE`
+- object-level RFC 7986 and custom-property export merging
+- additional binary value encodings and limits
+- property groups, multiplicity, and registered extension properties
 
-Security fixtures:
+Security fixture priorities:
 
 - malformed line folding
 - oversized property
@@ -105,39 +94,15 @@ Each fixture should assert:
 - projected row shape when applicable
 - export serialization validity
 - parse to export to parse semantic equivalence
-- unsupported legal data remains present after a supported edit
+- covered unsupported data remains present after a supported edit and export overlay
 
 ## Manual client testing
 
-Manual tests use disposable calendars. Never test with the user's primary calendar first.
-
-For each client:
-
-1. Create a disposable calendar.
-2. Import Ganbaru AI-generated fixtures from `apps/client/test-fixtures/ics/rfc5545/`, plus any client-specific raw fixtures.
-3. Inspect visual behavior.
-4. Export the same calendar back to `.ics`.
-5. Store the raw export as a dated fixture.
-6. Re-import into Ganbaru AI.
-7. Record differences in the relevant `clients/*.md` file.
-
-Record:
-
-- client name
-- platform
-- app or web version when visible
-- test date
-- timezone
-- locale
-- fixture name
-- import result
-- export result
-- warnings or UI surprises
-- screenshots if manual visual inspection is important
+The shared procedure, required test metadata, and current status matrix live in the [client compatibility index](./clients/README.md). Manual tests use disposable calendars. Never test with the user's primary calendar first.
 
 ## Client docs
 
-Client notes live under [clients](./clients/):
+Client notes live under [clients](./clients/README.md):
 
 - [Google Calendar](./clients/google-calendar.md)
 - [Outlook](./clients/outlook.md)
@@ -163,6 +128,4 @@ Raw client exports should include a date in the file name when behavior may chan
 
 ## Comparison strategy
 
-Use semantic comparison, not byte-for-byte comparison, for most tests. Legal iCalendar serializers can reorder properties, fold lines differently, or normalize case without changing meaning.
-
-Byte-for-byte comparison is useful only for preserving exact unknown payloads before the export merger rewrites them. Once fields are edited, semantic equivalence is the correct target.
+Use semantic comparison, not byte-for-byte comparison. Legal iCalendar serializers can reorder properties, fold lines differently, normalize case, and choose equivalent escaping without changing meaning. Exact source lexical representation is not a preservation guarantee.

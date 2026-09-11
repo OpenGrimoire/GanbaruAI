@@ -104,6 +104,7 @@ impl OwnedOpenCodeServer {
         result
     }
 
+    #[cfg(test)]
     pub fn process_id(&self) -> Option<u32> {
         self.process.process_id()
     }

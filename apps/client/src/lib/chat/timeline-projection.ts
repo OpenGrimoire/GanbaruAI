@@ -10,21 +10,17 @@ import type {
   CanonicalStoredEvent,
   ChangedFileSummary,
   ChatTimelineItemRead,
-  ChatThreadId,
   ChatTimelineTurnRead,
   ChatTurnId,
   ChatTurnState,
   ContentDeltaEvent,
   ContentStreamKind,
   ItemLifecycleEvent,
-  ModelId,
   PlanStep,
   ProposedPlanDeltaEvent,
-  RequestResolutionState,
   ThreadUsageUpdatedEvent,
   TurnModeSnapshot,
   UtcTimestamp,
-  UserInputQuestion,
   VersionedJson,
 } from "./contracts";
 import { normalizeChangedFileSummaries } from "./changed-files";
@@ -842,7 +838,7 @@ export function parseTimelineUserContext(value: VersionedJson["value"] | undefin
   const attachments = parseUserAttachments(record.attachments).slice(0, 20);
   const mentions = parseUserMentions(record.mentions).slice(0, 100);
   const terminalContext = parseTerminalContext(record.terminalContext).slice(0, 20);
-  const preCheckpointId = jsonString(record.preCheckpointId) ?? jsonString(record.checkpointId);
+  const preCheckpointId = jsonString(record.preCheckpointId);
   if (attachments.length === 0 && mentions.length === 0 && terminalContext.length === 0 && !preCheckpointId) return null;
   return { attachments, mentions, terminalContext, preCheckpointId };
 }
@@ -852,18 +848,19 @@ function parseUserAttachments(value: VersionedJson["value"] | undefined): Timeli
   const attachments: TimelineAttachmentSummary[] = [];
   for (const candidate of value) {
     const record = jsonRecord(candidate);
-    const displayName = record ? jsonString(record.displayName) ?? jsonString(record.filename) : null;
-    if (!record || !displayName) continue;
-    const byteSize = typeof record.byteSize === "number" && Number.isFinite(record.byteSize) && record.byteSize >= 0
-      ? record.byteSize
-      : null;
-    const mimeType = jsonString(record.mimeType);
+    const attachmentId = record ? jsonString(record.attachmentId) : null;
+    const displayName = record ? jsonString(record.displayName) : null;
+    const kind = record ? jsonString(record.kind) : null;
+    const status = record ? jsonString(record.status) : null;
+    const byteSize = record?.byteSize;
+    if (!record || !attachmentId || !displayName || !kind || !status
+      || typeof byteSize !== "number" || !Number.isSafeInteger(byteSize) || byteSize < 0) continue;
     attachments.push({
-      id: jsonString(record.attachmentId) ?? jsonString(record.id),
+      attachmentId,
       displayName,
-      kind: jsonString(record.kind) ?? (mimeType?.startsWith("image/") ? "image" : null),
+      kind,
       byteSize,
-      status: jsonString(record.status),
+      status,
     });
   }
   return attachments;
@@ -885,13 +882,14 @@ function parseTerminalContext(value: VersionedJson["value"] | undefined): string
   if (!Array.isArray(value)) return [];
   const context: string[] = [];
   for (const candidate of value) {
-    if (typeof candidate === "string") {
-      if (candidate.trim()) context.push(candidate.slice(0, 240));
-      continue;
-    }
     const record = jsonRecord(candidate);
-    const label = record ? jsonString(record.label) ?? jsonString(record.command) ?? jsonString(record.text) : null;
-    if (label?.trim()) context.push(label.slice(0, 240));
+    const attachmentId = record ? jsonString(record.attachmentId) : null;
+    const displayName = record ? jsonString(record.displayName) : null;
+    const byteSize = record?.byteSize;
+    if (attachmentId && displayName?.trim()
+      && typeof byteSize === "number" && Number.isSafeInteger(byteSize) && byteSize >= 0) {
+      context.push(displayName.slice(0, 240));
+    }
   }
   return context;
 }

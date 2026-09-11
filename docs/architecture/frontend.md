@@ -1,0 +1,61 @@
+# Frontend architecture
+
+The frontend is a plain Svelte 5 application built with Vite. It is not SvelteKit and has no server-rendering layer. Desktop and mobile builds share one workspace but enter through different composition roots.
+
+## Entry points
+
+`apps/client/src/main.ts` selects a virtual platform entry. Desktop uses `main-desktop.ts` and `App.svelte`; mobile uses `main-mobile.ts` and `MobileApp.svelte`. Build-time selection keeps desktop-only imports out of Android production assets instead of hiding unsupported controls at runtime.
+
+The shell owns cross-feature navigation and only mounts the selected primary surface. Heavy or uncommon detail workflows load on demand. The benchmark bundle contracts protect intentional resident and lazy boundaries.
+
+## Source organization
+
+The frontend uses four broad layers under `apps/client/src/lib/`:
+
+- `components/` contains Svelte presentation and interaction surfaces.
+- Domain folders such as `calendar/`, `chat/`, `notes/`, `music/`, `pomodoro/`, and `projects/` contain pure helpers, contracts, validation, and view models.
+- `api/` contains typed wrappers around Tauri commands and asset URL handling.
+- `stores/` contains stateful Svelte rune controllers for runtime domains that need shared lifecycle.
+
+Components should not duplicate command contracts or parse unknown backend values ad hoc. Untrusted or versioned responses pass through bounded validation before entering typed state.
+
+## State model
+
+Svelte runes provide in-memory presentation state. Durable user data is loaded from native services and persisted through typed commands. A store can cache, coordinate, or optimistically present data, but it does not become a second source of truth.
+
+State is scoped to the smallest useful owner:
+
+- Component-local state for transient interaction.
+- Domain controllers for a mounted feature or shared runtime.
+- App-level stores for active vault, theme, locale, Pomodoro, Music, and other genuinely global lifecycles.
+- Device-local preferences for presentation details that should not synchronize with the vault.
+
+Changing responsive variants must preserve active drafts, selections, scroll intent, and open workflows.
+
+## UI foundations
+
+Generated shadcn-svelte primitives live under `components/ui/`. Product-specific components compose them rather than modifying generated primitives without a clear shared reason. Tailwind CSS provides layout utilities, while semantic CSS variables provide theme colors.
+
+Themes are data-driven and validated before application. Feature code should consume semantic tokens, not embed user-facing palette values. The full contract is in [Themes](../features/themes/README.md).
+
+## Localization
+
+User-facing text goes through the typed catalogs under `lib/i18n/messages/`. English is the resident fallback. Other locale graphs load when selected. Catalog shape tests keep locale modules aligned.
+
+Dates, times, numbers, lists, plural forms, and relative values use locale-aware helpers. Explicit language names appear as autonyms. Stored identifiers and protocol values remain locale-neutral.
+
+## Responsive and platform behavior
+
+Shared components adapt through capability inputs and layout constraints. Platform-specific authority comes from the selected composition, not from viewport width. A narrow desktop window does not become Android, and a large Android tablet does not gain desktop process or filesystem authority.
+
+Prefer container-aware layout, visible touch targets, bounded sheets and popovers, and recoverable behavior at the minimum window size. Hover, pointer precision, detached windows, and keyboard shortcuts require alternatives where the target platform does not guarantee them.
+
+## Loading and performance
+
+Primary navigation should render useful chrome before deferred data resolves. Expensive editors, diagnostics, transfer workflows, syntax grammars, and large catalogs remain lazy unless measurement proves that residency improves a common interaction at acceptable cost.
+
+Visible-window queries, pagination, virtual lists, bounded caches, and latest-wins request handling prevent total stored history from defining render cost. See [Performance](../performance/README.md) for measurement rules.
+
+## Testing boundary
+
+Pure TypeScript logic is tested next to source. Component tests cover behavior that can be represented reliably in the test environment. Real Tauri window behavior, operating-system integration, and visual quality still require platform acceptance. See [Testing](../testing/README.md).

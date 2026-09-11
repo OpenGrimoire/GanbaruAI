@@ -121,7 +121,7 @@ export function createNotesColumnActions(
     for (const [index, column] of columns.entries()) {
       const width = widths[index];
       if (width === undefined) continue;
-      const update = notesColumnWithWidthRatio(column, width);
+      const update = notesColumnWithWidthRatio(width);
       context.localApplyBlockUpdate(column.id, update);
       await context.saveBlockNow(column.id, update);
     }

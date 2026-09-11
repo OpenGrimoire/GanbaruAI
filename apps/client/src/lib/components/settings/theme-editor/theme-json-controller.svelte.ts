@@ -1,7 +1,10 @@
-import { invoke } from "@tauri-apps/api/core";
 import { onDestroy, untrack } from "svelte";
 import { getLocalization } from "$lib/i18n/translator.svelte";
 import { getTheme } from "$lib/stores/theme.svelte";
+import {
+  THEME_JSON_FILE_SAVE_AVAILABLE,
+  saveThemeJsonFile,
+} from "$lib/components/settings/theme-json-file";
 
 type ThemeStore = ReturnType<typeof getTheme>;
 type Translator = ReturnType<typeof getLocalization>["t"];
@@ -13,12 +16,19 @@ export interface ThemeJsonControllerContext {
   reportError: (message: string, error: unknown) => void;
 }
 
+export interface ThemeJsonNotice {
+  message: string;
+  variant: "default" | "success" | "error";
+}
+
 /** Own the editable JSON draft and asynchronous import/export feedback. */
 export class ThemeJsonController {
+  readonly fileSaveAvailable = THEME_JSON_FILE_SAVE_AVAILABLE;
   draft = $state("");
   dirty = $state(false);
   errors = $state<string[]>([]);
-  notice = $state<string | undefined>(undefined);
+  saving = $state(false);
+  notice = $state<ThemeJsonNotice | undefined>(undefined);
   #noticeTimer: ReturnType<typeof setTimeout> | undefined;
 
   constructor(private readonly context: ThemeJsonControllerContext) {
@@ -32,11 +42,23 @@ export class ThemeJsonController {
     });
   }
 
-  #flash(message: string): void {
-    this.notice = message;
+  #flash(
+    message: string,
+    variant: ThemeJsonNotice["variant"] = "default",
+  ): void {
+    this.notice = { message, variant };
     if (this.#noticeTimer) clearTimeout(this.#noticeTimer);
-    this.#noticeTimer = setTimeout(() => { this.notice = undefined; }, 1_800);
+    this.#noticeTimer = setTimeout(() => {
+      this.notice = undefined;
+      this.#noticeTimer = undefined;
+    }, variant === "error" ? 8_000 : 3_000);
   }
+
+  dismissNotice = (): void => {
+    if (this.#noticeTimer) clearTimeout(this.#noticeTimer);
+    this.#noticeTimer = undefined;
+    this.notice = undefined;
+  };
 
   copy = async (): Promise<void> => {
     try {
@@ -44,25 +66,45 @@ export class ThemeJsonController {
       this.#flash(this.context.translate("settings.theme.editor.jsonCopied"));
     } catch (error) {
       this.context.reportError("clipboard write failed", error);
-      this.#flash(this.context.translate("settings.theme.editor.jsonCopyFailed"));
+      this.#flash(
+        this.context.translate("settings.theme.editor.jsonCopyFailed"),
+        "error",
+      );
     }
   };
 
   save = async (): Promise<void> => {
+    if (!this.fileSaveAvailable || this.saving) return;
+    this.saving = true;
+    this.dismissNotice();
     try {
-      const saved = await invoke<boolean>("vault_pick_and_write_theme_json", {
-        defaultName: `${this.context.themeId()}.json`,
-        contents: this.draft,
-      });
-      if (saved) this.#flash(this.context.translate("settings.theme.editor.jsonSaved"));
+      const outcome = await saveThemeJsonFile(
+        `${this.context.themeId()}.json`,
+        this.draft,
+      );
+      if (!outcome.saved) return;
+      this.#flash(
+        outcome.destination === "downloads" && outcome.fileName
+          ? this.context.translate(
+              "settings.theme.editor.jsonSavedToDownloads",
+              outcome.fileName,
+            )
+          : this.context.translate("settings.theme.editor.jsonSaved"),
+        "success",
+      );
     } catch (error) {
       this.context.reportError("save dialog failed", error);
-      this.#flash(this.context.translate("settings.theme.editor.jsonSaveFailed"));
+      this.#flash(
+        this.context.translate("settings.theme.editor.jsonSaveFailed"),
+        "error",
+      );
+    } finally {
+      this.saving = false;
     }
   };
 
   apply = async (): Promise<void> => {
-    const result = await this.context.store.replaceTheme(
+    const result = this.context.store.replaceThemeDraft(
       this.context.themeId(),
       this.draft,
     );
@@ -72,7 +114,10 @@ export class ThemeJsonController {
     }
     this.errors = [];
     this.dirty = false;
-    this.#flash(this.context.translate("settings.theme.editor.jsonUpdated"));
+    this.#flash(
+      this.context.translate("settings.theme.editor.jsonUpdated"),
+      "success",
+    );
   };
 
   reset = (): void => {

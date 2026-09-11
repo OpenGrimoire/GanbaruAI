@@ -131,6 +131,7 @@ export class CalendarViewSaveController {
       await this.options.pomodoro.startFromBlock(
         state.originalEvent.id,
         config,
+        calendarData.title,
         calendarData.end,
         calendarData.start.split(" ")[0],
         config.idleTimeoutMinutes,

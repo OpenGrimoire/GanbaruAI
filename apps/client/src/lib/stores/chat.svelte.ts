@@ -49,6 +49,7 @@ import {
 } from "$lib/chat/organizational-message-model";
 import { LOCAL_CHAT_PARTICIPANT_ID } from "$lib/chat/participant-display";
 import { getProjects } from "$lib/stores/projects.svelte";
+import { BUILD_PLATFORM_PROFILE, platformHasCapability } from "$lib/platform";
 import { preferredProjectWorkingFolder } from "$lib/chat/working-folder-selection";
 import { readLastChatChannelId, saveLastChatChannelId } from "$lib/chat/channel-sections";
 import {
@@ -70,6 +71,10 @@ import {
 export type { ChatOrganizationalDraft } from "./chat-organizational-controller.svelte";
 
 const projects = getProjects();
+const localExecutionAvailable = platformHasCapability(
+  BUILD_PLATFORM_PROFILE,
+  "chat.local-execution",
+);
 export type { ChatComposerSendOptions } from "./chat-composer-runtime-controller.svelte";
 
 class ChatStore {
@@ -372,10 +377,12 @@ class ChatStore {
     this.loading = true;
     this.error = null;
     try {
-      await chatApi.recoverInterruptedChatTurns();
+      if (localExecutionAvailable) await chatApi.recoverInterruptedChatTurns();
       const [settings, workingFolders, navigationChannels, teammates, archivedTeammates] = await Promise.all([
         chatApi.readChatSettings(),
-        workingFolderApi.listCachedProjectWorkingFolders(),
+        localExecutionAvailable
+          ? workingFolderApi.listCachedProjectWorkingFolders()
+          : Promise.resolve([]),
         chatApi.listChatNavigationChannels(),
         chatApi.listChatTeammates(false),
         chatApi.listChatTeammates(true),
@@ -393,9 +400,11 @@ class ChatStore {
         await this.configurationController.refreshSettings();
       }
       if (request !== this.loadRequest || vaultGeneration !== this.vaultGeneration) return;
-      void chatApi.recoverChatAssignmentDispatchJobs().catch((error: unknown) => {
-        console.error("Chat assignment recovery failed", error);
-      });
+      if (localExecutionAvailable) {
+        void chatApi.recoverChatAssignmentDispatchJobs().catch((error: unknown) => {
+          console.error("Chat assignment recovery failed", error);
+        });
+      }
       await projects.ensureLoaded();
       if (request !== this.loadRequest || vaultGeneration !== this.vaultGeneration) return;
       const projectId = projects.selectedProjectId;
@@ -512,12 +521,18 @@ class ChatStore {
     await projects.selectProject(channel.projectId);
     if (request !== this.channelSelectionRequest) return;
     if (changedChannel) this.closeReplyThread();
-    try {
-      await this.configurationController.readPrimaryWorkingFolder(channel.projectId);
-    } catch {
+    if (localExecutionAvailable) {
+      try {
+        await this.configurationController.readPrimaryWorkingFolder(channel.projectId);
+      } catch {
+        this.primaryWorkingFolder = null;
+      }
+    } else {
       this.primaryWorkingFolder = null;
     }
-    const rememberedFolderId = await workingFolderApi.lastProjectWorkingFolder(channel.projectId);
+    const rememberedFolderId = localExecutionAvailable
+      ? await workingFolderApi.lastProjectWorkingFolder(channel.projectId)
+      : null;
     const fallbackFolder = preferredProjectWorkingFolder(this.workingFolders, channel.projectId, rememberedFolderId);
     this.selectedWorkingFolderId = this.primaryWorkingFolder?.workingFolderId
       ?? fallbackFolder?.workingFolder.id
@@ -1017,7 +1032,7 @@ class ChatStore {
     ))) return;
     this.selectedThreadId = null;
     const projectId = projects.selectedProjectId;
-    const rememberedFolderId = projectId
+    const rememberedFolderId = projectId && localExecutionAvailable
       ? await workingFolderApi.lastProjectWorkingFolder(projectId)
       : null;
     const selected = projectId

@@ -16,6 +16,7 @@
     onDiscardDraft,
     onSelectDraft,
     onDownloadUrl,
+    remoteUrlAvailable = true,
   }: {
     uploadDraft: IconPickerAsset | null;
     uploadPreviewUrl: string | null;
@@ -27,6 +28,7 @@
     onDiscardDraft: () => ActionResult;
     onSelectDraft: () => ActionResult;
     onDownloadUrl: () => ActionResult;
+    remoteUrlAvailable?: boolean;
   } = $props();
 
   const { t } = getLocalization();
@@ -74,21 +76,23 @@
       {t("projects.iconPicker.uploadImage")}
     </button>
     <div class="text-center text-[0.733333rem] text-muted-foreground">{t("projects.iconPicker.pasteHint")}</div>
-    <div class="flex gap-2">
-      <input
-        bind:value={uploadUrl}
-        class="h-8 min-w-0 flex-1 rounded-md border border-border bg-background px-2 text-[0.8rem] outline-none placeholder:text-muted-foreground focus:border-ring"
-        placeholder={t("projects.iconPicker.imageUrl")}
-      />
-      <button
-        type="button"
-        class="h-8 rounded-md bg-primary px-2 text-[0.8rem] font-medium text-primary-foreground disabled:cursor-not-allowed disabled:opacity-50"
-        disabled={uploading || !uploadUrl.trim()}
-        onclick={() => { void onDownloadUrl(); }}
-      >
-        {t("projects.iconPicker.fetch")}
-      </button>
-    </div>
+    {#if remoteUrlAvailable}
+      <div class="flex gap-2">
+        <input
+          bind:value={uploadUrl}
+          class="h-8 min-w-0 flex-1 rounded-md border border-border bg-background px-2 text-[0.8rem] outline-none placeholder:text-muted-foreground focus:border-ring"
+          placeholder={t("projects.iconPicker.imageUrl")}
+        />
+        <button
+          type="button"
+          class="h-8 rounded-md bg-primary px-2 text-[0.8rem] font-medium text-primary-foreground disabled:cursor-not-allowed disabled:opacity-50"
+          disabled={uploading || !uploadUrl.trim()}
+          onclick={() => { void onDownloadUrl(); }}
+        >
+          {t("projects.iconPicker.fetch")}
+        </button>
+      </div>
+    {/if}
   {/if}
   {#if uploadError}
     <div class="rounded-md bg-destructive/10 px-2 py-1 text-[0.8rem] text-destructive">{uploadError}</div>

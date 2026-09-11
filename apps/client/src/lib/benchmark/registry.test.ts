@@ -44,7 +44,6 @@ describe("benchmark registry", () => {
         "idle-memory",
         "calendar-nav",
         "calendar-panel-latency",
-        "chat-workspace",
       ]);
   });
 
@@ -65,7 +64,6 @@ describe("benchmark registry", () => {
     for (const id of [
       "calendar-nav",
       "calendar-panel-latency",
-      "chat-workspace",
       "calendar-import-ops",
     ]) {
       const metadata = getScenarioMetadataById(id);

@@ -22,6 +22,7 @@
     onBack,
     onSelectIssue,
     onRepair,
+    canRepairIssue = () => true,
     onRefresh,
   }: {
     issues: MusicIssue[];
@@ -34,6 +35,7 @@
     onBack: () => void;
     onSelectIssue: (issue: MusicIssue) => void;
     onRepair: (issue: MusicIssue) => void;
+    canRepairIssue?: (issue: MusicIssue) => boolean;
     onRefresh: () => void;
   } = $props();
 
@@ -98,7 +100,7 @@
                   <span class="mt-0.5 block text-[0.61rem] leading-relaxed text-muted-foreground">{issue.message}</span>
                 </span>
               {/if}
-              {#if issue.actionRequired}<button type="button" onclick={() => onRepair(issue)} class="h-7 shrink-0 rounded-md px-1.5 text-[0.62rem] font-semibold text-primary hover:bg-primary/10">{t("music.builder.repair")}</button>{/if}
+              {#if issue.actionRequired && canRepairIssue(issue)}<button type="button" onclick={() => onRepair(issue)} class="h-7 shrink-0 rounded-md px-1.5 text-[0.62rem] font-semibold text-primary hover:bg-primary/10">{t("music.builder.repair")}</button>{/if}
             </div>
           </article>
         {/each}

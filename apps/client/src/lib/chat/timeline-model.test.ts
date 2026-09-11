@@ -536,22 +536,34 @@ describe("canonical timeline projection", () => {
     const context = parseTimelineUserContext({
       attachments: [
         { attachmentId: "attachment-1", displayName: "diagram.png", kind: "image", byteSize: 1024, status: "persisted" },
-        { id: "legacy-image", displayName: "screenshot.png", mimeType: "image/png", byteSize: 2048, status: "managed" },
+        { id: "predecessor-image", displayName: "screenshot.png", mimeType: "image/png", byteSize: 2048, status: "managed" },
+        { attachmentId: "incomplete", displayName: "incomplete.png", kind: "image" },
         { filename: 42 },
       ],
       mentions: [{ relativePath: "src/main.ts", kind: "file" }, { relativePath: null }],
-      terminalContext: ["pnpm test", { label: "Focused terminal selection" }, { label: 7 }],
+      terminalContext: [
+        { attachmentId: "terminal-1", displayName: "Focused terminal selection", byteSize: 512 },
+        { attachmentId: "terminal-incomplete", displayName: "Missing size" },
+        "pnpm test",
+        { label: "Old terminal selection" },
+      ],
       preCheckpointId: "checkpoint-1",
+      checkpointId: "old-checkpoint",
     });
 
     expect(context).toEqual({
       attachments: [
-        { id: "attachment-1", displayName: "diagram.png", kind: "image", byteSize: 1024, status: "persisted" },
-        { id: "legacy-image", displayName: "screenshot.png", kind: "image", byteSize: 2048, status: "managed" },
+        { attachmentId: "attachment-1", displayName: "diagram.png", kind: "image", byteSize: 1024, status: "persisted" },
       ],
       mentions: [{ relativePath: "src/main.ts", kind: "file" }],
-      terminalContext: ["pnpm test", "Focused terminal selection"],
+      terminalContext: ["Focused terminal selection"],
       preCheckpointId: "checkpoint-1",
     });
+
+    expect(parseTimelineUserContext({
+      attachments: [{ id: "old", filename: "old.png", mimeType: "image/png" }],
+      terminalContext: ["old terminal", { label: "Old terminal selection" }],
+      checkpointId: "old-checkpoint",
+    })).toBeNull();
   });
 });

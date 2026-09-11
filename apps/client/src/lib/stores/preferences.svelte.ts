@@ -48,7 +48,6 @@ import {
   normalizeProfileDisplayName,
   normalizeProfileFullName,
   resolveFontFamilyStack,
-  shouldNormalizeTitleBarVisibility,
 } from "./preferences";
 import { getConfigKey, setConfigKey } from "../vault/config";
 import { getLocalization } from "$lib/i18n/translator.svelte";
@@ -221,11 +220,7 @@ function loadSavedNotesDefaultOpenMode(): NotesPageOpenMode {
 
 function loadSavedTitleBarVisibility(): TitleBarVisibility {
   const saved = getConfigKey<unknown>(TITLE_BAR_VISIBILITY_CONFIG_KEY, undefined);
-  const parsed = parseTitleBarVisibility(saved);
-  if (shouldNormalizeTitleBarVisibility(saved)) {
-    setConfigKey(TITLE_BAR_VISIBILITY_CONFIG_KEY, parsed);
-  }
-  return parsed;
+  return parseTitleBarVisibility(saved);
 }
 
 let fontFamilyId = $state<FontFamilyId>(loadSavedFontFamilyId());

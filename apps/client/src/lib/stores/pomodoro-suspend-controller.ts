@@ -80,6 +80,7 @@ export function createPomodoroSuspendController(
     runtime.phaseEndTime = null;
     runtime.dismissedBlockId = runtime.activeBlockId;
     runtime.activeBlockId = null;
+    runtime.activeBlockTitle = null;
     runtime.activeBlockEndMs = null;
     runtime.idleTimeoutMs = null;
     runtime.lastTickMs = null;

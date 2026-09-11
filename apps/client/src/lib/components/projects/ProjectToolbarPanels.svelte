@@ -5,6 +5,7 @@
   import ArrowUpDown from "@lucide/svelte/icons/arrow-up-down";
   import CalendarRange from "@lucide/svelte/icons/calendar-range";
   import Check from "@lucide/svelte/icons/check";
+  import ChevronLeft from "@lucide/svelte/icons/chevron-left";
   import ChevronRight from "@lucide/svelte/icons/chevron-right";
   import CircleDot from "@lucide/svelte/icons/circle-dot";
   import Columns3 from "@lucide/svelte/icons/columns-3";
@@ -124,6 +125,7 @@
     onApplyTaskView,
     onDeleteSavedTaskView,
     onToggleTaskListColumn,
+    mobileLayout = false,
   }: {
     panel: ProjectToolbarPanel | null;
     projectId: string | null;
@@ -162,6 +164,7 @@
     onApplyTaskView: (view: ProjectSavedTaskView) => void | Promise<void>;
     onDeleteSavedTaskView: (view: ProjectSavedTaskView) => void | Promise<void>;
     onToggleTaskListColumn: (column: ProjectTaskListColumn) => void | Promise<void>;
+    mobileLayout?: boolean;
   } = $props();
 
   const projects = getProjects();
@@ -199,6 +202,7 @@
   function panelTitle(currentPanel: ProjectToolbarPanel): string {
     if (currentPanel === "settings") return t("projects.settings.title");
     if (currentPanel === "group") return t("projects.toolbar.group");
+    if (currentPanel === "sort") return t("projects.toolbar.sort");
     if (currentPanel === "customize") return t("projects.toolbar.customize");
     return t("projects.filters.title");
   }
@@ -211,6 +215,17 @@
   function refreshPanelGeometry(): void {
     panelGeometryFrame = null;
     if (!panel) return;
+    if (mobileLayout) {
+      panelStyle = [
+        "left: calc(var(--safe-area-left) + 0.5rem)",
+        "right: calc(var(--safe-area-right) + 0.5rem)",
+        "top: calc(var(--safe-area-top) + var(--mobile-topbar-h) + 0.5rem)",
+        "bottom: calc(var(--safe-area-bottom) + 0.5rem)",
+        "width: auto",
+        "max-height: none",
+      ].join("; ");
+      return;
+    }
     const trigger = panelTriggerElement(panel);
     if (!trigger) return;
     const rect = trigger.getBoundingClientRect();
@@ -240,6 +255,18 @@
   function refreshSubpanelGeometry(): void {
     subpanelGeometryFrame = null;
     if (!activeSubpanel || !subpanelAnchorElement) return;
+    if (mobileLayout) {
+      subpanelStyle = [
+        "left: calc(var(--safe-area-left) + 0.5rem)",
+        "right: calc(var(--safe-area-right) + 0.5rem)",
+        "top: calc(var(--safe-area-top) + var(--mobile-topbar-h) + 3.5rem)",
+        "bottom: calc(var(--safe-area-bottom) + 0.5rem)",
+        "width: auto",
+        "max-height: none",
+      ].join("; ");
+      requestSubpanelScrollStateRefresh();
+      return;
+    }
     const rect = subpanelAnchorElement.getBoundingClientRect();
     const edge = 8;
     const gap = 4;
@@ -329,7 +356,8 @@
 
   function panelOptionClass(active: boolean): string {
     return cn(
-      "flex min-h-8 w-full min-w-0 items-center justify-between gap-2 rounded-md px-2 text-left text-[0.8rem] font-medium transition-colors",
+      "flex w-full min-w-0 items-center justify-between gap-2 rounded-md px-2 text-left font-medium transition-colors",
+      mobileLayout ? "min-h-12 text-sm" : "min-h-8 text-[0.8rem]",
       active
         ? "bg-accent text-foreground"
         : "text-muted-foreground",
@@ -338,10 +366,18 @@
 
   function panelToggleClass(active: boolean): string {
     return cn(
-      "flex min-h-8 w-full min-w-0 items-center gap-2 rounded-md px-2 text-left text-[0.8rem] font-medium transition-colors",
+      "flex w-full min-w-0 items-center gap-2 rounded-md px-2 text-left font-medium transition-colors",
+      mobileLayout ? "min-h-12 text-sm" : "min-h-8 text-[0.8rem]",
       active
         ? "bg-accent text-foreground"
         : "text-muted-foreground",
+    );
+  }
+
+  function panelHeaderButtonClass(): string {
+    return cn(
+      "flex shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground",
+      mobileLayout ? "h-12 w-12" : "h-7 w-7",
     );
   }
 
@@ -572,7 +608,8 @@
     type="button"
     data-project-toolbar-subpanel-trigger
     class={cn(
-      "grid min-h-9 w-full grid-cols-[1.5rem_minmax(0,1fr)_auto_1rem] items-center gap-2 rounded-md px-2 text-left transition-colors",
+      "grid w-full grid-cols-[1.5rem_minmax(0,1fr)_auto_1rem] items-center gap-2 rounded-md px-2 text-left transition-colors",
+      mobileLayout ? "min-h-12" : "min-h-9",
       activeSubpanel === subpanel
         ? "bg-accent text-foreground"
         : "text-foreground hover:bg-accent/70",
@@ -668,7 +705,7 @@
         <div class="min-w-0 flex-1 truncate text-[0.9rem] font-semibold">{panelTitle(panel)}</div>
         <button
           type="button"
-          class="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
+          class={panelHeaderButtonClass()}
           aria-label={t("common.close")}
           title={t("common.close")}
           onclick={onClose}
@@ -683,12 +720,38 @@
           {/each}
         </div>
       </div>
+    {:else if panel === "sort"}
+      <header class="sticky top-0 z-10 flex shrink-0 items-center gap-2 bg-card px-3 pb-1 pt-2">
+        <div class="min-w-0 flex-1 truncate text-[0.9rem] font-semibold">{panelTitle(panel)}</div>
+        <button
+          type="button"
+          class={panelHeaderButtonClass()}
+          aria-label={t("common.close")}
+          title={t("common.close")}
+          onclick={onClose}
+        >
+          <X size={14} strokeWidth={1.75} />
+        </button>
+      </header>
+      <div class="min-h-0 flex-1 overflow-y-auto px-2 pb-2 pt-0.5">
+        <div class="grid">
+          {#each TASK_SORT_MODES as mode}
+            {@render optionRow(taskSortModeLabel(mode), taskSortMode === mode, () => { taskSortMode = mode; })}
+          {/each}
+          {#each projectCustomFields as field (field.id)}
+            {@const mode = customFieldSortMode(field)}
+            {@render optionRow(field.name, taskSortMode === mode, () => { taskSortMode = mode; })}
+          {/each}
+          <div class="my-1 border-t border-border"></div>
+          {@render toggleRow(taskSortDirectionLabel(taskSortDirection), true, taskSortDirection === "asc" ? ArrowUp : ArrowDown, () => { taskSortDirection = taskSortDirection === "asc" ? "desc" : "asc"; })}
+        </div>
+      </div>
     {:else if panel === "filters"}
       <header class="sticky top-0 z-10 flex shrink-0 items-center gap-2 bg-card px-3 pb-1 pt-2">
         <div class="min-w-0 flex-1 truncate text-[0.9rem] font-semibold">{panelTitle(panel)}</div>
         <button
           type="button"
-          class="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-muted-foreground"
+          class={cn(panelHeaderButtonClass(), "disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-muted-foreground")}
           aria-label={t("projects.filters.reset")}
           title={t("projects.filters.reset")}
           disabled={!taskFiltersActive}
@@ -698,7 +761,7 @@
         </button>
         <button
           type="button"
-          class="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
+          class={panelHeaderButtonClass()}
           aria-label={t("common.close")}
           title={t("common.close")}
           onclick={onClose}
@@ -730,7 +793,7 @@
         <div class="min-w-0 flex-1 truncate text-[0.9rem] font-semibold">{panelTitle(panel)}</div>
         <button
           type="button"
-          class="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
+          class={panelHeaderButtonClass()}
           aria-label={t("common.close")}
           title={t("common.close")}
           onclick={onClose}
@@ -758,18 +821,31 @@
 {#if activeSubpanel}
   <div
     bind:this={subpanelElement}
-    class="fixed z-80 min-h-0 overflow-hidden rounded-lg border border-border bg-card text-[0.8rem] text-foreground shadow-xl"
+    class="fixed z-80 flex min-h-0 flex-col overflow-hidden rounded-lg border border-border bg-card text-[0.8rem] text-foreground shadow-xl"
     style={subpanelStyle}
     role="dialog"
     tabindex="-1"
     aria-label={subpanelTitle(activeSubpanel)}
     data-app-shortcuts="ignore"
   >
+    {#if mobileLayout}
+      <header class="flex min-h-12 shrink-0 items-center gap-2 border-b border-border px-2">
+        <button
+          type="button"
+          class="flex h-12 w-12 shrink-0 items-center justify-center rounded-md text-muted-foreground active:bg-accent"
+          aria-label={t("common.close")}
+          onclick={closeSubpanel}
+        >
+          <ChevronLeft size={18} strokeWidth={1.75} />
+        </button>
+        <div class="min-w-0 flex-1 truncate text-sm font-semibold">{subpanelTitle(activeSubpanel)}</div>
+      </header>
+    {/if}
     <div
       bind:this={subpanelScrollElement}
       onscroll={refreshSubpanelScrollState}
       class={cn(
-        "project-toolbar-subpanel-scroll-area p-1",
+        "project-toolbar-subpanel-scroll-area min-h-0 flex-1 p-1",
         subpanelScrollable
           && subpanelCanScrollUp
           && subpanelCanScrollDown

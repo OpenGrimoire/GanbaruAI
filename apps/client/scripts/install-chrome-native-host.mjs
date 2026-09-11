@@ -17,8 +17,8 @@ const appTargetAliases = new Map([
   ["development", "dev"],
 ]);
 const appIdentifiers = {
-  app: "org.opengrimoire.ganbaru-ai",
-  dev: "org.opengrimoire.ganbaru-ai.dev",
+  app: "org.opengrimoire.ganbaruai",
+  dev: "org.opengrimoire.ganbaruai.dev",
 };
 const hostNames = {
   app: "org.opengrimoire.ganbaru_ai.doomscrolling",

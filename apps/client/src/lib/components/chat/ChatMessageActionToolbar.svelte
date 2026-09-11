@@ -90,13 +90,15 @@
       showRemove={false}
       initiallyOpen
     >
-      {#snippet trigger({ open, toggle })}
+      {#snippet trigger({ open, toggle, panelId })}
         <button
           type="button"
           class="message-action-button"
           class:active={open}
           aria-label={t("chat.organization.addReaction")}
+          aria-haspopup="dialog"
           aria-expanded={open}
+          aria-controls={panelId}
           data-app-tooltip={t("chat.organization.addReaction")}
           onclick={toggle}
         ><SmilePlus size={14} /></button>

@@ -1,32 +1,6 @@
 use super::helpers::migrated_memory_pool;
 use crate::run_migrations;
-use sqlx::{Row, SqlitePool};
-
-const BASELINE_SCHEMA: &str =
-    include_str!("../../../../apps/client/src-tauri/migrations/20260713024120_baseline_schema.sql");
-const CANONICAL_MUSIC_SCHEMA: &str = include_str!(
-    "../../../../apps/client/src-tauri/migrations/20260715042907_add_canonical_music_library.sql"
-);
-const LEGACY_MUSIC_MIGRATION: &str =
-    include_str!("../../../../apps/client/src-tauri/migrations/20260715043240_migrate_legacy_music_playlists.sql");
-
-async fn pre_legacy_music_migration_pool() -> SqlitePool {
-    let pool = sqlx::sqlite::SqlitePoolOptions::new()
-        .max_connections(1)
-        .connect("sqlite::memory:")
-        .await
-        .unwrap();
-    sqlx::raw_sql("PRAGMA foreign_keys=ON")
-        .execute(&pool)
-        .await
-        .unwrap();
-    sqlx::raw_sql(BASELINE_SCHEMA).execute(&pool).await.unwrap();
-    sqlx::raw_sql(CANONICAL_MUSIC_SCHEMA)
-        .execute(&pool)
-        .await
-        .unwrap();
-    pool
-}
+use sqlx::Row;
 
 #[test]
 fn repeated_migration_startup_preserves_music_data() {
@@ -201,172 +175,7 @@ fn canonical_music_schema_enforces_identity_membership_and_snooze_invariants() {
 }
 
 #[test]
-fn legacy_music_rows_migrate_without_discarding_conflicts() {
-    super::block_on(async {
-        let pool = pre_legacy_music_migration_pool().await;
-        sqlx::query(
-            "INSERT INTO music_playlists (id, name, created_at, updated_at)
-             VALUES ('legacy-playlist', 'Legacy focus', 1700000000000, 1700000000100)",
-        )
-        .execute(&pool)
-        .await
-        .unwrap();
-        for statement in [
-            "INSERT INTO music_playlist_tracks
-                (id, playlist_id, position, source_kind, source_uri, source_identity, title,
-                 start_ms, end_ms, volume, rate, created_at, updated_at)
-             VALUES
-                ('local-primary', 'legacy-playlist', 0, 'local-file', '/old/Music/stale.flac',
-                 'local:/old/Music/stale.flac', 'Stale local', 1000, 90000, 0.7, 1.25,
-                 1700000000000, 1700000000100),
-                ('local-duplicate', 'legacy-playlist', 1, 'local-file', '/old/Music/stale.flac',
-                 'local:/old/Music/stale.flac', 'Duplicate edit', 2000, 80000, 0.5, 1.0,
-                 1700000000001, 1700000000200),
-                ('youtube-direct', 'legacy-playlist', 2, 'youtube-video',
-                 'https://www.youtube.com/watch?v=video-direct', 'youtube:video:video-direct',
-                 'Direct video', NULL, NULL, NULL, NULL, 1700000000002, 1700000000200),
-                ('youtube-playlist-entry', 'legacy-playlist', 3, 'youtube-playlist',
-                 'https://www.youtube.com/watch?v=video-list&list=playlist-1',
-                 'youtube:playlist:playlist-1:item:3:video:video-list', 'Playlist video',
-                 3000, NULL, 0.8, 1.0, 1700000000003, 1700000000200)",
-            "INSERT INTO music_track_skip_ranges
-                (id, track_id, start_ms, end_ms, sort_order)
-             VALUES ('skip-1', 'local-primary', 10000, 12000, 0)",
-            "INSERT INTO music_track_break_sources
-                (track_id, source_kind, source_uri, source_identity, title, start_ms, end_ms, volume, rate)
-             VALUES ('local-primary', 'youtube-video',
-                 'https://www.youtube.com/watch?v=break-video', 'youtube:video:break-video',
-                 'Break video', 500, 30000, 0.6, 1.0)",
-        ] {
-            sqlx::raw_sql(statement).execute(&pool).await.unwrap();
-        }
-
-        sqlx::raw_sql(LEGACY_MUSIC_MIGRATION)
-            .execute(&pool)
-            .await
-            .unwrap();
-
-        let item_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM music_library_items")
-            .fetch_one(&pool)
-            .await
-            .unwrap();
-        let membership_count: i64 =
-            sqlx::query_scalar("SELECT COUNT(*) FROM music_playlist_memberships")
-                .fetch_one(&pool)
-                .await
-                .unwrap();
-        assert_eq!(item_count, 4);
-        assert_eq!(membership_count, 3);
-
-        let membership: (i64, Option<i64>, Option<i64>, Option<f64>, Option<f64>) = sqlx::query_as(
-            "SELECT position, start_ms, end_ms, volume, rate
-                 FROM music_playlist_memberships
-                 WHERE id = 'legacy-membership:local-primary'",
-        )
-        .fetch_one(&pool)
-        .await
-        .unwrap();
-        assert_eq!(
-            membership,
-            (0, Some(1_000), Some(90_000), Some(0.7), Some(1.25))
-        );
-
-        let skip: (i64, i64) = sqlx::query_as(
-            "SELECT start_ms, end_ms FROM music_membership_skip_ranges
-             WHERE membership_id = 'legacy-membership:local-primary'",
-        )
-        .fetch_one(&pool)
-        .await
-        .unwrap();
-        assert_eq!(skip, (10_000, 12_000));
-
-        let break_identity: String = sqlx::query_scalar(
-            "SELECT item.identity_key
-             FROM music_membership_break_items AS break_item
-             JOIN music_library_items AS item ON item.id = break_item.item_id
-             WHERE break_item.membership_id = 'legacy-membership:local-primary'",
-        )
-        .fetch_one(&pool)
-        .await
-        .unwrap();
-        assert_eq!(break_identity, "youtube:video:break-video");
-
-        let duplicate_issue: i64 = sqlx::query_scalar(
-            "SELECT COUNT(*) FROM music_library_repair_issues
-             WHERE issue_kind = 'duplicate-playlist-membership'
-               AND legacy_track_id = 'local-duplicate'",
-        )
-        .fetch_one(&pool)
-        .await
-        .unwrap();
-        assert_eq!(duplicate_issue, 1);
-
-        let retained_legacy_uri: String = sqlx::query_scalar(
-            "SELECT source_uri FROM music_playlist_tracks WHERE id = 'youtube-playlist-entry'",
-        )
-        .fetch_one(&pool)
-        .await
-        .unwrap();
-        assert_eq!(
-            retained_legacy_uri,
-            "https://www.youtube.com/watch?v=video-list&list=playlist-1",
-        );
-    });
-}
-
-#[test]
-fn failed_legacy_music_conversion_rolls_back_when_migration_is_transactional() {
-    super::block_on(async {
-        let pool = pre_legacy_music_migration_pool().await;
-        sqlx::query(
-            "INSERT INTO music_playlists (id, name, created_at, updated_at)
-             VALUES ('legacy-playlist', 'Legacy focus', 1700000000000, 1700000000100)",
-        )
-        .execute(&pool)
-        .await
-        .unwrap();
-        sqlx::raw_sql("PRAGMA ignore_check_constraints=ON")
-            .execute(&pool)
-            .await
-            .unwrap();
-        sqlx::query(
-            "INSERT INTO music_playlist_tracks
-                (id, playlist_id, position, source_kind, source_uri, source_identity,
-                 created_at, updated_at)
-             VALUES ('invalid-position', 'legacy-playlist', -1, 'local-file',
-                 '/old/Music/invalid.flac', 'local:/old/Music/invalid.flac',
-                 1700000000000, 1700000000100)",
-        )
-        .execute(&pool)
-        .await
-        .unwrap();
-        sqlx::raw_sql("PRAGMA ignore_check_constraints=OFF")
-            .execute(&pool)
-            .await
-            .unwrap();
-
-        sqlx::raw_sql("BEGIN").execute(&pool).await.unwrap();
-        let result = sqlx::raw_sql(LEGACY_MUSIC_MIGRATION).execute(&pool).await;
-        assert!(result.is_err());
-        sqlx::raw_sql("ROLLBACK").execute(&pool).await.unwrap();
-
-        let canonical_items: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM music_library_items")
-            .fetch_one(&pool)
-            .await
-            .unwrap();
-        let repair_table: Option<i64> = sqlx::query_scalar(
-            "SELECT 1 FROM sqlite_schema WHERE name = 'music_library_repair_issues'",
-        )
-        .fetch_optional(&pool)
-        .await
-        .unwrap();
-        assert_eq!(canonical_items, 0);
-        assert_eq!(repair_table, None);
-    });
-}
-
-#[test]
-fn default_playlists_without_tracks_do_not_block_playback_state_persistence() {
+fn default_playlists_without_memberships_do_not_block_playback_state_persistence() {
     super::block_on(async {
         let pool = migrated_memory_pool().await;
 
@@ -374,12 +183,19 @@ fn default_playlists_without_tracks_do_not_block_playback_state_persistence() {
             .fetch_one(&pool)
             .await
             .unwrap();
-        let tracks: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM music_playlist_tracks")
-            .fetch_one(&pool)
-            .await
-            .unwrap();
+        let memberships: i64 =
+            sqlx::query_scalar("SELECT COUNT(*) FROM music_playlist_memberships")
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        let sort_orders: Vec<i64> =
+            sqlx::query_scalar("SELECT sort_order FROM music_playlists ORDER BY sort_order")
+                .fetch_all(&pool)
+                .await
+                .unwrap();
         assert_eq!(playlists, 11);
-        assert_eq!(tracks, 0);
+        assert_eq!(memberships, 0);
+        assert_eq!(sort_orders, (0..11).collect::<Vec<_>>());
 
         sqlx::query(
             "INSERT INTO music_playback_states
@@ -404,11 +220,12 @@ fn default_playlists_without_tracks_do_not_block_playback_state_persistence() {
             .fetch_one(&pool)
             .await
             .unwrap();
-        let tracks_after: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM music_playlist_tracks")
-            .fetch_one(&pool)
-            .await
-            .unwrap();
+        let memberships_after: i64 =
+            sqlx::query_scalar("SELECT COUNT(*) FROM music_playlist_memberships")
+                .fetch_one(&pool)
+                .await
+                .unwrap();
         assert_eq!(playlists_after, 11);
-        assert_eq!(tracks_after, 0);
+        assert_eq!(memberships_after, 0);
     });
 }

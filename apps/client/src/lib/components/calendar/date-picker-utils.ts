@@ -6,6 +6,29 @@ export interface DatePickerDay {
   today: boolean;
 }
 
+/** Keeps the roving day on or after the picker's optional minimum date. */
+export function clampDatePickerActiveDate(activeDate: string, minDate?: string): string {
+  return minDate && activeDate < minDate ? minDate : activeDate;
+}
+
+/** Resolves an enabled day in a target month, or rejects a wholly disabled month. */
+export function datePickerMonthNavigationTarget(
+  activeDate: string,
+  targetYear: number,
+  targetMonth: number,
+  minDate?: string,
+): string | null {
+  const lastDay = new Date(targetYear, targetMonth, 0).getDate();
+  const lastDate = `${targetYear}-${String(targetMonth).padStart(2, "0")}-${String(lastDay).padStart(2, "0")}`;
+  if (minDate && lastDate < minDate) return null;
+  const parsedDay = Number(activeDate.slice(8, 10));
+  const preferredDay = Number.isInteger(parsedDay) && parsedDay > 0
+    ? Math.min(parsedDay, lastDay)
+    : 1;
+  const preferredDate = `${targetYear}-${String(targetMonth).padStart(2, "0")}-${String(preferredDay).padStart(2, "0")}`;
+  return clampDatePickerActiveDate(preferredDate, minDate);
+}
+
 export function buildCalendarGrid(
   year: number,
   month: number,

@@ -1,0 +1,48 @@
+export const mobile = {
+  primaryNavigation: "Primary navigation",
+  createEvent: "Create event",
+  theme: "Theme",
+  startupFailed: "Ganbaru AI could not open its private mobile data",
+  pomodoroInactiveDescription:
+    "Pomodoro starts automatically when a Pomodoro-enabled calendar block begins.",
+  pomodoroOpenCalendar: "Open calendar",
+  vaultSetup: {
+    title: "Set up your data",
+    intro:
+      "Start with new data, restore a .ganbaru-backup file, or import an existing Ganbaru AI folder.",
+    dataLocation: "Data location",
+    startFromZero: "Start from zero",
+    restoreBackupFile: "Restore backup file",
+    importExistingFolder: "Import existing folder",
+  },
+  focusOnboarding: {
+    title: "Keep Focus running",
+    description:
+      "Review these Android settings so scheduled Focus events can start while Ganbaru AI is closed.",
+    notifications: "Notifications",
+    notificationsDescription: "Show ongoing Focus progress and phase alerts",
+    exactAlarm: "Alarms and reminders",
+    exactAlarmDescription: "Start scheduled Focus events at the correct time",
+    usageAccess: "Usage access",
+    usageAccessDescription: "Measure foreground time for the apps you choose",
+    appBlocking: "App blocking",
+    appBlockingDescription: "Return Home when a selected app rule or limit applies",
+    backgroundRestricted: "Android currently restricts Ganbaru AI in the background",
+    review: "Review",
+    continue: "Continue",
+    continueIn: (seconds: number) => `Continue in ${seconds}s`,
+    statusError: "Some Android access status could not be read. You can still review each setting.",
+  },
+  settings: {
+    categoriesLabel: "Settings categories",
+    backToCategories: "Back to settings categories",
+    backToSection: "Back to section",
+    storageHeading: "Storage",
+    privateStorage: "Private",
+    privateStorageDescription:
+      "Android keeps this data in Ganbaru AI's private app storage. Uninstalling the app removes it.",
+    androidUpdatesDescription: "Android is updated manually from GitHub releases. Open the release page and install the APK for this version.",
+    androidLatestPublished: (date: string) => `Published ${date}`,
+    viewReleases: "View",
+  },
+} as const;

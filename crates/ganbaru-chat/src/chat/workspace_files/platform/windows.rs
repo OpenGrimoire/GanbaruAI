@@ -1,4 +1,68 @@
 use super::*;
+use ::windows as windows_crate;
+
+#[cfg(windows)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct WindowsFileIdentity {
+    volume_serial_number: u64,
+    file_id: [u8; 16],
+}
+
+#[cfg(windows)]
+fn windows_file_identity(file: &File) -> std::io::Result<WindowsFileIdentity> {
+    use std::mem::size_of;
+    use std::os::windows::io::AsRawHandle;
+    use windows_crate::Win32::Foundation::HANDLE;
+    use windows_crate::Win32::Storage::FileSystem::{
+        FileIdInfo, GetFileInformationByHandleEx, FILE_ID_INFO,
+    };
+
+    let mut info = FILE_ID_INFO::default();
+    let info_size = u32::try_from(size_of::<FILE_ID_INFO>())
+        .map_err(|_| std::io::Error::other("Windows file identity size is unsupported"))?;
+    // SAFETY: `file` keeps a live handle open for this call. `info` is initialized
+    // writable storage of exactly `info_size` bytes, the selected information class
+    // matches its type, and Windows does not retain the output pointer.
+    unsafe {
+        GetFileInformationByHandleEx(
+            HANDLE(file.as_raw_handle()),
+            FileIdInfo,
+            (&mut info as *mut FILE_ID_INFO).cast(),
+            info_size,
+        )
+    }
+    .map_err(|error| std::io::Error::other(error.to_string()))?;
+    Ok(WindowsFileIdentity {
+        volume_serial_number: info.VolumeSerialNumber,
+        file_id: info.FileId.Identifier,
+    })
+}
+
+#[cfg(windows)]
+fn windows_regular_file_state(
+    path: &Path,
+    relative_path: &str,
+) -> ChatResult<(WindowsFileIdentity, String)> {
+    use std::os::windows::fs::OpenOptionsExt;
+
+    let mut options = OpenOptions::new();
+    options
+        .read(true)
+        .share_mode(FILE_SHARE_READ.0 | FILE_SHARE_WRITE.0)
+        .custom_flags(FILE_FLAG_OPEN_REPARSE_POINT.0);
+    let mut file = options
+        .open(path)
+        .map_err(|_| workspace_file_recovery_error())?;
+    let metadata = file
+        .metadata()
+        .map_err(|_| workspace_file_recovery_error())?;
+    if !metadata.is_file() || windows_metadata_is_reparse(&metadata) {
+        return Err(workspace_file_recovery_error());
+    }
+    let identity = windows_file_identity(&file).map_err(|_| workspace_file_recovery_error())?;
+    let (revision, _) = revision_and_permissions(&mut file, relative_path)?;
+    Ok((identity, revision))
+}
 
 #[cfg(windows)]
 fn windows_metadata_is_reparse(metadata: &fs::Metadata) -> bool {
@@ -168,6 +232,7 @@ pub(in crate::chat::workspace_files) fn create_workspace_file_exclusively(
     );
     let mut options = OpenOptions::new();
     options
+        .read(true)
         .write(true)
         .create_new(true)
         .share_mode(FILE_SHARE_READ.0 | FILE_SHARE_WRITE.0)
@@ -181,18 +246,12 @@ pub(in crate::chat::workspace_files) fn create_workspace_file_exclusively(
     })?;
     if file.write_all(bytes).and_then(|_| file.sync_all()).is_err() {
         drop(file);
-        if fs::remove_file(&target).is_err() {
-            return Err(workspace_file_recovery_error());
-        }
-        return Err(workspace_file_write_error());
+        return Err(workspace_file_recovery_error());
     }
     if let Some(permissions) = permissions {
         if file.set_permissions(permissions).is_err() {
             drop(file);
-            if fs::remove_file(&target).is_err() {
-                return Err(workspace_file_recovery_error());
-            }
-            return Err(workspace_file_write_error());
+            return Err(workspace_file_recovery_error());
         }
     }
     Ok(())
@@ -216,19 +275,23 @@ pub(in crate::chat::workspace_files) fn delete_workspace_file_atomically(
             .ok_or_else(|| ChatError::validation("relativePath", "Workspace path is invalid"))?,
     );
     let (_current_parents, mut current) = windows_open_regular_file(root, relative_path)?;
+    let current_identity =
+        windows_file_identity(&current).map_err(|_| workspace_file_write_error())?;
     let (current_revision, _) = revision_and_permissions(&mut current, relative_path)?;
     if current_revision != expected_revision {
         return Err(stale_workspace_file_error());
     }
     drop(current);
-    let (_, backup, _) = windows_replacement_paths(&parent);
-    fs::rename(&target, &backup).map_err(|_| workspace_file_write_error())?;
-    let displaced_matches = windows_revision_for_path(&backup, relative_path)
-        .is_ok_and(|revision| revision == expected_revision);
+    let backup = windows_private_artifact_path(&parent, "backup")
+        .map_err(|_| workspace_file_recovery_error())?;
+    windows_move_file_no_replace(&target, &backup).map_err(|_| workspace_file_recovery_error())?;
+    let displaced_matches =
+        windows_regular_file_state(&backup, relative_path).is_ok_and(|(identity, revision)| {
+            identity == current_identity && revision == expected_revision
+        });
     if !displaced_matches {
-        if fs::symlink_metadata(&target).is_err() && fs::rename(&backup, &target).is_ok() {
-            return Err(stale_workspace_file_error());
-        }
+        // The backup name is no longer proven to identify the displaced file.
+        // Preserve it for explicit recovery instead of installing unknown bytes.
         return Err(workspace_file_recovery_error());
     }
     let removed = fs::remove_file(&backup).map_err(|_| workspace_file_recovery_error());
@@ -257,14 +320,18 @@ pub(in crate::chat::workspace_files) fn write_workspace_text_atomically(
             .ok_or_else(|| ChatError::validation("relativePath", "Workspace path is invalid"))?,
     );
     let (_current_parents, mut current) = windows_open_regular_file(root, relative_path)?;
+    let current_identity =
+        windows_file_identity(&current).map_err(|_| workspace_file_write_error())?;
     let (current_revision, permissions) = revision_and_permissions(&mut current, relative_path)?;
     if current_revision != expected_revision {
         return Err(stale_workspace_file_error());
     }
+    let replacement_revision = workspace_file_revision(relative_path, contents.as_bytes());
 
-    let (temporary, backup, recovery) = windows_replacement_paths(&parent);
+    let temporary = windows_temporary_path(&parent);
     let mut options = OpenOptions::new();
     options
+        .read(true)
         .write(true)
         .create_new(true)
         .share_mode(FILE_SHARE_READ.0 | FILE_SHARE_WRITE.0)
@@ -276,78 +343,176 @@ pub(in crate::chat::workspace_files) fn write_workspace_text_atomically(
         .write_all(contents.as_bytes())
         .and_then(|_| replacement.set_permissions(permissions))
         .and_then(|_| replacement.sync_all());
+    let replacement_identity = if prepared.is_ok() {
+        windows_file_identity(&replacement).ok()
+    } else {
+        None
+    };
     drop(replacement);
-    if prepared.is_err() {
-        if fs::remove_file(&temporary).is_err() {
-            return Err(workspace_file_recovery_error());
-        }
-        return Err(workspace_file_write_error());
-    }
+    let Some(replacement_identity) = replacement_identity else {
+        return Err(workspace_file_recovery_error());
+    };
     drop(current);
 
+    let backup = windows_private_artifact_path(&parent, "backup")
+        .map_err(|_| workspace_file_recovery_error())?;
     if windows_replace_file(&target, &temporary, &backup).is_err() {
         // ReplaceFileW can move the original to its backup before reporting failure.
         // Restore that documented partial state only after verifying the original bytes.
         let target_exists = fs::symlink_metadata(&target).is_ok();
-        let backup_is_original = windows_revision_for_path(&backup, relative_path)
-            .is_ok_and(|revision| revision == expected_revision);
+        let backup_is_original =
+            windows_regular_file_state(&backup, relative_path).is_ok_and(|(identity, revision)| {
+                identity == current_identity && revision == expected_revision
+            });
         if !target_exists && backup_is_original {
-            if fs::rename(&backup, &target).is_err() {
+            if windows_move_file_no_replace(&backup, &target).is_err() {
                 return Err(workspace_file_recovery_error());
             }
         } else if !target_exists || fs::symlink_metadata(&backup).is_ok() {
             return Err(workspace_file_recovery_error());
         }
-        if fs::remove_file(&temporary).is_err() {
-            return Err(workspace_file_recovery_error());
-        }
-        return Err(workspace_file_write_error());
+        return Err(workspace_file_recovery_error());
     }
 
-    let displaced_revision = windows_revision_for_path(&backup, relative_path);
-    if !displaced_revision
-        .as_ref()
-        .is_ok_and(|revision| revision == expected_revision)
-    {
+    let displaced_is_original =
+        windows_regular_file_state(&backup, relative_path).is_ok_and(|(identity, revision)| {
+            identity == current_identity && revision == expected_revision
+        });
+    let installed_is_replacement =
+        windows_regular_file_state(&target, relative_path).is_ok_and(|(identity, revision)| {
+            identity == replacement_identity && revision == replacement_revision
+        });
+    if !displaced_is_original {
+        // Never install an unverified backup as a rollback target.
+        return Err(workspace_file_recovery_error());
+    }
+    if !installed_is_replacement {
+        let recovery = windows_private_artifact_path(&parent, "recovery")
+            .map_err(|_| workspace_file_recovery_error())?;
         if windows_replace_file(&target, &backup, &recovery).is_err() {
             return Err(workspace_file_recovery_error());
         }
-        if fs::remove_file(&recovery).is_err() {
-            return Err(workspace_file_recovery_error());
-        }
-        return Err(stale_workspace_file_error());
+        // The path-based rollback cannot prove whether `recovery` contains this
+        // writer's replacement or a concurrent writer's later target. Preserve
+        // it for explicit recovery instead of risking deletion of external bytes.
+        return Err(workspace_file_recovery_error());
     }
     fs::remove_file(&backup).map_err(|_| workspace_file_recovery_error())
 }
 
 #[cfg(windows)]
-fn windows_replacement_paths(parent: &Path) -> (PathBuf, PathBuf, PathBuf) {
+fn windows_temporary_path(parent: &Path) -> PathBuf {
     let generation = WORKSPACE_FILE_WRITE_GENERATION.fetch_add(1, Ordering::Relaxed);
     let nonce = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap_or_default()
         .as_nanos();
-    let stem = format!(".ganbaru.{}.{}.{}", std::process::id(), generation, nonce);
-    (
-        parent.join(format!("{stem}.tmp")),
-        parent.join(format!("{stem}.backup")),
-        parent.join(format!("{stem}.recovery")),
-    )
+    parent.join(format!(
+        ".ganbaru.{}.{}.{}.tmp",
+        std::process::id(),
+        generation,
+        nonce
+    ))
+}
+
+#[cfg(windows)]
+fn windows_private_artifact_path(parent: &Path, kind: &str) -> std::io::Result<PathBuf> {
+    use windows_crate::Win32::Security::Cryptography::{
+        BCryptGenRandom, BCRYPT_USE_SYSTEM_PREFERRED_RNG,
+    };
+
+    windows_private_artifact_path_with(parent, kind, |random| {
+        // SAFETY: The binding receives an exclusive, initialized output slice
+        // that remains live for the synchronous call. A null algorithm handle
+        // is required with BCRYPT_USE_SYSTEM_PREFERRED_RNG, and no pointer is
+        // retained after BCryptGenRandom returns.
+        let status = unsafe { BCryptGenRandom(None, random, BCRYPT_USE_SYSTEM_PREFERRED_RNG) };
+        if status.0 < 0 {
+            Err(std::io::Error::other(format!(
+                "BCryptGenRandom failed with NTSTATUS {:#x}",
+                status.0
+            )))
+        } else {
+            Ok(())
+        }
+    })
+}
+
+#[cfg(any(windows, test))]
+fn windows_private_artifact_path_with(
+    parent: &Path,
+    kind: &str,
+    mut fill_random: impl FnMut(&mut [u8]) -> std::io::Result<()>,
+) -> std::io::Result<std::path::PathBuf> {
+    const RANDOM_BYTES: usize = 32;
+    const GENERATION_ATTEMPTS: usize = 4;
+
+    for _ in 0..GENERATION_ATTEMPTS {
+        let mut random = [0_u8; RANDOM_BYTES];
+        fill_random(&mut random)?;
+        let token = random
+            .iter()
+            .map(|byte| format!("{byte:02x}"))
+            .collect::<String>();
+        let candidate = parent.join(format!(".ganbaru.{kind}.{token}"));
+        match fs::symlink_metadata(&candidate) {
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(candidate),
+            Ok(_) => continue,
+            Err(error) => return Err(error),
+        }
+    }
+    Err(std::io::Error::new(
+        std::io::ErrorKind::AlreadyExists,
+        "could not allocate a private workspace recovery name",
+    ))
+}
+
+#[cfg(windows)]
+fn windows_wide_path(path: &Path) -> std::io::Result<Vec<u16>> {
+    use std::os::windows::ffi::OsStrExt;
+
+    let mut value: Vec<u16> = path.as_os_str().encode_wide().collect();
+    if value.contains(&0) {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "workspace replacement path contains a NUL code unit",
+        ));
+    }
+    value.push(0);
+    Ok(value)
+}
+
+#[cfg(windows)]
+fn windows_move_file_no_replace(source: &Path, destination: &Path) -> std::io::Result<()> {
+    use windows_crate::core::PCWSTR;
+    use windows_crate::Win32::Storage::FileSystem::{MoveFileExW, MOVE_FILE_FLAGS};
+
+    let source = windows_wide_path(source)?;
+    let destination = windows_wide_path(destination)?;
+    // SAFETY: Both paths are live, immutable, NUL-terminated UTF-16 buffers
+    // without interior NUL. MoveFileExW consumes them synchronously and does
+    // not retain their pointers. Zero flags prohibit destination replacement.
+    unsafe {
+        MoveFileExW(
+            PCWSTR(source.as_ptr()),
+            PCWSTR(destination.as_ptr()),
+            MOVE_FILE_FLAGS(0),
+        )
+    }
+    .map_err(|error| std::io::Error::other(error.to_string()))
 }
 
 #[cfg(windows)]
 fn windows_replace_file(target: &Path, replacement: &Path, backup: &Path) -> std::io::Result<()> {
-    use ::windows::core::PCWSTR;
-    use ::windows::Win32::Storage::FileSystem::{ReplaceFileW, REPLACE_FILE_FLAGS};
-    use std::os::windows::ffi::OsStrExt;
+    use windows_crate::core::PCWSTR;
+    use windows_crate::Win32::Storage::FileSystem::{ReplaceFileW, REPLACE_FILE_FLAGS};
 
-    fn wide(path: &Path) -> Vec<u16> {
-        path.as_os_str().encode_wide().chain(Some(0)).collect()
-    }
-
-    let target = wide(target);
-    let replacement = wide(replacement);
-    let backup = wide(backup);
+    let target = windows_wide_path(target)?;
+    let replacement = windows_wide_path(replacement)?;
+    let backup = windows_wide_path(backup)?;
+    // SAFETY: Each path is a live, immutable, NUL-terminated UTF-16 buffer with
+    // no interior NUL. ReplaceFileW consumes the strings synchronously, does not
+    // retain their pointers, and the null reserved arguments are required.
     unsafe {
         ReplaceFileW(
             PCWSTR(target.as_ptr()),
@@ -361,23 +526,94 @@ fn windows_replace_file(target: &Path, replacement: &Path, backup: &Path) -> std
     .map_err(|error| std::io::Error::other(error.to_string()))
 }
 
-#[cfg(windows)]
-fn windows_revision_for_path(path: &Path, relative_path: &str) -> ChatResult<String> {
-    use std::os::windows::fs::OpenOptionsExt;
+#[cfg(test)]
+mod tests {
+    use super::windows_private_artifact_path_with;
+    use std::path::PathBuf;
 
-    let mut options = OpenOptions::new();
-    options
-        .read(true)
-        .share_mode(FILE_SHARE_READ.0 | FILE_SHARE_WRITE.0)
-        .custom_flags(FILE_FLAG_OPEN_REPARSE_POINT.0);
-    let mut file = options
-        .open(path)
-        .map_err(|_| workspace_file_recovery_error())?;
-    let metadata = file
-        .metadata()
-        .map_err(|_| workspace_file_recovery_error())?;
-    if !metadata.is_file() || windows_metadata_is_reparse(&metadata) {
-        return Err(workspace_file_recovery_error());
+    struct TestDirectory(PathBuf);
+
+    impl TestDirectory {
+        fn new(name: &str) -> Self {
+            let nonce = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .expect("system clock should follow the Unix epoch")
+                .as_nanos();
+            let path = std::env::temp_dir().join(format!(
+                "ganbaru-ai-windows-artifact-{name}-{}-{nonce}",
+                std::process::id()
+            ));
+            std::fs::create_dir(&path).expect("test directory should be created");
+            Self(path)
+        }
     }
-    revision_and_permissions(&mut file, relative_path).map(|(revision, _)| revision)
+
+    impl Drop for TestDirectory {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+
+    #[test]
+    fn private_artifact_generation_skips_an_existing_candidate() {
+        let directory = TestDirectory::new("collision");
+        let collision = directory
+            .0
+            .join(format!(".ganbaru.backup.{}", "00".repeat(32)));
+        std::fs::write(&collision, "external bytes").expect("collision fixture should be written");
+        let mut calls = 0_u8;
+
+        let selected = windows_private_artifact_path_with(&directory.0, "backup", |random| {
+            random.fill(calls);
+            calls = calls.saturating_add(1);
+            Ok(())
+        })
+        .expect("a later private name should be selected");
+
+        assert_eq!(calls, 2);
+        assert_eq!(
+            selected.file_name().and_then(|name| name.to_str()),
+            Some(format!(".ganbaru.backup.{}", "01".repeat(32)).as_str())
+        );
+        assert!(!selected.exists());
+        assert_eq!(
+            std::fs::read_to_string(collision).expect("collision fixture should remain readable"),
+            "external bytes"
+        );
+    }
+
+    #[test]
+    fn private_artifact_generation_propagates_random_source_failure() {
+        let directory = TestDirectory::new("random-failure");
+
+        let error = windows_private_artifact_path_with(&directory.0, "backup", |_| {
+            Err(std::io::Error::other("random source fixture failed"))
+        })
+        .expect_err("random source failure should stop artifact generation");
+
+        assert_eq!(error.to_string(), "random source fixture failed");
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn no_replace_move_preserves_an_existing_destination() {
+        use super::windows_move_file_no_replace;
+
+        let directory = TestDirectory::new("no-replace");
+        let source = directory.0.join("source.txt");
+        let destination = directory.0.join("destination.txt");
+        std::fs::write(&source, "source bytes").expect("source fixture should be written");
+        std::fs::write(&destination, "destination bytes")
+            .expect("destination fixture should be written");
+
+        assert!(windows_move_file_no_replace(&source, &destination).is_err());
+        assert_eq!(
+            std::fs::read_to_string(source).expect("source should remain"),
+            "source bytes"
+        );
+        assert_eq!(
+            std::fs::read_to_string(destination).expect("destination should remain"),
+            "destination bytes"
+        );
+    }
 }

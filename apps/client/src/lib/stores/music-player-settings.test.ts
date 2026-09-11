@@ -32,12 +32,17 @@ describe("Music player settings", () => {
       volume: 0.8,
       rate: 1,
       shuffleEnabled: true,
-      shuffleExplicit: false,
       muted: false,
       playlistVisible: true,
     });
     expect(JSON.parse(localStorage.getItem(settingsKey) ?? "{}")).toMatchObject({
       playlistVisible: true,
     });
+  });
+
+  it("loads the saved shuffle preference and defaults to enabled", () => {
+    expect(loadMusicPlayerSettings().shuffleEnabled).toBe(true);
+    localStorage.setItem(settingsKey, JSON.stringify({ shuffleEnabled: false }));
+    expect(loadMusicPlayerSettings().shuffleEnabled).toBe(false);
   });
 });

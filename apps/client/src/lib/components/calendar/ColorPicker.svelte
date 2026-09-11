@@ -5,6 +5,8 @@
   import { moveRovingIndex } from "./event-panel-utils";
   import { EVENT_COLOR_OPTIONS, getEventColor } from "./utils";
   import { contrastRatio } from "$lib/components/ui/colorMath";
+  import { activateModalFocus } from "$lib/modal-focus";
+  import { getMobileBackStack } from "$lib/stores/mobile-back-stack.svelte";
   import { resolveCalendarTokens, type Theme } from "$lib/stores/themes";
   import { getLocalization } from "$lib/i18n/translator.svelte";
   import { cn } from "$lib/utils";
@@ -12,6 +14,7 @@
 
   const { t } = getLocalization();
   const PALETTE_COLUMNS = 4;
+  const MOBILE_PALETTE_COLUMNS = 5;
   const PALETTE_SWATCH_REM = 1.375;
   const PALETTE_GAP_REM = 0.5;
   const PALETTE_PADDING_REM = 0.625;
@@ -23,6 +26,7 @@
     onselect,
     ariaLabel,
     displayLabel = false,
+    mobileLayout = false,
     class: className = "",
     buttonClass = "",
   }: {
@@ -31,10 +35,12 @@
     onselect: (color: EventColor | undefined) => void;
     ariaLabel?: string;
     displayLabel?: boolean;
+    mobileLayout?: boolean;
     class?: string;
     buttonClass?: string;
   } = $props();
 
+  const mobileBackStack = getMobileBackStack();
   let open = $state(false);
   let buttonEl: HTMLButtonElement | undefined = $state();
   let paletteEl: HTMLDivElement | undefined = $state();
@@ -131,17 +137,12 @@
 
   function selectColor(nextColor: EventColor, source: "keyboard" | "pointer"): void {
     if (color !== nextColor) onselect(nextColor);
-    if (source === "keyboard") closePalette("keyboard");
+    if (source === "keyboard" || mobileLayout) closePalette(source);
   }
 
   function handleButtonKeydown(e: KeyboardEvent) {
     if (e.altKey || e.ctrlKey || e.metaKey || e.shiftKey) return;
-    if (e.key === " ") {
-      e.preventDefault();
-      e.stopPropagation();
-      return;
-    }
-    if (e.key !== "Enter") return;
+    if (e.key !== "Enter" && e.key !== " ") return;
     e.preventDefault();
     e.stopPropagation();
     openPalette("keyboard");
@@ -201,15 +202,44 @@
     };
   });
 
-  const paletteStyle = $derived(`
-    left: ${palettePosition.left}px;
-    top: ${palettePosition.top}px;
-    grid-template-columns: repeat(${PALETTE_COLUMNS}, 1.375rem);
-    background-color: ${pickerBg};
-    color: ${pickerText};
-    --selection-border: ${selectionBorder};
-    --tw-ring-color: ${pickerRing};
-  `);
+  $effect(() => {
+    if (!open || !mobileLayout) return;
+    const deactivateBack = mobileBackStack.activate({
+      handle: () => closePalette("keyboard"),
+    });
+    const deactivateFocus = paletteEl
+      ? activateModalFocus(paletteEl)
+      : () => undefined;
+    return () => {
+      deactivateBack();
+      deactivateFocus();
+    };
+  });
+
+  const paletteStyle = $derived(mobileLayout
+    ? `
+      left: calc(var(--visual-viewport-offset-left) + var(--safe-area-left) + 0.5rem);
+      right: calc(var(--safe-area-right) + 0.5rem);
+      bottom: calc(var(--keyboard-inset) + var(--safe-area-bottom) + 0.5rem);
+      max-width: 30rem;
+      max-height: calc(var(--visual-viewport-height) - var(--safe-area-top) - var(--safe-area-bottom) - 1rem);
+      margin-inline: auto;
+      grid-template-columns: repeat(${MOBILE_PALETTE_COLUMNS}, 3rem);
+      justify-content: center;
+      background-color: ${pickerBg};
+      color: ${pickerText};
+      --selection-border: ${selectionBorder};
+      --tw-ring-color: ${pickerRing};
+    `
+    : `
+      left: ${palettePosition.left}px;
+      top: ${palettePosition.top}px;
+      grid-template-columns: repeat(${PALETTE_COLUMNS}, 1.375rem);
+      background-color: ${pickerBg};
+      color: ${pickerText};
+      --selection-border: ${selectionBorder};
+      --tw-ring-color: ${pickerRing};
+    `);
 </script>
 
 <div class={cn("relative flex items-center", displayLabel && "min-w-0", className)}>
@@ -219,10 +249,12 @@
     onclick={togglePalette}
     onkeydown={handleButtonKeydown}
     class={displayLabel
-      ? cn("flex h-7 w-full max-w-full items-center justify-between gap-2 rounded-md border border-border bg-card px-2.5 text-left text-[0.8rem] font-medium text-foreground transition-colors hover:bg-accent/60 dark:bg-transparent", buttonClass)
-      : cn("size-4.5 shrink-0 rounded-sm", buttonClass)}
-    style={displayLabel ? undefined : `background-color: ${colorEntry.bg};`}
+      ? cn("flex w-full max-w-full items-center justify-between gap-2 rounded-md border border-border bg-card px-2.5 text-left text-[0.8rem] font-medium text-foreground transition-colors hover:bg-accent/60 dark:bg-transparent", mobileLayout ? "h-12" : "h-7", buttonClass)
+      : cn(mobileLayout ? "flex size-12 shrink-0 items-center justify-center rounded-xl active:bg-accent" : "size-4.5 shrink-0 rounded-sm", buttonClass)}
+    style={!displayLabel && !mobileLayout ? `background-color: ${colorEntry.bg};` : undefined}
     aria-label={ariaLabel ?? t("calendar.color.eventColor")}
+    aria-haspopup="dialog"
+    aria-expanded={open}
     data-app-tooltip-disabled="true"
   >
     {#if displayLabel}
@@ -239,6 +271,12 @@
         strokeWidth={2}
         class={cn("shrink-0 text-muted-foreground transition-transform", open && "rotate-180")}
       />
+    {:else if mobileLayout}
+      <span
+        class="size-5 rounded-md border border-border"
+        style="background-color: {colorEntry.bg};"
+        aria-hidden="true"
+      ></span>
     {/if}
   </button>
   {#if open}
@@ -255,9 +293,15 @@
       use:portal
       data-app-floating-surface
       class={cn(
-        "fixed z-100 grid gap-2 rounded-lg p-2.5 shadow-lg ring-1",
+        mobileLayout
+          ? "fixed z-100 grid gap-1 overflow-y-auto overscroll-contain rounded-2xl p-2 shadow-lg ring-1"
+          : "fixed z-100 grid gap-2 rounded-lg p-2.5 shadow-lg ring-1",
       )}
       style={paletteStyle}
+      role="dialog"
+      aria-modal={mobileLayout ? "true" : undefined}
+      aria-label={ariaLabel ?? t("calendar.color.eventColor")}
+      tabindex="-1"
     >
       {#each EVENT_COLOR_OPTIONS as c, index}
         {@const entry = getEventColor(c, theme)}
@@ -269,7 +313,9 @@
           onclick={() => { selectColor(c, "pointer"); }}
           onfocus={() => { activeIndex = index; }}
           onkeydown={(e) => handleSwatchKeydown(e, index, c)}
-          class="calendar-color-swatch size-5.5 rounded-[3px]"
+          class={mobileLayout
+            ? "calendar-color-swatch min-h-12 min-w-12 rounded-xl"
+            : "calendar-color-swatch size-5.5 rounded-[3px]"}
           class:swatch-selected={selectedColor === c}
           style={swatchStyle(entry.bg)}
           data-app-tooltip-disabled="true"

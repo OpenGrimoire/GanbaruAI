@@ -1,100 +1,109 @@
-# Sync and collaboration
+# Device linking and synchronization
 
-Sync turns Ganbaru AI from a local app into a multi-device and optionally collaborative workspace. The user provisions and hosts the sync server; Ganbaru AI does not run shared infrastructure. End-to-end encryption keeps cleartext away from the server, and typed conflict handling preserves the local data invariants.
+**Status: Planned.** Device enrollment, replication, encryption, conflicts, and the optional relay are not implemented. The first prerequisite work separates Android reminders from recorded execution, extracts focus persistence and recovery into `ganbaru-focus`, and configures authoritative SQLite connections for durable commits. Those changes do not enable device linking.
 
-Human collaboration is a later capability. Local AI teammate access is already canonical in the active vault and is defined by [Chat access control](access-control.md). Its immutable revisions, disclosure constraints, and revocations constrain future synchronization. Collaboration cannot be added safely as a simple shared-workspace boolean.
-
-## Principles
-
-- Local canonical storage remains usable offline and does not depend on the sync server.
-- The server routes and persists encrypted operations, not trusted application data.
-- Sync replicates canonical operations and records, not derivative Markdown exports or a raw SQLite database file.
-- A participant receives only the resources and keys allowed by their effective membership.
-- Direct reads and derived output use the same permission boundary.
-- Removing access stops future reads and context assembly without rewriting legitimate history owned by remaining participants.
-- Private productivity measurements remain private even when their coarse capacity effect helps team planning.
+This contract links one person's devices. Multi-person sharing is later work. The phone must provide full offline access to portable Notes, Projects, Calendar, and other synchronized content. Focus execution has its own controller and evidence rules in [Focus authority](../algorithms/pomodoro/focus-authority.md).
 
 ## Architecture
 
-**Yjs-compatible CRDT operations.** Collaborative state uses CRDT documents or typed operations appropriate to each data family. Notes uses its existing page and block graph rather than introducing an editor-owned second source of truth. Calendar, Projects, Chat, and other relational data require typed operations that preserve foreign keys, lifecycle rules, protected history, and application invariants when concurrent changes converge.
+SQLite remains the durable local store. Replicas exchange validated domain operations and immutable assets, never raw database pages, arbitrary SQL, or unclassified application configuration. Foreground saves do not wait for a network.
 
-**Hocuspocus server.** A self-hostable synchronization server persists encrypted updates, routes presence, and applies authentication and authorization at the encrypted resource envelope. The user can run it on a VPS, home server, or another host they control.
+Collaborative text uses Rust Yrs with a compatible Yjs editor adapter. Binary CRDT state is canonical in SQLite; rich-text payloads and plain-text columns are deterministic query and rendering projections. Text document identities are independent of block placement. Active documents use a bounded lazy cache.
 
-**End-to-end encryption.** Clients encrypt resource updates before sending them. The server stores ciphertext only. Key distribution follows explicit membership and resource grants rather than one permanent key that gives every collaborator the complete Ganbaru AI folder.
+Local network linking works without an account or server. An optional user-hosted Rust relay stores opaque encrypted records for cross-network and asynchronous delivery. Hocuspocus is no longer the proposed relay: its normal persistence loads and stores server-side Yjs documents, which does not match this encrypted record boundary. See [Hocuspocus persistence](https://tiptap.dev/docs/hocuspocus/guides/persistence).
 
-**Live presence.** Authorized participants can appear as cursors, typing indicators, or activity state in relevant views. Presence is ephemeral and scoped to the current resource. It does not create employee monitoring or a permanent online-time record.
+The intended crates are `ganbaru-sync-contracts`, `ganbaru-sync`, and an optional `ganbaru-sync-relay` binary. They have not been created. Domain services retain validation and projection ownership; the sync engine owns delivery and calls those adapters. Durable replication, live presence, and executable commands are distinct protocols.
 
-## Identity and membership scopes
+## Storage ownership
 
-Future roles can include owner, administrator, member, and restricted guest. Role names do not replace resource grants. A person may join:
+Every persisted field requires an explicit replication classification before it can leave a device. Unknown fields fail closed. This table is the target ownership contract, not a claim that existing mixed configuration has already migrated.
 
-- A project group and its permitted projects.
-- One project without access to the complete group.
-- Selected Chat channels in a project.
-- A direct message or task discussion.
-- Selected Notes folder subtrees or pages.
-- Selected tasks, reviews, or project views.
-- Explicit project working folders when filesystem collaboration is intended.
+| Domain | Portable data | Device-local data |
+| --- | --- | --- |
+| Notes, Projects, Calendar, Quick notes | Content, relationships, templates, archive, Trash, retained history, favorites | Recents, current selection, navigation, viewport layout |
+| Preferences | Profile, themes, language, time format, rhythm defaults | Font scale, layout, shortcuts, notification delivery, explicit presentation overrides |
+| Doomscrolling | Rule definitions and device-attributed history | Permissions, application bindings, enforcement state |
+| Music | Library identities, playlists, assignments, portable preferences | Source bindings, media bytes, current playback, volume, routing |
+| Chat | Organizational content, portable review history, origin-attributed drafts | Execution processes, credentials, provider homes, terminals, native trust, paths, caches |
+| Managed assets | Immutable content and metadata | Transfer staging, local availability, caches |
+| Focus | Committed history, explicit controller ownership history | Live presence, local activity sources, native alarms and effects |
 
-Project groups, projects, channels, Notes folders, Notes pages, task discussions, and project working folders are different resource types. A grant to one does not silently imply the others. Inheritance reduces configuration work, but the effective access result is inspectable before invitation, movement, export, or AI use.
+Unsent Chat drafts retain their origin and can be explicitly continued on another device. Sending clears only the revision sent. Arbitrary project source trees and external music files keep their existing device boundaries.
 
-Invitations state whether prior history becomes visible. A participant joining a channel does not automatically receive messages from before the selected visibility boundary. Moving a Note, task discussion, or channel across an access boundary previews who gains and loses access.
+Shared preferences move into SQLite so preference changes and outbound records can commit atomically. Device preferences stay in application configuration storage. Remove canonical `config.json` and the unused `.yjs` vault skeleton only after their consumers migrate. Both still exist today.
 
-## What syncs
+## Transactional operation boundary
 
-- **File-backed documents:** canonical diary entries, project documents, and reports through a document-appropriate synchronization model.
-- **Structured data and document graphs:** Notes folders, pages, blocks, comments, Calendar events, Projects tasks, Chat conversations and messages, work environments, and project state through typed operations that preserve graph invariants.
-- **Chat execution summaries:** durable run state, approvals, usage, deliverable links, and provider-neutral events needed for authorized history. Device-bound executable paths, provider homes, live processes, terminals, and local trust remain device-local.
-- **Pomodoro tracking data:** per-user data available to that user's devices. Other workspace participants never receive raw focus, idle, break, blocker, or diary measurements.
-- **Membership and permission changes:** future sync carries signed, ordered access operations, immutable authorization revisions, history-visibility decisions, key-envelope changes, revocation state, and audit metadata. Device bindings, provider probes, external paths, and scratch paths never sync.
+Every synchronizable mutation, including imports, restores, scheduled jobs, and native background writes, must commit these together:
 
-The two-category storage model in `data/architecture.md` remains intact. File-backed documents stay files on each authorized client. Structured data and Notes graphs stay in local SQLite. Sync does not make exported Markdown or the server database authoritative.
+- Canonical changes and required relational projections.
+- Stable operation identity, cryptographic device identity, writer generation, causal dependencies, resource scope, authorization revision, and protocol version.
+- The operation receipt and durable outbound record.
+- Required history and asset references.
 
-## Permission-safe derivation
+UI invalidations and native effects follow commit. Incoming operations use the same validators and transaction boundary. Missing dependencies remain pending. Malformed or unauthorized records receive bounded diagnostics. A relay receipt means delivery to the relay; it does not mean another device committed the change.
 
-Authorization happens before direct reads and before aggregation. The same effective scope applies to:
+Authoritative connections use WAL and `synchronous=FULL`, including replacement connections in a pool. SQLite documents that WAL with `NORMAL` can lose committed transactions on power failure; `FULL` synchronizes the WAL at each commit. Hardware and filesystem behavior still require failure testing. See [SQLite synchronous](https://www.sqlite.org/pragma.html#pragma_synchronous).
 
-- Search results and counts.
-- Mentions, backlinks, reminders, and notification previews.
-- Channel summaries and attention views.
-- Project dashboards, saved views, and reports.
-- Notes imports, exports, and agent bridge output.
-- Calendar availability and scheduling suggestions.
-- Manager proposals and AI context packages.
-- Agent-run tools, artifacts, and explanations.
+The UI distinguishes saved on this device, received by relay, and confirmed on another device.
 
-An inaccessible resource does not leak through its title, count, participant list, relationship, or a detailed denial reason. AI uses the complete requester, destination audience, teammate, source membership, folder, assignment, runtime, and provider-enforcement intersection from the normative access specification.
+## Conflict semantics
 
-## Conflict resolution
+Valid concurrent operations converge regardless of delivery order. Rejecting the second operation to arrive is insufficient.
 
-CRDT semantics handle compatible concurrent edits, but Ganbaru adds domain rules where generic merging is insufficient:
+- Independent fields merge. Concurrent values for the same scalar retain alternatives, a deterministic displayed value, and a visible resolution action.
+- Calendar start, end, timezone, and recurrence form one coupled value. Conflicts suspend automatic occurrence activation until resolved.
+- Notes and project placement use stable identities and a cycle-safe replicated tree move algorithm. Stable ordering identifiers replace floating positions. Validate against a simple reference model of the [replicated move algorithm](https://martin.kleppmann.com/papers/move-op.pdf).
+- Deletion creates tombstones. Concurrent edits remain recoverable in Trash or conflict recovery. Old operations cannot silently restore deleted content.
+- Database property type changes retain incompatible values for resolution.
+- History restore writes a safety version and new operations against current state. It never rewinds causal history.
+- Cross-feature actions such as task scheduling form one operation group.
+- Scheduled messages and other executable jobs have an execution device and stable execution receipts. Receiving their records cannot execute them.
 
-- **Protected history:** past Pomodoro and protected Calendar records cannot disappear through conflict resolution.
-- **Active sessions:** one person cannot have two authoritative active Pomodoro sessions. Heartbeats and explicit takeover resolve device conflict.
-- **Recurring events:** conflicting scope edits preserve protected occurrences and surface the losing intent for review.
-- **Projects requirements:** concurrent scope, assignment, review, budget, or deadline changes produce explicit revisions and downstream-impact recalculation instead of silently combining incompatible commitments.
-- **Manager proposals:** acceptance applies to an exact proposal and source revision. A stale proposal is replanned or reviewed against current state.
-- **Chat ordering:** messages use stable identities and causal ordering. Edits and replies remain attached to the intended message after offline merge.
-- **Permission changes:** access reduction wins over stale content updates for future delivery. A client cannot publish a new operation under a revoked grant after reconnecting.
+## Notes editing
 
-## Revocation and offline devices
+Whole-block replacement is not a collaborative text protocol. The editor must submit incremental operations, preserve relative selections and comment anchors, and keep locally authored undo separate from concurrent remote changes. TypeScript and Rust use UTF-16 positions. Composition, autocorrect, paste, marks, mentions, and Unicode need adapter-level tests.
 
-Revocation is not equivalent to deleting shared history. It prevents new authorized reads, updates, exports, notifications, and AI context assembly from the removed participant or device. Remaining authorized participants retain legitimate shared history.
+Prepare incoming changes in isolated working state. Validate and atomically commit binary updates and SQL projections before publishing them to the active cache. Discard the working state on failed persistence. Preserve unsaved input and show saving until native acknowledgement. Writer IDs must be unique across installations, restored copies, and simultaneous windows. See [Yrs](https://docs.rs/yrs/latest/yrs/).
 
-The implementation must define key rotation, cached ciphertext retention, local cleartext cleanup, offline operation rejection, device removal, recovery keys, and re-invitation before collaboration ships. The UI must explain that a person who previously received cleartext could have copied it outside Ganbaru AI; cryptography can stop future access but cannot erase an external copy.
+Current Notes writes still replace complete block payloads. Their collaboration log covers comments and suggestions, not general replica synchronization.
 
-## Privacy-safe capacity
+## Enrollment and key lifecycle
 
-Team scheduling can use coarse signals such as unavailable, available after a date, or a suggested duration range. It never exposes individual focus hours, idle time, break behavior, blocker attempts, diary mood, or comparisons between participants. Team-facing AI receives only the coarse signal needed for the requested decision and cannot query the raw source rows.
+The first desktop is the administration device. A short-lived, single-use QR invitation contains its identity fingerprint and a high-entropy enrollment secret. Manual entry accepts the complete invitation. Both devices show a verification code; the existing device explicitly confirms enrollment before releasing vault keys.
 
-## Self-hosting
+Direct connections use TLS 1.3 with pinned device identity. Operations are signed. Records and asset chunks use XChaCha20-Poly1305. Resource-key distribution uses HPKE with X25519 and HKDF-SHA256. Secrets use native desktop credential storage or Android Keystore wrapping. Review maintained implementations, minimal features, pinned versions, advisories, and the protocol composition before enabling transport. [HPKE](https://www.rfc-editor.org/rfc/rfc9180.html) does not provide application authorization, replay protection, or downgrade protection by itself.
 
-Ganbaru AI provides a server image, documented Compose configuration, guided setup for common hosts, health checks, backup guidance, and key-recovery warnings. It does not offer a hosted sync service. Donation funding cannot safely support an implicit promise of centralized uptime, storage, or account recovery.
+Enrollment and revocation follow signed administration history. A separate owner recovery identity and recovery kit receive resource-key envelopes alongside authorized devices. Revocation rotates affected keys and rejects new operations from the removed device once revocation is known. Preserve rejected pending content for explicit recovery. Removal cannot erase copies already held by that device.
 
-## Backups
+## Bootstrap, assets, backup, and compaction
 
-Sync is not a backup. Backups go to a user-specified path outside the Ganbaru AI folder on a schedule the user controls. Sync keeps authorized devices converged; backups recover data after loss, corruption, accidental deletion, or a bad synchronized operation.
+Bootstrap transfers a consistent typed snapshot and causal checkpoint followed by incremental operations. Stage, validate references and integrity, then activate atomically. If a phone has a different vault, retain it as a recoverable local vault. Combining vaults requires an explicit import preview.
 
-## Deferred implementation details
+Managed assets use immutable identities, encrypted manifests, authenticated hashes, bounded resumable chunks, and atomic publication. Native code transfers bytes. Filenames remain metadata and cannot choose destination paths. Structured data synchronizes automatically; managed attachments default to unmetered transfer with explicit download and offline controls.
 
-Exact CRDT schemas, key hierarchy, invitation protocol, encrypted search strategy, offline revocation, conflict UI, server deployment, and recovery flows remain to be designed and threat-modeled before phase 9 implementation. The local schema already supplies stable access and authorization revisions that future operations must preserve. The collaboration behavior in this document remains a product constraint, not a claim that remote collaboration is currently available.
+Backups capture a consistent database and pinned asset set using authenticated encryption. Restore defaults to an isolated recovery copy. Rejoining the original vault requires current membership reconciliation and a fresh writer generation. Do not restore credentials, rewind acknowledgements, or resurrect tombstoned resources.
+
+Offline enrolled devices retain the causal state and tombstones they need. Compaction requires acknowledged checkpoints; retirement is explicit. Asset collection considers live references, retained history, pending transfers, and backup pins.
+
+Vault replacement must fence the generation across processes, pause native work, close pools, swap staging, and restart against the new generation. The existing process-local replacement guard is not sufficient for this target.
+
+## Settings and Android delivery
+
+Onboarding and Settings will provide device linking, linked-device identity, connection method, last successful synchronization, pending changes, unavailable assets, conflicts, recovery status, focus controller, pause, retry, removal, recovery export, and optional relay configuration.
+
+Android uses WorkManager for deferred synchronization and a visible, user-enabled connected-device service for live companion status. Alarms deliver scheduled reminders. Permission denial, process death, reboot, network changes, and background restrictions must expose degraded connectivity truthfully. Background service availability never establishes focus or idle activity.
+
+## Delivery and acceptance
+
+| Milestone | Status | Remaining work |
+| --- | --- | --- |
+| Focus correctness and contracts | Partial | Move all transition decisions and command receipts into Rust, add durable device controller ownership and native runtime bridge |
+| Durable mutation and storage boundaries | Partial | WAL durability is configured; scoped preferences, cryptographic writers, journal and domain-wide atomic mutation coverage remain |
+| Local replica convergence | Planned | Notes text and tree merging, all portable domain adapters, two- and three-replica failure tests |
+| Secure local linking | Planned | Enrollment, key storage, staged bootstrap, assets, recovery, onboarding and Settings |
+| Relay and Android sync | Planned | Encrypted relay, native background runtime, encrypted backup, measurements and physical acceptance |
+
+Required tests include reordered, duplicated, delayed and interrupted delivery; text and tree convergence; deletion, undo and history restore; crashes at persistence and acknowledgement boundaries; full disks, corrupt staging and missing assets; invalid identity, signature, invitation replay, revocation, key epochs, payload bounds and protocol versions; controller handoff failure and expired commands; duplicate jobs; long-offline replicas, compaction, restored backups and cloned writers.
+
+Measure bootstrap, input and save latency, bandwidth, memory, battery, and database contention. Queues and caches remain bounded, with lazy loading, incremental indexing, and background backoff. Run the serialized `validate:full` gate for the complete dependency and security changes. Pairing, key lifecycle, native bridges and remote capabilities require a separate security review. Physical Android and desktop acceptance is mandatory for sleep, force-stop, reboot, permissions, manufacturer restrictions, clock changes, and disconnected use.

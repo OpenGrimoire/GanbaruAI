@@ -1,14 +1,17 @@
 import { describe, expect, it } from "vitest";
 import {
   APP_VIEWS,
+  availableAppViews,
   canDetachMainView,
   isDetachableTabView,
   isView,
+  isViewAvailable,
   firstMainView,
   mainTabViews,
   parseInitialViewSearch,
   viewLabel,
 } from "./navigation";
+import { platformProfileFor } from "./platform";
 
 describe("navigation helpers", () => {
   it("accepts registered views only", () => {
@@ -34,6 +37,18 @@ describe("navigation helpers", () => {
     expect(parseInitialViewSearch("?view=music")).toBeUndefined();
     expect(parseInitialViewSearch("?view=settings")).toBeUndefined();
     expect(parseInitialViewSearch("")).toBeUndefined();
+  });
+
+  it("exposes portable Android views without desktop window controls", () => {
+    const android = platformProfileFor("android");
+
+    expect(availableAppViews(android)).toEqual(["calendar", "projects", "notes", "chat"]);
+    expect(isViewAvailable("notes", android)).toBe(true);
+    expect(isViewAvailable("chat", android)).toBe(true);
+    expect(parseInitialViewSearch("?view=notes", android)).toBe("notes");
+    expect(parseInitialViewSearch("?view=chat", android)).toBe("chat");
+    expect(mainTabViews(new Set(), android)).toEqual(["calendar", "projects", "notes", "chat"]);
+    expect(canDetachMainView(new Set(), android)).toBe(false);
   });
 
   it("provides user-facing labels for every view", () => {

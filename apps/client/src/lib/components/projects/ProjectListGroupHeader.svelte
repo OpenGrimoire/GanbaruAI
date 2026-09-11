@@ -6,6 +6,7 @@
     title,
     gridTemplate,
     gridMinWidth,
+    leadingGridTemplate,
     taskCount,
     allSelected,
     partiallySelected,
@@ -14,6 +15,7 @@
     title: string;
     gridTemplate: string;
     gridMinWidth: string;
+    leadingGridTemplate: string;
     taskCount: number;
     allSelected: boolean;
     partiallySelected: boolean;
@@ -27,18 +29,23 @@
   class="project-list-divider project-list-sticky-row group/list-group-header grid min-h-11 items-center px-1"
   style={`grid-template-columns: ${gridTemplate}; min-width: ${gridMinWidth};`}
 >
-  <ProjectListSelectionButton
-    mode="group"
-    {allSelected}
-    {partiallySelected}
-    disabled={taskCount === 0}
-    ariaLabel={allSelected
-      ? t("projects.actions.unselectTaskGroup", title)
-      : t("projects.actions.selectTaskGroup", title)}
-    onToggle={onToggleSelection}
-  />
-  <div></div>
-  <span class="min-w-0 truncate px-2 text-[0.866667rem] font-semibold">
-    {title}
-  </span>
+  <div
+    class="project-list-leading-row grid min-h-11 items-center"
+    style={`grid-column: 1 / span 3; grid-template-columns: ${leadingGridTemplate};`}
+  >
+    <ProjectListSelectionButton
+      mode="group"
+      {allSelected}
+      {partiallySelected}
+      disabled={taskCount === 0}
+      ariaLabel={allSelected
+        ? t("projects.actions.unselectTaskGroup", title)
+        : t("projects.actions.selectTaskGroup", title)}
+      onToggle={onToggleSelection}
+    />
+    <div></div>
+    <span class="min-w-0 truncate px-2 text-[0.866667rem] font-semibold">
+      {title}
+    </span>
+  </div>
 </div>

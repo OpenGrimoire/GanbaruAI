@@ -35,7 +35,7 @@ pub struct BoundedDiagnostic {
 pub struct ProviderProcessHandle {
     child: Child,
     #[cfg(unix)]
-    process_group_id: u32,
+    process_group_id: libc::pid_t,
     #[cfg(windows)]
     process_job: std::os::windows::io::OwnedHandle,
     stdin: Option<ChildStdin>,
@@ -110,7 +110,10 @@ impl ProviderProcessHandle {
         }
         self.signal_process_tree(false).await?;
         match tokio::time::timeout(force_deadline, self.child.wait()).await {
-            Ok(Ok(_)) => {}
+            Ok(Ok(_)) => {
+                #[cfg(unix)]
+                self.signal_process_tree(true).await?;
+            }
             Ok(Err(error)) => return Err(process_io_error(error)),
             Err(_) => {
                 self.signal_process_tree(true).await?;
@@ -134,11 +137,10 @@ impl ProviderProcessHandle {
     #[cfg(unix)]
     async fn signal_process_tree(&mut self, force: bool) -> ChatResult<()> {
         let signal = if force { libc::SIGKILL } else { libc::SIGTERM };
-        let result = unsafe { libc::kill(-(self.process_group_id as i32), signal) };
-        if result == 0 || std::io::Error::last_os_error().raw_os_error() == Some(libc::ESRCH) {
-            Ok(())
-        } else {
-            Err(process_io_error(()))
+        match signal_process_group(self.process_group_id, signal) {
+            Ok(()) => Ok(()),
+            Err(error) if error.raw_os_error() == Some(libc::ESRCH) => Ok(()),
+            Err(error) => Err(process_io_error(error)),
         }
     }
 
@@ -149,6 +151,8 @@ impl ProviderProcessHandle {
         use windows::Win32::System::JobObjects::TerminateJobObject;
 
         let job = HANDLE(self.process_job.as_raw_handle());
+        // SAFETY: `process_job` owns a live job handle for the duration of the
+        // call. Termination does not transfer or close that handle.
         unsafe { TerminateJobObject(job, 1) }.map_err(process_io_error)
     }
 
@@ -164,15 +168,15 @@ impl Drop for ProviderProcessHandle {
             return;
         }
         #[cfg(unix)]
-        unsafe {
-            libc::kill(-(self.process_group_id as i32), libc::SIGKILL);
-        }
+        let _ = signal_process_group(self.process_group_id, libc::SIGKILL);
         #[cfg(windows)]
         {
             use std::os::windows::io::AsRawHandle;
             use windows::Win32::Foundation::HANDLE;
             use windows::Win32::System::JobObjects::TerminateJobObject;
 
+            // SAFETY: `process_job` remains a live owned job handle during Drop.
+            // This best-effort call neither transfers nor closes the handle.
             unsafe {
                 let _ = TerminateJobObject(HANDLE(self.process_job.as_raw_handle()), 1);
             }
@@ -196,7 +200,11 @@ pub fn spawn_provider_process(config: ProviderProcessConfig) -> ChatResult<Provi
     configure_process_tree(&mut command);
     let mut child = command.spawn().map_err(spawn_error)?;
     #[cfg(unix)]
-    let process_group_id = child.id().ok_or_else(process_state_error)?;
+    let process_group_id = child
+        .id()
+        .and_then(|id| libc::pid_t::try_from(id).ok())
+        .filter(|id| *id > 1)
+        .ok_or_else(process_state_error)?;
     #[cfg(windows)]
     let process_job = claim_windows_process_tree(&mut child)?;
     let stdin = child.stdin.take().ok_or_else(process_state_error)?;
@@ -289,12 +297,44 @@ fn configure_process_tree(command: &mut Command) {
 #[cfg(not(any(unix, windows)))]
 fn configure_process_tree(_command: &mut Command) {}
 
+#[cfg(unix)]
+fn signal_process_group(process_group_id: libc::pid_t, signal: libc::c_int) -> std::io::Result<()> {
+    if !matches!(signal, libc::SIGTERM | libc::SIGKILL) {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "provider process signal is invalid",
+        ));
+    }
+    if process_group_id <= 1 {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "provider process group ID is invalid",
+        ));
+    }
+    let target = process_group_id.checked_neg().ok_or_else(|| {
+        std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "provider process group ID is invalid",
+        )
+    })?;
+    // SAFETY: `target` is the checked negative form of a group ID greater than
+    // one, so it is less than -1 and cannot select all permitted processes. The
+    // group was established for the child by `process_group(0)`. The signal is
+    // one of the two validated constants above, and this call borrows no Rust memory.
+    if unsafe { libc::kill(target, signal) } == 0 {
+        Ok(())
+    } else {
+        Err(std::io::Error::last_os_error())
+    }
+}
+
 #[cfg(windows)]
 fn claim_windows_process_tree(child: &mut Child) -> ChatResult<std::os::windows::io::OwnedHandle> {
     use std::ffi::c_void;
-    use std::mem::{size_of, zeroed};
+    use std::mem::size_of;
     use std::os::windows::io::{AsRawHandle, FromRawHandle, OwnedHandle};
-    use windows::Win32::Foundation::HANDLE;
+    use windows::core::HRESULT;
+    use windows::Win32::Foundation::{ERROR_INVALID_DATA, ERROR_INVALID_STATE, HANDLE};
     use windows::Win32::System::Diagnostics::ToolHelp::{
         CreateToolhelp32Snapshot, Thread32First, Thread32Next, TH32CS_SNAPTHREAD, THREADENTRY32,
     };
@@ -303,14 +343,24 @@ fn claim_windows_process_tree(child: &mut Child) -> ChatResult<std::os::windows:
         SetInformationJobObject, JOBOBJECT_EXTENDED_LIMIT_INFORMATION,
         JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE,
     };
-    use windows::Win32::System::Threading::{OpenThread, ResumeThread, THREAD_SUSPEND_RESUME};
+    use windows::Win32::System::Threading::{
+        GetProcessIdOfThread, OpenThread, ResumeThread, THREAD_QUERY_LIMITED_INFORMATION,
+        THREAD_SUSPEND_RESUME,
+    };
 
     let setup = || -> Result<OwnedHandle, windows::core::Error> {
+        // SAFETY: Null security attributes and name request a private job object.
+        // The returned noninvalid handle is immediately transferred to OwnedHandle.
         let raw_job = unsafe { CreateJobObjectW(None, None) }?;
+        // SAFETY: CreateJobObjectW returned a new handle owned by this call, and no
+        // other Rust owner exists. OwnedHandle will close it exactly once.
         let job = unsafe { OwnedHandle::from_raw_handle(raw_job.0) };
         let job_handle = HANDLE(job.as_raw_handle());
         let mut limits = JOBOBJECT_EXTENDED_LIMIT_INFORMATION::default();
         limits.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
+        // SAFETY: `job_handle` and the child process handle are live for the
+        // calls. `limits` has the exact type and byte size required by Windows;
+        // neither call retains the supplied pointer or transfers handle ownership.
         unsafe {
             SetInformationJobObject(
                 job_handle,
@@ -325,21 +375,77 @@ fn claim_windows_process_tree(child: &mut Child) -> ChatResult<std::os::windows:
         }
 
         let process_id = child.id().ok_or_else(windows::core::Error::from_win32)?;
+        // SAFETY: This requests a read-only system thread snapshot and returns a
+        // new handle on success.
         let raw_snapshot = unsafe { CreateToolhelp32Snapshot(TH32CS_SNAPTHREAD, 0) }?;
+        // SAFETY: The successful snapshot call returned a new owned handle. It is
+        // transferred immediately and will be closed exactly once.
         let snapshot = unsafe { OwnedHandle::from_raw_handle(raw_snapshot.0) };
-        let mut entry: THREADENTRY32 = unsafe { zeroed() };
-        entry.dwSize = size_of::<THREADENTRY32>() as u32;
+        let entry_size = size_of::<THREADENTRY32>() as u32;
+        let required_entry_size =
+            (std::mem::offset_of!(THREADENTRY32, th32OwnerProcessID) + size_of::<u32>()) as u32;
+        let new_thread_entry = || THREADENTRY32 {
+            dwSize: entry_size,
+            ..THREADENTRY32::default()
+        };
+        let mut entry = new_thread_entry();
+        // SAFETY: `snapshot` stays open and `entry` is a writable output buffer
+        // with dwSize initialized to the exact structure size.
         unsafe { Thread32First(HANDLE(snapshot.as_raw_handle()), &mut entry) }?;
         loop {
+            if entry.dwSize < required_entry_size {
+                return Err(windows::core::Error::new(
+                    HRESULT::from_win32(ERROR_INVALID_DATA.0),
+                    "ToolHelp returned a truncated thread entry",
+                ));
+            }
             if entry.th32OwnerProcessID == process_id {
-                let raw_thread =
-                    unsafe { OpenThread(THREAD_SUSPEND_RESUME, false, entry.th32ThreadID) }?;
+                // SAFETY: The thread ID came from the live snapshot. The requested
+                // access is limited to identity validation and resuming the newly
+                // created child thread.
+                let raw_thread = unsafe {
+                    OpenThread(
+                        THREAD_SUSPEND_RESUME | THREAD_QUERY_LIMITED_INFORMATION,
+                        false,
+                        entry.th32ThreadID,
+                    )
+                }?;
+                // SAFETY: OpenThread returned a new handle owned by this call. No
+                // other Rust value owns it, so OwnedHandle closes it exactly once.
                 let thread = unsafe { OwnedHandle::from_raw_handle(raw_thread.0) };
-                if unsafe { ResumeThread(HANDLE(thread.as_raw_handle())) } == u32::MAX {
+                // SAFETY: `thread` is a live handle with query access. The return
+                // value is an integer process ID and no pointer or ownership is
+                // transferred. Revalidating after OpenThread closes the TID reuse
+                // window between the Tool Help snapshot and handle acquisition.
+                let opened_process_id =
+                    unsafe { GetProcessIdOfThread(HANDLE(thread.as_raw_handle())) };
+                if opened_process_id == 0 {
                     return Err(windows::core::Error::from_win32());
+                }
+                if opened_process_id != process_id {
+                    return Err(windows::core::Error::new(
+                        HRESULT::from_win32(ERROR_INVALID_DATA.0),
+                        "ToolHelp thread identity changed before it was opened",
+                    ));
+                }
+                // SAFETY: `thread` is a live handle with THREAD_SUSPEND_RESUME
+                // access. CREATE_SUSPENDED establishes an initial count of one.
+                let previous_suspend_count =
+                    unsafe { ResumeThread(HANDLE(thread.as_raw_handle())) };
+                if previous_suspend_count == u32::MAX {
+                    return Err(windows::core::Error::from_win32());
+                }
+                if previous_suspend_count != 1 {
+                    return Err(windows::core::Error::new(
+                        HRESULT::from_win32(ERROR_INVALID_STATE.0),
+                        "Suspended provider thread had an unexpected suspend count",
+                    ));
                 }
                 return Ok(job);
             }
+            entry = new_thread_entry();
+            // SAFETY: The snapshot remains open and `entry` remains a writable
+            // buffer whose dwSize field was reset to the full structure size.
             unsafe { Thread32Next(HANDLE(snapshot.as_raw_handle()), &mut entry) }?;
         }
     };
@@ -348,6 +454,29 @@ fn claim_windows_process_tree(child: &mut Child) -> ChatResult<std::os::windows:
         let _ = child.start_kill();
         spawn_error(error)
     })
+}
+
+#[cfg(all(test, unix))]
+mod tests {
+    use super::signal_process_group;
+
+    #[test]
+    fn process_group_signaling_rejects_broad_targets() {
+        for process_group_id in [1, 0, -1, libc::pid_t::MIN] {
+            let error = signal_process_group(process_group_id, libc::SIGTERM)
+                .expect_err("broad process targets must be rejected");
+            assert_eq!(error.kind(), std::io::ErrorKind::InvalidInput);
+        }
+    }
+
+    #[test]
+    fn process_group_signaling_rejects_unapproved_signals() {
+        for signal in [0, libc::SIGSTOP] {
+            let error =
+                signal_process_group(1, signal).expect_err("unapproved signals must be rejected");
+            assert_eq!(error.kind(), std::io::ErrorKind::InvalidInput);
+        }
+    }
 }
 
 fn spawn_error<T>(_error: T) -> ChatError {

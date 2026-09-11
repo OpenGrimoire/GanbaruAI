@@ -1,39 +1,38 @@
 # Sleep alarm
 
-A mobile-only feature that wakes the user, triggers the morning diary entry, and triggers the evening diary entry when tomorrow's alarm is set. Integrates with the diary, music, and Doomscrolling.
+Sleep alarm is a planned mobile feature for dependable wake-up delivery and an optional transition into the morning diary, Music, and morning Doomscrolling rules.
 
-This doc is a placeholder. Deeper design comes in a later pass.
+## Platform boundary
 
-## Why mobile-only
+The alarm belongs on the phone likely to remain near the user overnight. Desktop does not require the user to leave a computer running to provide this feature.
 
-The alarm runs on the device that is by the user's bed. That is almost always the phone. The desktop app does not run an alarm because the desktop is typically not powered on overnight, and asking the user to leave it running just to ring an alarm is the wrong tradeoff.
+The Android design requires a native alarm, notification, audio, reboot, permission, and exact-delivery contract before implementation. It remains useful with graceful fallback when exact access is unavailable and never bypasses system silent or Do Not Disturb policy without explicit platform support and user control.
 
 ## Morning flow
 
-1. Alarm rings at the configured time.
-2. User dismisses the alarm.
-3. The morning diary screen appears immediately (see `features/diary.md`).
-4. The morning playlist starts (see `features/music.md`).
-5. Doomscrolling activates with the user's morning rules (e.g., social media blocked until the first session block starts).
+1. A native alarm delivers at the configured time.
+2. The user snoozes or dismisses it through explicit controls.
+3. Dismissal can open the optional [morning diary](diary.md).
+4. An optional wake-up [Music](music/README.md) assignment can start.
+5. Planned [morning Doomscrolling rules](doomscrolling/rules-and-activation.md) can activate.
 
-The flow is meant to be friction-free on the user side: dismiss the alarm, fill in five quick fields, and the day is set up.
+Every follow-up is separately configurable. Dismissing an alarm does not force diary disclosure, Music, or blocker activation that the user did not enable.
 
 ## Evening flow
 
-1. User sets tomorrow's alarm.
-2. The evening diary screen appears.
-3. After completion, the app can optionally show a wind-down review of the day's productivity.
+Setting the next alarm can offer the optional evening diary and a neutral wind-down review. The alarm remains saved even if the diary is skipped.
 
-## Sleep duration
+## Sleep-window estimate
 
-The system records the time from when the alarm was set to when it was dismissed. This is a rough proxy for sleep duration (it does not account for time spent falling asleep or for waking and going back to sleep). The value feeds:
+Alarm configuration time is not bedtime and must not be labeled sleep duration. The feature can record:
 
-- The sleep quality auto-suggestion in the morning diary.
-- The personal baselines that an authorized AI role can use to understand the user's energy patterns.
+- Explicit intended bedtime or sleep-window start.
+- Alarm time.
+- Snooze and dismissal time.
+- Optional user correction and self-reported sleep quality.
 
-## Linkage to other systems
+The interval from intended bedtime to dismissal is a rough sleep-window estimate, not measured sleep. It does not know sleep onset, wake periods, or sleep quality. UI and AI context must preserve that distinction.
 
-- **Diary:** triggers morning and evening entries.
-- **Music:** triggers morning playlist on alarm dismissal.
-- **Doomscrolling:** activates morning rules immediately on dismissal.
-- **Chat and AI teammates:** sleep duration can inform private personal energy baselines and scheduling suggestions. It is not shared with project participants.
+## Privacy
+
+Sleep intent and diary data remain private personal information. Project participants, reports, channels, and teammates do not receive it through project access. An explicit personal planning action can use a coarse derived capacity signal after showing what will be shared with the selected provider.

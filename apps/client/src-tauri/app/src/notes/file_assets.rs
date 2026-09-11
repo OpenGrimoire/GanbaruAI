@@ -1,12 +1,20 @@
 use crate::{db_path::connect_sqlite, vault};
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 use std::path::PathBuf;
-use tauri::{AppHandle, Manager, Runtime};
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
+use tauri::Manager;
+use tauri::{AppHandle, Runtime};
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 use tauri_plugin_dialog::{DialogExt, FilePath};
 
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
+pub use ganbaru_notes::notes::file_assets::NotesFileAssetDto;
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 pub use ganbaru_notes::notes::file_assets::{
-    NotesFileAssetDto, NotesImportFileReferenceDto, NotesImportFileReferenceRequest,
+    NotesImportFileReferenceDto, NotesImportFileReferenceRequest,
 };
 
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 #[tauri::command]
 pub async fn notes_pick_file_asset<R: Runtime>(
     app: AppHandle<R>,
@@ -32,6 +40,7 @@ pub async fn notes_pick_file_asset<R: Runtime>(
         .map(Some)
 }
 
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 #[tauri::command]
 pub async fn notes_prepare_import_file_reference<R: Runtime>(
     app: AppHandle<R>,
@@ -55,6 +64,7 @@ pub async fn notes_file_asset_data_url<R: Runtime>(
     ganbaru_notes::notes::file_assets::file_asset_data_url(&pool, &vault_root, relative_path).await
 }
 
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 fn dialog_path(path: FilePath) -> Result<PathBuf, String> {
     path.into_path()
         .map_err(|error| format!("selected path is not a local file: {error}"))

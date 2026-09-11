@@ -561,10 +561,6 @@ pub(super) fn canonical_current_directory() -> ChatResult<PathBuf> {
     })
 }
 
-pub(super) fn potential_capabilities() -> ProviderCapabilities {
-    potential_capabilities_for(AcpProviderFlavor::Cursor)
-}
-
 pub(super) fn potential_capabilities_for(flavor: AcpProviderFlavor) -> ProviderCapabilities {
     ProviderCapabilities {
         entries: acp_capability_kinds(flavor)
@@ -594,10 +590,6 @@ pub(super) fn new_session_id_for(
         NEXT_SESSION_ID.fetch_add(1, Ordering::Relaxed)
     ))
     .map_err(|_| protocol_error("local session ID"))
-}
-
-pub(super) fn new_session_id(instance: &ProviderInstanceId) -> ChatResult<ProviderSessionId> {
-    new_session_id_for(AcpProviderFlavor::Cursor, instance)
 }
 
 pub(super) fn now_utc() -> ChatResult<UtcTimestamp> {

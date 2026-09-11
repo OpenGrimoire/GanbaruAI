@@ -21,6 +21,7 @@ export interface PomodoroRuntime {
   focusExtensionUsed: boolean;
   phaseEndTime: number | null;
   activeBlockId: string | null;
+  activeBlockTitle: string | null;
   activeRunId: string | null;
   activeBlockEndMs: number | null;
   dismissedBlockId: string | null;

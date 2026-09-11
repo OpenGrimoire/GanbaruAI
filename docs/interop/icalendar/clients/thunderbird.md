@@ -34,17 +34,9 @@ Expected handling:
 - Preserve alarms and custom fields.
 - Preserve unsupported task fields for later kanban or task integration.
 
-## Export from Ganbaru AI into Thunderbird
+## Manual test
 
-Manual checks:
-
-1. Create a disposable Thunderbird calendar.
-2. Import Ganbaru AI-generated event fixtures from `apps/client/test-fixtures/ics/rfc5545/`.
-3. Verify event time, all-day, recurrence, alarms, and attendees.
-4. Add Thunderbird tasks and export a mixed calendar.
-5. Import the mixed calendar into Ganbaru AI.
-6. Confirm tasks are preserved even if not rendered.
-7. Re-export from Ganbaru AI and import back into Thunderbird.
+Use the [shared client procedure](./README.md#shared-procedure). Include a mixed event and task calendar, and record the Thunderbird version, operating system, and calendar storage type.
 
 ## Behavior to verify
 
@@ -57,12 +49,3 @@ Manual checks:
 ## Observed behavior log
 
 No manual Ganbaru AI compatibility run recorded yet.
-
-Record:
-
-- Thunderbird version
-- operating system
-- calendar storage type
-- task mode availability
-- fixture names
-- round-trip differences

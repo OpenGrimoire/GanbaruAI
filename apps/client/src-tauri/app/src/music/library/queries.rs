@@ -545,12 +545,7 @@ pub(crate) async fn source_summaries(
                 SUM(CASE WHEN item.review_state = 'unreviewed' THEN 1 ELSE 0 END) AS unreviewed_count,
                 SUM(CASE WHEN item.availability = 'unavailable' THEN 1 ELSE 0 END) AS unavailable_count,
                 SUM(CASE WHEN item.availability = 'ambiguous' THEN 1 ELSE 0 END) AS ambiguous_count,
-                ((SELECT COUNT(*) FROM music_library_repair_issues AS issue
-                 WHERE issue.resolved_at IS NULL AND issue.item_id IN (
-                    SELECT nested.item_id FROM music_source_collection_items AS nested
-                    WHERE nested.collection_id = source.id
-                 )) +
-                 (SELECT COUNT(*) FROM music_refresh_job_issues AS refresh_issue
+                ((SELECT COUNT(*) FROM music_refresh_job_issues AS refresh_issue
                   JOIN music_refresh_jobs AS refresh_job ON refresh_job.id = refresh_issue.job_id
                   WHERE refresh_job.source_collection_id = source.id
                     AND refresh_issue.issue_code <> 'metadata-fallback'
@@ -653,41 +648,29 @@ pub(crate) async fn issues(
         "SELECT id, issue_kind, item_id, playlist_id, collection_id, root_id,
                 relative_path, action_required, message, created_at
              FROM (
-                SELECT repair.id, repair.issue_kind, repair.item_id, repair.playlist_id,
-                    (SELECT source_item.collection_id
-                     FROM music_source_collection_items AS source_item
-                     WHERE source_item.item_id = repair.item_id
-                     ORDER BY source_item.collection_id LIMIT 1) AS collection_id,
-                    (SELECT source.local_root_id
-                     FROM music_source_collections AS source
-                     JOIN music_source_collection_items AS source_item ON source_item.collection_id = source.id
-                     WHERE source_item.item_id = repair.item_id
-                     ORDER BY source.id LIMIT 1) AS root_id,
-                    NULL AS relative_path, 1 AS action_required,
-                    repair.message, repair.created_at
-                FROM music_library_repair_issues AS repair WHERE repair.resolved_at IS NULL
-                UNION ALL
-                SELECT 'availability:' || item.id,
+                SELECT 'availability:' || item.id AS id,
                     CASE
                         WHEN item.youtube_resolution_state = 'embedding-blocked' THEN 'youtube-embedding-blocked'
                         WHEN item.youtube_resolution_state = 'timed-out' THEN 'youtube-timed-out'
                         WHEN item.source_kind = 'youtube-video' THEN 'youtube-unavailable'
                         ELSE 'item-' || item.availability
-                    END,
-                    item.id, NULL,
+                    END AS issue_kind,
+                    item.id AS item_id, NULL AS playlist_id,
                     (SELECT source_item.collection_id FROM music_source_collection_items AS source_item
-                     WHERE source_item.item_id = item.id ORDER BY source_item.collection_id LIMIT 1),
+                     WHERE source_item.item_id = item.id ORDER BY source_item.collection_id LIMIT 1)
+                        AS collection_id,
                     (SELECT location.root_id FROM music_local_locations AS location
-                     WHERE location.item_id = item.id ORDER BY location.root_id LIMIT 1),
+                     WHERE location.item_id = item.id ORDER BY location.root_id LIMIT 1) AS root_id,
                     (SELECT location.relative_path FROM music_local_locations AS location
-                     WHERE location.item_id = item.id ORDER BY location.root_id, location.relative_path LIMIT 1),
-                    1,
+                     WHERE location.item_id = item.id ORDER BY location.root_id, location.relative_path LIMIT 1)
+                        AS relative_path,
+                    1 AS action_required,
                     CASE item.availability
                         WHEN 'missing' THEN 'The local media location is missing.'
                         WHEN 'ambiguous' THEN 'The media identity needs confirmation.'
                         ELSE 'The online media is unavailable.'
-                    END,
-                    item.updated_at
+                    END AS message,
+                    item.updated_at AS created_at
                 FROM music_library_items AS item
                 WHERE item.availability IN ('missing', 'ambiguous', 'unavailable')
                 UNION ALL

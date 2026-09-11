@@ -20,6 +20,7 @@
     updateNotesDataSourceTableView,
   } from "$lib/api/notes";
   import { getLocalization } from "$lib/i18n/translator.svelte";
+  import { BUILD_PLATFORM_PROFILE, platformHasCapability } from "$lib/platform";
   import {
     notesDatabaseTableEditValuesEqual,
     notesDatabaseTableCellEditValue,
@@ -78,6 +79,10 @@
   } = $props();
 
   const { t } = getLocalization();
+  const fileExportAvailable = platformHasCapability(
+    BUILD_PLATFORM_PROFILE,
+    "notes.file-export",
+  );
   const FILTER_CONDITIONS: NotesDatabaseTableFilterCondition[] = [
     "contains",
     "equals",
@@ -172,6 +177,7 @@
   async function loadTable(): Promise<NotesDataSourceTableView | null> {
     const requestId = ++tableRequestId;
     loading = true;
+    loadingMore = false;
     error = null;
     try {
       const [loaded, loadedTemplates] = await Promise.all([
@@ -196,10 +202,11 @@
       await focusPendingRow(loaded);
       return loaded;
     } catch (caught) {
+      if (requestId !== tableRequestId) return null;
       error = caught instanceof Error ? caught.message : String(caught);
       return null;
     } finally {
-      loading = false;
+      if (requestId === tableRequestId) loading = false;
     }
   }
 
@@ -710,7 +717,9 @@
 
       <div class="flex flex-wrap gap-2">
         <button class="min-h-8 rounded-md border border-border px-2 text-[0.8rem] hover:bg-accent" type="button" onclick={() => requestCsvPanel("database-csv-import")}>{t("notes.databaseCsvImportTitle")}</button>
+        {#if fileExportAvailable}
         <button class="min-h-8 rounded-md border border-border px-2 text-[0.8rem] hover:bg-accent" type="button" onclick={() => requestCsvPanel("database-csv-export")}>{t("notes.databaseCsvExportTitle")}</button>
+        {/if}
       </div>
       {#if csvPanelOpen === "database-csv-import" && csvPanelLoadState?.status === "ready" && csvPanelLoadState.component.kind === "database-csv-import"}
         {@const NotesDatabaseCsvImportPanel = csvPanelLoadState.component.component}
@@ -721,7 +730,7 @@
             await loadTable();
           }}
         />
-      {:else if csvPanelOpen === "database-csv-export" && csvPanelLoadState?.status === "ready" && csvPanelLoadState.component.kind === "database-csv-export"}
+      {:else if fileExportAvailable && csvPanelOpen === "database-csv-export" && csvPanelLoadState?.status === "ready" && csvPanelLoadState.component.kind === "database-csv-export"}
         {@const NotesDatabaseCsvExportPanel = csvPanelLoadState.component.component}
         <NotesDatabaseCsvExportPanel
           {dataSourceId}

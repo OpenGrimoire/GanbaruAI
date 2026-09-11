@@ -4,9 +4,11 @@ use super::models::{
     ChatThreadId, ProjectWorkingFolderId, ProviderInstanceId, ProviderModelCatalog,
     ProviderProbeResult, UtcTimestamp,
 };
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 use crate::vault::{active_vault_id, read_app_state, update_app_state, vault_device_id};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 use tauri::Runtime;
 
 pub const CHAT_DEVICE_STATE_SCHEMA_VERSION: u32 = 1;
@@ -29,6 +31,7 @@ pub struct ChatMachinePreferences {
 }
 
 pub const DEFAULT_DIAGNOSTIC_RETENTION_DAYS: u16 = 7;
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 pub const MAX_DIAGNOSTIC_RETENTION_DAYS: u16 = 30;
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -50,16 +53,11 @@ impl Default for ChatDiagnosticPreferences {
 #[derive(Clone, Debug, Default, Deserialize, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ChatDeviceScope {
-    #[serde(default)]
     pub provider_instances: BTreeMap<ProviderInstanceId, ChatProviderDeviceState>,
-    #[serde(default)]
     pub full_access_trust:
         BTreeMap<ProviderInstanceId, BTreeMap<ProjectWorkingFolderId, UtcTimestamp>>,
-    #[serde(default)]
     pub preferences: ChatMachinePreferences,
-    #[serde(default)]
     pub diagnostics: ChatDiagnosticPreferences,
-    #[serde(default)]
     pub execution_environment_paths: BTreeMap<String, String>,
 }
 
@@ -67,7 +65,6 @@ pub struct ChatDeviceScope {
 #[serde(rename_all = "camelCase")]
 pub struct ChatDeviceState {
     pub schema_version: u32,
-    #[serde(default)]
     pub vaults: BTreeMap<String, BTreeMap<String, ChatDeviceScope>>,
 }
 
@@ -80,6 +77,7 @@ impl Default for ChatDeviceState {
     }
 }
 
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 impl ChatDeviceState {
     pub fn scope(&self, vault_id: &str, device_id: &str) -> Option<&ChatDeviceScope> {
         self.vaults
@@ -96,6 +94,7 @@ impl ChatDeviceState {
     }
 }
 
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 pub fn full_access_is_trusted(
     scope: &ChatDeviceScope,
     provider_instance_id: &ProviderInstanceId,
@@ -107,6 +106,7 @@ pub fn full_access_is_trusted(
         .is_some_and(|workspaces| workspaces.contains_key(working_folder_id))
 }
 
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 pub fn set_full_access_trust(
     scope: &mut ChatDeviceScope,
     provider_instance_id: ProviderInstanceId,
@@ -130,6 +130,7 @@ pub fn set_full_access_trust(
     }
 }
 
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 pub fn read_active_device_scope<R: Runtime>(
     app: &tauri::AppHandle<R>,
 ) -> Result<ChatDeviceScope, String> {
@@ -143,6 +144,7 @@ pub fn read_active_device_scope<R: Runtime>(
         .unwrap_or_default())
 }
 
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 pub fn update_active_device_scope<R: Runtime, T>(
     app: &tauri::AppHandle<R>,
     update: impl FnOnce(&mut ChatDeviceScope) -> Result<T, String>,

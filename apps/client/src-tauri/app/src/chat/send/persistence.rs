@@ -225,7 +225,7 @@ pub(super) async fn persist_user_turn(context: PersistUserTurnContext<'_>) -> Ch
     .map_err(json_error)?;
     let user_context = serde_json::to_string(&json!({
         "attachments": attachments.iter().map(|attachment| json!({
-            "id": attachment.attachment_id,
+            "attachmentId": attachment.attachment_id,
             "displayName": attachment.display_name,
             "kind": attachment.kind,
             "mimeType": attachment.mime_type,

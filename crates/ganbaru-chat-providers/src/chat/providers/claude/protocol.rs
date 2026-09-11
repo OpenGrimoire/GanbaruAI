@@ -48,6 +48,8 @@ pub struct ClaudeInitializeResponse {
     #[serde(default)]
     pub models: Vec<ClaudeModel>,
     pub account: Option<ClaudeAccount>,
+    // Deserialized to validate the provider's advertised wire shape.
+    #[allow(dead_code)]
     #[serde(default)]
     pub output_style: String,
 }
@@ -130,33 +132,6 @@ pub struct ClaudeResumeCursor {
     pub session_uuid: String,
     pub last_assistant_uuid: Option<String>,
     pub turn_count: u64,
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct ClaudeCompatibilityEvidence {
-    pub version: ClaudeVersion,
-    pub partial_messages: bool,
-    pub session_uuid: bool,
-    pub resume: bool,
-    pub approval_callback: bool,
-    pub structured_questions: bool,
-    pub interrupt: bool,
-    pub model_change: bool,
-    pub native_plan: bool,
-}
-
-impl ClaudeCompatibilityEvidence {
-    pub fn supports_native_transport(self) -> bool {
-        self.version >= MINIMUM_CLAUDE_VERSION
-            && self.partial_messages
-            && self.session_uuid
-            && self.resume
-            && self.approval_callback
-            && self.structured_questions
-            && self.interrupt
-            && self.model_change
-            && self.native_plan
-    }
 }
 
 pub fn parse_version(value: &str) -> ChatResult<ClaudeVersion> {
@@ -292,29 +267,6 @@ pub fn permission_mode(modes: TurnModeSnapshot) -> Option<&'static str> {
     }
 }
 
-pub fn initialize_request() -> Value {
-    json!({
-        "type": "control_request",
-        "request_id": "ganbaru-initialize",
-        "request": {
-            "subtype": "initialize",
-            "supportedDialogKinds": [],
-        },
-    })
-}
-
-pub fn control_request(request_id: &str, request: Value) -> ChatResult<Value> {
-    validate_protocol_id(request_id, "requestId")?;
-    if !request.is_object() {
-        return Err(protocol_error("control request body"));
-    }
-    Ok(json!({
-        "type": "control_request",
-        "request_id": request_id,
-        "request": request,
-    }))
-}
-
 pub fn control_success(request_id: &str, response: Value) -> ChatResult<Value> {
     validate_protocol_id(request_id, "requestId")?;
     if !response.is_object() {
@@ -326,18 +278,6 @@ pub fn control_success(request_id: &str, response: Value) -> ChatResult<Value> {
             "subtype": "success",
             "request_id": request_id,
             "response": response,
-        },
-    }))
-}
-
-pub fn control_error(request_id: &str, message: &str) -> ChatResult<Value> {
-    validate_protocol_id(request_id, "requestId")?;
-    Ok(json!({
-        "type": "control_response",
-        "response": {
-            "subtype": "error",
-            "request_id": request_id,
-            "error": bounded_text(message, 2_048),
         },
     }))
 }
@@ -861,17 +801,6 @@ fn required_text<'a>(object: &'a Map<String, Value>, key: &str) -> ChatResult<&'
         .and_then(Value::as_str)
         .filter(|value| !value.is_empty())
         .ok_or_else(|| protocol_error(key))
-}
-
-fn bounded_text(value: &str, maximum: usize) -> String {
-    if value.len() <= maximum {
-        return value.to_string();
-    }
-    let mut end = maximum;
-    while end > 0 && !value.is_char_boundary(end) {
-        end -= 1;
-    }
-    value[..end].to_string()
 }
 
 fn unsupported_version() -> ChatError {

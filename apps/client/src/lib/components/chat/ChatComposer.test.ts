@@ -631,7 +631,12 @@ describe("ChatComposer", () => {
 
     expect(target.querySelector('[role="dialog"]')).toBeNull();
     let dialog = document.body.querySelector<HTMLElement>('.confirm-dialog[role="dialog"]');
-    expect(dialog?.closest(".fixed.inset-0")).not.toBeNull();
+    const dialogViewport = dialog?.parentElement;
+    expect(dialogViewport?.classList.contains("fixed")).toBe(true);
+    expect(dialogViewport?.style.left).toBe("var(--visual-viewport-offset-left)");
+    expect(dialogViewport?.style.top).toBe("var(--visual-viewport-offset-top)");
+    expect(dialogViewport?.style.width).toBe("var(--visual-viewport-width)");
+    expect(dialogViewport?.style.height).toBe("var(--visual-viewport-height)");
     expect(dialog?.textContent).toContain("Allow Full access?");
     expect(dialog?.textContent).toContain("Unrestricted access to the internet and any file");
     expect(dialog?.textContent).not.toContain("Example");

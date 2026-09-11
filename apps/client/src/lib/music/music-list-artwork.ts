@@ -1,4 +1,5 @@
 import type { LocalRootBinding, MusicItemListEntry } from "$lib/music/library-contracts";
+import { resolveLocalMusicPath } from "$lib/music/platform-paths";
 
 export type MusicListArtworkSource =
   | { kind: "file"; path: string }
@@ -16,20 +17,15 @@ export function musicListArtworkSource(
   if (item.originalArtworkIdentity?.startsWith("sidecar:")) {
     return {
       kind: "file",
-      path: joinLocalPath(root, item.originalArtworkIdentity.slice("sidecar:".length)),
+      path: resolveLocalMusicPath(root, item.originalArtworkIdentity.slice("sidecar:".length)),
     };
   }
   if (item.originalArtworkIdentity?.startsWith("embedded:") && item.relativePath) {
     return {
       kind: "embedded",
-      path: joinLocalPath(root, item.relativePath),
+      path: resolveLocalMusicPath(root, item.relativePath),
       identity: item.originalArtworkIdentity,
     };
   }
   return null;
-}
-
-function joinLocalPath(root: string, relativePath: string): string {
-  const separator = root.includes("\\") && !root.includes("/") ? "\\" : "/";
-  return `${root.replace(/[\\/]+$/u, "")}${separator}${relativePath.replace(/[\\/]+/gu, separator)}`;
 }

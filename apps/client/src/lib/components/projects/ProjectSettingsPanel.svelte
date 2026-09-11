@@ -1,8 +1,9 @@
 <script lang="ts">
   import { onDestroy, tick } from "svelte";
-  import { getMusicContextAssignments, getMusicPlaylistSummaries } from "$lib/api/music-library";
+  import { getMusicContextAssignments, getMusicPlaylistSummaries } from "$lib/music/platform-library";
   import { FALLBACK_COLOR_INDEX, type EventColor } from "$lib/components/calendar/types";
   import { getLocalization } from "$lib/i18n/translator.svelte";
+  import { BUILD_PLATFORM_PROFILE, platformHasCapability } from "$lib/platform";
   import type { PomodoroPresetKey } from "$lib/pomodoro/rhythm";
   import {
     PROJECT_POMODORO_PRESET_ORDER,
@@ -12,14 +13,11 @@
   } from "$lib/projects/project-display";
   import {
     projectSettingsPriorityColorDraftValue,
-    projectSettingsPriorityDraftDirty,
     projectSettingsPriorityNameDraftValue,
     projectSettingsStatusCategoryDraftValue,
     projectSettingsStatusColorDraftValue,
-    projectSettingsStatusDraftDirty,
     projectSettingsStatusNameDraftValue,
     projectSettingsTagColorDraftValue,
-    projectSettingsTagDraftDirty,
     projectSettingsTagNameDraftValue,
     projectSettingsTagNameExists,
     type ProjectSettingsPriorityDraftState,
@@ -61,7 +59,7 @@
   import ProjectSettingsDefaultsSection from "./ProjectSettingsDefaultsSection.svelte";
   import ProjectSettingsDeleteDialogs from "./ProjectSettingsDeleteDialogs.svelte";
   import ProjectSettingsIdentitySection from "./ProjectSettingsIdentitySection.svelte";
-  import ProjectSettingsWorkingFoldersSection from "./ProjectSettingsWorkingFoldersSection.svelte";
+  import ProjectSettingsWorkingFoldersSection from "$lib/components/projects/ProjectSettingsWorkingFoldersSection.svelte";
   import { projectHasLockedSystemIdentity } from "$lib/projects/project-system-defaults";
   import ProjectSettingsPanelShell from "./ProjectSettingsPanelShell.svelte";
   import ProjectSettingsPrioritiesSection from "./ProjectSettingsPrioritiesSection.svelte";
@@ -85,6 +83,18 @@
   const projects = getProjects();
   const theme = getTheme();
   const { t } = getLocalization();
+  const musicAssignmentsAvailable = platformHasCapability(
+    BUILD_PLATFORM_PROFILE,
+    "music.context-assignments",
+  );
+  const workingFoldersAvailable = platformHasCapability(
+    BUILD_PLATFORM_PROFILE,
+    "projects.working-folders",
+  );
+  const idleDetectionAvailable = platformHasCapability(
+    BUILD_PLATFORM_PROFILE,
+    "pomodoro.native-idle-detection",
+  );
 
   const PROJECT_STATUS_CATEGORIES: ProjectStatusCategory[] = ["not_started", "active", "blocked", "done"];
   const NEW_STATUS_FIRST_COLOR: EventColor = 8;
@@ -247,7 +257,16 @@
     customFields.resetTransientState();
     clearCustomFieldDrag();
     clearCustomFieldOptionDrag();
-    void loadMusicAssignments(project.id);
+    if (musicAssignmentsAvailable) {
+      void loadMusicAssignments(project.id);
+    } else {
+      musicAssignments = completeMusicAssignmentDrafts([]);
+      savedMusicAssignments = completeMusicAssignmentDrafts([]);
+      musicPlaylists = [];
+      musicAssignmentsProjectId = null;
+      musicAssignmentsLoading = false;
+      musicAssignmentsError = null;
+    }
   }
 
   async function loadMusicAssignments(projectId: string): Promise<void> {
@@ -408,18 +427,14 @@
     return projectSettingsTagColorDraftValue(tag, tagDraftState());
   }
 
-  function tagDraftDirty(tag: ProjectTag): boolean {
-    return projectSettingsTagDraftDirty(tag, tagDraftState());
-  }
-
   const nextUnusedStatusColor = createProjectSettingsColorAllocator({
     entries: () => statuses, color: statusColorDraftValue, fallback: NEW_STATUS_FIRST_COLOR,
   });
   const nextUnusedPriorityColor = createProjectSettingsColorAllocator({
-    entries: () => priorities, color: priorityColorDraftValue, fallback: NEW_STATUS_FIRST_COLOR,
+    entries: () => priorities, color: priorityColorDraftValue, fallback: NEW_PRIORITY_FIRST_COLOR,
   });
   const nextUnusedTagColor = createProjectSettingsColorAllocator({
-    entries: () => projectTags, color: tagColorDraftValue, fallback: NEW_STATUS_FIRST_COLOR,
+    entries: () => projectTags, color: tagColorDraftValue, fallback: NEW_TAG_FIRST_COLOR,
   });
 
   function tagNameExists(name: string, ignoredTagId?: string): boolean {
@@ -435,10 +450,6 @@
   const clearTagDrag = tagReorder.clear;
   const clearCustomFieldDrag = customFieldReorder.clear;
   const clearCustomFieldOptionDrag = customFieldOptionReorder.clear;
-
-  function statusDraftDirty(status: ProjectStatus): boolean {
-    return projectSettingsStatusDraftDirty(status, statusDraftState());
-  }
 
   function statusNameDraftValue(status: ProjectStatus): string {
     return projectSettingsStatusNameDraftValue(status, statusDraftState());
@@ -499,20 +510,19 @@
       await projects.removeStatus(status.id);
       const remainingNames = { ...sessionState.statusNameDrafts };
       const remainingCategories = { ...sessionState.statusCategoryDrafts };
+      const remainingColors = { ...sessionState.statusColorDrafts };
       delete remainingNames[status.id];
       delete remainingCategories[status.id];
+      delete remainingColors[status.id];
       sessionState.statusNameDrafts = remainingNames;
       sessionState.statusCategoryDrafts = remainingCategories;
+      sessionState.statusColorDrafts = remainingColors;
     } catch (error) {
       sessionState.projectSettingsError = t(
         "projects.settings.statusDeleteFailed",
         error instanceof Error ? error.message : String(error),
       );
     }
-  }
-
-  function priorityDraftDirty(priority: ProjectPriorityConfig): boolean {
-    return projectSettingsPriorityDraftDirty(priority, priorityDraftState());
   }
 
   function priorityNameDraftValue(priority: ProjectPriorityConfig): string {
@@ -595,7 +605,7 @@
       await projects.addPriority(selectedProjectId, name, createdColor);
       sessionState.newPriorityName = "";
       sessionState.newPriorityColor = nextUnusedPriorityColor(
-        nextProjectSettingsPaletteColor(createdColor, NEW_STATUS_FIRST_COLOR),
+        nextProjectSettingsPaletteColor(createdColor, NEW_PRIORITY_FIRST_COLOR),
         createdColor,
       );
       await scrollToNewPriorityRow();
@@ -662,7 +672,7 @@
       await projects.addTag(selectedProjectId, name, createdColor);
       sessionState.newTagName = "";
       sessionState.newTagColor = nextUnusedTagColor(
-        nextProjectSettingsPaletteColor(createdColor, NEW_STATUS_FIRST_COLOR),
+        nextProjectSettingsPaletteColor(createdColor, NEW_TAG_FIRST_COLOR),
         createdColor,
       );
       await scrollToNewTagRow();
@@ -823,9 +833,11 @@
 
           <div class="h-px bg-border/70" aria-hidden="true"></div>
 
-          <ProjectSettingsWorkingFoldersSection projectId={selectedProject.id} />
+          {#if workingFoldersAvailable}
+            <ProjectSettingsWorkingFoldersSection projectId={selectedProject.id} />
 
-          <div class="h-px bg-border/70" aria-hidden="true"></div>
+            <div class="h-px bg-border/70" aria-hidden="true"></div>
+          {/if}
 
           <ProjectSettingsDefaultsSection
             theme={theme.current}
@@ -851,6 +863,8 @@
             loadingMusicPlaylists={musicAssignmentsLoading}
             {musicAssignmentsError}
             musicAssignmentsDisabled={musicAssignmentsProjectId !== selectedProject.id}
+            {musicAssignmentsAvailable}
+            {idleDetectionAvailable}
             onRetryMusicAssignments={() => {
               if (selectedProject) void loadMusicAssignments(selectedProject.id);
             }}

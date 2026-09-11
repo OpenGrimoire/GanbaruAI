@@ -50,7 +50,7 @@ fn public_status_preserves_camel_case_wire_shape() {
 
 #[test]
 fn command_adapters_are_registered_at_their_defining_modules() {
-    let handlers = include_str!("../../lib.rs");
+    let handlers = include_str!("../../desktop_runtime.rs");
     for command in [
         "doomscrolling::commands::doomscrolling_close_desktop_app",
         "doomscrolling::commands::doomscrolling_close_current_foreground_desktop_app",

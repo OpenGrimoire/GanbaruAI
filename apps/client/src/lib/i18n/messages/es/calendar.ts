@@ -12,6 +12,7 @@ export const calendar = {
     workCycleView: "Vista de ciclo laboral",
     weekView: "Vista de semana",
     monthView: "Vista de mes",
+    views: "Vistas del calendario",
     zoomOut: "Reducir zoom",
     zoomOutTitle: "Reducir zoom (Shift + -)",
     zoomIn: "Aumentar zoom",
@@ -21,6 +22,10 @@ export const calendar = {
     readOnly: "solo lectura",
     settings: "Ajustes",
   },
+  timePicker: {
+    durationHours: (hours: string, _singular: boolean) => `${hours} h`,
+  },
+  moreEvents: (count: string) => `+${count} más`,
   recurrence: {
     daily: "Diario",
     weekly: "Semanal",
@@ -95,6 +100,18 @@ export const calendar = {
     before: "antes",
     custom: "Personalizada",
     removeCustom: "Eliminar notificación personalizada",
+    androidChannelName: "Eventos del calendario",
+    androidChannelDescription: "Recordatorios de próximos eventos del calendario de Ganbaru AI",
+    permissionRequired:
+      "Las notificaciones de Android están desactivadas. Permítelas para recibir recordatorios cuando Ganbaru AI esté cerrado.",
+    exactAlarmRequired:
+      "Las alarmas exactas de Android están desactivadas. Los recordatorios pueden llegar tarde hasta que permitas el acceso a Alarmas y recordatorios.",
+    channelRestricted:
+      "Android silenció o desactivó el canal de recordatorios del calendario. Actualiza sus ajustes de sonido para recibir recordatorios audibles.",
+    allowNotifications: "Permitir notificaciones",
+    openNotificationSettings: "Abrir ajustes de notificaciones",
+    allowExactAlarms: "Permitir alarmas exactas",
+    openSoundSettings: "Abrir ajustes de sonido",
   },
   pomodoro: {
     title: "Pomodoro",
@@ -114,6 +131,15 @@ export const calendar = {
     longBreakCompact: "DL",
     longBreakAfter: "Descanso largo tras",
     cycleCompact: "C",
+    sequenceSummary: (
+      steps: string,
+      singular: boolean,
+      focusMinutes: string,
+      breakMinutes: string,
+    ) => `Secuencia (${steps} ${singular ? "paso" : "pasos"}, ${focusMinutes} min de enfoque, ${breakMinutes} min de descanso)`,
+    sequencePreserved: (count: string, singular: boolean) =>
+      `Secuencia de ${count} ${singular ? "paso conservada" : "pasos conservada"}`,
+    convertSequenceToSimple: "Convertir a ritmo simple",
     pauseOnInactivity: "Pausar por inactividad",
   },
   meeting: {
@@ -131,7 +157,7 @@ export const calendar = {
     seeList: "Ver lista",
     seeGuestList: "Ver lista de invitados",
     youWithEmail: (email: string) => `Tú (${email})`,
-    youLocalNoEmail: "Tú (local, sin correo configurado)",
+    youLocalNoEmail: "Tú (sin correo configurado)",
     organizer: "organizador",
     statusPending: "pendiente",
     statusAccepted: "aceptado",
@@ -200,6 +226,7 @@ export const calendar = {
     following: "Siguientes",
     all: "Todos",
     titlePlaceholder: "Título de sesión...",
+    metadataControls: "Horario y visibilidad del evento",
     allDay: "Todo el día",
     timed: "Con hora",
     busy: "Ocupado",

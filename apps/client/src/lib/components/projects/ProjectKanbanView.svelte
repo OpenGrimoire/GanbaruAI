@@ -42,6 +42,7 @@
     onToggleTaskSelection,
     columnCounts,
     onNeedMore,
+    mobileLayout = false,
   }: {
     tasks: ProjectTask[];
     statuses: ProjectStatus[];
@@ -53,6 +54,7 @@
     onToggleTaskSelection: (task: ProjectTask) => void;
     columnCounts: ProjectTaskColumnCount[];
     onNeedMore: () => void;
+    mobileLayout?: boolean;
   } = $props();
 
   const projects = getProjects();
@@ -268,13 +270,14 @@
   }
 </script>
 
-<div class="flex h-full min-h-0 gap-3 overflow-x-auto p-3">
+<div class={cn("flex h-full min-h-0 overflow-x-auto", mobileLayout ? "snap-x snap-mandatory gap-2 p-2" : "gap-3 p-3")}>
   {#each statuses as status (status.id)}
     {@const statusTasks = tasksForStatus(status)}
     {@const visibleStatusTasks = visibleTasksForStatus(status)}
     <section
       class={cn(
-        "flex h-full min-h-0 w-64 shrink-0 flex-col gap-2 rounded-lg border border-transparent p-1",
+        "flex h-full min-h-0 shrink-0 flex-col gap-2 rounded-lg border border-transparent p-1",
+        mobileLayout ? "w-[min(20rem,calc(100vw-1rem))] snap-start" : "w-64",
         kanbanDragOverStatusId === status.id && "border-primary/40 bg-primary/5",
       )}
       role="list"
@@ -314,7 +317,8 @@
             ondragover={(event) => handleKanbanCardDragOver(event, status, task)}
             ondrop={(event) => { void dropKanbanTask(event, status, task, kanbanCardDropPosition(event)); }}
           >
-            <div class="grid grid-cols-[auto_auto_minmax(0,1fr)] gap-2">
+            <div class={cn("grid gap-2", mobileLayout ? "grid-cols-[auto_minmax(0,1fr)]" : "grid-cols-[auto_auto_minmax(0,1fr)]")}>
+              {#if !mobileLayout}
               <button
                 type="button"
                 class="mt-0.5 flex h-5 w-5 shrink-0 cursor-grab items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-foreground active:cursor-grabbing disabled:cursor-not-allowed disabled:opacity-40"
@@ -327,10 +331,12 @@
               >
                 <GripVertical size={13} strokeWidth={1.75} />
               </button>
+              {/if}
               <button
                 type="button"
                 class={cn(
-                  "mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded border",
+                  "mt-0.5 flex shrink-0 items-center justify-center rounded border",
+                  mobileLayout ? "h-12 w-12" : "h-5 w-5",
                   taskSelected(task) ? "border-primary bg-primary text-primary-foreground" : "border-border hover:bg-accent",
                 )}
                 aria-label={taskSelected(task) ? t("projects.actions.unselectTask", task.title) : t("projects.actions.selectTask", task.title)}
@@ -383,7 +389,7 @@
             <div class="mt-2 grid grid-cols-[auto_auto_minmax(0,1fr)_auto_auto] items-center gap-1 border-t border-border/70 pt-2">
               <button
                 type="button"
-                class="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40"
+                class="flex items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40 {mobileLayout ? 'h-12 w-12' : 'h-7 w-7'}"
                 disabled={Boolean(task.archivedAt) || !previousStatus}
                 aria-label={previousStatus ? t("projects.actions.moveTaskToStatus", task.title, previousStatus.name) : t("projects.actions.noPreviousStatus")}
                 title={previousStatus ? t("projects.actions.moveTaskToStatus", task.title, previousStatus.name) : t("projects.actions.noPreviousStatus")}
@@ -393,7 +399,7 @@
               </button>
               <button
                 type="button"
-                class="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40"
+                class="flex items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40 {mobileLayout ? 'h-12 w-12' : 'h-7 w-7'}"
                 disabled={Boolean(task.archivedAt) || taskSortMode !== "manual" || !previousStatusTask}
                 aria-label={previousStatusTask ? t("projects.actions.moveTaskUp", task.title) : t("projects.actions.noPreviousTask")}
                 title={previousStatusTask ? t("projects.actions.moveTaskUp", task.title) : t("projects.actions.noPreviousTask")}
@@ -403,14 +409,14 @@
               </button>
               <button
                 type="button"
-                class="min-w-0 rounded border border-border px-1.5 py-0.5 text-[0.733333rem] text-muted-foreground hover:bg-accent hover:text-foreground"
+                class="min-w-0 rounded border border-border px-1.5 py-0.5 text-[0.733333rem] text-muted-foreground hover:bg-accent hover:text-foreground {mobileLayout ? 'min-h-12' : ''}"
                 onclick={() => onOpenTask(task)}
               >
                 <span class="block truncate">{t("projects.kanban.openDetails")}</span>
               </button>
               <button
                 type="button"
-                class="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40"
+                class="flex items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40 {mobileLayout ? 'h-12 w-12' : 'h-7 w-7'}"
                 disabled={Boolean(task.archivedAt) || taskSortMode !== "manual" || !nextStatusTask}
                 aria-label={nextStatusTask ? t("projects.actions.moveTaskDown", task.title) : t("projects.actions.noNextTask")}
                 title={nextStatusTask ? t("projects.actions.moveTaskDown", task.title) : t("projects.actions.noNextTask")}
@@ -420,7 +426,7 @@
               </button>
               <button
                 type="button"
-                class="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40"
+                class="flex items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40 {mobileLayout ? 'h-12 w-12' : 'h-7 w-7'}"
                 disabled={Boolean(task.archivedAt) || !nextStatus}
                 aria-label={nextStatus ? t("projects.actions.moveTaskToStatus", task.title, nextStatus.name) : t("projects.actions.noNextStatus")}
                 title={nextStatus ? t("projects.actions.moveTaskToStatus", task.title, nextStatus.name) : t("projects.actions.noNextStatus")}
@@ -448,7 +454,7 @@
         {#if statusTasks.length < totalTasksForStatus(status, statusTasks.length)}
           <button
             type="button"
-            class="min-h-9 rounded-md border border-border px-3 text-[0.8rem] text-muted-foreground hover:bg-accent hover:text-foreground"
+            class="rounded-md border border-border px-3 text-[0.8rem] text-muted-foreground hover:bg-accent hover:text-foreground {mobileLayout ? 'min-h-12' : 'min-h-9'}"
             onclick={onNeedMore}
           >
             {t("common.loadMore")}

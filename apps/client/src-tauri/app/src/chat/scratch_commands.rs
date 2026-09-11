@@ -956,9 +956,9 @@ async fn require_current_scratch_authority(
 
 /// Resolves the destination channel and its project-managed attachment index.
 ///
-/// The returned working folder is only a legacy storage association for the
-/// existing attachment table. It is not a folder grant and must never be used
-/// to authorize project file access.
+/// The returned working folder is only a storage association for the existing
+/// attachment table. It is not a folder grant and must never be used to
+/// authorize project file access.
 async fn require_destination_channel(
     pool: &SqlitePool,
     identity: &ScratchIdentity,

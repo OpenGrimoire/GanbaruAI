@@ -68,6 +68,8 @@
     musicAssignmentsError = null,
     onRetryMusicAssignments,
     musicAssignmentsDisabled = false,
+    musicAssignmentsAvailable = true,
+    idleDetectionAvailable = true,
   }: {
     theme: Theme;
     pomodoroOptions: readonly PomodoroPresetKey[];
@@ -93,6 +95,8 @@
     musicAssignmentsError?: string | null;
     onRetryMusicAssignments: () => void;
     musicAssignmentsDisabled?: boolean;
+    musicAssignmentsAvailable?: boolean;
+    idleDetectionAvailable?: boolean;
   } = $props();
 
   const { t } = getLocalization();
@@ -553,6 +557,7 @@
       </div>
     {/if}
 
+    {#if idleDetectionAvailable}
     <ToggleSetting
       label={t("projects.settings.useGlobalIdleSettings")}
       checked={projectIdleSettingsSourceDraft === "global"}
@@ -576,24 +581,27 @@
         class="w-44"
       />
     {/if}
+    {/if}
 
-    <div class="mt-2 rounded-xl border border-border/65 bg-secondary/20 p-2.5">
-      {#if musicAssignmentsError}
-        <div class="mb-2 flex items-start justify-between gap-3 rounded-lg border border-destructive/25 bg-destructive/8 px-3 py-2 text-[0.68rem]" role="alert">
-          <span class="min-w-0 leading-relaxed text-destructive">{musicAssignmentsError}</span>
-          <button type="button" onclick={onRetryMusicAssignments} class="shrink-0 font-semibold text-primary hover:underline">{t("common.retry")}</button>
-        </div>
-      {/if}
-      <MusicSoundtrackAssignmentEditor
-        assignments={musicAssignments}
-        playlists={musicPlaylists}
-        onChange={onMusicAssignmentsChange}
-        loadingPlaylists={loadingMusicPlaylists}
-        disabled={musicAssignmentsDisabled}
-        title={t("projects.settings.soundtrackDefaults")}
-        description={t("projects.settings.soundtrackDefaultsDescription")}
-      />
-    </div>
+    {#if musicAssignmentsAvailable}
+      <div class="mt-2 rounded-xl border border-border/65 bg-secondary/20 p-2.5">
+        {#if musicAssignmentsError}
+          <div class="mb-2 flex items-start justify-between gap-3 rounded-lg border border-destructive/25 bg-destructive/8 px-3 py-2 text-[0.68rem]" role="alert">
+            <span class="min-w-0 leading-relaxed text-destructive">{musicAssignmentsError}</span>
+            <button type="button" onclick={onRetryMusicAssignments} class="shrink-0 font-semibold text-primary hover:underline">{t("common.retry")}</button>
+          </div>
+        {/if}
+        <MusicSoundtrackAssignmentEditor
+          assignments={musicAssignments}
+          playlists={musicPlaylists}
+          onChange={onMusicAssignmentsChange}
+          loadingPlaylists={loadingMusicPlaylists}
+          disabled={musicAssignmentsDisabled}
+          title={t("projects.settings.soundtrackDefaults")}
+          description={t("projects.settings.soundtrackDefaultsDescription")}
+        />
+      </div>
+    {/if}
   </div>
 </section>
 

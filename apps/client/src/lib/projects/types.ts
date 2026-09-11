@@ -85,6 +85,17 @@ export type ProjectLifecycleStatus = (typeof PROJECT_LIFECYCLE_STATUSES)[number]
 export const PROJECT_TEMPLATE_IDS = ["blank", "software", "course", "routine", "reading", "chores"] as const;
 export type ProjectTemplateId = (typeof PROJECT_TEMPLATE_IDS)[number];
 
+export interface ProjectChatWorkingFolderOption {
+  id: string;
+  displayName: string;
+}
+
+export interface ProjectChatIntegration {
+  listWorkingFolders: (projectId: string) => readonly ProjectChatWorkingFolderOption[];
+  ensureLoaded: () => Promise<void>;
+  openProject: (projectId: string, workingFolderId?: string) => Promise<void>;
+}
+
 export interface ProjectGroup {
   id: string;
   name: string;

@@ -137,9 +137,9 @@ pub(super) async fn update_calendar_event_unchecked_tx(
     for field in &patch.fields {
         match field {
             CalendarEventUpdateField::MusicSnapshotAssignments(assignments) => {
-                crate::music::library::contexts::replace_assignments_in_transaction(
+                crate::music_context::replace_assignments_in_transaction(
                     tx,
-                    crate::music::library::MusicAssignmentOwnerKind::EventSnapshot,
+                    crate::music_context::MusicAssignmentOwnerKind::EventSnapshot,
                     &patch.id,
                     assignments.clone(),
                     music_updated_at,
@@ -148,9 +148,9 @@ pub(super) async fn update_calendar_event_unchecked_tx(
                 .map_err(|error| error.to_string())?;
             }
             CalendarEventUpdateField::MusicOverrideAssignments(assignments) => {
-                crate::music::library::contexts::replace_assignments_in_transaction(
+                crate::music_context::replace_assignments_in_transaction(
                     tx,
-                    crate::music::library::MusicAssignmentOwnerKind::EventOverride,
+                    crate::music_context::MusicAssignmentOwnerKind::EventOverride,
                     &patch.id,
                     assignments.clone(),
                     music_updated_at,
@@ -280,24 +280,24 @@ pub(super) async fn ensure_update_pomodoro_matches_all_day(
 async fn replace_event_music_assignments(
     tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>,
     event_id: &str,
-    snapshots: Vec<crate::music::library::MusicContextAssignmentDraft>,
-    overrides: Vec<crate::music::library::MusicContextAssignmentDraft>,
+    snapshots: Vec<crate::music_context::MusicContextAssignmentDraft>,
+    overrides: Vec<crate::music_context::MusicContextAssignmentDraft>,
     updated_at: &str,
 ) -> Result<(), String> {
     let updated_at = calendar_timestamp_millis(updated_at)
         .ok_or_else(|| "music assignment timestamp is invalid".to_string())?;
-    crate::music::library::contexts::replace_assignments_in_transaction(
+    crate::music_context::replace_assignments_in_transaction(
         tx,
-        crate::music::library::MusicAssignmentOwnerKind::EventSnapshot,
+        crate::music_context::MusicAssignmentOwnerKind::EventSnapshot,
         event_id,
         snapshots,
         updated_at,
     )
     .await
     .map_err(|error| error.to_string())?;
-    crate::music::library::contexts::replace_assignments_in_transaction(
+    crate::music_context::replace_assignments_in_transaction(
         tx,
-        crate::music::library::MusicAssignmentOwnerKind::EventOverride,
+        crate::music_context::MusicAssignmentOwnerKind::EventOverride,
         event_id,
         overrides,
         updated_at,

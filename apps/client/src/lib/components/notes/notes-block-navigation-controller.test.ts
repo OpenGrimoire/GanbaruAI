@@ -4,7 +4,7 @@ import { describe, expect, it, vi } from "vitest";
 import type { NotesBlock } from "$lib/notes/types";
 import { createNotesBlockNavigationController } from "./notes-block-navigation-controller";
 
-function paragraph(id: string, text: string): NotesBlock {
+function paragraph(id: string): NotesBlock {
   return {
     object: "block",
     id,
@@ -44,8 +44,8 @@ describe("Notes block navigation controller", () => {
     selection.addRange(range);
     const requestFocus = vi.fn();
     const blocks = new Map([
-      ["first", paragraph("first", "a")],
-      ["second", paragraph("second", "")],
+      ["first", paragraph("first")],
+      ["second", paragraph("second")],
     ]);
     const controller = createNotesBlockNavigationController({
       readListElement: () => list,

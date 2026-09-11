@@ -34,6 +34,32 @@ fn pool_registry_reuses_and_closes_authorized_path() {
         let registry = crate::DatabasePoolRegistry::default();
 
         let first = registry.connect_path(&path).await.unwrap();
+        for (pragma, expected) in [
+            ("synchronous", 2_i64),
+            ("foreign_keys", 1),
+            ("busy_timeout", 5_000),
+        ] {
+            let value: i64 = sqlx::query_scalar(&format!("PRAGMA {pragma}"))
+                .fetch_one(&first)
+                .await
+                .unwrap();
+            assert_eq!(
+                value, expected,
+                "authoritative connection must configure {pragma}"
+            );
+        }
+        let mode: String = sqlx::query_scalar("PRAGMA journal_mode")
+            .fetch_one(&first)
+            .await
+            .unwrap();
+        assert_eq!(mode, "wal");
+        // Evict the connection to verify that pool replacement retains the durable options.
+        first.acquire().await.unwrap().close().await.unwrap();
+        let synchronous: i64 = sqlx::query_scalar("PRAGMA synchronous")
+            .fetch_one(&first)
+            .await
+            .unwrap();
+        assert_eq!(synchronous, 2);
         sqlx::query("CREATE TABLE registry_test (value TEXT NOT NULL)")
             .execute(&first)
             .await

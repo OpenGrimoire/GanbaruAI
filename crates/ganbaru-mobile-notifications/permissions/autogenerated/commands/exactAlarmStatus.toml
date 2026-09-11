@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-exactAlarmStatus"
+description = "Enables the exactAlarmStatus command without any pre-configured scope."
+commands.allow = ["exactAlarmStatus"]
+
+[[permission]]
+identifier = "deny-exactAlarmStatus"
+description = "Denies the exactAlarmStatus command without any pre-configured scope."
+commands.deny = ["exactAlarmStatus"]

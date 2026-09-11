@@ -300,6 +300,25 @@ describe("decideTick", () => {
       expect(result.kind).toBe("suspend_block_active");
     });
 
+    it("counts a delayed mobile tick as elapsed time instead of a suspend pause", () => {
+      const snap = makeSnapshot({
+        lastTickMs: NOW - 20_000,
+        remainingSeconds: 120,
+        phaseEndTime: NOW + 100_000,
+      });
+      const result = decideTick(snap, NOW, { detectSuspendGaps: false });
+      expect(result).toEqual({ kind: "countdown", remainingSeconds: 100 });
+    });
+
+    it("expires the event window after a delayed mobile tick", () => {
+      const snap = makeSnapshot({
+        lastTickMs: NOW - 20_000,
+        activeBlockEndMs: NOW,
+      });
+      const result = decideTick(snap, NOW, { detectSuspendGaps: false });
+      expect(result.kind).toBe("block_expired");
+    });
+
     it("preserves pre-suspend remaining from phaseEndTime, not remainingSeconds", () => {
       // phaseEndTime says 120s left, but remainingSeconds field says 2400
       const snap = makeSnapshot({

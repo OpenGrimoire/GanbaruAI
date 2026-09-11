@@ -1,6 +1,7 @@
 <script lang="ts">
   import Copy from "@lucide/svelte/icons/copy";
   import Download from "@lucide/svelte/icons/download";
+  import LoaderCircle from "@lucide/svelte/icons/loader-circle";
   import RotateCcw from "@lucide/svelte/icons/rotate-ccw";
   import { getLocalization } from "$lib/i18n/translator.svelte";
   import { cn } from "$lib/utils";
@@ -11,6 +12,8 @@
     jsonDirty,
     jsonErrors,
     jsonNotice,
+    jsonSaving,
+    fileSaveAvailable,
     onCopy,
     onSave,
     onApply,
@@ -22,6 +25,8 @@
     jsonDirty: boolean;
     jsonErrors: string[];
     jsonNotice: string | undefined;
+    jsonSaving: boolean;
+    fileSaveAvailable: boolean;
     onCopy: () => void;
     onSave: () => void;
     onApply: () => void;
@@ -69,14 +74,27 @@
           <Copy size={11} strokeWidth={2.25} />
           <span>{t("settings.theme.copyJson")}</span>
         </button>
-        <button
-          type="button"
-          onclick={onSave}
-          class="flex items-center gap-1.5 rounded-md border border-border bg-card px-2.5 py-1 text-[0.733333rem] text-foreground transition-colors hover:bg-accent"
-        >
-          <Download size={11} strokeWidth={2.25} />
-          <span>{t("settings.theme.saveToFile")}</span>
-        </button>
+        {#if fileSaveAvailable}
+          <button
+            type="button"
+            onclick={onSave}
+            disabled={jsonSaving}
+            aria-busy={jsonSaving}
+            class="flex items-center gap-1.5 rounded-md border border-border bg-card px-2.5 py-1 text-[0.733333rem] text-foreground transition-colors hover:bg-accent disabled:cursor-wait disabled:opacity-60"
+          >
+            {#if jsonSaving}
+              <LoaderCircle
+                size={11}
+                strokeWidth={2.25}
+                class="animate-spin motion-reduce:animate-none"
+              />
+              <span>{t("settings.theme.editor.jsonSaving")}</span>
+            {:else}
+              <Download size={11} strokeWidth={2.25} />
+              <span>{t("settings.theme.saveToFile")}</span>
+            {/if}
+          </button>
+        {/if}
       </div>
       {#if !isBuiltin}
         <div class="theme-json-action-group flex flex-wrap items-center gap-1.5">

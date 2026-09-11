@@ -1,7 +1,10 @@
+// @vitest-environment jsdom
+
 import { describe, expect, it } from "vitest";
 import {
   canRunEventPanelSave,
   eventPanelKeyboardAction,
+  isEventPanelDeleteActionTarget,
 } from "./event-panel-actions-controller.svelte";
 
 function key(key: string, modifiers: Partial<Pick<KeyboardEvent, "altKey" | "ctrlKey" | "metaKey" | "shiftKey">> = {}) {
@@ -63,5 +66,19 @@ describe("canRunEventPanelSave", () => {
       pomodoroReadOnlyInteractive: false,
       savePending: false,
     })).toBe(false);
+  });
+});
+
+describe("isEventPanelDeleteActionTarget", () => {
+  it("keeps destructive button taps armed while other panel clicks disarm them", () => {
+    const button = document.createElement("button");
+    const icon = document.createElement("span");
+    const other = document.createElement("button");
+    button.dataset.eventPanelDeleteAction = "";
+    button.append(icon);
+
+    expect(isEventPanelDeleteActionTarget(button)).toBe(true);
+    expect(isEventPanelDeleteActionTarget(icon)).toBe(true);
+    expect(isEventPanelDeleteActionTarget(other)).toBe(false);
   });
 });

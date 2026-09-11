@@ -1,4 +1,3 @@
-import { MAX_BREAK_OVERTIME_SECONDS } from "./pomodoro-machine";
 import type { PomodoroRuntime } from "./pomodoro-runtime";
 
 interface PomodoroOvertimeContext {
@@ -6,7 +5,6 @@ interface PomodoroOvertimeContext {
   publishWindowSnapshot(): void;
   playBreakFinishedAlert(): void;
   startConfiguredAlertInterval(): ReturnType<typeof setInterval> | null;
-  completeOvertimeBreak(): Promise<void>;
 }
 
 export interface PomodoroOvertimeController {
@@ -15,7 +13,7 @@ export interface PomodoroOvertimeController {
   stop(): void;
 }
 
-/** Owns break overtime counting and alert intervals. */
+/** Display waiting time and reminders without authorizing another focus interval. */
 export function createPomodoroOvertimeController(
   context: PomodoroOvertimeContext,
 ): PomodoroOvertimeController {
@@ -33,11 +31,6 @@ export function createPomodoroOvertimeController(
     overtimeIntervalId = setInterval(() => {
       context.runtime.breakOvertimeSeconds += 1;
       context.publishWindowSnapshot();
-      if (
-        context.runtime.breakOvertimeSeconds >= MAX_BREAK_OVERTIME_SECONDS
-      ) {
-        void context.completeOvertimeBreak();
-      }
     }, 1_000);
     if (!alertStarted) {
       alertStarted = true;

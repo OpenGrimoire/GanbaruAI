@@ -23,7 +23,10 @@
   import { getLocalization } from "$lib/i18n/translator.svelte";
   import DoomscrollingAppSelector, {
     type DoomscrollingAppSelection,
-  } from "./DoomscrollingAppSelector.svelte";
+  } from "$lib/components/settings/doomscrolling-desktop-selector";
+  import DoomscrollingMobileAppSelector, {
+    type DoomscrollingMobileAppSelection,
+  } from "./DoomscrollingMobileAppSelector.svelte";
   import type { DoomscrollingLimitEditorTarget } from "./types";
 
   type DailyBudgetOption = "none" | "15" | "30" | "45" | "60" | "90" | "120" | "180" | "240" | "custom";
@@ -62,6 +65,7 @@
   const usage = getDoomscrollingUsage();
   const theme = getTheme();
   const { t } = getLocalization();
+  const android = __GANBARU_AI_BUILD_PLATFORM__ === "android";
   const sourceColorGridColumns = 4;
   const sourceColorColumnOrder = [0, 3, 1, 2] as const;
   const sourceColorPickOrder = createSourceColorPickOrder();
@@ -129,6 +133,7 @@
   let draftEntries = $state<DoomscrollingUsageLimitEntryDraft[]>([]);
   let formError = $state("");
   let desktopAppPickerEntryId = $state<string | null>(null);
+  let mobileAppPickerEntryId = $state<string | null>(null);
   let pendingDeleteEntryId = $state<string | null>(null);
   let editorRootEl: HTMLElement | undefined = $state();
   let editorScrollEl: HTMLElement | undefined = $state();
@@ -234,6 +239,7 @@
       color,
       websiteHost: "",
       mobileAppName: "",
+      mobileAppPackage: "",
       desktopAppName: "",
       desktopAppMatchNames: [],
     };
@@ -291,6 +297,7 @@
       color: entry.color ?? entryColorForIndex(index),
       websiteHost: entry.websiteHost ?? "",
       mobileAppName: entry.mobileAppName ?? "",
+      mobileAppPackage: entry.mobileAppPackage ?? "",
       desktopAppName: entry.desktopAppName ?? "",
       desktopAppMatchNames: entry.desktopAppMatchNames,
     }));
@@ -376,6 +383,7 @@
     draftEntries = draftEntries.filter((entry) => entry.id !== id);
     if (draftEntries.length === 0) draftEntries = [createEntryDraft()];
     if (desktopAppPickerEntryId === id) desktopAppPickerEntryId = null;
+    if (mobileAppPickerEntryId === id) mobileAppPickerEntryId = null;
     if (pendingDeleteEntryId === id) pendingDeleteEntryId = null;
     formError = "";
   }
@@ -399,6 +407,39 @@
 
   function openDesktopAppPicker(id: string): void {
     desktopAppPickerEntryId = id;
+    formError = "";
+  }
+
+  function openMobileAppPicker(id: string): void {
+    mobileAppPickerEntryId = id;
+    formError = "";
+  }
+
+  function closeMobileAppPicker(): void {
+    mobileAppPickerEntryId = null;
+  }
+
+  function existingMobileAppPackages(): string[] {
+    return draftEntries
+      .filter((entry) => entry.id !== mobileAppPickerEntryId)
+      .map((entry) => entry.mobileAppPackage.trim())
+      .filter(Boolean);
+  }
+
+  function chooseMobileApp(app: DoomscrollingMobileAppSelection): void {
+    const activeId = mobileAppPickerEntryId;
+    if (!activeId) return;
+    draftEntries = draftEntries.map((entry) => entry.id === activeId
+      ? { ...entry, mobileAppName: app.name, mobileAppPackage: app.packageName }
+      : entry);
+    mobileAppPickerEntryId = null;
+    formError = "";
+  }
+
+  function clearMobileApp(id: string): void {
+    draftEntries = draftEntries.map((entry) => entry.id === id
+      ? { ...entry, mobileAppName: "", mobileAppPackage: "" }
+      : entry);
     formError = "";
   }
 
@@ -683,21 +724,31 @@
                   <span class="text-[0.733333rem] font-medium text-muted-foreground">{t("settings.doomscrolling.limits.editor.website")}</span>
                   <input
                     value={entry.websiteHost}
+                    disabled={android}
                     oninput={(event) => updateEntry(entry.id, "websiteHost", event.currentTarget.value)}
                     class="h-8 min-w-0 rounded-md border border-border bg-background/70 px-2.5 text-[0.8rem] text-foreground outline-none placeholder:text-muted-foreground focus:border-ring dark:bg-transparent"
                     placeholder="domain.com"
                   />
                 </label>
 
-                <label class="flex min-w-0 flex-col gap-1">
+                <div class="flex min-w-0 flex-col gap-1">
                   <span class="text-[0.733333rem] font-medium text-muted-foreground">{t("settings.doomscrolling.limits.editor.mobile")}</span>
-                  <input
-                    value={entry.mobileAppName}
-                    oninput={(event) => updateEntry(entry.id, "mobileAppName", event.currentTarget.value)}
-                    class="h-8 min-w-0 rounded-md border border-border bg-background/70 px-2.5 text-[0.8rem] text-foreground outline-none placeholder:text-muted-foreground focus:border-ring dark:bg-transparent"
-                    placeholder={t("settings.doomscrolling.limits.editor.mobilePlaceholder")}
-                  />
-                </label>
+                  {#if android}
+                    <div class="flex h-8 min-w-0 items-center gap-1 rounded-md border border-border bg-background/70 px-1.5 dark:bg-transparent">
+                      <button type="button" onclick={() => openMobileAppPicker(entry.id)} class={["min-w-0 flex-1 truncate rounded-sm px-1.5 py-1 text-left text-[0.8rem] outline-none hover:bg-accent", entry.mobileAppName ? "text-foreground" : "text-muted-foreground"]}>
+                        {entry.mobileAppName || t("settings.doomscrolling.limits.editor.chooseApp")}
+                      </button>
+                      {#if entry.mobileAppName}
+                        <button type="button" onclick={() => clearMobileApp(entry.id)} aria-label={t("settings.doomscrolling.limits.editor.clearMobileApp")} class="flex size-6 shrink-0 items-center justify-center rounded-sm text-muted-foreground hover:bg-accent hover:text-foreground"><Eraser size={12} /></button>
+                      {/if}
+                    </div>
+                    {#if entry.mobileAppName && !entry.mobileAppPackage}
+                      <span class="text-[0.7rem] text-destructive">{t("settings.doomscrolling.mobile.reselectForAndroid")}</span>
+                    {/if}
+                  {:else}
+                    <input value={entry.mobileAppName} oninput={(event) => updateEntry(entry.id, "mobileAppName", event.currentTarget.value)} class="h-8 min-w-0 rounded-md border border-border bg-background/70 px-2.5 text-[0.8rem] text-foreground outline-none placeholder:text-muted-foreground focus:border-ring dark:bg-transparent" placeholder={t("settings.doomscrolling.limits.editor.mobilePlaceholder")} />
+                  {/if}
+                </div>
 
                 <div class="flex min-w-0 flex-col gap-1">
                   <span class="text-[0.733333rem] font-medium text-muted-foreground">{t("settings.doomscrolling.limits.editor.desktop")}</span>
@@ -705,6 +756,7 @@
                     <button
                       type="button"
                       onclick={() => openDesktopAppPicker(entry.id)}
+                      disabled={android}
                       class={[
                         "min-w-0 flex-1 truncate rounded-sm px-1.5 py-1 text-left text-[0.8rem] outline-none transition-colors hover:bg-accent focus:bg-accent",
                         entry.desktopAppName ? "text-foreground" : "text-muted-foreground",
@@ -715,6 +767,7 @@
                     {#if entry.desktopAppName}
                       <button
                         type="button"
+                        disabled={android}
                         onclick={() => clearDesktopApp(entry.id)}
                         aria-label={t("settings.doomscrolling.limits.editor.clearDesktopApp")}
                         class="flex h-6 w-6 shrink-0 items-center justify-center rounded-sm text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
@@ -772,6 +825,16 @@
     </div>
   </footer>
 </div>
+
+{#if mobileAppPickerEntryId}
+  <DoomscrollingMobileAppSelector
+    title={t("settings.doomscrolling.mobile.chooseAppToBlock")}
+    single
+    existingPackages={existingMobileAppPackages()}
+    onSelect={chooseMobileApp}
+    onCancel={closeMobileAppPicker}
+  />
+{/if}
 
 {#if desktopAppPickerEntryId}
   <DoomscrollingAppSelector

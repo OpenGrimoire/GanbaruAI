@@ -1,11 +1,13 @@
 <script lang="ts">
-  import { tick } from "svelte";
+  import { tick, untrack } from "svelte";
+  import ChevronLeft from "@lucide/svelte/icons/chevron-left";
   import ChevronRight from "@lucide/svelte/icons/chevron-right";
   import Eye from "@lucide/svelte/icons/eye";
   import EyeOff from "@lucide/svelte/icons/eye-off";
   import Plus from "@lucide/svelte/icons/plus";
   import Search from "@lucide/svelte/icons/search";
   import Trash2 from "@lucide/svelte/icons/trash-2";
+  import X from "@lucide/svelte/icons/x";
   import CalendarScrollbar from "$lib/components/calendar/CalendarScrollbar.svelte";
   import { getLocalization } from "$lib/i18n/translator.svelte";
   import {
@@ -18,6 +20,8 @@
   } from "$lib/projects/menu-aim";
   import {
     projectPickerBridgeFrameStyle,
+    projectPickerMobileBackAction,
+    projectPickerMobilePane,
     projectPickerMenuAimRect,
     projectPickerPanelEstimatedListHeight,
     projectPickerPanelFrameStyle,
@@ -36,6 +40,7 @@
     type ProjectTemplateId,
   } from "$lib/projects/types";
   import { getProjects } from "$lib/stores/projects.svelte";
+  import { getMobileBackStack } from "$lib/stores/mobile-back-stack.svelte";
   import { cn } from "$lib/utils";
   import type { ProjectNavigatorPanelMode } from "$lib/projects/project-toolbar";
   import ProjectIcon from "./ProjectIcon.svelte";
@@ -75,6 +80,10 @@
     onProjectPreviewClose = undefined,
     projectChildContainsTarget = undefined,
     pointerAimingAtProjectChild = undefined,
+    mobileLayout = false,
+    initialMobileGroupId = null,
+    onProjectDrilldown = undefined,
+    onClose = undefined,
   }: {
     selectedProjectId?: string | null;
     selectedGroupId?: string | null;
@@ -107,11 +116,16 @@
     onProjectPreviewClose?: () => void;
     projectChildContainsTarget?: (target: EventTarget | null) => boolean;
     pointerAimingAtProjectChild?: (point: MenuAimPoint) => boolean;
+    mobileLayout?: boolean;
+    initialMobileGroupId?: string | null;
+    onProjectDrilldown?: (project: Project) => MaybePromise<void>;
+    onClose?: () => void;
   } = $props();
 
   const projects = getProjects();
+  const mobileBackStack = getMobileBackStack();
   const { t } = getLocalization();
-  const iconSize = 13;
+  const iconSize = $derived(mobileLayout ? 18 : 13);
   const emojiScale = 0.94;
   const panelFallbackHeaderHeight = 40;
   const panelFallbackFooterHeight = 44;
@@ -128,7 +142,7 @@
   let createProjectGroupId = $state<string | null>(null);
   let projectDraftByGroup = $state<Record<string, string>>({});
   let projectTemplateDraftByGroup = $state<Record<string, ProjectTemplateId>>({});
-  let activeGroupId = $state<string | null>(null);
+  let activeGroupId = $state<string | null>(untrack(() => mobileLayout ? initialMobileGroupId : null));
   let activeGroupAnchorElement = $state<HTMLElement | null>(null);
   let panelRootElement = $state<HTMLDivElement | null>(null);
   let panelHeaderElement = $state<HTMLDivElement | undefined>();
@@ -151,6 +165,7 @@
   let projectCanScrollUp = $state(false);
   let projectCanScrollDown = $state(false);
   let projectScrollStateFrame: number | null = null;
+  let mobileBackButtonElement = $state<HTMLButtonElement | null>(null);
 
   const selectedProject = $derived(projects.projectById(selectedProjectId));
   const selectedGroup = $derived(projects.groupById(selectedProject?.groupId ?? selectedGroupId));
@@ -163,9 +178,30 @@
       .map((group) => ({ group, projects: projectsInGroup(group) }))
       .filter((entry) => entry.projects.length > 0),
   );
-  const activeGroup = $derived.by(() => visibleGroups.find((group) => group.id === activeGroupId));
+  const activeGroup = $derived.by(() => groups.find((group) => group.id === activeGroupId));
   const directProjectGroup = $derived.by(() => selectedGroup);
   const directProjects = $derived.by(() => directProjectGroup ? projectsInGroup(directProjectGroup) : []);
+  const mobilePane = $derived(projectPickerMobilePane({
+    mode,
+    activeGroupId,
+    searchActive,
+  }));
+  const mainProjectGroup = $derived(
+    mobileLayout && mode === "groups" ? activeGroup : directProjectGroup,
+  );
+  const mainProjects = $derived.by(() => (
+    mainProjectGroup ? projectsInGroup(mainProjectGroup) : []
+  ));
+  const mobileNestedBackAction = $derived(projectPickerMobileBackAction({
+    mode,
+    activeGroupId,
+    searchActive,
+    createGroupOpen,
+    createProjectGroupId,
+  }));
+  const projectRowsHaveChildren = $derived(
+    showProjectChildren || (mobileLayout && onProjectDrilldown !== undefined),
+  );
 
   function projectsInGroup(group: ProjectGroup): Project[] {
     const groupProjects = showInactiveProjects
@@ -212,9 +248,11 @@
   function mainListEstimatedHeight(): number {
     const itemCount = searchActive
       ? searchResultGroups.reduce((count, entry) => count + entry.projects.length, 0)
-      : mode === "projects" && directProjectGroup
-        ? projectsInGroup(directProjectGroup).length
-        : visibleGroups.length;
+      : mobileLayout && mobilePane === "projects"
+        ? mainProjects.length
+        : mode === "projects" && directProjectGroup
+          ? directProjects.length
+          : visibleGroups.length;
     return projectPickerPanelEstimatedListHeight({
       itemCount,
       visibleRows: mainVisibleRows,
@@ -224,6 +262,11 @@
   }
 
   function updatePanelStyle(): void {
+    if (mobileLayout) {
+      panelHeight = panelRootElement?.clientHeight ?? 0;
+      panelStyle = "height: 100%; max-height: 100%";
+      return;
+    }
     const headerHeight = panelHeaderElement?.offsetHeight ?? panelFallbackHeaderHeight;
     const footerHeight = searchActive
       ? 0
@@ -290,6 +333,7 @@
   }
 
   function updateProjectSubpanelGeometry(): void {
+    if (mobileLayout) return;
     if (!activeGroupAnchorElement || !panelRootElement) return;
     const anchorRect = activeGroupAnchorElement.getBoundingClientRect();
     const panelRect = panelRootElement.getBoundingClientRect();
@@ -386,11 +430,16 @@
     }
     activeGroupId = group.id;
     activeGroupAnchorElement = target instanceof HTMLElement ? target : null;
+    if (mobileLayout) {
+      void tick().then(() => mobileBackButtonElement?.focus());
+      return;
+    }
     updateProjectSubpanelGeometry();
     void tick().then(updateProjectSubpanelGeometry);
   }
 
   function handleGroupPointerEnter(group: ProjectGroup, event: PointerEvent): void {
+    if (mobileLayout) return;
     const point = projectPickerPointerPoint(event);
     if (activeGroupId && activeGroupId !== group.id && pointerAimingAtProjectSubpanel(point)) {
       return;
@@ -399,6 +448,7 @@
   }
 
   function handleGroupPointerMove(group: ProjectGroup, event: PointerEvent): void {
+    if (mobileLayout) return;
     const point = projectPickerPointerPoint(event);
     if (activeGroupId === group.id) {
       return;
@@ -420,6 +470,7 @@
   }
 
   function handleProjectSubpanelBoundaryLeave(event: PointerEvent): void {
+    if (mobileLayout) return;
     if (isProjectSubpanelBoundaryTarget(event.relatedTarget)) return;
     if (pointerAimingAtProjectChild?.(projectPickerPointerPoint(event))) return;
     if (pointerAimingAtProjectSubpanel(projectPickerPointerPoint(event))) return;
@@ -428,7 +479,7 @@
   }
 
   function previewProject(project: Project, target: EventTarget | null): void {
-    if (!showProjectChildren || !(target instanceof HTMLElement)) return;
+    if (mobileLayout || !showProjectChildren || !(target instanceof HTMLElement)) return;
     onProjectPreview?.(
       project,
       target,
@@ -457,7 +508,12 @@
     onProjectPreviewClose?.();
   }
 
-  async function selectProject(project: Project): Promise<void> {
+  async function activateProject(project: Project): Promise<void> {
+    if (mobileLayout && onProjectDrilldown) {
+      await onProjectDrilldown(project);
+      projectSearch = "";
+      return;
+    }
     await onProjectSelected(project);
     projectSearch = "";
   }
@@ -467,12 +523,74 @@
     projectSearch = "";
   }
 
+  function updateProjectSearch(value: string): void {
+    projectSearch = value;
+    if (!mobileLayout || value.trim().length === 0) return;
+    createGroupOpen = false;
+    createProjectGroupId = null;
+  }
+
+  function showMobileGroups(): void {
+    const previousGroupId = activeGroupId;
+    onProjectPreviewClose?.();
+    closeProjectSubpanel();
+    if (!previousGroupId) return;
+    void tick().then(() => {
+      const groupButtons = panelRootElement?.querySelectorAll<HTMLButtonElement>(
+        "[data-mobile-project-group-id]",
+      );
+      const previousButton = Array.from(groupButtons ?? []).find(
+        (button) => button.dataset.mobileProjectGroupId === previousGroupId,
+      );
+      previousButton?.focus();
+    });
+  }
+
+  function closeMobileGroupCreator(): void {
+    createGroupOpen = false;
+    void tick().then(() => {
+      panelRootElement?.querySelector<HTMLButtonElement>(
+        "[data-mobile-create-project-group]",
+      )?.focus();
+    });
+  }
+
+  function closeMobileProjectCreator(): void {
+    createProjectGroupId = null;
+    void tick().then(() => {
+      panelRootElement?.querySelector<HTMLButtonElement>(
+        "[data-mobile-create-project]",
+      )?.focus();
+    });
+  }
+
+  function handleMobileNestedBack(): void {
+    if (mobileNestedBackAction === "close-project-creator") {
+      closeMobileProjectCreator();
+      return;
+    }
+    if (mobileNestedBackAction === "close-group-creator") {
+      closeMobileGroupCreator();
+      return;
+    }
+    if (mobileNestedBackAction === "clear-search") {
+      projectSearch = "";
+      return;
+    }
+    if (mobileNestedBackAction === "show-groups") {
+      showMobileGroups();
+      return;
+    }
+    onClose?.();
+  }
+
   async function submitGroup(): Promise<void> {
     const name = groupDraft.trim();
     if (!name) return;
     await projects.addGroup(name);
     groupDraft = "";
-    createGroupOpen = false;
+    if (mobileLayout) closeMobileGroupCreator();
+    else createGroupOpen = false;
   }
 
   async function submitProject(groupId: string): Promise<void> {
@@ -482,7 +600,8 @@
     await projects.addProject(groupId, name, templateId);
     projectDraftByGroup = { ...projectDraftByGroup, [groupId]: "" };
     projectTemplateDraftByGroup = { ...projectTemplateDraftByGroup, [groupId]: "blank" };
-    createProjectGroupId = null;
+    if (mobileLayout) closeMobileProjectCreator();
+    else createProjectGroupId = null;
     await onProjectCreated?.(projects.selectedProjectId);
     if (closeOnProjectCreate) {
       projectSearch = "";
@@ -490,15 +609,29 @@
   }
 
   $effect(() => {
-    if (searchActive || mode === "projects") {
+    if (mode === "projects") {
       closeProjectSubpanel();
       onProjectPreviewClose?.();
       return;
     }
+    if (searchActive) {
+      if (!mobileLayout) {
+        closeProjectSubpanel();
+        onProjectPreviewClose?.();
+      }
+      return;
+    }
     if (!activeGroupId) return;
-    if (!visibleGroups.some((group) => group.id === activeGroupId)) {
+    const availableGroups = mobileLayout ? groups : visibleGroups;
+    if (!availableGroups.some((group) => group.id === activeGroupId)) {
       closeProjectSubpanel();
     }
+  });
+
+  $effect(() => {
+    const action = mobileNestedBackAction;
+    if (!mobileLayout || action === "close-picker") return;
+    return mobileBackStack.activate({ handle: handleMobileNestedBack });
   });
 
   $effect(() => {
@@ -508,6 +641,7 @@
     const groupCount = visibleGroups.length;
     const resultCount = searchResultGroups.reduce((count, entry) => count + entry.projects.length, 0);
     const directProjectCount = directProjectGroup ? projectsInGroup(directProjectGroup).length : 0;
+    const mainProjectCount = mainProjects.length;
     const creatingGroup = createGroupOpen;
     const creatingProject = createProjectGroupId;
     void maxHeight;
@@ -516,6 +650,7 @@
     void groupCount;
     void resultCount;
     void directProjectCount;
+    void mainProjectCount;
     void creatingGroup;
     void creatingProject;
     requestAnimationFrame(() => {
@@ -569,24 +704,76 @@
   });
 </script>
 
+<svelte:window
+  onkeydown={(event) => {
+    if (!mobileLayout || event.key !== "Escape") return;
+    event.preventDefault();
+    event.stopPropagation();
+    handleMobileNestedBack();
+  }}
+/>
+
 <div
   bind:this={panelRootElement}
-  class="project-picker-panel flex min-h-0 w-full flex-col overflow-hidden rounded-md bg-popover text-popover-foreground shadow-lg ring-1 ring-border/60"
+  class={cn(
+    "project-picker-panel flex min-h-0 w-full flex-col overflow-hidden bg-popover text-popover-foreground shadow-lg ring-1 ring-border/60",
+    mobileLayout ? "h-full rounded-2xl" : "rounded-md",
+  )}
   style={panelStyle}
 >
-  <div bind:this={panelHeaderElement} class="px-1.5 pb-0.5 pt-1.5">
-    <div class="flex min-h-8 items-center gap-1.5 rounded-md border border-border/70 bg-muted/20 pl-2 pr-1">
-      <Search size={13} strokeWidth={iconStrokeWidth} class="shrink-0 text-popover-foreground/60" />
+  <div bind:this={panelHeaderElement} class={mobileLayout ? "border-b border-border/70 p-2" : "px-1.5 pb-0.5 pt-1.5"}>
+    {#if mobileLayout}
+      <div class="flex min-h-14 items-center gap-1">
+        {#if mode === "groups" && activeGroup && !searchActive}
+          <button
+            bind:this={mobileBackButtonElement}
+            type="button"
+            class="flex min-h-12 min-w-12 items-center justify-center rounded-xl active:bg-accent"
+            aria-label={t("projects.navigator.backToGroups")}
+            onclick={showMobileGroups}
+          >
+            <ChevronLeft size={22} strokeWidth={iconStrokeWidth} aria-hidden="true" />
+          </button>
+        {/if}
+        <h2 class="min-w-0 flex-1 truncate px-2 text-base font-semibold">
+          {searchActive
+            ? t("calendar.eventPanel.searchProjects")
+            : mainProjectGroup?.name ?? t("projects.navigator.pickerLabel")}
+        </h2>
+        {#if onClose}
+          <button
+            type="button"
+            data-project-picker-initial-focus="true"
+            class="flex min-h-12 min-w-12 items-center justify-center rounded-xl active:bg-accent"
+            aria-label={t("projects.navigator.closePicker")}
+            onclick={onClose}
+          >
+            <X size={22} strokeWidth={iconStrokeWidth} aria-hidden="true" />
+          </button>
+        {/if}
+      </div>
+    {/if}
+    <div class={cn(
+      "flex items-center gap-1.5 border border-border/70 bg-muted/20",
+      mobileLayout ? "min-h-12 rounded-xl pl-3" : "min-h-8 rounded-md pl-2 pr-1",
+    )}>
+      <Search size={mobileLayout ? 18 : 13} strokeWidth={iconStrokeWidth} class="shrink-0 text-popover-foreground/60" />
       <input
-        bind:value={projectSearch}
+        type="search"
+        value={projectSearch}
+        oninput={(event) => updateProjectSearch(event.currentTarget.value)}
         placeholder={t("calendar.eventPanel.searchProjects")}
-        class="min-w-0 flex-1 bg-transparent text-[0.8rem] text-popover-foreground placeholder:text-popover-foreground/45"
+        class={cn(
+          "min-w-0 flex-1 bg-transparent text-popover-foreground placeholder:text-popover-foreground/45",
+          mobileLayout ? "h-12 text-base" : "text-[0.8rem]",
+        )}
       />
       {#if showInactiveToggle}
         <button
           type="button"
           class={cn(
-            "flex h-6 w-6 shrink-0 items-center justify-center rounded text-popover-foreground/60 hover:bg-accent hover:text-accent-foreground",
+            "flex shrink-0 items-center justify-center text-popover-foreground/60 hover:bg-accent hover:text-accent-foreground",
+            mobileLayout ? "h-12 w-12 rounded-xl" : "h-6 w-6 rounded",
             showInactiveProjects && "bg-accent text-accent-foreground",
           )}
           aria-label={showInactiveProjects ? t("projects.navigator.hideInactive") : t("projects.navigator.showInactive")}
@@ -596,20 +783,32 @@
           }}
         >
           {#if showInactiveProjects}
-            <EyeOff size={13} strokeWidth={iconStrokeWidth} />
+            <EyeOff size={mobileLayout ? 18 : 13} strokeWidth={iconStrokeWidth} />
           {:else}
-            <Eye size={13} strokeWidth={iconStrokeWidth} />
+            <Eye size={mobileLayout ? 18 : 13} strokeWidth={iconStrokeWidth} />
           {/if}
         </button>
       {/if}
-      {#if showClearProject && selectedProjectId}
+      {#if mobileLayout && searchActive}
+        <button
+          type="button"
+          onclick={() => { projectSearch = ""; }}
+          class="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl text-popover-foreground/60 active:bg-accent"
+          aria-label={t("projects.navigator.clearSearch")}
+        >
+          <X size={18} strokeWidth={iconStrokeWidth} />
+        </button>
+      {:else if showClearProject && selectedProjectId}
         <button
           type="button"
           onclick={() => { void clearProject(); }}
-          class="flex h-6 w-6 shrink-0 items-center justify-center rounded text-popover-foreground/60 hover:bg-accent hover:text-accent-foreground"
+          class={cn(
+            "flex shrink-0 items-center justify-center text-popover-foreground/60 hover:bg-accent hover:text-accent-foreground",
+            mobileLayout ? "h-12 w-12 rounded-xl" : "h-6 w-6 rounded",
+          )}
           aria-label={t("calendar.eventPanel.projectPlaceholder")}
         >
-          <Trash2 size={13} strokeWidth={iconStrokeWidth} />
+          <Trash2 size={mobileLayout ? 18 : 13} strokeWidth={iconStrokeWidth} />
         </button>
       {/if}
     </div>
@@ -619,7 +818,8 @@
     <div
       bind:this={groupScrollElement}
       class={cn(
-        "project-picker-scroll-area hide-scrollbar h-full min-h-0 overflow-y-auto pb-1 pt-0.5",
+        "project-picker-scroll-area hide-scrollbar h-full min-h-0 overflow-y-auto",
+        mobileLayout ? "overscroll-contain px-1 py-2" : "pb-1 pt-0.5",
         groupScrollable && "pr-2",
         groupScrollable && groupCanScrollUp && groupCanScrollDown && "project-picker-scroll-both",
         groupScrollable && groupCanScrollUp && !groupCanScrollDown && "project-picker-scroll-top",
@@ -652,11 +852,12 @@
                     <button
                       type="button"
                       class={cn(
-                        "flex min-h-8 w-full items-center gap-2 rounded-md px-2 text-left text-[0.8rem] transition-colors hover:bg-accent hover:text-accent-foreground",
+                        "flex w-full items-center gap-2 rounded-md text-left transition-colors hover:bg-accent hover:text-accent-foreground",
+                        mobileLayout ? "min-h-12 px-3 text-sm active:bg-accent" : "min-h-8 px-2 text-[0.8rem]",
                         project.status === "active" ? "text-popover-foreground" : "text-popover-foreground/60",
                       )}
                       aria-label={t("projects.actions.selectProject", project.name, resultGroup.group.name)}
-                      onclick={() => { void selectProject(project); }}
+                      onclick={() => { void activateProject(project); }}
                     >
                       <ProjectIcon name={project.icon} size={iconSize} strokeWidth={iconStrokeWidth} emojiScale={emojiScale} class="shrink-0" />
                       <span class="min-w-0 flex-1 truncate">{project.name}</span>
@@ -665,25 +866,32 @@
                           {projectLifecycleLabel(project.status, t)}
                         </span>
                       {/if}
+                      {#if projectRowsHaveChildren}
+                        <ChevronRight size={mobileLayout ? 18 : 13} strokeWidth={iconStrokeWidth} class="shrink-0 text-popover-foreground/60" />
+                      {/if}
                     </button>
                   {/each}
                 </div>
               </div>
             {/each}
           </div>
-        {:else if mode === "groups"}
+        {:else if mode === "groups" && (!mobileLayout || mobilePane === "groups")}
           {#if visibleGroups.length === 0}
             <div class="px-3 py-2 text-[0.8rem] text-popover-foreground/60">
               {t("calendar.eventPanel.noProjectsFound")}
             </div>
           {:else}
-            <div class="grid pl-1">
+            <div class={mobileLayout ? "grid px-1" : "grid pl-1"}>
               {#each visibleGroups as group (group.id)}
-                <div class="pl-1 pr-1">
+                <div class={mobileLayout ? "px-1" : "pl-1 pr-1"}>
                   <button
                     type="button"
+                    data-mobile-project-group-id={mobileLayout ? group.id : undefined}
                     class={cn(
-                      "grid min-h-8 w-full grid-cols-[1.25rem_minmax(0,1fr)_1rem] items-center gap-2 rounded-md px-2 text-left transition-colors",
+                      "grid w-full items-center gap-2 rounded-md text-left transition-colors",
+                      mobileLayout
+                        ? "min-h-12 grid-cols-[1.125rem_minmax(0,1fr)_1.5rem] px-3"
+                        : "min-h-8 grid-cols-[0.8125rem_minmax(0,1fr)_1rem] px-2",
                       activeGroupId === group.id
                         ? "bg-accent text-accent-foreground"
                         : "text-popover-foreground hover:bg-accent hover:text-accent-foreground",
@@ -691,56 +899,61 @@
                     onpointerenter={(event) => handleGroupPointerEnter(group, event)}
                     onpointermove={(event) => handleGroupPointerMove(group, event)}
                     onpointerleave={handleProjectSubpanelBoundaryLeave}
-                    onfocus={(event) => showProjectSubpanel(group, event.currentTarget)}
+                    onfocus={(event) => {
+                      if (!mobileLayout) showProjectSubpanel(group, event.currentTarget);
+                    }}
                     onclick={(event) => showProjectSubpanel(group, event.currentTarget)}
                   >
                     <ProjectIcon name={group.icon} size={iconSize} strokeWidth={iconStrokeWidth} emojiScale={emojiScale} class="shrink-0" />
-                    <span class="truncate text-[0.8rem] font-medium">{group.name}</span>
-                    <ChevronRight size={13} strokeWidth={iconStrokeWidth} class="justify-self-end text-popover-foreground/60" />
+                    <span class={cn("truncate", mobileLayout ? "text-sm" : "text-[0.8rem]")}>{group.name}</span>
+                    <ChevronRight size={mobileLayout ? 18 : 13} strokeWidth={iconStrokeWidth} class="justify-self-end text-popover-foreground/60" />
                   </button>
                 </div>
               {/each}
             </div>
           {/if}
-        {:else if !directProjectGroup}
+        {:else if !mainProjectGroup}
           <div class="px-3 py-2 text-[0.8rem] text-popover-foreground/60">
             {t("projects.navigator.empty")}
           </div>
-        {:else if directProjects.length === 0}
+        {:else if mainProjects.length === 0}
           <div class="px-3 py-2 text-[0.8rem] text-popover-foreground/60">
             {t("calendar.eventPanel.noProjectsFound")}
           </div>
         {:else}
           <div class="grid px-1">
-            {#each directProjects as project (project.id)}
+            {#each mainProjects as project (project.id)}
               <div class="px-1">
                 <button
                   type="button"
                   class={cn(
-                    "min-h-8 w-full items-center gap-2 rounded-md px-2 text-left text-[0.8rem] transition-colors hover:bg-accent hover:text-accent-foreground",
-                    showProjectChildren
-                      ? "grid grid-cols-[1rem_minmax(0,1fr)_auto]"
+                    "w-full items-center gap-2 rounded-md text-left transition-colors hover:bg-accent hover:text-accent-foreground",
+                    mobileLayout ? "min-h-12 px-3 text-sm active:bg-accent" : "min-h-8 px-2 text-[0.8rem]",
+                    projectRowsHaveChildren
+                      ? mobileLayout
+                        ? "grid grid-cols-[1.5rem_minmax(0,1fr)_auto]"
+                        : "grid grid-cols-[1rem_minmax(0,1fr)_auto]"
                       : "flex",
                     project.status === "active" ? "text-popover-foreground" : "text-popover-foreground/60",
                     activeProjectId === project.id && "bg-accent text-accent-foreground",
                   )}
-                  aria-label={t("projects.actions.selectProject", project.name, directProjectGroup.name)}
+                  aria-label={t("projects.actions.selectProject", project.name, mainProjectGroup.name)}
                   onpointerenter={(event) => handleProjectPointerEnter(project, event)}
                   onpointermove={(event) => handleProjectPointerMove(project, event)}
                   onpointerleave={handleProjectPointerLeave}
                   onfocus={(event) => previewProject(project, event.currentTarget)}
-                  onclick={() => { void selectProject(project); }}
+                  onclick={() => { void activateProject(project); }}
                 >
                   <ProjectIcon name={project.icon} size={iconSize} strokeWidth={iconStrokeWidth} emojiScale={emojiScale} class="shrink-0" />
                   <span class="min-w-0 flex-1 truncate">{project.name}</span>
-                  {#if showProjectChildren || (showLifecycleBadges && project.status !== "active")}
+                  {#if projectRowsHaveChildren || (showLifecycleBadges && project.status !== "active")}
                     <span class="flex min-w-0 items-center justify-end gap-1">
                       {#if showLifecycleBadges && project.status !== "active"}
                         <span class={cn("shrink-0 rounded border px-1.5 py-0.5 text-[0.666667rem]", projectLifecycleBadgeClass(project.status))}>
                           {projectLifecycleLabel(project.status, t)}
                         </span>
                       {/if}
-                      {#if showProjectChildren}<ChevronRight size={13} strokeWidth={iconStrokeWidth} class="shrink-0 text-popover-foreground/60" />{/if}
+                      {#if projectRowsHaveChildren}<ChevronRight size={mobileLayout ? 18 : 13} strokeWidth={iconStrokeWidth} class="shrink-0 text-popover-foreground/60" />{/if}
                     </span>
                   {/if}
                 </button>
@@ -750,72 +963,123 @@
         {/if}
       </div>
     </div>
-    <CalendarScrollbar
-      scrollContainer={groupScrollElement}
-      stickyTop={4}
-      stickyBottom={4}
-      wheelPassthrough
-    />
+    {#if !mobileLayout}
+      <CalendarScrollbar
+        scrollContainer={groupScrollElement}
+        stickyTop={4}
+        stickyBottom={4}
+        wheelPassthrough
+      />
+    {/if}
   </div>
 
   {#if !searchActive}
-    <div bind:this={panelFooterElement} class="relative z-10 shrink-0 bg-popover p-1.5">
+    <div
+      bind:this={panelFooterElement}
+      class={cn(
+        "relative z-10 shrink-0 bg-popover",
+        mobileLayout ? "max-h-[55%] overflow-y-auto overscroll-contain p-2" : "p-1.5",
+      )}
+    >
       <div class="pointer-events-none absolute left-1.5 right-1.5 top-0 border-t border-border/70"></div>
-      {#if mode === "groups"}
+      {#if mode === "groups" && (!mobileLayout || !activeGroup)}
         {#if createGroupOpen}
-          <form class="flex gap-1" onsubmit={(event) => { event.preventDefault(); void submitGroup(); }}>
+          <form class={cn("flex gap-1", mobileLayout && "gap-2")} onsubmit={(event) => { event.preventDefault(); void submitGroup(); }}>
             <input
               bind:value={groupDraft}
               placeholder={t("projects.navigator.groupNamePlaceholder")}
-              class="min-h-8 min-w-0 flex-1 rounded border border-border bg-muted/40 px-2 text-[0.8rem] text-popover-foreground placeholder:text-popover-foreground/45"
+              class={cn(
+                "min-w-0 flex-1 border border-border bg-muted/40 text-popover-foreground placeholder:text-popover-foreground/45",
+                mobileLayout ? "min-h-12 rounded-xl px-3 text-base" : "min-h-8 rounded px-2 text-[0.8rem]",
+              )}
             />
-            <button type="submit" class="min-h-8 rounded bg-primary px-2 text-[0.733333rem] font-medium text-primary-foreground">
+            <button
+              type="submit"
+              class={cn(
+                "bg-primary font-medium text-primary-foreground",
+                mobileLayout ? "min-h-12 rounded-xl px-4 text-sm" : "min-h-8 rounded px-2 text-[0.733333rem]",
+              )}
+            >
               {t("common.save")}
             </button>
+            {#if mobileLayout}
+              <button
+                type="button"
+                class="flex min-h-12 min-w-12 items-center justify-center rounded-xl active:bg-accent"
+                aria-label={t("common.cancel")}
+                onclick={closeMobileGroupCreator}
+              >
+                <X size={18} strokeWidth={iconStrokeWidth} aria-hidden="true" />
+              </button>
+            {/if}
           </form>
         {:else}
           <button
             type="button"
-            class="flex min-h-8 w-full items-center justify-center gap-1.5 rounded-md text-[0.8rem] text-popover-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
+            data-mobile-create-project-group={mobileLayout ? "true" : undefined}
+            class={cn(
+              "flex w-full items-center justify-center gap-1.5 text-popover-foreground transition-colors hover:bg-accent hover:text-accent-foreground",
+              mobileLayout ? "min-h-12 rounded-xl text-sm active:bg-accent" : "min-h-8 rounded-md text-[0.8rem]",
+            )}
             onclick={() => { createGroupOpen = true; }}
           >
-            <Plus size={13} strokeWidth={iconStrokeWidth} />
+            <Plus size={mobileLayout ? 18 : 13} strokeWidth={iconStrokeWidth} />
             <span>{t("calendar.eventPanel.createGroup")}</span>
           </button>
         {/if}
-      {:else if directProjectGroup}
-        {#if createProjectGroupId === directProjectGroup.id}
-          <form class="grid gap-1" onsubmit={(event) => { event.preventDefault(); void submitProject(directProjectGroup.id); }}>
-            <div class="flex gap-1">
+      {:else if mainProjectGroup}
+        {#if createProjectGroupId === mainProjectGroup.id}
+          <form class={cn("grid gap-1", mobileLayout && "gap-2")} onsubmit={(event) => { event.preventDefault(); void submitProject(mainProjectGroup.id); }}>
+            <div class={cn("flex gap-1", mobileLayout && "gap-2")}>
               <input
-                value={projectDraftByGroup[directProjectGroup.id] ?? ""}
+                value={projectDraftByGroup[mainProjectGroup.id] ?? ""}
                 oninput={(event) => {
                   projectDraftByGroup = {
                     ...projectDraftByGroup,
-                    [directProjectGroup.id]: event.currentTarget.value,
+                    [mainProjectGroup.id]: event.currentTarget.value,
                   };
                 }}
                 placeholder={t("projects.navigator.projectNamePlaceholder")}
-                class="min-h-7 min-w-0 flex-1 rounded border border-border bg-muted/40 px-2 text-[0.8rem] text-popover-foreground placeholder:text-popover-foreground/45"
+                class={cn(
+                  "min-w-0 flex-1 border border-border bg-muted/40 text-popover-foreground placeholder:text-popover-foreground/45",
+                  mobileLayout ? "min-h-12 rounded-xl px-3 text-base" : "min-h-7 rounded px-2 text-[0.8rem]",
+                )}
               />
-              <button type="submit" class="min-h-7 rounded bg-primary px-2 text-[0.733333rem] font-medium text-primary-foreground">
+              <button
+                type="submit"
+                class={cn(
+                  "bg-primary font-medium text-primary-foreground",
+                  mobileLayout ? "min-h-12 rounded-xl px-4 text-sm" : "min-h-7 rounded px-2 text-[0.733333rem]",
+                )}
+              >
                 {t("common.save")}
               </button>
+              {#if mobileLayout}
+                <button
+                  type="button"
+                  class="flex min-h-12 min-w-12 items-center justify-center rounded-xl active:bg-accent"
+                  aria-label={t("common.cancel")}
+                  onclick={closeMobileProjectCreator}
+                >
+                  <X size={18} strokeWidth={iconStrokeWidth} aria-hidden="true" />
+                </button>
+              {/if}
             </div>
             <div class="flex flex-wrap gap-1" aria-label={t("projects.navigator.projectTemplate")}>
               {#each PROJECT_TEMPLATE_IDS as templateId}
                 <button
                   type="button"
                   class={cn(
-                    "min-h-6 rounded border px-1.5 text-[0.7rem]",
-                    (projectTemplateDraftByGroup[directProjectGroup.id] ?? "blank") === templateId
+                    "rounded border",
+                    mobileLayout ? "min-h-12 px-3 text-sm" : "min-h-6 px-1.5 text-[0.7rem]",
+                    (projectTemplateDraftByGroup[mainProjectGroup.id] ?? "blank") === templateId
                       ? "border-primary/60 bg-primary/10 text-primary"
                       : "border-border bg-transparent text-popover-foreground/60 hover:bg-accent hover:text-accent-foreground",
                   )}
                   onclick={() => {
                     projectTemplateDraftByGroup = {
                       ...projectTemplateDraftByGroup,
-                      [directProjectGroup.id]: templateId,
+                      [mainProjectGroup.id]: templateId,
                     };
                   }}
                 >
@@ -823,17 +1087,21 @@
                 </button>
               {/each}
             </div>
-            <p class="text-[0.66rem] leading-4 text-popover-foreground/55">{t("projects.navigator.managedFolderCreationHint")}</p>
+            <p class={cn("text-popover-foreground/55", mobileLayout ? "text-xs leading-5" : "text-[0.66rem] leading-4")}>{t("projects.navigator.managedFolderCreationHint")}</p>
           </form>
         {:else}
           <button
             type="button"
-            class="flex min-h-8 w-full items-center justify-center gap-1.5 rounded-md text-[0.8rem] text-popover-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
+            data-mobile-create-project={mobileLayout ? "true" : undefined}
+            class={cn(
+              "flex w-full items-center justify-center gap-1.5 text-popover-foreground transition-colors hover:bg-accent hover:text-accent-foreground",
+              mobileLayout ? "min-h-12 rounded-xl text-sm active:bg-accent" : "min-h-8 rounded-md text-[0.8rem]",
+            )}
             onclick={() => {
-              createProjectGroupId = directProjectGroup.id;
+              createProjectGroupId = mainProjectGroup.id;
             }}
           >
-            <Plus size={13} strokeWidth={iconStrokeWidth} />
+            <Plus size={mobileLayout ? 18 : 13} strokeWidth={iconStrokeWidth} />
             <span>{t("calendar.eventPanel.createProject")}</span>
           </button>
         {/if}
@@ -842,7 +1110,7 @@
   {/if}
 </div>
 
-{#if mode === "groups" && !searchActive && activeGroup && activeGroupAnchorElement}
+{#if !mobileLayout && mode === "groups" && !searchActive && activeGroup && activeGroupAnchorElement}
   {@const activeGroupProjects = projectsInGroup(activeGroup)}
   <!-- svelte-ignore a11y_no_static_element_interactions -->
   <div
@@ -894,7 +1162,7 @@
                   onpointermove={(event) => handleProjectPointerMove(project, event)}
                   onpointerleave={handleProjectPointerLeave}
                   onfocus={(event) => previewProject(project, event.currentTarget)}
-                  onclick={() => { void selectProject(project); }}
+                  onclick={() => { void activateProject(project); }}
                 >
                   <ProjectIcon name={project.icon} size={iconSize} strokeWidth={iconStrokeWidth} emojiScale={emojiScale} class="shrink-0" />
                   <span class="min-w-0 flex-1 truncate">{project.name}</span>

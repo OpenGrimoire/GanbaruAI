@@ -41,6 +41,7 @@
     skinTonePanelOpen = $bindable(false),
     iconColorPanelOpen = $bindable(false),
     customEmojiPanelOpen = $bindable(false),
+    allowCustomEmojiCreate = true,
     gridScrollable,
     gridCanScrollUp,
     gridCanScrollDown,
@@ -63,6 +64,7 @@
     skinTonePanelOpen: boolean;
     iconColorPanelOpen: boolean;
     customEmojiPanelOpen: boolean;
+    allowCustomEmojiCreate?: boolean;
     gridScrollable: boolean;
     gridCanScrollUp: boolean;
     gridCanScrollDown: boolean;
@@ -285,23 +287,25 @@
       {/if}
     </button>
   {/each}
-  <button
-    bind:this={customEmojiTriggerElement}
-    type="button"
-    class={cn(
-      "ml-auto flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground",
-      customEmojiPanelOpen && "bg-accent text-foreground",
-    )}
-    aria-label={t("projects.iconPicker.addCustomEmoji")}
-    title={t("projects.iconPicker.addCustomEmoji")}
-    onclick={() => {
-      customEmojiPanelOpen = !customEmojiPanelOpen;
-      skinTonePanelOpen = false;
-      iconColorPanelOpen = false;
-    }}
-  >
-    <Plus size={16} strokeWidth={1.75} />
-  </button>
+  {#if allowCustomEmojiCreate}
+    <button
+      bind:this={customEmojiTriggerElement}
+      type="button"
+      class={cn(
+        "ml-auto flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground",
+        customEmojiPanelOpen && "bg-accent text-foreground",
+      )}
+      aria-label={t("projects.iconPicker.addCustomEmoji")}
+      title={t("projects.iconPicker.addCustomEmoji")}
+      onclick={() => {
+        customEmojiPanelOpen = !customEmojiPanelOpen;
+        skinTonePanelOpen = false;
+        iconColorPanelOpen = false;
+      }}
+    >
+      <Plus size={16} strokeWidth={1.75} />
+    </button>
+  {/if}
 </div>
 
 <style>

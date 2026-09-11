@@ -81,28 +81,19 @@ describe("selectActivePomodoroBlock", () => {
     ).toBe(older);
   });
 
-  it("prefers a recently interrupted block before normal tiebreakers", () => {
-    const interrupted = event({
-      id: "interrupted",
-      start: "2026-05-25 09:00",
-      end: "2026-05-25 12:00",
-    });
-    const shorter = event({
-      id: "shorter",
-      start: "2026-05-25 10:00",
-      end: "2026-05-25 10:30",
-    });
+  it("orders occurrence identities consistently without locale collation", () => {
+    const upper = event({ id: "Z", start: "2026-05-25 10:00", end: "2026-05-25 11:00" });
+    const lower = event({ id: "a", start: "2026-05-25 10:00", end: "2026-05-25 11:00" });
+    for (const events of [[upper, lower], [lower, upper]]) {
+      expect(selectActivePomodoroBlock(events, { now, activeBlockId: null })).toBe(upper);
+    }
+  });
 
-    expect(
-      selectActivePomodoroBlock(
-        [shorter, interrupted],
-        {
-          now,
-          activeBlockId: null,
-          recentlyInterruptedBlockIds: new Set(["interrupted"]),
-        },
-      ),
-    ).toBe(interrupted);
+  it("excludes cancelled and all-day commitments even when they were the current owner", () => {
+    const cancelled = event({ id: "cancelled", start: "2026-05-25 10:00", end: "2026-05-25 11:00", status: "cancelled" });
+    const allDay = event({ id: "all-day", start: "2026-05-25 00:00", end: "2026-05-26 00:00", allDay: true });
+    expect(selectActivePomodoroBlock([cancelled, allDay], { now, activeBlockId: cancelled.id })).toBeUndefined();
+    expect(nextPomodoroBlockBoundaryMs([cancelled, allDay], now.getTime())).toBeNull();
   });
 
   it("returns the next Pomodoro start or end boundary without polling", () => {

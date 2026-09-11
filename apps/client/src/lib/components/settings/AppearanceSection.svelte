@@ -17,11 +17,13 @@
   import CustomSelect from "./CustomSelect.svelte";
   import ToggleSetting from "./ToggleSetting.svelte";
   import ThemeList from "./ThemeList.svelte";
+  import { BUILD_PLATFORM_PROFILE } from "$lib/platform";
 
   const preferences = getPreferences();
   const zoom = getZoom();
   const calZoom = getCalendarZoom();
   const { t } = getLocalization();
+  const mobileShell = BUILD_PLATFORM_PROFILE.shell === "mobile";
 
   type SelectOption = { value: string; label: string; style?: string };
 
@@ -118,7 +120,7 @@
     <div class="flex flex-col gap-3">
       <CustomSelect
         label={t("settings.appearance.appZoom")}
-        descriptionShortcuts={["Mod + +", "Mod + -", "Mod + 0"]}
+        descriptionShortcuts={mobileShell ? [] : ["Mod + +", "Mod + -", "Mod + 0"]}
         value={percentString(zoom.percent)}
         options={appZoomOptions}
         onChange={handleAppZoomChange}
@@ -180,7 +182,7 @@
     <div class="flex flex-col gap-3">
       <CustomSelect
         label={t("settings.appearance.calendarZoom")}
-        descriptionShortcuts={["Shift + +", "Shift + -", "Shift + 0"]}
+        descriptionShortcuts={mobileShell ? [] : ["Shift + +", "Shift + -", "Shift + 0"]}
         value={percentString(calZoom.zoomPercent)}
         options={calendarZoomOptions}
         onChange={handleCalendarZoomChange}

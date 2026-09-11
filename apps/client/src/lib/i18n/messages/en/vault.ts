@@ -22,6 +22,8 @@ export const dataFolderError = {
     "Ganbaru AI could not use this folder. Choose an empty folder or an existing Ganbaru AI folder.",
   import:
     "Ganbaru AI could not import this folder. Select the folder from your previous installation.",
+  backup: "Ganbaru AI could not create the backup.",
+  restore: "Ganbaru AI could not restore this backup.",
   general: "Ganbaru AI could not use this folder.",
   unknown: "Unknown error",
   permission:

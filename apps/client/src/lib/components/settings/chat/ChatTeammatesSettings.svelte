@@ -580,6 +580,7 @@
 
   function beginCreate(channelId: string | null = null): void {
     clearAccessConflict();
+    lifecycleError = null;
     accessPickerOpen = false;
     creating = true;
     selectedId = null;
@@ -610,6 +611,7 @@
 
   function cancelCreate(): void {
     clearAccessConflict();
+    lifecycleError = null;
     creating = false;
     selectedId = chat.teammates[0]?.participant.id ?? null;
     profileBaseline = null;
@@ -626,6 +628,7 @@
 
   function initializeSelectedTeammate(teammate: ChatAiTeammateRead): void {
     clearAccessConflict();
+    lifecycleError = null;
     accessPickerOpen = false;
     profileBaseline = null;
     accessBaseline = null;
@@ -1335,6 +1338,7 @@
 
   function requestLifecycle(action: LifecycleAction): void {
     if (!selected || lifecycleBusy) return;
+    lifecycleError = null;
     if (action === "archive" && selected.activeAssignmentCount > 0) {
       lifecycleError = t("settings.chat.teammates.archiveBlocked", selected.activeAssignmentCount);
       return;
@@ -1349,6 +1353,7 @@
     lifecycleAction = null;
     lifecycleTarget = null;
     if (!action || !target) return;
+    lifecycleError = null;
     lifecycleBusy = true;
     try {
       if (action === "archive") {
@@ -1359,6 +1364,7 @@
       selectedId = null;
       await chat.refreshTeammates();
       await loadDirectoryData();
+      lifecycleError = null;
     } catch (cause: unknown) {
       lifecycleError = chatErrorMessage(cause, t("settings.chat.teammates.lifecycleFailed"));
     } finally {
@@ -1368,6 +1374,7 @@
 
   async function restoreSelected(): Promise<void> {
     if (!selected || lifecycleBusy) return;
+    lifecycleError = null;
     lifecycleBusy = true;
     try {
       const restored = await chatApi.archiveChatTeammate(
@@ -1379,6 +1386,7 @@
       await loadDirectoryData();
       showArchived = false;
       selectedId = restored.participant.id;
+      lifecycleError = null;
     } catch (cause: unknown) {
       lifecycleError = chatErrorMessage(cause, t("settings.chat.teammates.restoreFailed"));
     } finally {
@@ -1643,7 +1651,7 @@
             <CalendarScrollbar scrollContainer={detailScrollElement} wheelPassthrough />
           </div>
 
-          <footer class="editor-footer"><div>{#if creating}<button type="button" class="secondary-button" onclick={cancelCreate}><X size={14} />{t("common.cancel")}</button>{:else if selected && archivedMode}<button type="button" class="danger-button" disabled={selected.hasDurableHistory} onclick={() => requestLifecycle("delete")}><Trash2 size={14} />{t("settings.chat.teammates.deletePermanently")}</button>{:else if selected}<button type="button" class="secondary-button" disabled={selected.activeAssignmentCount > 0} onclick={() => requestLifecycle("archive")}><Archive size={14} />{t("settings.chat.teammates.archive")}</button>{/if}{#if lifecycleError}<span class="field-error" role="alert">{lifecycleError}</span>{/if}</div><div class="save-area">{#if error && errorField !== "displayName" && errorField !== "role"}<span class="field-error" role="alert">{error}</span>{:else if providerResourceBlockers[0]}<span class="field-error" role="alert">{providerResourceBlockers[0]}</span>{/if}{#if archivedMode}<button type="button" class="primary-button" onclick={() => void restoreSelected()}><ArchiveRestore size={14} />{t("settings.chat.teammates.restore")}</button>{:else}<button bind:this={saveButtonElement} type="submit" class="primary-button" disabled={saving || !canSave}>{saving ? t("settings.chat.teammates.saving") : creating ? t("settings.chat.teammates.createInert") : t("settings.chat.teammates.save")}</button>{/if}</div></footer>
+          <footer class="editor-footer"><div>{#if creating}<button type="button" class="secondary-button" onclick={cancelCreate}><X size={14} />{t("common.cancel")}</button>{:else if selected && archivedMode}<button type="button" class="danger-button" disabled={selected.hasDurableHistory} onclick={() => requestLifecycle("delete")}><Trash2 size={14} />{t("settings.chat.teammates.deletePermanently")}</button>{:else if selected}<button type="button" class="secondary-button" disabled={selected.activeAssignmentCount > 0} onclick={() => requestLifecycle("archive")}><Archive size={14} />{t("settings.chat.teammates.archive")}</button>{/if}{#if lifecycleError}<span class="field-error" role="alert">{lifecycleError}</span>{/if}</div><div class="save-area">{#if error && errorField !== "displayName" && errorField !== "role"}<span class="field-error" role="alert">{error}</span>{:else if accessErrors.length > 0}<span class="field-error" role="alert">{t("settings.chat.teammates.accessValidationFailed")}</span>{:else if providerResourceBlockers[0]}<span class="field-error" role="alert">{providerResourceBlockers[0]}</span>{/if}{#if archivedMode}<button type="button" class="primary-button" onclick={() => void restoreSelected()}><ArchiveRestore size={14} />{t("settings.chat.teammates.restore")}</button>{:else}<button bind:this={saveButtonElement} type="submit" class="primary-button" disabled={saving || !canSave}>{saving ? t("settings.chat.teammates.saving") : creating ? t("settings.chat.teammates.createInert") : t("settings.chat.teammates.save")}</button>{/if}</div></footer>
         </form>
       {:else}
         <div class="empty-detail"><Bot size={24} /><p>{t("settings.chat.teammates.selectPrompt")}</p></div>

@@ -1,38 +1,41 @@
 # Ganbaru AI
 
-Ganbaru AI is an anti-procrastination + anti-burnout productivity app. Free, local, open-source (AGPL 3.0), privacy-first, lightweight with opt-in AI (Codex and BYOK for any LLM). It's built with Tauri v2 (Rust) and Svelte 5 with multi-platform in mind (Linux, Windows, and in the future Android, macOS and iOS).
+Ganbaru AI is an anti-procrastination + anti-burnout productivity app. Free, local, open-source (AGPL 3.0), privacy-first, lightweight with opt-in AI. It is built with Tauri v2 (Rust) and Svelte 5 for Linux, Windows, and an active pre-release Android implementation. macOS and iOS remain future platform work.
 
 Features are highly interconnected. Current status:
-- Calendar
-- Pomodoro
-- Doomscrolling (work in progress; browser and desktop blocking exist, mobile remains pending)
-- Music player (work in progress; local playback, source parsing, controls, and tray/titlebar integration exist)
+
+- Calendar (work in progress; the main views and workflows exist, while recurrence and Pomodoro transition persistence need correctness hardening)
+- Pomodoro (work in progress; the timer lifecycle and platform surfaces exist, while transition persistence and idle-source failure handling need hardening)
+- Quick notes and themes
+- Doomscrolling (work in progress; browser, desktop, and selected Android application enforcement exist)
+- Music player (work in progress; desktop and Android local playback, playlists, source parsing, controls, and platform integrations exist)
 - Localization (work in progress; English and Spanish catalogs with language preferences exist)
 - Projects (work in progress; SQLite-backed planning, task views, scheduling, settings, history, templates, and custom fields exist)
 - Note-taking (work in progress; SQLite-backed pages, blocks, databases, templates, history, links, comments, assets, and transfer workflows exist)
+- Chat and local coding-agent execution (work in progress; durable project channels, provider sessions, access profiles, workspace tools, terminals, checkpoints, and review exist)
+- Android (work in progress; an adaptive app shell and native integrations exist, but release readiness remains incomplete)
 - Sleep alarm (pending)
 - Daily diary (pending)
-- Gamification (pending)
+- Work environments and sync (pending)
+- Gamification (deferred)
 
 ## Essential reading
 
-All documentation lives in `docs/`. Top-level overviews:
+All documentation lives in `docs/`. Start with `docs/README.md`, which routes readers by decision type and defines the documentation status vocabulary.
 
-- **docs/PRODUCT_SPEC.md**: what the app does and why (being migrated into granular docs; will be removed once empty)
-- **docs/TECH_STACK.md**: how it's built
-- **docs/ROADMAP.md**: phased development plan
-- **docs/PERFORMANCE.md**: memory, startup, and package size measurements
-- **docs/TESTING.md**: testing strategy, validation gates, command topology, caching, and resource constraints
-- **docs/release.md**, **docs/rulesets.md**, and **CONTRIBUTING.md**: branch, PR, ruleset, and release workflow
+- **docs/product/**: product direction, principles, scope, and system ownership
+- **docs/features/**: current and planned user-facing feature behavior
+- **docs/ROADMAP.md**: delivery horizons, active gaps, and deferred areas
+- **docs/architecture/**: current code, platform, and integration boundaries
+- **docs/data/**: sources of truth, schema domains, invariants, authorization, hazards, security, and sync
+- **docs/algorithms/**: pure-logic specifications and worked examples
+- **docs/interop/**: standards scope, preservation rules, conformance, fixtures, and client observations
+- **docs/platforms/**: platform-specific capability, UX, delivery, and acceptance contracts
+- **docs/performance/**: benchmark methodology and recorded measurements
+- **docs/testing/**: validation gates, infrastructure, test design, caching, and resource constraints
+- **docs/operations/** and **CONTRIBUTING.md**: branch, PR, ruleset, and release workflow
 
-Granular docs (read the relevant one when working on a feature):
-
-- **docs/features/**: current and planned per-feature behavior and UX, including Calendar, Pomodoro, Doomscrolling, Music, Notes, Projects, themes, localization, performance, AI integration, work environments, and future product surfaces
-- **docs/data/**: data architecture, schema, invariants, sync, hazards, security
-- **docs/algorithms/**: pure-logic specs (recurrence-expansion, pomodoro-adaptive-rhythm, pomodoro-segments-and-plan, pomodoro-state-machine, idle-detection, time-conflict-detection, undo-redo)
-- **docs/interop/**: interoperability plans, standards scope, conformance fixtures, client behavior, and migration strategy for external formats and calendar clients
-
-Docs describe the optimal/ideal end state of the app, not the current implementation. They preserve the "why" behind decisions over time. When implementation work discovers a better product direction than an older spec, update the relevant spec to that improved ideal. When a meaningful feature or behavior has no suitable spec yet, create the smallest appropriate spec instead of leaving design intent only in code or chat. `AGENTS.md` should carry durable repo context for agents; detailed feature behavior belongs in the relevant `docs/features/` or `docs/data/` spec.
+Docs can describe both the current implementation and the intended end state, but they must label that distinction explicitly. They preserve durable behavior and the reasons behind decisions instead of mirroring private implementation details. When implementation work discovers a better product direction than an older spec, update the relevant spec. When meaningful behavior has no suitable spec, create the smallest appropriate document instead of leaving design intent only in code or chat. `AGENTS.md` carries durable repository context; detailed product, data, algorithm, platform, and operational behavior belongs in the corresponding documentation area.
 
 ## Workspace structure
 
@@ -43,9 +46,25 @@ Docs describe the optimal/ideal end state of the app, not the current implementa
   CODE_OF_CONDUCT.md: GitHub community behavior policy
   ISSUE_TEMPLATE/: GitHub issue forms and template chooser config
   SECURITY.md: GitHub security policy and private vulnerability reporting instructions
-  workflows/: GitHub Actions release workflows
+  workflows/: GitHub Actions CI and release workflows
   release.yml: generated GitHub Release notes config
+  release-notes-template.md: maintainer template used to draft release descriptions
   pull_request_template.md: default GitHub pull request template
+docs/
+  README.md: documentation index, status vocabulary, and ownership rules
+  product/: product direction and cross-system ownership
+  features/: user-facing behavior, grouped by large feature domain
+  architecture/: current code boundaries and durable technical decisions
+  data/: storage, schema domains, authorization, invariants, hazards, security, and sync
+  algorithms/: deterministic Calendar and Pomodoro logic
+  interop/: external standards, conformance, fixtures, and client observations
+  platforms/: Android and desktop-specific product contracts
+  performance/: benchmark methodology and immutable results
+  testing/: validation gates, infrastructure, authoring guidance, and manual matrices
+  operations/: repository policy, release, signing, and distribution procedures
+  development/: small contributor-facing implementation references
+  assets/: documentation images
+  ROADMAP.md: delivery horizons and deferred product areas
 apps/
   client/: Tauri app (Svelte frontend + Rust backend)
     src/: Svelte frontend
@@ -56,19 +75,21 @@ apps/
           chat/: local coding-agent shell, timeline, composer, interactive requests, inspector, file browser, terminal, navigation, and archive
           icon-picker/: shared icon, emoji, custom emoji, and image picker
           music/: player controls, source parsing, playlist management surfaces
+          mobile/: adaptive phone and tablet shell, navigation, status, and overlays
           notes/: Notes navigation, editor, databases, history, transfer, and project surfaces
           perf/: memory and performance diagnostics surfaces
           pomodoro/: timer display, controls, break screen, and idle overlay
           profile/: shared local profile avatar surfaces
           projects/: project navigation, planning views, task details, and settings
           quick-notes/: Quick notes panel, masonry cards, editor, and color controls
-          settings/: resident settings surfaces, theme editor, preferences, and optional tools
+          settings/: shared desktop and mobile settings controller, platform renderers, theme editor, preferences, and optional tools
           title-bar/: application title bar and window controls
           ui/: shared generated shadcn-svelte primitives
           updates/: app update UI
           vault/: data folder setup and active-folder UI
         api/: typed wrappers around Tauri commands and asset URL handling
           chat.ts, chat-coordination.ts, chat-session.ts, chat-settings.ts, chat-workspace.ts, chat-workspace-observer.ts: split Chat command clients by backend domain
+          notes.ts, notes/: stable Notes API facade and split workspace, knowledge, collaboration, template/history, transfer, database, content, and working-Markdown command clients
         benchmark/: benchmark runner, samplers, output, scenarios
         calendar/: shared calendar logic and iCalendar parser/serializer
         chat/: local coding-agent contracts, runtime validation, workspace controller, inspector and terminal models, and API boundaries
@@ -96,7 +117,9 @@ apps/
         utils/: shared helpers, formatters
         vault/: frontend data folder config and state
         windows/: detached window helpers
-      app.css, app.d.ts: global styles, type declarations
+      App.svelte, MobileApp.svelte: desktop and mobile Svelte shell roots
+      main-desktop.ts, main-mobile.ts, main.ts: platform bootstraps and virtual entry selector
+      app.css, app.d.ts, virtual-modules.d.ts: global styles and type declarations
     static/: static assets (fonts, icons, sounds)
     scripts/: repo-owned maintenance and diagnostics scripts
     src-tauri/: Tauri package, build script, configuration, and platform entries
@@ -105,17 +128,19 @@ apps/
         lib.rs: mobile-only Tauri entry that preserves Android and iOS library outputs
       app/: ganbaru-tauri-app ordinary Rust library
         src/: Tauri commands, managed state, setup and exit hooks, and platform integrations
-          db.rs, db_path.rs, vault.rs: active-folder authorization and SQLite adapter boundary
+          desktop_runtime.rs, mobile_runtime.rs: platform-specific Tauri composition roots
+          db.rs, db_path.rs, vault.rs, vault/: active-folder authorization, SQLite adapter boundary, and portable Android backup and restore
           calendar_events/, calendar_import/, calendar_reads/: split calendar persistence, import, and query services
           calendar_description.rs, calendar_import.rs, calendar_reads.rs, calendars.rs, recurrence.rs: calendar command roots and shared logic
-          chat.rs, chat/: Tauri Chat adapters, application command flows, and platform integrations
+          chat.rs, chat/: desktop Tauri Chat adapters, application command flows, and platform integrations
             coordination_commands/, send/, interaction/: messages, scheduling, turn orchestration, attachments, drafts, and follow-ups
             checkpoints/, restore_commands/: authorization cleanup and restoration workflows over the core Chat service
             preview/, workspace_observer/: browser previews, webviews, and workspace change observation
             settings/: provider discovery, native credentials, preferences, model mapping, and pickers
-            benchmark/, tests/: dense benchmark support and Tauri integration tests
+            tests/: Tauri integration tests
+          chat_mobile.rs: mobile-compatible Chat configuration and vault contract surface
           notes.rs, notes/: Notes Tauri command adapters, working-Markdown composition, dialogs, and asset authorization
-          pomodoro.rs, pomodoro/: timer commands, DTOs, persistence, validation, reads, and tests
+          pomodoro.rs: authorized Tauri focus command adapters over ganbaru-focus
           projects.rs, projects/: project commands, DTOs, persistence, validation, history, custom fields, and templates
           quick_notes/: Quick notes commands, normalized text runs, lifecycle, search, and tests
           notification.rs, notification/: notification commands, scheduling, and platform delivery
@@ -129,14 +154,21 @@ apps/
       package-repo/: generated package repository public key staging (ignored)
       package-scripts/: Linux package lifecycle scripts for repo registration
       capabilities/: permission declarations (desktop/mobile)
-      gen/schemas/: generated Tauri schema files
+      gen/
+        android/: generated Android project and native platform integration
+        schemas/: generated Tauri schema files
       examples/: Rust example targets
       icons/: app icons
-      build.rs, tauri.conf.json, tauri.dev.conf.json, Cargo.toml
+      build.rs, tauri.conf.json, tauri.dev.conf.json, tauri.android.conf.json, Cargo.toml
     index.html, package.json, svelte.config.js, vite.config.ts, tsconfig.json
 crates/
+  ganbaru-mobile-doomscrolling/: Android launchable-app discovery, explicit access settings, foreground app enforcement, and durable usage journal plugin
+  ganbaru-mobile-documents/: Android MediaStore export and bounded document-picker transfer plugin
+  ganbaru-mobile-media/: Android Media3 playback and selected music document-tree plugin
+  ganbaru-mobile-notifications/: Android Calendar notification scheduling, channel, tap, exact-alarm, and settings adapter
   ganbaru-working-folders/: Tauri-free working-folder IDs, repository kinds, timestamps, bindings, and device-state operations
   ganbaru-db/: Tauri-free SQLite pool registry, connection configuration, migrations, row macro, and schema tests
+  ganbaru-focus/: Tauri-free focus persistence, history, validation, recovery, and local activity admission
   ganbaru-chat-contracts/: stable provider-neutral Chat IDs, commands, events, DTOs, errors, and Serde contracts
   ganbaru-chat-providers/: provider processes, transports, drivers, event sinks, cancellation, and registry
   ganbaru-chat/: Chat persistence, runtime, Git workspaces, checkpoints, review, source control, and application services
@@ -153,11 +185,11 @@ pnpm-workspace.yaml: workspace definition
 package.json: root scripts, shared dev dependencies
 ```
 
-Planned top-level work that does not have source directories yet includes the self-hosted Hocuspocus server and Firefox extension. Planned product surfaces such as the diary, AI panel, edge panel, visual novel, environments, and contracts also do not have component directories yet.
+Planned top-level work that does not have source directories yet includes the self-hosted sync server and Firefox extension. Planned product surfaces such as the diary, BYOK assistant, edge panel, sleep alarm, work environments, and gamification also do not have component directories yet.
 
 ## Ganbaru AI folder structure
 
-> Everything the app produces lives in one Ganbaru AI folder. By default production creates `Documents/Ganbaru AI`, while development builds create `Documents/Ganbaru AI Dev`. The base skeleton is created for every folder. Asset subdirectories are created on demand. Planned paths are explicitly labeled.
+> Everything the app produces belongs to one active Ganbaru AI vault. On desktop, production defaults to `Documents/Ganbaru AI` and development defaults to `Documents/Ganbaru AI Dev`, unless the user selects another location. Android keeps the active vault in application-private storage. The logical skeleton below applies to each vault. Asset subdirectories are created on demand. Planned paths are explicitly labeled.
 
 ```
 Ganbaru AI/
@@ -186,7 +218,7 @@ Ganbaru AI/
   .yjs/: reserved Yjs document state cache
 ```
 
-Music files stay wherever the user keeps them; the Ganbaru AI folder stores only playlist definitions. Backups go to a user-specified path outside the Ganbaru AI folder.
+Music files stay wherever the user keeps them. The vault stores library metadata, source identities, playlist memberships, assignments, and playback state, but not the media bytes. Desktop backups go to a user-selected path outside the vault. Android portable backups are exported to shared Downloads and restored through the system document picker.
 
 Tauri's platform app config directory stores device-local bootstrap and runtime state only, including `app-state.json`, benchmark state, benchmark SQLite, and doomscrolling runtime snapshots. Production and dev builds keep separate app config directories and therefore separate active-folder pointers.
 
@@ -198,20 +230,21 @@ Tauri's platform app config directory stores device-local bootstrap and runtime 
 - **Desktop/mobile shell:** Tauri v2
 - **License:** AGPL 3.0
 - **Data architecture:** two categories of data with different storage. Documents (diary entries, project docs, reports, and attachments) are files on disk; SQLite can index them for fast queries but the file is the source of truth where the document format is canonical. Structured data and document graphs (Notes pages and blocks, calendar events, project tasks, workspace configs, pomodoro configs, runs, segments, pauses, and run events) live in SQLite as the source of truth. Markdown for Notes is derivative import, export, or bridge output only.
-- **AI integration:** the architecture has three opt-in paths. (1) The local coding-agent Chat uses project channels above Rust-owned native harness sessions, durable SQLite history, project-owned working folders, device-local folder bindings, operating-system credential references, and a Svelte shell. Project `#general`, channel navigation and archive, hidden session handoffs, Codex app-server, Claude native streaming, Cursor ACP, OpenCode HTTP and event streams, the combined timeline, composer, interactive requests, inspector, bounded file browsing, thread terminals, and Git checkpoints are implemented. Coding-agent runs receive an ephemeral loopback MCP endpoint for narrowly scoped application-owned host tools. This internal MCP endpoint is infrastructure, not a participant or teammate identity. (2) A BYOK chat widget supporting hosted and local user-configured providers is planned. (3) A separately authorized MCP service for external AI clients is planned.
+- **AI integration:** the architecture has three opt-in paths. (1) The local coding-agent Chat uses project channels above Rust-owned native harness sessions, durable SQLite history, project-owned working folders, device-local folder bindings, operating-system credential references, and a Svelte shell. Project `#general`, channel navigation and archive, hidden session handoffs, Codex app-server, Claude native streaming, Cursor and Grok ACP, OpenCode HTTP and event streams, the combined timeline, composer, interactive requests, inspector, bounded file browsing, thread terminals, and Git checkpoints are implemented. Coding-agent runs receive an ephemeral loopback MCP endpoint for narrowly scoped application-owned host tools. This internal MCP endpoint is infrastructure, not a participant or teammate identity. (2) A BYOK chat widget supporting hosted and local user-configured providers is planned. (3) A separately authorized MCP service for external AI clients is planned.
 - **Chat storage boundary:** project working folders, channels, ordered channel-session links, provider threads, canonical events, projections, drafts, attachment metadata, command receipts, checkpoints, access profiles, authorization revisions, logical scratch scopes, and cleanup records live in the active vault SQLite database. Every organizational run has one execution target, either an authorized project working folder or a private scratch generation. Personal channel sections and last-selected-channel state are device-local presentation preferences. Managed attachment bytes live under the active vault at `assets/chat/attachments/`. External absolute folder paths, scratch paths, executable paths, provider homes, probe caches, diagnostics, provider-native trust, and process state are device-local. Provider-native trust never widens organizational authority. Provider secrets live only behind operating-system credential references.
 - **Agent data bridge:** native Chat sessions use Rust-owned application services and the scoped internal MCP endpoint for authorized channel and folder operations. A future Rust `ganbaru-ai` CLI may expose separately authorized external queries and derivative project exports for agents and collaborators, but it is not the internal Chat authorization path. The CLI is not implemented yet. The current Notes UI provides a deterministic agent-bridge markdown export for selected Notes and related project context.
 - **State management:** Svelte 5 runes ($state, $derived, $effect), no external state manager
 - **Localization:** user-facing UI text must use the typed i18n catalog. Language selectors show explicit languages as autonyms, such as `English` and `Español`, while non-language options like system preference are localized. User-facing date, time, number, plural, relative-minute, and list formatting should use the current locale helpers.
-- **Branching and releases:** normal work uses topic branches from `dev` and PRs back to `dev`. Direct pushes to `dev` or `main` are not normal workflow. `main`, `app-v*` tags, release environment approval, published GitHub Releases, package repositories, and AUR publication are controlled by organization admins for supply-chain safety. Releases are promoted through a PR from `dev` to `main`, merged through `main` merge queue, then published from explicit `app-v*` tags that build draft GitHub Releases. Publishing the GitHub Release updates the apt, RPM, and AUR package paths. See `CONTRIBUTING.md`, `docs/release.md`, and `docs/rulesets.md`.
+- **Branching and releases:** normal work uses topic branches from `dev` and PRs back to `dev`. Direct pushes to `dev` or `main` are not normal workflow. `main`, `app-v*` tags, release environment approval, published GitHub Releases, package repositories, and AUR publication are controlled by organization admins for supply-chain safety. Releases are promoted through a PR from `dev` to `main`, merged through `main` merge queue, then published from explicit `app-v*` tags that build draft GitHub Releases. Publishing the GitHub Release updates the apt, RPM, and AUR package paths. See `CONTRIBUTING.md`, `docs/operations/release/README.md`, and `docs/operations/repository-policy.md`.
 - **Pull request workflow:** for review work, create a neutral topic branch from current `dev` before committing. Branch names describe the work, such as `docs/github-templates` or `fix/calendar-import`; never use tool names, assistant names, or vanity prefixes in branches, commits, or PR titles. Open PRs into `dev` unless the user explicitly asks for a release PR. Creating a PR does not imply merging it. Merge only when the user explicitly asks to merge, or explicitly asks to complete the whole PR flow after checks pass. Before merging, confirm the PR is mergeable, required checks passed, and the branch is up to date with its base. For release PRs from `dev` to `main`, do not update `dev` with `main`; add the PR to `main` merge queue after pull request checks pass. If `gh pr merge` attempts auto-merge instead of queueing a `main` PR, use GitHub's queue action or the GraphQL `enqueuePullRequest` mutation; do not enable auto-merge. If a non-release PR branch is out of date, update it once, then merge if merging was already authorized after checks pass. After opening a PR, do not wait or poll repeatedly for GitHub Actions. Check status once immediately when useful, or when the user reports checks are complete. When a PR into `dev` is merged, fetch `origin/dev`, switch back to `dev`, sync local `dev` to `origin/dev`, and delete merged topic branches locally and remotely. When a PR into `main` is merged, fetch `origin/main`, switch back to `main`, and sync local `main` to `origin/main`. Do not keep backup branches unless the user explicitly asks.
 - **Commit signing:** commits should be signed with the configured SSH signing key. If signing fails, stop and report it instead of creating an unsigned commit.
-- **Sync:** planned Yjs + Hocuspocus architecture (CRDT-based, E2E encrypted, and self-hosted by the user); sync is not implemented yet
+- **Sync:** planned typed domain operations with SQLite-persisted Yrs/Yjs text, local device enrollment, end-to-end encryption, and an optional user-hosted Rust relay for opaque encrypted records. Sync and device linking are not implemented yet. See `docs/data/sync.md`.
+- **Focus evidence:** Android Calendar alarms are reminders and cannot start runs or record later phases. Recovery uses only committed SQLite execution. Desktop automatic admission requires fresh local activity; explicit starts remain available. Device controller ownership and live companion status are planned separately from window coordination.
 - **Build tool:** Vite (default with Tauri + Svelte scaffold)
 
 ## Testing
 
-Read `docs/TESTING.md` when changing tests, validation scripts, task ordering, concurrency, sharding, cache inputs, test profiles, or test target selection.
+Read `docs/testing/README.md` when changing tests, validation scripts, task ordering, concurrency, sharding, cache inputs, test profiles, or test target selection.
 
 **Writing tests:**
 - Tests live next to source with `.test.ts` suffix (e.g., `utils.ts` and `utils.test.ts`)
@@ -245,14 +278,14 @@ Read `docs/TESTING.md` when changing tests, validation scripts, task ordering, c
 - `pnpm -w run editor-check`: editor-style diagnostics, including Tailwind canonical class checks.
 - `pnpm -w run test`: all tests, with serialized Rust execution followed by sequential one-worker Vitest shards. Use after changes to tested code.
 - `pnpm --dir apps/client exec vitest run path/to/file.test.ts --maxWorkers=1`: focused frontend test file.
-- `cargo test -p ganbaru-chat --lib -j 1 test_name -- --test-threads=1`: focused Chat service test by name. Substitute `ganbaru-notes`, `ganbaru-db`, `ganbaru-chat-contracts`, `ganbaru-chat-providers`, or `ganbaru-working-folders` for the relevant core crate.
+- `cargo test -p ganbaru-chat --lib -j 1 test_name -- --test-threads=1`: focused Chat service test by name. Substitute `ganbaru-notes`, `ganbaru-db`, `ganbaru-chat-contracts`, `ganbaru-chat-providers`, `ganbaru-focus`, or `ganbaru-working-folders` for the relevant core crate.
 - `cargo test -p ganbaru-tauri-app --lib -j 1 test_name -- --test-threads=1`: focused Tauri composition or command-adapter test.
 - `cargo test -p ganbaru-native-messaging --bin ganbaru-ai-native-messaging -j 1 test_name -- --test-threads=1`: focused native messaging host test.
 - `cargo check -p ganbaru-ai --bin ganbaru-ai -j 1`: focused desktop composition check.
 - `cargo fmt --check`: Rust formatting only.
 - `cargo clippy --workspace -j 1 -- -D warnings`: Rust linting only.
 - `pnpm -w run audit:deps`: npm advisory audit for workspace dependencies. Run for dependency or lockfile changes, before PRs, before releases, and when investigating security alerts.
-- `pnpm -w run audit:rust`: RustSec audit for cargo dependencies. Run for dependency or lockfile changes, before PRs, before releases, and when investigating security alerts. Reviewed ignores live in `.cargo/audit.toml` and must be documented in `docs/data/security.md`.
+- `pnpm -w run audit:rust`: RustSec audit for cargo dependencies. Run for dependency or lockfile changes, before PRs, before releases, and when investigating security alerts. Reviewed ignores live in `.cargo/audit.toml` and must be documented in `docs/data/security/dependency-audits.md`.
 - `pnpm -w run audit`: both dependency audits (`audit:deps` + `audit:rust`).
 - `pnpm -w run validate`: full normal gate (check + test + editor-check + bundle contracts). Run before PRs, releases, risk-sensitive completion gates, and explicit full-validation requests. Do not treat ordinary task completion or a commit alone as requiring this gate. All errors must be fixed before treating that gate as passed.
 - `pnpm -w run validate:full`: security and code gate (audit + validate). Run for dependency or lockfile changes, before PRs, before releases, and when explicitly requested.
@@ -262,9 +295,9 @@ After the relevant gate passes, finish the task without extra dev-server, Tauri 
 
 **Benchmark versioning:**
 - `HARNESS_VERSION`, `DENSE_DATASET_VERSION`, and dense detail profile names are tied to recorded benchmark rows, not local iteration.
-- Do not bump them while tuning an unrecorded benchmark shape. Edit the current version in place until a run is recorded in `docs/PERFORMANCE.md`.
+- Do not bump them while tuning an unrecorded benchmark shape. Edit the current version in place until a run is recorded in `docs/performance/results.md`.
 - Once a version has recorded rows, bump only when a later methodology, workload, sampling, or dataset change makes new numbers incomparable with those rows.
-- Benchmark markdown copied from the app uses `YYYY-MM-DD-ID` as an unresolved run-id placeholder. When placing rows in `docs/PERFORMANCE.md`, replace it with the next zero-padded sequence for that date, such as `YYYY-MM-DD-01`; never leave `-ID` in recorded rows.
+- Benchmark markdown copied from the app uses `YYYY-MM-DD-ID` as an unresolved run-id placeholder. When placing rows in `docs/performance/results.md`, replace it with the next zero-padded sequence for that date, such as `YYYY-MM-DD-01`; never leave `-ID` in recorded rows.
 
 ## Rules
 
@@ -277,10 +310,10 @@ After the relevant gate passes, finish the task without extra dev-server, Tauri 
 - Treat stored user data as durable. Any change to SQLite schema, persisted JSON, config keys, theme tokens, import/export formats, or generated Ganbaru AI folder data must consider existing installs, older exports, stale rows, removed fields, renamed keys, seed/reset data, and rollback or fallback behavior.
 - Do not leave dead persistent data behind. If a field, row key, config key, or JSON property becomes obsolete, add an explicit migration, cleanup path, or validator drop rule, then document it in the relevant data or feature spec.
 - SQLite migrations live in `apps/client/src-tauri/migrations/` and are embedded by `ganbaru-db` through `sqlx::migrate!`. Use SQLx file names with a UTC timestamp prefix, `YYYYMMDDHHMMSS_description.sql`, such as `20260601103000_add_project_tables.sql`. Do not manually register migration files; the SQLx macro discovers them at compile time.
-- `20260713024120_baseline_schema.sql` is the fresh-start schema for the final pre-user reset. Earlier development databases are intentionally unsupported and must be recreated. Once a user-capable release can apply this baseline, never edit it. Add a new timestamped migration file instead.
+- `20260830173211_baseline_schema.sql` is the fresh-start schema for the final pre-user reset. Earlier development databases are intentionally unsupported and must be recreated. Once a user-capable release can apply this baseline, never edit it. Add a new timestamped migration file instead.
 - Keep `crates/ganbaru-db/src/lib.rs` focused on pool and migration services. Put schema and migration invariant tests in `crates/ganbaru-db/src/tests/`. Keep active-folder path authorization in `apps/client/src-tauri/app/src/db.rs`.
 - Keep migrations idempotent and narrowly scoped when practical, but remember that SQLx validates applied migration checksums. Never rewrite an applied migration to fix a live install. Preserve user-authored values whenever those values still have meaning, and only delete data that is truly obsolete or derivable from current canonical data.
-- The maintainer approved the final pre-user baseline squash on 2026-07-12.
+- The maintainer approved the final pre-user baseline squash on 2026-08-30.
 - Future baseline squashes require explicit maintainer approval. Once users can have applied the current baseline, preserve it permanently and use additive migrations.
 
 ### Theme and color tokens
@@ -288,7 +321,7 @@ After the relevant gate passes, finish the task without extra dev-server, Tauri 
 - New UI should use existing semantic theme tokens first. Add a new editable theme token only when it represents a stable, user-facing customization choice that users can reasonably understand and value.
 - Do not add editable theme tokens for one-off internal paint details such as borders, shadows, dividers, placeholder text, selected-state outlines, editor tints, drag-preview borders, or temporary affordances when they can be derived from an existing surface, foreground, event color, or semantic signal.
 - Keep theme editing broad but curated. The editor should expose meaningful color decisions, not every CSS variable. Prefer local derivation for implementation details and document the relationship when it affects future theme work.
-- When adding, renaming, or removing theme tokens, update `docs/features/themes.md`, import/export validation, SQLite migrations or cleanup paths, seed/reset behavior, and tests in the same change.
+- When adding, renaming, or removing theme tokens, update `docs/features/themes/README.md`, import/export validation, SQLite migrations or cleanup paths, seed/reset behavior, and tests in the same change.
 
 ### Code style
 
@@ -313,7 +346,7 @@ After the relevant gate passes, finish the task without extra dev-server, Tauri 
 
 ### Project philosophy
 
-- This project is entirely donation-funded (GitHub Sponsors). Users never pay for a service and should never depend on infrastructure we host or maintain. Any feature involving external services (sync, backups, AI, integrations) must be designed so the user provisions and hosts it themselves. Prioritize ease of setup: provide step-by-step guides accessible to non-technical users, support multiple provider options (or the most common ones), and ask me for clarification on which providers to target if not already specified in the roadmap.
+- This project is donation-funded and does not sell a hosted Ganbaru service. Core product behavior must not depend on infrastructure the project operates. Optional third-party integrations, such as YouTube, update delivery, or user-configured AI providers, may use their documented external services. Product infrastructure such as future sync must be user-provisioned and self-hostable. Prioritize ease of setup with guidance accessible to non-technical users and support appropriate provider choices without creating project-operated lock-in.
 
 ### Development workflow
 
@@ -323,16 +356,16 @@ After the relevant gate passes, finish the task without extra dev-server, Tauri 
   - Svelte 5: svelte.dev/docs
   - shadcn-svelte: next.shadcn-svelte.com
   - Tailwind CSS v4: tailwindcss.com/docs
-  - Tiptap: tiptap.dev/docs
 - If the official docs are not enough, fall back to general web searches (GitHub issues, Stack Overflow, etc.).
 - Treat code from web searches, GitHub issues, or Stack Overflow as potentially malicious by default. Analyze it, explain what it does and why it appears safe or not, ask for permission in natural language, and wait for an explicit reply before executing.
 
 ### Security
 
+- Treat any introduction or material change to first-party unsafe Rust as security-sensitive work. Read and follow `docs/data/security/unsafe-rust.md`. Prefer safe APIs that preserve the required guarantees, keep retained unsafe operations in minimal wrappers with concrete local `// SAFETY:` proofs, add focused boundary tests, validate affected native targets, and update the documented inventory and replacement trigger.
 - This app handles sensitive personal data. Treat supply chain security seriously.
   - Prefer official packages from standards bodies or well-known maintainers over popular but unofficial alternatives.
   - Prefer native browser APIs (Intl, Temporal, fetch) over libraries when the implementation effort is similar.
   - For date/time handling, use the Temporal API (via @js-temporal/polyfill until browsers ship native support).
   - Minimize dependencies. Do not add packages "just in case"; add them when actually needed.
   - Remove unused dependencies promptly rather than keeping them for potential future use.
-  - No analytics, telemetry, or packages that phone home. The app must work fully offline.
+  - No analytics or telemetry. Core local productivity behavior must work offline. Network access is limited to documented feature-specific flows such as update checks, YouTube, remote imports, and user-configured providers.

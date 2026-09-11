@@ -16,6 +16,7 @@ import {
   phaseDurationMinutesAtPosition,
   type RhythmState,
 } from "$lib/pomodoro/rhythm";
+import { selectFocusOwner } from "$lib/pomodoro/ownership";
 import { BREAK_OVERTIME_RAIL_GRACE_SECONDS } from "$lib/stores/pomodoro-machine";
 
 /**
@@ -83,6 +84,7 @@ export function computeTrailingFocusMinutes(segments: PlannedSegment[]): number 
  */
 export interface TimelineEvent {
   id: string;
+  createdAt?: string;
   config: PomodoroConfig;
   startMs: number; // full event start timestamp
   endMs: number; // full event end timestamp
@@ -101,14 +103,8 @@ export interface ActivePomodoroState {
 }
 
 /**
- * Compute a unified timeline of break and focus-fill bands for an entire day column.
- *
- * 1. Filter out contained events (covered by a longer event's schedule).
- * 2. Walk remaining events by start time, computing inheritance between them.
- * 3. For the active event, project bands from persisted segments.
- * 4. For events with persisted segments, output focus fill bands.
- * 5. For planned events, compute from config with inheritance.
- * 6. Skip past events without persisted segments.
+ * Project recorded history and a non-overlapping future rhythm under the shared
+ * Calendar owner rule. Planned bands remain proposals and never create history.
  */
 export function computeDayTimelineBands(
   events: TimelineEvent[],
@@ -117,202 +113,91 @@ export function computeDayTimelineBands(
   nowMs: number,
   persistedSegments?: ReadonlyMap<string, PersistedSegment[]>,
 ): TimelineBand[] {
-  if (events.length === 0) return [];
-
-  // Step 1: filter contained events
-  const nonContained = filterContained(events);
-
-  // Step 2: sort by start minute, then by start time for tiebreak
-  const sorted = [...nonContained].sort((a, b) =>
-    a.startMinute !== b.startMinute ? a.startMinute - b.startMinute : a.startMs - b.startMs,
-  );
-
-  // Find the active event's range so planned bands from overlapping events
-  // are suppressed (the active session's bands take visual priority).
-  const activeEvRange = activeState?.activeBlockId
-    ? sorted.find((ev) => ev.id === activeState.activeBlockId)
-    : null;
-
+  if (!Number.isFinite(dayStartMs) || !Number.isFinite(nowMs)) return [];
+  const eligible = events.filter((event) => Number.isFinite(event.startMs)
+    && Number.isFinite(event.endMs) && event.startMs < event.endMs
+    && Number.isFinite(event.startMinute) && Number.isFinite(event.endMinute)
+    && event.startMinute < event.endMinute);
+  if (eligible.length === 0) return [];
   const bands: TimelineBand[] = [];
-  let cursor = -Infinity; // tracks where the previous event's coverage ends (minute-of-day)
+  const activeEvent = eligible.find((event) => event.id === activeState?.activeBlockId);
+
+  // Retain recorded evidence even when another event currently owns the same window.
+  for (const event of eligible) {
+    const history = persistedSegments?.get(event.id) ?? [];
+    if (event === activeEvent && activeState && activeState.segments.length > 0) {
+      const activeRunIds = new Set(activeState.segments.map((segment) => segment.runId));
+      bands.push(...projectPersistedSegments(
+        history.filter((segment) => !activeRunIds.has(segment.runId)), event, dayStartMs,
+      ));
+      bands.push(...projectActiveSegments(
+        activeState.segments, activeState.remainingSeconds, activeState.phaseElapsedSeconds,
+        activeState.phaseWorkDurationSeconds, activeState.currentConfig,
+        event, dayStartMs, nowMs,
+      ));
+    } else {
+      bands.push(...projectPersistedSegments(history, event, dayStartMs));
+    }
+  }
+
+  const candidates = eligible.map((event) => ({
+    ...event,
+    startMs: Math.max(event.startMs, dayStartMs + event.startMinute * 60_000),
+    endMs: Math.min(event.endMs, dayStartMs + event.endMinute * 60_000),
+    event,
+  }));
+  let cursorMs = Math.max(nowMs, Math.min(...candidates.map((event) => event.startMs)));
+  let previousOwnerId = activeState?.activeBlockId ?? null;
   let inheritedFocus = 0;
   let inheritedRhythmPosition = 1;
+  let firstWindow = true;
 
-  for (const ev of sorted) {
-    const isActive = activeState?.activeBlockId === ev.id;
-
-    // Gap between events: reset inheritance
-    if (ev.startMinute > cursor) {
+  while (true) {
+    const owner = selectFocusOwner(candidates, cursorMs, previousOwnerId);
+    if (!owner) {
+      const nextStartMs = Math.min(...candidates
+        .filter((candidate) => candidate.startMs > cursorMs)
+        .map((candidate) => candidate.startMs));
+      if (!Number.isFinite(nextStartMs)) break;
+      cursorMs = nextStartMs;
+      previousOwnerId = null;
       inheritedFocus = 0;
       inheritedRhythmPosition = 1;
-    } else if (cursor > ev.startMinute) {
-      // Overlap: compute predecessor's state at this event's start point
-      // The cursor already reflects the previous event's end, and inheritance
-      // was computed for the full previous event. We need to re-derive state
-      // at the overlap point. Find the previous event that set the cursor.
-      // Since we process in order, the previous event's segments were computed
-      // with its own inheritance. We need state at ev.startMinute.
-      // This is handled by the cursor walk: we compute segments only from
-      // effectiveStart, so inheritance from the predecessor at cursor is correct.
-    }
-
-    const effectiveStart = Math.max(cursor, ev.startMinute);
-    const duration = ev.endMinute - effectiveStart;
-    if (duration <= 0) {
-      cursor = Math.max(cursor, ev.endMinute);
       continue;
     }
-
-    if (isActive && activeState && activeState.segments.length > 0) {
-      const activeRunIds = new Set(activeState.segments.map((segment) => segment.runId));
-      const previousRunSegments = (persistedSegments?.get(ev.id) ?? [])
-        .filter((segment) => !activeRunIds.has(segment.runId));
-      if (previousRunSegments.length > 0) {
-        bands.push(...projectPersistedSegments(previousRunSegments, ev, dayStartMs));
-      }
-
-      // Active event: project both focus fills and break bands from persisted segments
-      const activeBands = projectActiveSegments(
-        activeState.segments,
-        activeState.remainingSeconds,
-        activeState.phaseElapsedSeconds,
-        activeState.phaseWorkDurationSeconds,
-        activeState.currentConfig,
-        ev,
-        dayStartMs,
-        nowMs,
+    const event = owner.event;
+    // An already recorded rhythm retains its phase alignment. A commitment with
+    // no execution starts its proposal at now and carries no assumed past work.
+    if (firstWindow && persistedSegments?.get(event.id)?.length && cursorMs > owner.startMs) {
+      const previous = computeTrailingRhythmState(event.config, (cursorMs - owner.startMs) / 60_000);
+      inheritedFocus = previous.focusOffsetMinutes;
+      inheritedRhythmPosition = previous.rhythmPosition;
+    }
+    const durationMinutes = (owner.endMs - cursorMs) / 60_000;
+    if (event !== activeEvent || !activeState?.segments.length) {
+      const planned = computePlannedSegments(
+        event.config, durationMinutes, inheritedFocus, inheritedRhythmPosition,
       );
-      bands.push(...activeBands);
-    } else {
-      // Check for persisted segments (past completed sessions)
-      const evPersistedSegs = persistedSegments?.get(ev.id);
-      const hasPersistedSegments = !!evPersistedSegs && evPersistedSegs.length > 0;
-      if (hasPersistedSegments) {
-        // Output focus fill and break bands from persisted segments
-        const pastBands = projectPersistedSegments(evPersistedSegs ?? [], ev, dayStartMs);
-        bands.push(...pastBands);
-      }
-
-      // Skip fully past planned events (persisted bands already added above)
-      const evEndMs = dayStartMs + ev.endMinute * 60000;
-      if (nowMs >= evEndMs) {
-        // Still compute trailing state for inheritance
-        const evFullDuration = (ev.endMs - ev.startMs) / 60000;
-        const trailing = computeTrailingRhythmState(
-          ev.config,
-          evFullDuration,
-          inheritedFocus,
-          inheritedRhythmPosition,
-        );
-        inheritedFocus = trailing.focusOffsetMinutes;
-        inheritedRhythmPosition = trailing.rhythmPosition;
-        cursor = Math.max(cursor, ev.endMinute);
-        continue;
-      }
-
-      // Compute remaining planned bands from now or effectiveStart. Events
-      // with persisted segments keep their original rhythm. Untracked events
-      // that are already in progress preview from now, matching the schedule
-      // created when the user starts Pomodoro work after saving.
-      const evStartMs = dayStartMs + effectiveStart * 60000;
-      const plannedStartMs = Math.max(nowMs, evStartMs);
-      const plannedStartMinute = (plannedStartMs - dayStartMs) / 60000;
-      const remainingDuration = ev.endMinute - plannedStartMinute;
-      const untrackedInProgress = !hasPersistedSegments && nowMs > evStartMs && nowMs < evEndMs;
-
-      if (remainingDuration > 0) {
-        let adjustedFocus = untrackedInProgress ? 0 : inheritedFocus;
-        let adjustedRhythmPosition = untrackedInProgress ? 1 : inheritedRhythmPosition;
-        const elapsedSinceEffective = plannedStartMinute - effectiveStart;
-        if (elapsedSinceEffective > 0 && !untrackedInProgress) {
-          const elapsedTrailing = computeTrailingRhythmState(
-            ev.config,
-            elapsedSinceEffective,
-            inheritedFocus,
-            inheritedRhythmPosition,
-          );
-          adjustedFocus = elapsedTrailing.focusOffsetMinutes;
-          adjustedRhythmPosition = elapsedTrailing.rhythmPosition;
-        }
-
-        const planned = computePlannedSegments(
-          ev.config,
-          remainingDuration,
-          adjustedFocus,
-          adjustedRhythmPosition,
-        );
-        for (const seg of planned) {
-          if (seg.phase === "focus") continue;
-          const bandTop = plannedStartMinute + seg.startOffsetMinutes;
-          const bandEnd = bandTop + (seg.endOffsetMinutes - seg.startOffsetMinutes);
-          // Skip planned bands that overlap with the active event's range
-          // (the active session's bands take visual priority on the rail).
-          if (activeEvRange && !isActive && bandTop < activeEvRange.endMinute && bandEnd > activeEvRange.startMinute) {
-            continue;
-          }
-          bands.push({
-            topMinute: bandTop,
-            heightMinutes: seg.endOffsetMinutes - seg.startOffsetMinutes,
-            phase: seg.phase,
-            status: "planned",
-          });
-        }
+      for (const segment of planned) {
+        if (segment.phase === "focus") continue;
+        bands.push({
+          topMinute: (cursorMs - dayStartMs) / 60_000 + segment.startOffsetMinutes,
+          heightMinutes: segment.endOffsetMinutes - segment.startOffsetMinutes,
+          phase: segment.phase,
+          status: "planned",
+        });
       }
     }
-
-    const evEndMsForTrailing = dayStartMs + ev.endMinute * 60000;
-    const evStartMsForTrailing = dayStartMs + effectiveStart * 60000;
-    const isUntrackedInProgressForTrailing = !isActive
-      && !persistedSegments?.get(ev.id)?.length
-      && nowMs > evStartMsForTrailing
-      && nowMs < evEndMsForTrailing;
-    const trailingStartMinute = isUntrackedInProgressForTrailing
-      ? (Math.max(nowMs, evStartMsForTrailing) - dayStartMs) / 60000
-      : effectiveStart;
-    const trailingFocus = isUntrackedInProgressForTrailing ? 0 : inheritedFocus;
-    const trailingRhythmPosition = isUntrackedInProgressForTrailing ? 1 : inheritedRhythmPosition;
-
-    // Compute trailing state for inheritance to next event.
-    const fullDurationFromStart = ev.endMinute - trailingStartMinute;
     const trailing = computeTrailingRhythmState(
-      ev.config,
-      fullDurationFromStart,
-      trailingFocus,
-      trailingRhythmPosition,
+      event.config, durationMinutes, inheritedFocus, inheritedRhythmPosition,
     );
     inheritedFocus = trailing.focusOffsetMinutes;
     inheritedRhythmPosition = trailing.rhythmPosition;
-    cursor = Math.max(cursor, ev.endMinute);
+    previousOwnerId = owner.id;
+    cursorMs = owner.endMs;
+    firstWindow = false;
   }
-
-  return bands.sort((a, b) => a.topMinute - b.topMinute);
-}
-
-/**
- * Filter out events that are fully contained within a longer event.
- * For same-range events, the one with shorter focus duration is kept (main).
- */
-function filterContained(events: TimelineEvent[]): TimelineEvent[] {
-  return events.filter((ev) => {
-    const evDuration = ev.endMs - ev.startMs;
-    for (const other of events) {
-      if (other.id === ev.id) continue;
-      // Check if other fully contains ev
-      if (other.startMs > ev.startMs || other.endMs < ev.endMs) continue;
-      const otherDuration = other.endMs - other.startMs;
-      if (
-        otherDuration > evDuration ||
-        (
-          otherDuration === evDuration &&
-          focusDurationMinutesAtPosition(other.config, 1) <
-            focusDurationMinutesAtPosition(ev.config, 1)
-        )
-      ) {
-        return false; // ev is contained by other
-      }
-    }
-    return true;
-  });
+  return bands.sort((left, right) => left.topMinute - right.topMinute);
 }
 
 function samePomodoroConfig(a: PomodoroConfig | undefined, b: PomodoroConfig | undefined): boolean {

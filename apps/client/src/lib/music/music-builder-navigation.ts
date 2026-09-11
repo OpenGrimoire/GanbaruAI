@@ -16,14 +16,17 @@ export interface MusicBuilderDockItem {
 export function projectMusicBuilderDockItems(
   destination: MusicBuilderDestination,
   reviewCount: number,
+  includeSoundscapes = true,
 ): MusicBuilderDockItem[] {
   const activeKind = destination.kind === "playlist" ? "playlists" : destination.kind;
-  return MUSIC_BUILDER_PRIMARY_DESTINATIONS.map((kind) => ({
-    kind,
-    active: kind === activeKind,
-    badge: kind === "review" ? positiveBadge(reviewCount) : null,
-    shortcut: musicBuilderDestinationShortcut(kind) ?? "",
-  }));
+  return MUSIC_BUILDER_PRIMARY_DESTINATIONS
+    .filter((kind) => includeSoundscapes || kind !== "soundscapes")
+    .map((kind) => ({
+      kind,
+      active: kind === activeKind,
+      badge: kind === "review" ? positiveBadge(reviewCount) : null,
+      shortcut: musicBuilderDestinationShortcut(kind) ?? "",
+    }));
 }
 
 function positiveBadge(value: number): number | null {

@@ -84,10 +84,7 @@ export function notesColumnCanMove(
   return direction === "left" ? index > 0 : index + 1 < columns.length;
 }
 
-export function notesColumnWithWidthRatio(
-  column: NotesColumnBlock,
-  widthRatio: number,
-): NotesBlockUpdate {
+export function notesColumnWithWidthRatio(widthRatio: number): NotesBlockUpdate {
   return {
     type: "column",
     column: createColumnPayload(widthRatio),

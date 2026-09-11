@@ -12,6 +12,7 @@ pub(crate) mod task_commands;
 mod task_views;
 mod templates;
 pub(crate) mod validation;
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 pub(crate) mod working_folders;
 pub(crate) mod workspace;
 

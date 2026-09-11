@@ -1,35 +1,29 @@
 use super::models::{
     NoteDataSourceBoardConfigurationUpdate, NoteDataSourceBoardGroupDto,
     NoteDataSourceBoardRowMove, NoteDataSourceBoardViewDto, NoteDataSourceBoardViewUpdate,
-    NoteDataSourceRow, NoteDataSourceRowPropertyUpdate, NoteDataSourceTableFilter,
-    NoteDataSourceTableSort, NoteDataSourceViewWindowRequest, NoteDatabaseRow, NoteDatabaseViewRow,
-    NotePageRow,
+    NoteDataSourceRow, NoteDataSourceRowPropertyUpdate, NoteDataSourceViewWindowRequest,
+    NoteDatabaseViewRow, NotePageRow,
 };
 use super::validation::require_uuid;
 use super::{
     data_source_buttons, data_source_formulas, data_source_relations, data_source_rollups,
-    data_source_table, data_source_views, data_source_window, writes,
+    data_source_table,
+    data_source_views::{
+        self, canonical_filter, canonical_sorts, generated_uuid_tx,
+        load_active_data_source_and_database_tx, normalized_row_for_schema, parse_json,
+        stored_filters, stored_sorts, view_schema as board_schema, ViewProperty as BoardProperty,
+    },
+    data_source_window,
 };
-use serde_json::{json, Map, Value};
+use serde_json::{json, Value};
 use sqlx::{Sqlite, SqlitePool, Transaction};
 use std::collections::{BTreeMap, HashSet};
 
 const DEFAULT_BOARD_VIEW_NAME: &str = "Board";
-const MAX_FILTERS: usize = 10;
-const MAX_SORTS: usize = 5;
 const MAX_BOARD_CONFIGURATION_BYTES: usize = 50 * 1024;
-const MAX_FILTER_TEXT_CHARS: usize = 200;
 const BOARD_EMPTY_GROUP_ID: &str = "__empty__";
 const BOARD_UNGROUPED_ID: &str = "__ungrouped__";
 const BOARD_ROW_OPEN_MODES: &[&str] = &["full_page", "side_panel"];
-const FILTER_CONDITIONS: &[&str] = &[
-    "contains",
-    "equals",
-    "is_empty",
-    "is_not_empty",
-    "checked",
-    "unchecked",
-];
 const BOARD_GROUP_PROPERTY_TYPES: &[&str] = &[
     "status",
     "select",
@@ -99,14 +93,14 @@ pub async fn update_data_source_board_view(
     )
     .await?;
     let (data_source, _database) =
-        load_active_data_source_and_database_tx(&mut tx, data_source_id).await?;
+        load_active_data_source_and_database_tx(&mut tx, data_source_id, "board").await?;
     let schema = board_schema(&parse_json(
         &data_source.properties,
         "data source properties",
     )?)?;
     let property_ids: HashSet<String> = schema.iter().map(|property| property.id.clone()).collect();
-    let filter = canonical_filter(&update.filter, &property_ids)?;
-    let sorts = canonical_sorts(&update.sorts, &property_ids)?;
+    let filter = canonical_filter(&update.filter, &property_ids, "board")?;
+    let sorts = canonical_sorts(&update.sorts, &property_ids, "board")?;
     let configuration = canonical_board_configuration(&update.configuration, &schema)?;
     let view =
         ensure_board_view_row_tx(&mut tx, &data_source, database_id, view_id, &schema).await?;
@@ -158,7 +152,7 @@ pub async fn move_data_source_board_row(
             .await
             .map_err(|e| format!("begin notes data source board row move: {e}"))?;
         let (data_source, _) =
-            load_active_data_source_and_database_tx(&mut tx, data_source_id).await?;
+            load_active_data_source_and_database_tx(&mut tx, data_source_id, "board").await?;
         let schema = board_schema(&parse_json(
             &data_source.properties,
             "data source properties",
@@ -202,13 +196,13 @@ async fn load_board_view_tx(
     window_request: &NoteDataSourceViewWindowRequest,
 ) -> Result<NoteDataSourceBoardViewDto, String> {
     let (data_source, database) =
-        load_active_data_source_and_database_tx(tx, data_source_id).await?;
+        load_active_data_source_and_database_tx(tx, data_source_id, "board").await?;
     let schema_properties = parse_json(&data_source.properties, "data source properties")?;
     let schema = board_schema(&schema_properties)?;
     let view = ensure_board_view_row_tx(tx, &data_source, database_id, view_id, &schema).await?;
     let configuration = board_configuration(view.configuration.as_deref(), &schema)?;
-    let filters = stored_filters(view.filter.as_deref())?;
-    let sorts = stored_sorts(&view.sorts)?;
+    let filters = stored_filters(view.filter.as_deref(), "database board filter", "board")?;
+    let sorts = stored_sorts(&view.sorts, "database board sorts", "board")?;
     let window_schema = data_source_window::table_properties_from_board(&schema);
     let group_property = configuration
         .group_property_id
@@ -246,33 +240,6 @@ async fn load_board_view_tx(
     NoteDataSourceBoardViewDto::new(data_source, database, view, groups, window)
 }
 
-pub async fn load_active_data_source_and_database_tx(
-    tx: &mut Transaction<'_, Sqlite>,
-    data_source_id: &str,
-) -> Result<(NoteDataSourceRow, NoteDatabaseRow), String> {
-    let data_source = sqlx::query_as::<_, NoteDataSourceRow>(
-        "SELECT data_source.*
-         FROM notes_data_sources AS data_source
-         JOIN notes_databases AS database ON database.id = data_source.database_id
-         WHERE data_source.id = ?
-           AND data_source.in_trash = 0
-           AND database.in_trash = 0",
-    )
-    .bind(data_source_id.trim())
-    .fetch_optional(&mut **tx)
-    .await
-    .map_err(|e| format!("load notes data source for board: {e}"))?
-    .ok_or_else(|| "data source not found".to_string())?;
-    let database = sqlx::query_as::<_, NoteDatabaseRow>(
-        "SELECT * FROM notes_databases WHERE id = ? AND in_trash = 0",
-    )
-    .bind(&data_source.database_id)
-    .fetch_one(&mut **tx)
-    .await
-    .map_err(|e| format!("load notes database for board: {e}"))?;
-    Ok((data_source, database))
-}
-
 async fn ensure_board_view_row_tx(
     tx: &mut Transaction<'_, Sqlite>,
     data_source: &NoteDataSourceRow,
@@ -284,7 +251,7 @@ async fn ensure_board_view_row_tx(
         return Ok(view);
     }
     let database_id = data_source_views::scoped_database_id(data_source, database_id);
-    let id = generated_uuid_tx(tx).await?;
+    let id = generated_uuid_tx(tx, "generate board view id", "generated_board_view_id").await?;
     let sort_order = data_source_views::next_view_sort_order_tx(tx, database_id).await?;
     sqlx::query(
         "INSERT INTO notes_database_views (
@@ -323,29 +290,6 @@ async fn load_board_view_row_tx(
         .await
 }
 
-pub async fn generated_uuid_tx(tx: &mut Transaction<'_, Sqlite>) -> Result<String, String> {
-    let id: String = sqlx::query_scalar(
-        "SELECT lower(hex(randomblob(4))) || '-' ||
-                lower(hex(randomblob(2))) || '-' ||
-                lower(hex(randomblob(2))) || '-' ||
-                lower(hex(randomblob(2))) || '-' ||
-                lower(hex(randomblob(6)))",
-    )
-    .fetch_one(&mut **tx)
-    .await
-    .map_err(|e| format!("generate board view id: {e}"))?;
-    require_uuid(&id, "generated_board_view_id")?;
-    Ok(id)
-}
-
-#[derive(Clone)]
-pub struct BoardProperty {
-    pub key: String,
-    pub id: String,
-    pub property_type: String,
-    pub schema: Value,
-}
-
 #[derive(Clone)]
 struct BoardConfiguration {
     group_property_id: Option<String>,
@@ -359,25 +303,6 @@ struct BoardGroupDraft {
     color: String,
     hidden: bool,
     rows: Vec<NotePageRow>,
-}
-
-pub fn board_schema(properties: &Value) -> Result<Vec<BoardProperty>, String> {
-    let object = properties
-        .as_object()
-        .ok_or_else(|| "data source properties must be an object".to_string())?;
-    let mut schema = Vec::with_capacity(object.len());
-    for (key, value) in object {
-        let property = value
-            .as_object()
-            .ok_or_else(|| "data source property must be an object".to_string())?;
-        schema.push(BoardProperty {
-            key: key.clone(),
-            id: read_string_field(property, "id", "property.id")?.to_string(),
-            property_type: read_string_field(property, "type", "property.type")?.to_string(),
-            schema: value.clone(),
-        });
-    }
-    Ok(schema)
 }
 
 fn default_board_configuration(schema: &[BoardProperty]) -> Value {
@@ -768,317 +693,6 @@ fn option_name_by_id(property: &BoardProperty, group_id: &str) -> Result<String,
         .ok_or_else(|| "board target group option was not found".to_string())
 }
 
-pub fn canonical_filter(
-    filters: &[NoteDataSourceTableFilter],
-    property_ids: &HashSet<String>,
-) -> Result<Option<Value>, String> {
-    if filters.len() > MAX_FILTERS {
-        return Err("board filters are limited to 10".to_string());
-    }
-    let mut canonical = Vec::new();
-    for filter in filters {
-        let property_id = filter.property_id.trim();
-        if property_id.is_empty() {
-            continue;
-        }
-        if !property_ids.contains(property_id) {
-            return Err("board filter references an unknown property".to_string());
-        }
-        let condition = filter.condition.trim();
-        if !FILTER_CONDITIONS.contains(&condition) {
-            return Err("board filter condition is not supported".to_string());
-        }
-        let value = canonical_filter_value(condition, filter.value.as_ref())?;
-        canonical.push(json!({
-            "property_id": property_id,
-            "condition": condition,
-            "value": value
-        }));
-    }
-    if canonical.is_empty() {
-        Ok(None)
-    } else {
-        Ok(Some(json!({
-            "type": "and",
-            "filters": canonical
-        })))
-    }
-}
-
-fn canonical_filter_value(condition: &str, value: Option<&Value>) -> Result<Value, String> {
-    if matches!(
-        condition,
-        "is_empty" | "is_not_empty" | "checked" | "unchecked"
-    ) {
-        return Ok(Value::Null);
-    }
-    let Some(value) = value else {
-        return Ok(Value::Null);
-    };
-    match value {
-        Value::Null | Value::Bool(_) | Value::Number(_) => Ok(value.clone()),
-        Value::String(text) => Ok(Value::String(validate_text(
-            text.trim(),
-            "board filter value",
-            MAX_FILTER_TEXT_CHARS,
-        )?)),
-        _ => Err("board filter value must be a scalar".to_string()),
-    }
-}
-
-pub fn canonical_sorts(
-    sorts: &[NoteDataSourceTableSort],
-    property_ids: &HashSet<String>,
-) -> Result<Value, String> {
-    if sorts.len() > MAX_SORTS {
-        return Err("board sorts are limited to 5".to_string());
-    }
-    let mut seen = HashSet::new();
-    let mut canonical = Vec::new();
-    for sort in sorts {
-        let property_id = sort.property_id.trim();
-        if property_id.is_empty() {
-            continue;
-        }
-        if !property_ids.contains(property_id) {
-            return Err("board sort references an unknown property".to_string());
-        }
-        if !seen.insert(property_id.to_string()) {
-            return Err("board sorts must not repeat properties".to_string());
-        }
-        let direction = sort.direction.trim();
-        if direction != "ascending" && direction != "descending" {
-            return Err("board sort direction is not supported".to_string());
-        }
-        canonical.push(json!({
-            "property_id": property_id,
-            "direction": direction
-        }));
-    }
-    Ok(Value::Array(canonical))
-}
-
-pub fn stored_filters(filter: Option<&str>) -> Result<Vec<NoteDataSourceTableFilter>, String> {
-    let Some(filter) = filter else {
-        return Ok(Vec::new());
-    };
-    let value = parse_json(filter, "database board filter")?;
-    let filters = value
-        .get("filters")
-        .cloned()
-        .unwrap_or_else(|| Value::Array(Vec::new()));
-    serde_json::from_value(filters).map_err(|e| format!("parse board filters: {e}"))
-}
-
-pub fn stored_sorts(sorts: &str) -> Result<Vec<NoteDataSourceTableSort>, String> {
-    let value = parse_json(sorts, "database board sorts")?;
-    serde_json::from_value(value).map_err(|e| format!("parse board sorts: {e}"))
-}
-
-pub fn normalized_row_for_schema(
-    mut row: NotePageRow,
-    schema: &[BoardProperty],
-) -> Result<NotePageRow, String> {
-    let current = parse_json(&row.properties, "row page properties")?;
-    let (title, properties) = normalized_row_properties(schema, &current, &row.title)?;
-    row.title = title;
-    row.properties = properties.to_string();
-    Ok(row)
-}
-
-fn normalized_row_properties(
-    schema: &[BoardProperty],
-    current: &Value,
-    fallback_title: &str,
-) -> Result<(String, Value), String> {
-    let current_object = current
-        .as_object()
-        .ok_or_else(|| "row page properties must be an object".to_string())?;
-    let mut title = fallback_title.to_string();
-    let mut next = Map::new();
-    for property in schema {
-        if matches!(
-            property.property_type.as_str(),
-            "rollup" | "formula" | "button"
-        ) {
-            continue;
-        }
-        let value = existing_property_value(current_object, property)
-            .and_then(|value| canonical_stored_property_value(property, value).ok())
-            .unwrap_or_else(|| default_property_value(property, fallback_title));
-        if property.property_type == "title" {
-            title = title_from_property_value(&value).unwrap_or_else(|| fallback_title.to_string());
-        }
-        next.insert(property.key.clone(), value);
-    }
-    Ok((title, Value::Object(next)))
-}
-
-fn existing_property_value<'a>(
-    current: &'a Map<String, Value>,
-    property: &BoardProperty,
-) -> Option<&'a Value> {
-    current
-        .get(&property.key)
-        .filter(|value| property_value_matches_schema(property, value))
-        .or_else(|| {
-            current
-                .values()
-                .find(|value| property_value_matches_schema(property, value))
-        })
-}
-
-fn property_value_matches_schema(property: &BoardProperty, value: &Value) -> bool {
-    let Some(object) = value.as_object() else {
-        return false;
-    };
-    object.get("id").and_then(Value::as_str) == Some(property.id.as_str())
-        && object.get("type").and_then(Value::as_str) == Some(property.property_type.as_str())
-}
-
-fn canonical_stored_property_value(
-    property: &BoardProperty,
-    value: &Value,
-) -> Result<Value, String> {
-    let object = value
-        .as_object()
-        .ok_or_else(|| "row property value must be an object".to_string())?;
-    if object.get("id").and_then(Value::as_str) != Some(property.id.as_str()) {
-        return Err("row property id does not match schema".to_string());
-    }
-    if object.get("type").and_then(Value::as_str) != Some(property.property_type.as_str()) {
-        return Err("row property type does not match schema".to_string());
-    }
-    let payload = object
-        .get(&property.property_type)
-        .ok_or_else(|| "row property is missing its typed value".to_string())?;
-    let payload = canonical_property_payload(&property.property_type, payload)?;
-    if property.property_type == "relation" {
-        return Ok(data_source_relations::relation_property_value(
-            &property.id,
-            payload,
-        ));
-    }
-    Ok(json!({
-        "id": property.id,
-        "type": property.property_type,
-        property.property_type.clone(): payload
-    }))
-}
-
-fn default_property_value(property: &BoardProperty, title: &str) -> Value {
-    let payload = match property.property_type.as_str() {
-        "title" => Value::Array(vec![writes::rich_text(title)]),
-        "rich_text" | "multi_select" | "files" | "people" | "relation" => Value::Array(Vec::new()),
-        "number" | "select" | "status" | "date" | "url" | "email" | "phone_number"
-        | "created_time" | "created_by" | "last_edited_time" | "last_edited_by" | "place" => {
-            Value::Null
-        }
-        "checkbox" => Value::Bool(false),
-        "unique_id" => json!({
-            "number": null,
-            "prefix": property
-                .schema
-                .get("unique_id")
-                .and_then(|config| config.get("prefix"))
-                .cloned()
-                .unwrap_or(Value::Null)
-        }),
-        "formula" => json!({
-            "type": "string",
-            "string": ""
-        }),
-        "button" => property
-            .schema
-            .get("button")
-            .map(|config| {
-                data_source_buttons::button_property_value(
-                    &property.id,
-                    &data_source_buttons::button_plain_text(config),
-                )
-            })
-            .unwrap_or_else(|| data_source_buttons::button_property_value(&property.id, "Run")),
-        _ => Value::Null,
-    };
-    if property.property_type == "relation" {
-        return data_source_relations::relation_property_value(&property.id, payload);
-    }
-    if property.property_type == "formula" {
-        return data_source_formulas::formula_property_value(&property.id, payload);
-    }
-    if property.property_type == "button" {
-        return data_source_buttons::button_property_value(
-            &property.id,
-            &data_source_buttons::button_plain_text(&payload),
-        );
-    }
-    json!({
-        "id": property.id,
-        "type": property.property_type,
-        property.property_type.clone(): payload
-    })
-}
-
-fn canonical_property_payload(property_type: &str, value: &Value) -> Result<Value, String> {
-    match property_type {
-        "title" | "rich_text" | "multi_select" | "files" | "people" => {
-            if value.is_array() {
-                Ok(value.clone())
-            } else {
-                Err(format!("{property_type} property must be an array"))
-            }
-        }
-        "relation" => data_source_relations::canonical_relation_payload(value),
-        "number" => {
-            if value.is_null() || value.is_number() {
-                Ok(value.clone())
-            } else {
-                Err("number property must be a number or null".to_string())
-            }
-        }
-        "select" | "status" | "date" | "created_by" | "last_edited_by" | "unique_id" | "place" => {
-            if value.is_null() || value.is_object() {
-                Ok(value.clone())
-            } else {
-                Err(format!(
-                    "{property_type} property must be an object or null"
-                ))
-            }
-        }
-        "checkbox" => value
-            .as_bool()
-            .map(Value::Bool)
-            .ok_or_else(|| "checkbox property must be boolean".to_string()),
-        "url" | "email" | "phone_number" | "created_time" | "last_edited_time" => {
-            if value.is_null() {
-                return Ok(Value::Null);
-            }
-            Ok(Value::String(validate_text(
-                value
-                    .as_str()
-                    .ok_or_else(|| format!("{property_type} property must be text or null"))?,
-                property_type,
-                MAX_FILTER_TEXT_CHARS,
-            )?))
-        }
-        "formula" => {
-            if value.is_object() {
-                Ok(value.clone())
-            } else {
-                Err("formula property must be an object".to_string())
-            }
-        }
-        "button" => {
-            if value.is_object() {
-                Ok(value.clone())
-            } else {
-                Err("button property must be an object".to_string())
-            }
-        }
-        other => Err(format!("unsupported row property type: {other}")),
-    }
-}
-
 fn row_property_value(row: &NotePageRow, property: &BoardProperty) -> Option<Value> {
     let properties = parse_json(&row.properties, "row page properties").ok()?;
     properties.get(&property.key).cloned()
@@ -1096,29 +710,6 @@ fn row_property_checked(row: &NotePageRow, property: &BoardProperty) -> Option<b
         return data_source_formulas::formula_checked(&payload);
     }
     payload.as_bool()
-}
-
-fn rich_text_plain_text(items: &[Value]) -> String {
-    let mut text = String::new();
-    for item in items {
-        if let Some(plain_text) = item.get("plain_text").and_then(Value::as_str) {
-            text.push_str(plain_text);
-        } else if let Some(content) = item
-            .get("text")
-            .and_then(|value| value.get("content"))
-            .and_then(Value::as_str)
-        {
-            text.push_str(content);
-        }
-    }
-    text
-}
-
-fn title_from_property_value(value: &Value) -> Option<String> {
-    value
-        .get("title")?
-        .as_array()
-        .map(|items| rich_text_plain_text(items))
 }
 
 fn unique_strings(values: &[String]) -> Vec<String> {
@@ -1150,29 +741,4 @@ fn string_array(value: Option<&Value>) -> Result<Vec<String>, String> {
                 .ok_or_else(|| "board configuration list item must be text".to_string())
         })
         .collect()
-}
-
-fn validate_text(value: &str, label: &str, max_chars: usize) -> Result<String, String> {
-    if value.chars().any(char::is_control) {
-        return Err(format!("{label} must not contain control characters"));
-    }
-    if value.chars().count() > max_chars {
-        return Err(format!("{label} is too long"));
-    }
-    Ok(value.to_string())
-}
-
-pub fn parse_json(value: &str, label: &str) -> Result<Value, String> {
-    serde_json::from_str(value).map_err(|e| format!("parse {label}: {e}"))
-}
-
-fn read_string_field<'a>(
-    object: &'a Map<String, Value>,
-    key: &str,
-    label: &str,
-) -> Result<&'a str, String> {
-    object
-        .get(key)
-        .and_then(Value::as_str)
-        .ok_or_else(|| format!("{label} must be a string"))
 }

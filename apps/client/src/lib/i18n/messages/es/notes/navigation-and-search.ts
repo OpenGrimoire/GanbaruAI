@@ -232,6 +232,7 @@ export const navigationAndSearch = {
   noSearchResults: "No hay resultados coincidentes",
   searchPlaceholder: "Buscar notas...",
   searchLabel: "Buscar notas",
+  clearSearch: "Limpiar búsqueda de notas",
   searchResults: "Resultados de búsqueda",
   searching: "Buscando",
   searchFailed: (message: string) => `No se pudieron buscar notas: ${message}`,

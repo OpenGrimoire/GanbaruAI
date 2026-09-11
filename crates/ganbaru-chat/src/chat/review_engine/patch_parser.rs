@@ -67,10 +67,9 @@ pub fn hunk_id(file_id: &str, text: &str, old_start: u64, new_start: u64) -> Str
     let mut old_line = old_start;
     let mut new_line = new_start;
     for line in text.lines().skip(1) {
-        if let Some(content) = line.strip_prefix(' ') {
+        if line.starts_with(' ') {
             old_line = old_line.saturating_add(1);
             new_line = new_line.saturating_add(1);
-            let _ = content;
         } else if let Some(content) = line.strip_prefix('-') {
             hasher.update(b"-");
             hasher.update(old_line.to_le_bytes());

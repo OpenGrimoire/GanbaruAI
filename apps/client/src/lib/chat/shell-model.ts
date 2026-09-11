@@ -199,17 +199,6 @@ export function partitionThreadSearchResults(
   };
 }
 
-export function filterArchivedThreads(
-  threads: readonly ChatThreadShellRead[],
-  query: string,
-  projectId: string,
-): ChatThreadShellRead[] {
-  return filterThreadTitles(
-    threads.filter((thread) => thread.archivedAt !== null),
-    query,
-  ).filter((thread) => !projectId || thread.projectId === projectId);
-}
-
 export function nextThreadIndex(currentIndex: number, itemCount: number, direction: "next" | "previous"): number {
   if (itemCount <= 0) return -1;
   if (currentIndex < 0) return direction === "next" ? 0 : itemCount - 1;

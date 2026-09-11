@@ -7,6 +7,7 @@ import type {
   MusicWeight,
   MusicYouTubeResolutionState,
 } from "$lib/music/library-contracts";
+import { resolveLocalMusicPath } from "$lib/music/platform-paths";
 import { localFileSourceFromPath, youtubeVideoSourceFromId, type MusicSource } from "$lib/music/sources";
 
 export type MusicPlaylistSkipReason =
@@ -281,8 +282,7 @@ function playbackSource(
   if (!entry.rootId || !entry.relativePath) return { source: null, reason: "unbound-root" };
   const folder = bindingPaths.get(entry.rootId);
   if (!folder) return { source: null, reason: "unbound-root" };
-  const separator = folder.includes("\\") && !folder.includes("/") ? "\\" : "/";
-  const path = `${folder.replace(/[\\/]+$/, "")}${separator}${entry.relativePath.replace(/[\\/]+/g, separator)}`;
+  const path = resolveLocalMusicPath(folder, entry.relativePath);
   return {
     source: {
       ...localFileSourceFromPath(path, entry.title),

@@ -22,6 +22,7 @@ export function createPomodoroRuntimeFixture(
     focusExtensionUsed: false,
     phaseEndTime: null,
     activeBlockId: null,
+    activeBlockTitle: null,
     activeRunId: null,
     activeBlockEndMs: null,
     dismissedBlockId: null,

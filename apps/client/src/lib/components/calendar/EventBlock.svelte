@@ -29,6 +29,7 @@
     grabbing = false,
     animateLayout = false,
     canDrag = true,
+    mobileLayout = false,
     isPast = false,
     inResizeZone = false,
     onclick,
@@ -42,6 +43,7 @@
     grabbing?: boolean;
     animateLayout?: boolean;
     canDrag?: boolean;
+    mobileLayout?: boolean;
     isPast?: boolean;
     inResizeZone?: boolean;
     onclick: (rect?: DOMRect) => void;
@@ -113,7 +115,7 @@
   data-clipped-top={positioned.isClippedTop || undefined}
   data-clipped-bottom={positioned.isClippedBottom || undefined}
   title={blockPixelHeight <= 14 ? `${eventTitle} ${timeRange}` : undefined}
-  class="event-block-wrapper absolute flex overflow-hidden text-[0.8rem] leading-tight select-none {statusPatternClass} {showContour ? 'event-editing' : ''} {animateLayout ? 'event-layout-transition' : ''} {positioned.isClippedTop && positioned.isClippedBottom ? '' : positioned.isClippedTop ? 'rounded-b' : positioned.isClippedBottom ? 'rounded-t' : 'rounded'}"
+  class="event-block-wrapper absolute flex text-[0.8rem] leading-tight select-none {statusPatternClass} {showContour ? 'event-editing' : ''} {animateLayout ? 'event-layout-transition' : ''} {mobileLayout ? 'mobile-event-block' : ''} overflow-hidden {positioned.isClippedTop && positioned.isClippedBottom ? '' : positioned.isClippedTop ? 'rounded-b' : positioned.isClippedBottom ? 'rounded-t' : 'rounded'}"
   style="
     top: calc({positioned.startMinute} / 60 * var(--hour-h) * 1px);
     height: calc({positioned.durationMinutes} / 60 * var(--hour-h) * 1px - {positioned.isClippedBottom || !positioned.hasEventBelow ? 0 : 2}px);
@@ -133,7 +135,10 @@
 >
   <!-- Resize handle: top (hidden on clipped edge) -->
   {#if !positioned.isClippedTop}
-    <div class="resize-handle-top" onpointerdown={handlePointerDown}></div>
+    <div
+      class="resize-handle-top"
+      onpointerdown={handlePointerDown}
+    ></div>
   {/if}
 
   <!-- Content -->
@@ -170,7 +175,10 @@
 
   <!-- Resize handle: bottom (hidden on clipped edge) -->
   {#if !positioned.isClippedBottom}
-    <div class="resize-handle-bottom" onpointerdown={handlePointerDown}></div>
+    <div
+      class="resize-handle-bottom"
+      onpointerdown={handlePointerDown}
+    ></div>
   {/if}
 </div>
 
@@ -207,6 +215,7 @@
     inset: 0;
     z-index: 0;
     pointer-events: none;
+    border-radius: inherit;
   }
 
   .event-block-wrapper.event-pattern-tentative::before {
@@ -265,6 +274,10 @@
   /* Disable layout transition for events with an explicit contour to avoid jank */
   .event-block-wrapper.event-editing {
     transition: none;
+  }
+
+  .mobile-event-block {
+    touch-action: none;
   }
 
   .event-editing {

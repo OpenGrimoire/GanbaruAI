@@ -4,6 +4,7 @@
   import {
     quickNoteMasonryInsertion,
     quickNoteMasonryLayout,
+    quickNoteMobileMasonryMaxColumns,
     moveQuickNoteId,
     type MasonryPosition,
   } from "$lib/quick-notes/masonry";
@@ -27,6 +28,7 @@
     onrestore,
     ondelete,
     onreorder,
+    mobileLayout = false,
   }: {
     notes: readonly QuickNote[];
     collection: QuickNotesCollection;
@@ -44,6 +46,7 @@
     onrestore: (note: QuickNote) => void;
     ondelete: (note: QuickNote) => void;
     onreorder: (orderedIds: readonly string[], movedId: string, position: number) => void;
+    mobileLayout?: boolean;
   } = $props();
 
   interface PendingPointer {
@@ -93,11 +96,20 @@
     .map((id) => notes.find((note) => note.id === id))
     .filter((note): note is QuickNote => note !== undefined));
 
+  function maximumColumns(availableWidth: number): number {
+    return mobileLayout
+      ? quickNoteMobileMasonryMaxColumns(availableWidth)
+      : Number.POSITIVE_INFINITY;
+  }
+
   function applyLayout(): void {
     const availableWidth = width || container?.clientWidth || 210;
     const layout = quickNoteMasonryLayout(
       availableWidth,
       orderedNotes.map((note) => heights.get(note.id) ?? 120),
+      undefined,
+      undefined,
+      maximumColumns(availableWidth),
     );
     positions = Object.fromEntries(orderedNotes.map((note, index) => [note.id, layout.positions[index]]));
     layoutHeight = layout.height;
@@ -209,10 +221,14 @@
       targetLeft,
       targetTop,
       draggedIndex,
+      maximumColumns(width || container.clientWidth || 210),
     );
     const currentPosition = quickNoteMasonryLayout(
       width || container.clientWidth || 210,
       cardHeights,
+      undefined,
+      undefined,
+      maximumColumns(width || container.clientWidth || 210),
     ).positions[draggedIndex];
     const currentDistance = currentPosition
       ? (currentPosition.left - targetLeft) ** 2 + (currentPosition.top - targetTop) ** 2
@@ -248,6 +264,11 @@
     if (dragFrame === null) dragFrame = requestAnimationFrame(runDragFrame);
   }
 
+  function restoreDocumentDragState(): void {
+    document.documentElement.style.cursor = previousCursor;
+    delete document.documentElement.dataset.quickNoteDragging;
+  }
+
   function finishPointer(event: PointerEvent, cancelled: boolean): void {
     const pending = pendingPointer;
     if (!pending || pending.pointerId !== event.pointerId) return;
@@ -260,8 +281,7 @@
     event.preventDefault();
     if (dragFrame !== null) cancelAnimationFrame(dragFrame);
     dragFrame = null;
-    document.documentElement.style.cursor = previousCursor;
-    delete document.documentElement.dataset.quickNoteDragging;
+    restoreDocumentDragState();
     if (cancelled) {
       drag = null;
       visualOrder = notes.map((note) => note.id);
@@ -332,8 +352,7 @@
     if (pending.node.hasPointerCapture(pending.pointerId)) pending.node.releasePointerCapture(pending.pointerId);
     if (dragFrame !== null) cancelAnimationFrame(dragFrame);
     dragFrame = null;
-    document.documentElement.style.cursor = previousCursor;
-    delete document.documentElement.dataset.quickNoteDragging;
+    restoreDocumentDragState();
     drag = null;
     visualOrder = notes.map((note) => note.id);
     applyLayout();
@@ -386,8 +405,7 @@
       if (settleTimer) clearTimeout(settleTimer);
       if (handoffFrame !== null) cancelAnimationFrame(handoffFrame);
       if (drag) {
-        document.documentElement.style.cursor = previousCursor;
-        delete document.documentElement.dataset.quickNoteDragging;
+        restoreDocumentDragState();
       }
     };
   });
@@ -423,6 +441,7 @@
         {reorderable}
         {theme}
         {tags}
+        {mobileLayout}
         onopen={() => onopen(note)}
         onmove={(direction) => keyboardMove(note.id, direction)}
         onpin={(pinned) => onpin(note, pinned)}

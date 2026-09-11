@@ -79,3 +79,38 @@ fn schema_records_redacted_doomscrolling_block_events() {
         assert!(full_url.is_err());
     });
 }
+
+#[test]
+fn schema_accepts_mobile_app_rule_snapshots() {
+    super::block_on(async {
+        let pool = migrated_memory_pool().await;
+
+        sqlx::query(
+            "INSERT INTO doomscrolling_block_events
+                (id, occurred_at, source_type, source_key, display_name, phase, decision, rule_id)
+             VALUES ('mobile-block-1', '2026-08-29T18:00:00Z', 'mobile_app',
+                     'com.example.video', 'Example video', 'focus', 'blocked', 'mobile-rule-1')",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        sqlx::query(
+            "INSERT INTO doomscrolling_block_event_rule_snapshots
+                (block_event_id, rule_id, rule_kind, rule_label, blocker_mode)
+             VALUES ('mobile-block-1', 'mobile-rule-1', 'mobile_app',
+                     'Example video', 'blacklist')",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        let invalid = sqlx::query(
+            "UPDATE doomscrolling_block_event_rule_snapshots
+             SET rule_kind = 'screen_content' WHERE block_event_id = 'mobile-block-1'",
+        )
+        .execute(&pool)
+        .await;
+        assert!(invalid.is_err());
+    });
+}

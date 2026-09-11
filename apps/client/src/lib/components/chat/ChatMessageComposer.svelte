@@ -54,6 +54,7 @@
   import { getChat, type ChatOrganizationalDraft } from "$lib/stores/chat.svelte";
   import { getProjects } from "$lib/stores/projects.svelte";
   import { requireActiveVaultIdentity } from "$lib/vault/active-vault";
+  import { BUILD_PLATFORM_PROFILE, platformHasCapability } from "$lib/platform";
   import ChatParticipantAvatar from "./ChatParticipantAvatar.svelte";
 
   type ScheduleMenuComponent = typeof import("./ChatMessageScheduleMenu.svelte").default;
@@ -139,6 +140,11 @@
   const projects = getProjects();
   const localization = getLocalization();
   const { t } = localization;
+  const localExecutionAvailable = platformHasCapability(
+    BUILD_PLATFORM_PROFILE,
+    "chat.local-execution",
+  );
+  const focusEditorOnMount = BUILD_PLATFORM_PROFILE.shell === "desktop";
   const initialDraft = untrack(() => chat.organizationalDraft(destination));
   const initialDocument = parseChatComposerDocument(
     initialDraft.richContent,
@@ -189,6 +195,7 @@
   let teammateAccess = $state<ChatTeammateAccessRead | null>(null);
   let assignmentTargets = $state<ChatAssignmentTargetRead[]>([]);
   let assignmentPreviewLoading = $state(false);
+  let assignmentPreviewRequest = 0;
   let navigationChannels = $state<ChatChannelRead[]>([]);
   let navigationChannelsLoaded = false;
 
@@ -265,7 +272,9 @@
     const stop = () => { void stopAssignment(); };
     document.addEventListener("selectionchange", selectionChanged);
     window.addEventListener("ganbaru-ai:chat-stop-requested", stop);
-    editorController.focus({ start: selectionStart, end: selectionEnd });
+    if (focusEditorOnMount) {
+      editorController.focus({ start: selectionStart, end: selectionEnd });
+    }
     return () => {
       document.removeEventListener("selectionchange", selectionChanged);
       window.removeEventListener("ganbaru-ai:chat-stop-requested", stop);
@@ -284,8 +293,10 @@
     const channelId = chat.selectedChannel?.id ?? null;
     const replyThreadId = destinationReplyThreadId(destination);
     if (!teammateId || !channelId) {
+      assignmentPreviewRequest += 1;
       teammateAccess = null;
       assignmentTargets = [];
+      assignmentPreviewLoading = false;
       executionTarget = null;
       return;
     }
@@ -726,13 +737,19 @@
     channelId: string,
     replyThreadId: string | null,
   ): Promise<void> {
+    const requestId = ++assignmentPreviewRequest;
     assignmentPreviewLoading = true;
     try {
       const [access, targets] = await Promise.all([
         chatApi.readChatTeammateAccess(teammateId),
         chatApi.listChatAssignmentTargets({ teammateId, channelId, replyThreadId }),
       ]);
-      if (mentionedTeammateId !== teammateId || chat.selectedChannel?.id !== channelId) return;
+      if (
+        requestId !== assignmentPreviewRequest
+        || mentionedTeammateId !== teammateId
+        || chat.selectedChannel?.id !== channelId
+        || destinationReplyThreadId(destination) !== replyThreadId
+      ) return;
       teammateAccess = access;
       assignmentTargets = targets;
       if (executionTarget && !targets.some((target) => sameExecutionTarget(target.executionTarget, executionTarget))) {
@@ -740,12 +757,17 @@
         persist();
       }
     } catch (cause: unknown) {
-      if (mentionedTeammateId === teammateId) {
+      if (
+        requestId === assignmentPreviewRequest
+        && mentionedTeammateId === teammateId
+        && chat.selectedChannel?.id === channelId
+        && destinationReplyThreadId(destination) === replyThreadId
+      ) {
         assignmentTargets = [];
         error = cause instanceof Error ? cause.message : String(cause);
       }
     } finally {
-      if (mentionedTeammateId === teammateId) assignmentPreviewLoading = false;
+      if (requestId === assignmentPreviewRequest) assignmentPreviewLoading = false;
     }
   }
 
@@ -1314,7 +1336,7 @@
               {#each group.entries as entry (entry.candidate.key)}
                 {@const candidate = entry.candidate}
                 {@const index = entry.index}
-                <button id={`chat-reference-${index}`} data-reference-index={index} type="button" role="option" aria-selected={pickerIndex === index} disabled={candidateIsDisabled(candidate)} class:active={pickerIndex === index} onpointerenter={() => { if (!candidateIsDisabled(candidate)) pickerIndex = index; }} onpointerdown={(event) => event.preventDefault()} onclick={() => void chooseReferenceCandidate(candidate)}>
+                <button id={`chat-reference-${index}`} data-reference-index={index} type="button" role="option" tabindex="-1" aria-selected={pickerIndex === index} disabled={candidateIsDisabled(candidate)} class:active={pickerIndex === index} onpointerenter={() => { if (!candidateIsDisabled(candidate)) pickerIndex = index; }} onpointerdown={(event) => event.preventDefault()} onclick={() => void chooseReferenceCandidate(candidate)}>
                   <span class="candidate-icon">
                     {#if candidate.kind === "participant"}<ChatParticipantAvatar participant={candidate.participant} teammate={candidate.teammate ?? undefined} size={28} />
                     {:else if candidate.kind === "channel"}<Hash size={15} />
@@ -1342,7 +1364,7 @@
       <div class="composer-tools">
         <div bind:this={addMenuAnchor} class="menu-anchor">
           <button type="button" class="tool-button" aria-label={t("chat.organization.addContext")} aria-expanded={addMenuOpen} onclick={() => { addMenuOpen = !addMenuOpen; scheduleMenuOpen = false; scheduledMessagesOpen = false; }}><Plus size={16} /></button>
-          {#if addMenuOpen}<div class="composer-menu add-menu"><button type="button" onclick={() => void pickImages()}><Image size={14} />{t("chat.composer.attachImages")}</button><button type="button" onclick={() => { addMenuOpen = false; insertReferenceTrigger("@"); }}><AtSign size={14} />{t("chat.organization.peopleAndResources")}</button><button type="button" onclick={() => { addMenuOpen = false; insertReferenceTrigger("#"); }}><Hash size={14} />{t("chat.organization.channels")}</button></div>{/if}
+          {#if addMenuOpen}<div class="composer-menu add-menu">{#if localExecutionAvailable}<button type="button" onclick={() => void pickImages()}><Image size={14} />{t("chat.composer.attachImages")}</button>{/if}<button type="button" onclick={() => { addMenuOpen = false; insertReferenceTrigger("@"); }}><AtSign size={14} />{t("chat.organization.peopleAndResources")}</button><button type="button" onclick={() => { addMenuOpen = false; insertReferenceTrigger("#"); }}><Hash size={14} />{t("chat.organization.channels")}</button></div>{/if}
         </div>
         <button type="button" class="tool-button" class:active={boldActive} aria-label={t("chat.organization.bold")} aria-pressed={boldActive} onclick={() => editorController?.toggleMark("bold")}><Bold size={15} /></button>
         <button type="button" class="tool-button" class:active={italicActive} aria-label={t("chat.organization.italic")} aria-pressed={italicActive} onclick={() => editorController?.toggleMark("italic")}><Italic size={15} /></button>

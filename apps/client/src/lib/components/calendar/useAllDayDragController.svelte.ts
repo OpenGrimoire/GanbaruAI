@@ -4,6 +4,8 @@ import type {
   PositionedAllDayEvent,
 } from "./types";
 import { formatDatePart } from "./utils";
+import { onDestroy } from "svelte";
+import { CalendarTouchHoldArbiter } from "./calendar-mobile-gestures";
 
 let cursorStyle: HTMLStyleElement | null = null;
 
@@ -31,6 +33,9 @@ export interface AllDayDragControllerConfig {
   onEventUpdate: (event: CalendarEvent) => void | Promise<void>;
   canDrag?: (eventId: string) => boolean;
   isEventLocked?: (eventId: string) => boolean;
+  mobileLayout: () => boolean;
+  onTouchEditStart?: () => void;
+  onTouchEditEnd?: () => void;
 }
 
 export function useAllDayDragController(config: AllDayDragControllerConfig) {
@@ -39,6 +44,7 @@ export function useAllDayDragController(config: AllDayDragControllerConfig) {
   let draggingEventId = $state<string | null>(null);
   let grabbingId = $state<string | null>(null); // Set immediately on pointerdown for visual feedback
   let _didDrag = $state(false);
+  const touchHold = new CalendarTouchHoldArbiter();
 
   // Helpers
 
@@ -65,15 +71,33 @@ export function useAllDayDragController(config: AllDayDragControllerConfig) {
 
   // Existing event drag (move / resize)
 
-  function handleDragStart(eventId: string, e: PointerEvent) {
-    if (config.canDrag && !config.canDrag(eventId)) return;
-    if (config.isEventLocked?.(eventId)) return;
+  function canStartDrag(eventId: string): boolean {
+    if (config.canDrag && !config.canDrag(eventId)) return false;
+    if (config.isEventLocked?.(eventId)) return false;
+    return config.events().some((event) => event.id === eventId);
+  }
 
+  function handleDragStart(eventId: string, e: PointerEvent) {
+    if (!canStartDrag(eventId)) return;
+    if (config.mobileLayout() && e.pointerType === "touch") {
+      touchHold.begin(e, () => {
+        if (!canStartDrag(eventId) || !beginDragStart(eventId, e)) {
+          touchHold.finish();
+          return;
+        }
+        config.onTouchEditStart?.();
+      });
+      return;
+    }
+    beginDragStart(eventId, e);
+  }
+
+  function beginDragStart(eventId: string, e: PointerEvent): boolean {
     const event = config.events().find((ev) => ev.id === eventId);
-    if (!event) return;
+    if (!event) return false;
 
     const bounds = config.getColumnBounds();
-    if (bounds.length === 0) return;
+    if (bounds.length === 0) return false;
 
     const days = config.days();
     const dayStrs = days.map((d) => formatDatePart(d));
@@ -87,7 +111,7 @@ export function useAllDayDragController(config: AllDayDragControllerConfig) {
 
     const startCol = dayStrs.indexOf(clippedStart);
     const endCol = dayStrs.indexOf(clippedEnd);
-    if (startCol < 0 || endCol < 0) return;
+    if (startCol < 0 || endCol < 0) return false;
     const spanCols = endCol - startCol + 1;
 
     // Find current row from layout
@@ -98,7 +122,7 @@ export function useAllDayDragController(config: AllDayDragControllerConfig) {
     // Detect type from pointer position relative to chip
     const chipEl = (e.target as HTMLElement).closest("[data-event-id]") as HTMLElement | null;
     let type: AllDayDragState["type"] = "move";
-    if (chipEl) {
+    if (chipEl && !(config.mobileLayout() && e.pointerType === "touch")) {
       const rect = chipEl.getBoundingClientRect();
       if (e.clientX - rect.left <= EDGE_ZONE && startDate >= rangeStart) {
         type = "resize-start";
@@ -123,6 +147,8 @@ export function useAllDayDragController(config: AllDayDragControllerConfig) {
 
     window.addEventListener("pointermove", handleDragMove);
     window.addEventListener("pointerup", handleDragEnd);
+    window.addEventListener("pointercancel", handleDragCancel);
+    return true;
   }
 
   function handleDragMove(e: PointerEvent) {
@@ -177,11 +203,18 @@ export function useAllDayDragController(config: AllDayDragControllerConfig) {
   async function handleDragEnd() {
     window.removeEventListener("pointermove", handleDragMove);
     window.removeEventListener("pointerup", handleDragEnd);
+    window.removeEventListener("pointercancel", handleDragCancel);
     unlockCursor();
 
     const state = dragState;
     const preview = allDayDragPreview;
     const wasDragging = !!draggingEventId;
+    const consumedTouch = touchHold.editingActive;
+    if (wasDragging || consumedTouch) {
+      _didDrag = true;
+      setTimeout(() => { _didDrag = false; }, 0);
+    }
+    finishTouchEditing();
 
     if (!state || !preview) {
       dragState = null;
@@ -198,12 +231,6 @@ export function useAllDayDragController(config: AllDayDragControllerConfig) {
       draggingEventId = null;
       grabbingId = null;
       return;
-    }
-
-    // Suppress the click that fires after pointerup
-    if (wasDragging) {
-      _didDrag = true;
-      setTimeout(() => { _didDrag = false; }, 0);
     }
 
     // Always notify parent that drag ended (sets lastDragEndTime to prevent panel close).
@@ -234,6 +261,29 @@ export function useAllDayDragController(config: AllDayDragControllerConfig) {
     draggingEventId = null;
     grabbingId = null;
   }
+
+  function handleDragCancel(): void {
+    window.removeEventListener("pointermove", handleDragMove);
+    window.removeEventListener("pointerup", handleDragEnd);
+    window.removeEventListener("pointercancel", handleDragCancel);
+    unlockCursor();
+    dragState = null;
+    allDayDragPreview = null;
+    draggingEventId = null;
+    grabbingId = null;
+    finishTouchEditing();
+  }
+
+  function finishTouchEditing(): void {
+    const wasActive = touchHold.editingActive;
+    touchHold.finish();
+    if (wasActive) config.onTouchEditEnd?.();
+  }
+
+  onDestroy(() => {
+    handleDragCancel();
+    touchHold.finish();
+  });
 
   return {
     get dragState() { return dragState; },

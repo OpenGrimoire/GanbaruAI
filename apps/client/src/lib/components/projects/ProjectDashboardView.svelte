@@ -29,6 +29,7 @@
     scheduledThisWeekMinutes,
     onOpenTask,
     aggregates,
+    mobileLayout = false,
   }: {
     projectId: string | null;
     tasks: ProjectTask[];
@@ -39,6 +40,7 @@
     scheduledThisWeekMinutes: number;
     onOpenTask: (task: ProjectTask) => void;
     aggregates?: ProjectDashboardTaskAggregates;
+    mobileLayout?: boolean;
   } = $props();
 
   const projects = getProjects();
@@ -148,7 +150,7 @@
   }
 </script>
 
-<div class="relative h-full min-h-0">
+<div class="relative h-full min-h-0" class:mobilePresentation={mobileLayout}>
   <div bind:this={dashboardScrollContainer} class="project-dashboard-scroll h-full min-h-0 overflow-y-auto">
     <div class="grid min-h-full gap-3 p-3 min-[760px]:grid-cols-2">
   <section class="rounded-md border border-border bg-card p-3">
@@ -335,5 +337,9 @@
 
   .project-dashboard-scroll::-webkit-scrollbar {
     display: none;
+  }
+
+  .mobilePresentation :global(button) {
+    min-height: var(--touch-target-min);
   }
 </style>

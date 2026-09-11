@@ -2,10 +2,12 @@ use super::helpers::{insert_event, insert_open_run, migrated_memory_pool};
 use crate::run_migrations;
 use sqlx::Row;
 
-const EXPECTED_MIGRATION_COUNT: i64 = 28;
+const BASELINE_SCHEMA: &str =
+    include_str!("../../../../apps/client/src-tauri/migrations/20260830173211_baseline_schema.sql");
+const EXPECTED_MIGRATION_COUNT: i64 = 1;
 
 #[test]
-fn fresh_database_applies_baseline_and_additive_migrations() {
+fn fresh_database_applies_clean_baseline() {
     super::block_on(async {
         let pool = migrated_memory_pool().await;
         let migration_count: i64 =
@@ -55,7 +57,6 @@ fn fresh_database_applies_baseline_and_additive_migrations() {
             "chat_communication_search_fts",
             "project_tasks",
             "music_playlists",
-            "music_playlist_tracks",
             "music_library_items",
             "music_local_roots",
             "music_local_locations",
@@ -63,7 +64,6 @@ fn fresh_database_applies_baseline_and_additive_migrations() {
             "music_source_collection_items",
             "music_playlist_memberships",
             "music_membership_break_items",
-            "music_library_repair_issues",
             "music_snoozes",
             "music_listening_statistics",
             "music_recent_selections",
@@ -72,8 +72,6 @@ fn fresh_database_applies_baseline_and_additive_migrations() {
             "music_soundscape_locations",
             "music_soundscape_state",
             "music_search_fts",
-            "music_track_skip_ranges",
-            "music_track_break_sources",
             "notes_pages",
             "notes_blocks",
             "notes_search_fts",
@@ -97,6 +95,13 @@ fn fresh_database_applies_baseline_and_additive_migrations() {
             "notes_blocks_next",
             "notes_pages_next",
             "notes_page_history_settings_next",
+            "music_playlist_tracks",
+            "music_track_skip_ranges",
+            "music_track_break_sources",
+            "music_library_repair_issues",
+            "chat_organizational_drafts",
+            "idx_chat_organizational_drafts_destination",
+            "chat_source_control_state",
         ] {
             let exists: Option<i64> =
                 sqlx::query_scalar("SELECT 1 FROM sqlite_schema WHERE name = ?")
@@ -119,11 +124,14 @@ fn fresh_database_applies_baseline_and_additive_migrations() {
                 .await
                 .unwrap();
         assert_eq!(noncanonical_icons, 0);
+        assert!(!BASELINE_SCHEMA.contains("ALTER TABLE"));
+        assert!(!BASELINE_SCHEMA.contains("DROP TABLE"));
+        assert!(!BASELINE_SCHEMA.contains("legacy"));
     });
 }
 
 #[test]
-fn fresh_file_database_applies_baseline_and_additive_migrations() {
+fn fresh_file_database_applies_clean_baseline() {
     super::block_on(async {
         let path = std::env::temp_dir().join(format!(
             "ganbaru-ai-baseline-{}-{}.sqlite",

@@ -182,7 +182,7 @@
       <button
         type="button"
         class={cn(
-          "flex h-5 w-5 shrink-0 cursor-pointer items-center justify-center rounded border",
+          "project-list-selection-control flex h-5 w-5 shrink-0 cursor-pointer items-center justify-center rounded border",
           taskSelected
             ? "border-primary bg-primary text-primary-foreground opacity-100"
             : "border-border bg-background opacity-0 hover:bg-accent group-hover/row:opacity-100 group-focus-within/row:opacity-100",
@@ -198,7 +198,7 @@
     <div class="flex h-full items-center justify-center">
       <button
         type="button"
-        class="flex h-7 w-7 cursor-pointer items-center justify-center rounded-md text-muted-foreground opacity-0 hover:bg-accent hover:text-foreground group-hover/row:opacity-100 group-focus-within/row:opacity-100"
+        class="project-list-open-control flex h-7 w-7 cursor-pointer items-center justify-center rounded-md text-muted-foreground opacity-0 hover:bg-accent hover:text-foreground group-hover/row:opacity-100 group-focus-within/row:opacity-100"
         aria-label={t("projects.actions.openTaskDetails", task.title)}
         onclick={() => onOpenTask(task)}
       >
@@ -298,6 +298,11 @@
 </div>
 
 <style>
+  @media (hover: none) and (pointer: coarse) {
+    .project-list-selection-control,
+    .project-list-open-control { opacity: 1; }
+  }
+
   .project-list-cell-frame::before {
     position: absolute;
     inset: 0;

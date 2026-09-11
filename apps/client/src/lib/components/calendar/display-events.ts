@@ -3,7 +3,7 @@
  * No store mutation, no fake IDs. Events keep their real IDs throughout.
  */
 
-import type { CalendarEvent, RecurrenceConfig, RecurringScope } from "./types";
+import type { CalendarEvent, RecurringScope } from "./types";
 import type { CreatePreview } from "./edit-session.svelte";
 import { expandRecurring } from "./recurrence";
 import {

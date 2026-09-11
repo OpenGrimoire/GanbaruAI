@@ -10,7 +10,12 @@ export function activeMusicSnapshotBackend(
   status: PlaybackStatus,
   usesNativeLocalBackend: boolean,
 ): MusicSnapshotBackend | null {
-  if (!source || (status !== "playing" && status !== "paused")) return null;
-  if (isYouTubeSource(source)) return "youtube";
-  return usesNativeLocalBackend ? "native" : null;
+  if (!source) return null;
+  if (isYouTubeSource(source)) {
+    return status === "playing" || status === "paused" ? "youtube" : null;
+  }
+  return usesNativeLocalBackend
+    && (status === "loading" || status === "playing" || status === "paused")
+    ? "native"
+    : null;
 }

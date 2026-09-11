@@ -20,7 +20,7 @@
   import { getDoomscrollingUsage } from "$lib/stores/doomscrolling-usage.svelte";
   import { getTheme } from "$lib/stores/theme.svelte";
   import { cn } from "$lib/utils";
-  import DoomscrollingBrowserConnectionStatus from "./DoomscrollingBrowserConnectionStatus.svelte";
+  import DoomscrollingBrowserConnectionStatus from "$lib/components/settings/doomscrolling-browser-connection";
   import ToggleSetting from "./ToggleSetting.svelte";
   import type { DoomscrollingLimitEditorTarget } from "./types";
 

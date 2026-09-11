@@ -70,7 +70,6 @@ export class HeldNavigationController {
     if (this.#key !== null) this.stop();
 
     this.#generation++;
-    const generation = this.#generation;
     this.#key = key;
     this.#direction = direction;
     this.#repeats = 0;

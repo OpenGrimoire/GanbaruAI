@@ -20,4 +20,5 @@ export interface IconPickerUploadAdapter {
 export interface IconPickerTriggerContext {
   open: boolean;
   toggle: () => void;
+  panelId: string;
 }

@@ -16,6 +16,11 @@ import {
   utcIsoToWallClock,
   wallClockToUtcIso,
 } from "$lib/components/calendar/utils";
+import {
+  parseJsonNotificationMinutes,
+  parseJsonStringArray,
+  safeJsonParse,
+} from "./calendar-json";
 
 /**
  * Row shape returned by the boot SELECT in `calendar.svelte.ts:load()`.
@@ -109,15 +114,6 @@ export interface DbOverride {
   transparency: string | null;
 }
 
-export function safeJsonParse<T>(json: string | null): T | undefined {
-  if (!json) return undefined;
-  try {
-    return JSON.parse(json) as T;
-  } catch {
-    return undefined;
-  }
-}
-
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
 }
@@ -183,7 +179,8 @@ function mapPomodoroConfig(r: DbCalendarEvent): PomodoroConfig | undefined {
   }
 
   if (r.rhythm_kind === "sequence") {
-    const steps = safeJsonParse<unknown[]>(r.sequence_steps)?.filter(isSequenceStep) ?? [];
+    const value = safeJsonParse(r.sequence_steps);
+    const steps = Array.isArray(value) ? value.filter(isSequenceStep) : [];
     if (steps.length === 0) return undefined;
     return {
       rhythm: {
@@ -268,9 +265,9 @@ export function mapRow(r: DbCalendarEvent, renderZone: string): CalendarEvent {
   if (r.rrule) {
     slim.recurrence = rruleToRecurrence(r.rrule, r.repeat_until ?? undefined);
   }
-  const notifications = safeJsonParse<number[]>(r.notifications);
+  const notifications = parseJsonNotificationMinutes(r.notifications);
   if (notifications) slim.notifications = notifications;
-  const exceptions = safeJsonParse<string[]>(r.exceptions);
+  const exceptions = parseJsonStringArray(r.exceptions);
   if (exceptions) slim.exceptions = exceptions;
   if (allDay) slim.allDay = true;
   if (r.location) slim.location = r.location;
@@ -280,7 +277,7 @@ export function mapRow(r: DbCalendarEvent, renderZone: string): CalendarEvent {
   if (r.status !== "confirmed") slim.status = r.status as EventStatus;
   if (r.local_rsvp_status) slim.localParticipationStatus = r.local_rsvp_status as AttendeeStatus;
   if (r.created_at) slim.createdAt = r.created_at;
-  const rdate = safeJsonParse<string[]>(r.rdate);
+  const rdate = parseJsonStringArray(r.rdate);
   if (rdate) slim.rdate = rdate;
   const pomodoroConfig = mapPomodoroConfig(r);
   if (pomodoroConfig) slim.pomodoroConfig = pomodoroConfig;

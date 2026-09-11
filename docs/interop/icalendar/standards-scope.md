@@ -20,9 +20,11 @@ The source of truth is the standards. Google Calendar, Outlook, Apple Calendar, 
 
 ## Compatibility levels
 
-### File compatibility
+### Offline round-trip compatibility
 
-The parser accepts legal iCalendar input, records unsupported data instead of dropping it, and exports a legal iCalendar object later. This is fully offline and does not require accounts, tokens, hosted services, or network access.
+The parser accepts supported legal iCalendar input within documented safety limits, records unsupported structured data instead of dropping it, and exports a legal iCalendar object later. This is fully offline and does not require accounts, tokens, hosted services, or network access.
+
+Compatibility is semantic rather than byte-for-byte. Equivalent property ordering, case, escaping, and line folding may differ after serialization.
 
 This is the main goal.
 
@@ -68,7 +70,7 @@ Partial support exists for:
 
 ## Known gaps
 
-The current implementation is highly compatible for offline file import/export within documented safety limits, but it is still not full semantic app support for every RFC 5545 feature. Major remaining gaps include:
+The current implementation provides broad offline round-trip preservation for tested fixtures within documented safety limits. It is not full RFC 5545 parser, serializer, or app-semantic coverage. Major remaining gaps include:
 
 - app UI projection for non-`VEVENT` components: `VTODO`, `VJOURNAL`, `VFREEBUSY`
 - complete `VTIMEZONE` interpretation for recurrence math
@@ -80,6 +82,8 @@ The current implementation is highly compatible for offline file import/export w
 - scheduling methods and workflow actions from RFC 5546
 - object-level export merge beyond a single safe `METHOD`
 - manual client compatibility observations for the major target clients
+
+Current evidence and exact status live in the [conformance audit](./conformance/README.md).
 
 ## Preservation rule
 

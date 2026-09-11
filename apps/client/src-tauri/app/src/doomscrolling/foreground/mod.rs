@@ -6,7 +6,7 @@ mod linux;
 mod macos;
 #[cfg(not(any(target_os = "linux", target_os = "macos", windows)))]
 mod unsupported;
-#[cfg(windows)]
+#[cfg(any(windows, test))]
 mod windows;
 
 #[cfg(target_os = "linux")]

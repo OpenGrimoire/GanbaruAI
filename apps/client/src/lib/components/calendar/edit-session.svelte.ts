@@ -1,5 +1,5 @@
 import type {
-  CalendarEvent, EventColor, GuestPermissions, PomodoroConfig, RecurrenceConfig, RecurringScope,
+  CalendarEvent, EventColor, PomodoroConfig, RecurrenceConfig, RecurringScope,
 } from "./types";
 import { recurrenceConfigsEqual } from "./rrule";
 import { parseCalendarDate } from "./utils";
@@ -12,6 +12,10 @@ import {
   clonePomodoroConfig,
   createPresetPomodoroConfig,
 } from "$lib/pomodoro/rhythm";
+import {
+  hasMeetingState,
+  hasNonDefaultGuestPermissions,
+} from "$lib/calendar/meeting-state";
 
 export type PanelAnchor = { x: number; y: number; width: number; height: number };
 
@@ -86,21 +90,6 @@ function normalizePomodoroConfig(
     ...clonePomodoroConfig(config),
     idleTimeoutMinutes: config.idleTimeoutMinutes !== null ? thresholdMinutes : null,
   };
-}
-
-function hasNonDefaultGuestPermissions(value: GuestPermissions | undefined): boolean {
-  return !!value && (value.canModify || !value.canInviteOthers || !value.canSeeOtherGuests);
-}
-
-function hasMeetingState(event: CalendarEvent): boolean {
-  return event.meetingEnabled === true
-    || !!(event.attendees && event.attendees.length > 0)
-    || !!event.organizer
-    || !!event.location
-    || !!event.url
-    || !!event.geo
-    || event.localParticipationStatus !== undefined
-    || hasNonDefaultGuestPermissions(event.guestPermissions);
 }
 
 /**

@@ -233,9 +233,9 @@ pub(crate) async fn update_project_in_pool(
         project.music_assignments,
         project.music_assignments_updated_at,
     ) {
-        crate::music::library::contexts::replace_assignments_in_transaction(
+        crate::music_context::replace_assignments_in_transaction(
             &mut transaction,
-            crate::music::library::MusicAssignmentOwnerKind::ProjectDefault,
+            crate::music_context::MusicAssignmentOwnerKind::ProjectDefault,
             &project.id,
             assignments,
             updated_at,

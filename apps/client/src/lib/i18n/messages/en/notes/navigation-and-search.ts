@@ -223,6 +223,7 @@ export const navigationAndSearch = {
   noSearchResults: "No matching results",
   searchPlaceholder: "Search notes...",
   searchLabel: "Search notes",
+  clearSearch: "Clear note search",
   searchResults: "Search results",
   searching: "Searching",
   searchFailed: (message: string) => `Could not search notes: ${message}`,

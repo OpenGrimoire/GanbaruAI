@@ -3,7 +3,7 @@ import type { Calendar, CalendarEvent } from "$lib/components/calendar/types";
 import type { IcsImportSummary, IcsPreservationPayload } from "$lib/calendar/ics/types";
 import { calendarDisplayName } from "$lib/calendar/calendar-display";
 import { dbUrl } from "$lib/api/db";
-import { safeJsonParse } from "./map-row";
+import { safeJsonParse } from "./calendar-json";
 import {
   buildBulkImportPayload,
   type CalendarBulkImportResult,
@@ -79,7 +79,7 @@ export async function exportCalendarAsIcs(
     },
   );
   const preservedTimezones = preservedTimezoneRows
-    .map((row) => safeJsonParse<unknown>(row))
+    .map((row) => safeJsonParse(row))
     .filter((row): row is unknown => row !== undefined);
   const preservedPassthroughRows = await invoke<string[]>(
     "calendar_load_icalendar_passthrough_components_for_calendar",
@@ -89,7 +89,7 @@ export async function exportCalendarAsIcs(
     },
   );
   const preservedPassthroughComponents = preservedPassthroughRows
-    .map((row) => safeJsonParse<unknown>(row))
+    .map((row) => safeJsonParse(row))
     .filter((row): row is unknown => row !== undefined);
   const preservedExportMetadata = await invoke<CalendarIcalendarExportMetadata>(
     "calendar_load_icalendar_export_metadata_for_calendar",

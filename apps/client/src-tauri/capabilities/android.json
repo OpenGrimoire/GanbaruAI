@@ -1,0 +1,37 @@
+{
+  "identifier": "android",
+  "description": "Android capability for the single app-owned webview",
+  "windows": ["main"],
+  "platforms": ["android"],
+  "permissions": [
+    "core:app:allow-register-listener",
+    "core:app:allow-remove-listener",
+    "notification:allow-is-permission-granted",
+    "notification:allow-request-permission",
+    "ganbaru-mobile-notifications:allow-calendarChannelStatus",
+    "ganbaru-mobile-notifications:allow-scheduleCalendarNotifications",
+    "ganbaru-mobile-notifications:allow-pendingCalendarNotifications",
+    "ganbaru-mobile-notifications:allow-cancelCalendarNotifications",
+    "ganbaru-mobile-notifications:allow-takeCalendarNotificationAction",
+    "ganbaru-mobile-notifications:allow-updatePomodoroNotification",
+    "ganbaru-mobile-notifications:allow-cancelPomodoroNotification",
+    "ganbaru-mobile-notifications:allow-pomodoroNotificationState",
+    "ganbaru-mobile-notifications:allow-reconcilePomodoroSchedule",
+    "ganbaru-mobile-doomscrolling:allow-accessStatus",
+    "ganbaru-mobile-doomscrolling:allow-openUsageAccessSettings",
+    "ganbaru-mobile-doomscrolling:allow-openAccessibilitySettings",
+    "ganbaru-mobile-doomscrolling:allow-listLaunchableApps",
+    "ganbaru-mobile-doomscrolling:allow-applyRules",
+    "ganbaru-mobile-doomscrolling:allow-pendingEvents",
+    "ganbaru-mobile-doomscrolling:allow-acknowledgeEvents",
+    "ganbaru-mobile-doomscrolling:allow-takeNotificationAction",
+    {
+      "identifier": "opener:allow-open-url",
+      "allow": [
+        {
+          "url": "https://*"
+        }
+      ]
+    }
+  ]
+}

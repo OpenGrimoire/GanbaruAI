@@ -2,11 +2,6 @@ use super::helpers::migrated_memory_pool;
 use sqlx::Row;
 
 const NOW: &str = "2026-07-20T12:00:00Z";
-const ADD_CHAT_DRAFT_RICH_CONTENT: &str = include_str!(
-    "../../../../apps/client/src-tauri/migrations/20260728032141_add_chat_draft_rich_content.sql"
-);
-const ADD_CHAT_REVIEW_COMMENT_SOURCES: &str =
-    include_str!("../../../../apps/client/src-tauri/migrations/20260730193000_add_chat_review_comment_sources.sql");
 
 async fn insert_project(pool: &sqlx::SqlitePool) {
     sqlx::query("INSERT INTO project_groups (id, name) VALUES ('group-1', 'Engineering')")
@@ -137,7 +132,6 @@ fn schema_creates_chat_tables_indexes_and_no_device_paths() {
             "chat_browser_artifacts",
             "chat_provider_cleanup_jobs",
             "chat_terminal_layouts",
-            "chat_source_control_state",
             "chat_participants",
             "chat_ai_teammates",
             "chat_teammate_policy_revisions",
@@ -175,7 +169,6 @@ fn schema_creates_chat_tables_indexes_and_no_device_paths() {
             "chat_communication_attachment_references",
             "chat_conversation_read_cursors",
             "chat_reply_thread_read_cursors",
-            "chat_organizational_drafts",
             "chat_organizational_command_receipts",
             "chat_work_assignments",
             "chat_work_assignment_inputs",
@@ -1033,75 +1026,71 @@ fn chat_workspace_schema_records_forks_worktrees_reviews_and_cleanup_failures() 
 }
 
 #[test]
-fn chat_draft_rich_content_migration_preserves_existing_plain_text() {
+fn chat_draft_schema_supports_plain_text_and_validates_rich_content() {
     super::block_on(async {
-        let pool = sqlx::SqlitePool::connect("sqlite::memory:").await.unwrap();
+        let pool = migrated_memory_pool().await;
         sqlx::query(
-            "CREATE TABLE chat_drafts (
-                id TEXT PRIMARY KEY NOT NULL,
-                text TEXT NOT NULL DEFAULT ''
-            ) STRICT",
+            "INSERT INTO chat_drafts (id, working_folder_id, text, updated_at)
+             VALUES ('draft-1', 'working-folder-routine-learning', 'Keep this', ?)",
         )
+        .bind(NOW)
         .execute(&pool)
         .await
         .unwrap();
-        sqlx::query("INSERT INTO chat_drafts (id, text) VALUES ('draft-1', 'Keep this')")
-            .execute(&pool)
-            .await
-            .unwrap();
 
-        sqlx::raw_sql(ADD_CHAT_DRAFT_RICH_CONTENT)
-            .execute(&pool)
-            .await
-            .unwrap();
-
-        let row = sqlx::query(
+        let plain_text = sqlx::query(
             "SELECT text, rich_content_schema_version, rich_content_data
              FROM chat_drafts WHERE id = 'draft-1'",
         )
         .fetch_one(&pool)
         .await
         .unwrap();
-        assert_eq!(row.get::<String, _>("text"), "Keep this");
+        assert_eq!(plain_text.get::<String, _>("text"), "Keep this");
         assert_eq!(
-            row.get::<Option<i64>, _>("rich_content_schema_version"),
+            plain_text.get::<Option<i64>, _>("rich_content_schema_version"),
             None
         );
-        assert_eq!(row.get::<Option<String>, _>("rich_content_data"), None);
-    });
-}
+        assert_eq!(
+            plain_text.get::<Option<String>, _>("rich_content_data"),
+            None
+        );
 
-#[test]
-fn chat_review_comment_sources_migration_preserves_legacy_rows_and_enforces_constraints() {
-    super::block_on(async {
-        let pool = sqlx::SqlitePool::connect("sqlite::memory:").await.unwrap();
         sqlx::query(
-            "CREATE TABLE chat_review_comments (
-                id TEXT PRIMARY KEY NOT NULL,
-                thread_id TEXT NOT NULL,
-                turn_id TEXT,
-                relative_path TEXT NOT NULL,
-                content_revision TEXT NOT NULL,
-                start_line INTEGER NOT NULL,
-                start_column INTEGER NOT NULL DEFAULT 1,
-                end_line INTEGER NOT NULL,
-                end_column INTEGER NOT NULL DEFAULT 1,
-                selected_text TEXT NOT NULL DEFAULT '',
-                comment_text TEXT NOT NULL,
-                state TEXT NOT NULL DEFAULT 'open',
-                created_at TEXT NOT NULL,
-                updated_at TEXT NOT NULL,
-                resolved_at TEXT
-            ) STRICT",
+            "UPDATE chat_drafts
+             SET rich_content_schema_version = 1,
+                 rich_content_data = '{\"type\":\"document\"}'
+             WHERE id = 'draft-1'",
         )
         .execute(&pool)
         .await
         .unwrap();
+        let invalid_data = sqlx::query(
+            "UPDATE chat_drafts SET rich_content_data = 'not-json' WHERE id = 'draft-1'",
+        )
+        .execute(&pool)
+        .await;
+        let invalid_version = sqlx::query(
+            "UPDATE chat_drafts SET rich_content_schema_version = 0 WHERE id = 'draft-1'",
+        )
+        .execute(&pool)
+        .await;
+        assert!(invalid_data.is_err());
+        assert!(invalid_version.is_err());
+    });
+}
+
+#[test]
+fn chat_review_comment_schema_applies_source_defaults_and_constraints() {
+    super::block_on(async {
+        let pool = migrated_memory_pool().await;
+        insert_project(&pool).await;
+        insert_working_folder(&pool, "folder-1", "project-1").await;
+        insert_thread(&pool, "thread-1", "folder-1", "project-1").await;
         sqlx::query(
             "INSERT INTO chat_review_comments
                 (id, thread_id, relative_path, content_revision, start_line, end_line,
                  selected_text, comment_text, created_at, updated_at)
-             VALUES ('review-legacy', 'thread-1', 'src/main.rs',
+             VALUES ('review-1', 'thread-1', 'src/main.rs',
                      'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
                      4, 5, 'unsafe block', 'Can this stay safe?', ?, ?)",
         )
@@ -1111,16 +1100,11 @@ fn chat_review_comment_sources_migration_preserves_legacy_rows_and_enforces_cons
         .await
         .unwrap();
 
-        sqlx::raw_sql(ADD_CHAT_REVIEW_COMMENT_SOURCES)
-            .execute(&pool)
-            .await
-            .unwrap();
-
         let row = sqlx::query(
             "SELECT selected_text, comment_text, source_kind, source_data,
                     review_revision, snapshot_id, file_id, selection_side,
                     previous_relative_path, applicability, queued_for_send
-             FROM chat_review_comments WHERE id = 'review-legacy'",
+             FROM chat_review_comments WHERE id = 'review-1'",
         )
         .fetch_one(&pool)
         .await
@@ -1138,15 +1122,15 @@ fn chat_review_comment_sources_migration_preserves_legacy_rows_and_enforces_cons
         assert_eq!(row.get::<i64, _>("queued_for_send"), 0);
 
         for invalid_update in [
-            "UPDATE chat_review_comments SET source_kind = 'unsupported' WHERE id = 'review-legacy'",
-            "UPDATE chat_review_comments SET source_data = 'not-json' WHERE id = 'review-legacy'",
-            "UPDATE chat_review_comments SET review_revision = 'short' WHERE id = 'review-legacy'",
-            "UPDATE chat_review_comments SET snapshot_id = '' WHERE id = 'review-legacy'",
-            "UPDATE chat_review_comments SET file_id = '' WHERE id = 'review-legacy'",
-            "UPDATE chat_review_comments SET selection_side = 'both' WHERE id = 'review-legacy'",
-            "UPDATE chat_review_comments SET previous_relative_path = '../secret' WHERE id = 'review-legacy'",
-            "UPDATE chat_review_comments SET applicability = 'unknown' WHERE id = 'review-legacy'",
-            "UPDATE chat_review_comments SET queued_for_send = 2 WHERE id = 'review-legacy'",
+            "UPDATE chat_review_comments SET source_kind = 'unsupported' WHERE id = 'review-1'",
+            "UPDATE chat_review_comments SET source_data = 'not-json' WHERE id = 'review-1'",
+            "UPDATE chat_review_comments SET review_revision = 'short' WHERE id = 'review-1'",
+            "UPDATE chat_review_comments SET snapshot_id = '' WHERE id = 'review-1'",
+            "UPDATE chat_review_comments SET file_id = '' WHERE id = 'review-1'",
+            "UPDATE chat_review_comments SET selection_side = 'both' WHERE id = 'review-1'",
+            "UPDATE chat_review_comments SET previous_relative_path = '../secret' WHERE id = 'review-1'",
+            "UPDATE chat_review_comments SET applicability = 'unknown' WHERE id = 'review-1'",
+            "UPDATE chat_review_comments SET queued_for_send = 2 WHERE id = 'review-1'",
         ] {
             assert!(
                 sqlx::query(invalid_update).execute(&pool).await.is_err(),

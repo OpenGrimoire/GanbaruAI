@@ -320,6 +320,7 @@ export const chatSettings = {
     discardDraft: "Descartar borrador",
     keepEditing: "Seguir editando",
     saveFailed: "No se pudo guardar el compañero.",
+    accessValidationFailed: "Revisa los ajustes no válidos de acceso a canales y carpetas antes de guardar.",
     lifecycleFailed: "No se pudo completar el cambio de estado del compañero.",
     saving: "Guardando...",
     archive: "Archivar",

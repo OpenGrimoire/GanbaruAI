@@ -98,12 +98,12 @@ fn startup_recovery_interrupts_only_turns_without_proven_resumability() {
                 .unwrap(),
             0
         );
-        let legacy_request_state: String = sqlx::query_scalar(
+        let recovered_request_state: String = sqlx::query_scalar(
             "SELECT resolution_state FROM chat_pending_requests WHERE id = 'request-orphan'",
         )
         .fetch_one(&pool)
         .await
         .unwrap();
-        assert_eq!(legacy_request_state, "interrupted");
+        assert_eq!(recovered_request_state, "interrupted");
     });
 }

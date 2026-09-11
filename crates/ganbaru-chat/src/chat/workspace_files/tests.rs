@@ -37,6 +37,38 @@ impl Drop for TestDirectory {
 }
 
 #[test]
+fn internal_artifact_names_cover_platform_recovery_shapes_only() {
+    let private_token = "01".repeat(32);
+    for name in [
+        ".ganbaru.123.4.567.tmp".to_string(),
+        ".ganbaru.123.4.567.backup".to_string(),
+        ".ganbaru.123.4.567.recovery".to_string(),
+        ".document.ganbaru.123.4.tmp".to_string(),
+        "document.ganbaru.123.4.backup".to_string(),
+        format!(".ganbaru.backup.{private_token}"),
+        format!(".ganbaru.recovery.{private_token}"),
+    ] {
+        assert!(
+            ganbaru_internal_artifact_segment(&name),
+            "internal artifact was visible: {name}"
+        );
+    }
+
+    for name in [
+        "document.tmp",
+        "document.ganbaru.notes.backup",
+        ".ganbaru.backup.short",
+        ".ganbaru.recovery.not-hex",
+        ".ganbaru.123.4.tmp.extra",
+    ] {
+        assert!(
+            !ganbaru_internal_artifact_segment(name),
+            "ordinary name was hidden: {name}"
+        );
+    }
+}
+
+#[test]
 fn listing_is_on_demand_and_respects_common_and_git_ignores() {
     let directory = TestDirectory::new();
     fs::write(directory.0.join("visible.txt"), "visible\n").expect("file should write");
@@ -75,6 +107,33 @@ fn listing_is_on_demand_and_respects_common_and_git_ignores() {
         .entries
         .iter()
         .any(|entry| entry.relative_path == "node_modules" && entry.ignored));
+}
+
+#[cfg(unix)]
+#[test]
+fn directory_listing_skips_non_utf8_and_special_entries() {
+    use std::ffi::OsString;
+    use std::os::unix::ffi::OsStringExt;
+    use std::os::unix::net::UnixListener;
+
+    let directory = TestDirectory::new();
+    fs::write(directory.0.join("visible.txt"), "visible\n").expect("regular file should write");
+    let non_utf8_name = OsString::from_vec(vec![b'n', b'a', b'm', b'e', 0xff]);
+    fs::write(directory.0.join(non_utf8_name), "hidden\n").expect("non-UTF-8 file should write");
+    let socket_path = directory.0.join("service.sock");
+    let _socket = UnixListener::bind(&socket_path).expect("Unix socket should bind");
+    let authorized = directory.authorized(RepositoryKind::None);
+
+    let listing = list_workspace_directory(&authorized, "", true).expect("listing should succeed");
+
+    assert_eq!(
+        listing
+            .entries
+            .iter()
+            .map(|entry| entry.relative_path.as_str())
+            .collect::<Vec<_>>(),
+        vec!["visible.txt"]
+    );
 }
 
 #[test]

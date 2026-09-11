@@ -7,19 +7,14 @@ export interface ChatSidebarSection {
   channelIds: string[];
 }
 
-const STORAGE_PREFIX = "ganbaru.chat.channel-sections.v2";
-const LAST_CHANNEL_STORAGE_PREFIX = "ganbaru.chat.last-channel.v2";
-const LEGACY_STORAGE_PREFIXES = [
-  "ganbaru.chat.channel-sections.v1:",
-  "ganbaru.chat.last-channel.v1:",
-] as const;
+const STORAGE_PREFIX = "ganbaru.chat.channel-sections.v1";
+const LAST_CHANNEL_STORAGE_PREFIX = "ganbaru.chat.last-channel.v1";
 const MAX_SECTIONS = 64;
 const MAX_CHANNELS_PER_SECTION = 1_000;
 
 /** Read and validate the custom channel-section layout for one project. */
 export function readChatSidebarSections(projectId: string): ChatSidebarSection[] {
   if (typeof localStorage === "undefined") return [];
-  removeUnscopedLegacyPreferences();
   const key = storageKey(STORAGE_PREFIX, projectId);
   if (!key) return [];
   try {
@@ -34,7 +29,6 @@ export function readChatSidebarSections(projectId: string): ChatSidebarSection[]
 /** Persist a bounded custom channel-section layout for one project. */
 export function saveChatSidebarSections(projectId: string, sections: readonly ChatSidebarSection[]): void {
   if (typeof localStorage === "undefined") return;
-  removeUnscopedLegacyPreferences();
   const key = storageKey(STORAGE_PREFIX, projectId);
   if (!key) return;
   localStorage.setItem(key, JSON.stringify(sections.slice(0, MAX_SECTIONS)));
@@ -43,7 +37,6 @@ export function saveChatSidebarSections(projectId: string, sections: readonly Ch
 /** Read the last channel selected for one project on this device. */
 export function readLastChatChannelId(projectId: string): string | null {
   if (typeof localStorage === "undefined") return null;
-  removeUnscopedLegacyPreferences();
   const key = storageKey(LAST_CHANNEL_STORAGE_PREFIX, projectId);
   if (!key) return null;
   const value = localStorage.getItem(key);
@@ -53,7 +46,6 @@ export function readLastChatChannelId(projectId: string): string | null {
 /** Remember the last channel selected for one project on this device. */
 export function saveLastChatChannelId(projectId: string, channelId: string): void {
   if (typeof localStorage === "undefined" || !channelId || channelId.length > 1_024) return;
-  removeUnscopedLegacyPreferences();
   const key = storageKey(LAST_CHANNEL_STORAGE_PREFIX, projectId);
   if (!key) return;
   localStorage.setItem(key, channelId);
@@ -113,15 +105,4 @@ function storageKey(prefix: string, projectId: string): string | null {
   } catch {
     return null;
   }
-}
-
-function removeUnscopedLegacyPreferences(): void {
-  const legacyKeys: string[] = [];
-  for (let index = 0; index < localStorage.length; index += 1) {
-    const key = localStorage.key(index);
-    if (key && LEGACY_STORAGE_PREFIXES.some((prefix) => key.startsWith(prefix))) {
-      legacyKeys.push(key);
-    }
-  }
-  for (const key of legacyKeys) localStorage.removeItem(key);
 }

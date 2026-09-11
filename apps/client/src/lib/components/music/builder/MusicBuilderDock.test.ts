@@ -57,4 +57,42 @@ describe("MusicBuilderDock", () => {
     items[1]?.click();
     expect(onNavigate).toHaveBeenCalledWith({ kind: "playlists" });
   });
+
+  it("omits unsupported soundscapes", async () => {
+    target = document.createElement("div");
+    document.body.append(target);
+    component = mount(MusicBuilderDock, {
+      target,
+      props: {
+        destination: { kind: "playlists" },
+        reviewCount: 0,
+        includeSoundscapes: false,
+        onNavigate: vi.fn(),
+      },
+    });
+    await tick();
+
+    expect(target.querySelectorAll("[data-builder-dock-item]")).toHaveLength(3);
+  });
+
+  it("keeps every supported destination labeled in the mobile dock", async () => {
+    target = document.createElement("div");
+    document.body.append(target);
+    component = mount(MusicBuilderDock, {
+      target,
+      props: {
+        destination: { kind: "review" },
+        reviewCount: 0,
+        compact: true,
+        showAllLabels: true,
+        includeSoundscapes: false,
+        onNavigate: vi.fn(),
+      },
+    });
+    await tick();
+
+    const labels = [...target.querySelectorAll<HTMLButtonElement>("[data-builder-dock-item]")]
+      .map((button) => button.textContent?.trim());
+    expect(labels).toEqual(["Review", "Playlists", "Sources"]);
+  });
 });

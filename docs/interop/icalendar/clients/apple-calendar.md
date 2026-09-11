@@ -32,18 +32,9 @@ Expected handling:
 - Preserve any custom timezone definitions.
 - Keep all-day and recurring override dates correct.
 
-## Export from Ganbaru AI into Apple Calendar
+## Manual test
 
-Manual checks:
-
-1. Create a local disposable calendar in Apple Calendar.
-2. Import Ganbaru AI-generated fixtures from `apps/client/test-fixtures/ics/rfc5545/`.
-3. Verify all-day date spans.
-4. Verify recurrence and moved instances.
-5. Verify alarms.
-6. Export that calendar from Apple Calendar as `.ics`.
-7. Import the export into Ganbaru AI.
-8. Compare semantic results and preserved fields.
+Use the [shared client procedure](./README.md#shared-procedure) with the priorities below. Test macOS Calendar first and record the macOS version.
 
 ## Behavior to verify
 
@@ -56,12 +47,3 @@ Manual checks:
 ## Observed behavior log
 
 No manual Ganbaru AI compatibility run recorded yet.
-
-Record:
-
-- macOS version
-- Calendar app version if visible
-- calendar timezone
-- import fixture
-- export fixture
-- differences after round-trip

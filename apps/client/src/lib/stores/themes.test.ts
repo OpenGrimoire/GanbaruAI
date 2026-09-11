@@ -110,9 +110,9 @@ function makeUserTheme(overrides: Partial<UserTheme> = {}): UserTheme {
   };
 }
 
-function buildV2Input(overrides: Record<string, unknown> = {}): Record<string, unknown> {
+function buildV1Input(overrides: Record<string, unknown> = {}): Record<string, unknown> {
   return {
-    schemaVersion: 2,
+    schemaVersion: 1,
     id: "custom-theme",
     displayName: "Custom Theme",
     iconLabel: "dark",
@@ -439,9 +439,9 @@ describe("generateThemeId", () => {
   });
 });
 
-describe("validateThemeJson v2 branch", () => {
+describe("validateThemeJson current schema", () => {
   it("accepts calendar defaults", () => {
-    const result = validateThemeJson(buildV2Input());
+    const result = validateThemeJson(buildV1Input());
     expect(result.ok).toBe(true);
     if (result.ok) {
       expect(result.theme.calendarDefaultMode).toBe("custom");
@@ -453,7 +453,7 @@ describe("validateThemeJson v2 branch", () => {
 
   it("rejects invalid calendar defaults", () => {
     const result = validateThemeJson(
-      buildV2Input({
+      buildV1Input({
         calendarDefaults: { mode: "rainbow", customBasis: "blue" },
       }),
     );
@@ -469,12 +469,12 @@ describe("validateThemeJson v2 branch", () => {
   });
 
   it("rejects unsupported schema versions", () => {
-    expect(validateThemeJson({ ...buildV2Input(), schemaVersion: 1 }).ok).toBe(false);
-    expect(validateThemeJson({ ...buildV2Input(), schemaVersion: undefined }).ok).toBe(false);
+    expect(validateThemeJson({ ...buildV1Input(), schemaVersion: 2 }).ok).toBe(false);
+    expect(validateThemeJson({ ...buildV1Input(), schemaVersion: undefined }).ok).toBe(false);
   });
 
   it("rejects missing current-shape fields", () => {
-    const input = buildV2Input();
+    const input = buildV1Input();
     delete input.sources;
     const result = validateThemeJson(input);
     expect(result.ok).toBe(false);
@@ -493,13 +493,13 @@ describe("validateThemeJson rejection cases", () => {
   });
 
   it("rejects an id that collides with a built-in", () => {
-    const result = validateThemeJson(buildV2Input({ id: "light" }));
+    const result = validateThemeJson(buildV1Input({ id: "light" }));
     expect(result.ok).toBe(false);
   });
 });
 
 describe("serializeTheme round-trip", () => {
-  it("survives validate(serialize(t)) for a v2 user theme", () => {
+  it("survives validate(serialize(t)) for a user theme", () => {
     const original = makeUserTheme({
       id: "round-trip",
       displayName: "Round Trip",
@@ -530,13 +530,13 @@ describe("serializeTheme round-trip", () => {
     }
   });
 
-  it("emits user themes with schemaVersion: 2", () => {
+  it("emits user themes with schemaVersion: 1", () => {
     const theme = makeUserTheme();
     const parsed = JSON.parse(serializeTheme(theme)) as Record<string, unknown>;
-    expect(parsed.schemaVersion).toBe(2);
+    expect(parsed.schemaVersion).toBe(1);
   });
 
-  it("emits keys in canonical order for v2 themes", () => {
+  it("emits keys in canonical order for user themes", () => {
     const theme = makeUserTheme({
       appIsolated: new Set(["--primary"]),
     });

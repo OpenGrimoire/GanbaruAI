@@ -13,7 +13,6 @@ export interface MusicQueueState {
   currentSource: MusicSource | null;
   queue: MusicSource[];
   shuffleEnabled: boolean;
-  shuffleExplicit: boolean;
   shuffleOrder: number[];
   queueHistory: number[];
   pendingQueueIndex: number | null;
@@ -115,7 +114,6 @@ export function createMusicQueueController(
 
   function toggleShuffle(): void {
     state.shuffleEnabled = !state.shuffleEnabled;
-    state.shuffleExplicit = true;
     state.shuffleOrder = [];
     state.queueHistory = [];
     context.persistSettings();

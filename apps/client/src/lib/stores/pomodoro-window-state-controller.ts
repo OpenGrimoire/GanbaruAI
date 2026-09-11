@@ -43,6 +43,7 @@ export function createPomodoroWindowStateController(
       config: clonePomodoroConfig(runtime.config),
       completedPomodoros: runtime.completedPomodoros,
       activeBlockId: runtime.activeBlockId,
+      activeBlockTitle: runtime.activeBlockTitle,
       activeRunId: runtime.activeRunId,
       activeBlockEndMs: runtime.activeBlockEndMs,
       dismissedBlockId: runtime.dismissedBlockId,
@@ -67,6 +68,7 @@ export function createPomodoroWindowStateController(
     runtime.config = clonePomodoroConfig(snapshot.config);
     runtime.completedPomodoros = snapshot.completedPomodoros;
     runtime.activeBlockId = snapshot.activeBlockId;
+    runtime.activeBlockTitle = snapshot.activeBlockTitle;
     runtime.activeRunId = snapshot.activeRunId;
     runtime.activeBlockEndMs = snapshot.activeBlockEndMs;
     runtime.dismissedBlockId = snapshot.dismissedBlockId;

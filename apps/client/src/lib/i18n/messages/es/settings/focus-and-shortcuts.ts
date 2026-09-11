@@ -21,6 +21,13 @@ export const focusAndShortcuts = {
     idlePauseDefaultDescription:
       "Activa Pausar por inactividad para eventos Pomodoro nuevos",
     notificationHeading: "Notificación",
+    androidBackgroundUnavailable:
+      "Los ajustes de segundo plano de Android no están disponibles temporalmente.",
+    androidAutostart: "Inicio automático en segundo plano",
+    androidAutostartDescription:
+      "Permite iniciar eventos de Enfoque programados con Ganbaru AI cerrado",
+    androidBattery: "Restricciones del ahorro de batería",
+    androidBatteryDescription: "Elige Sin restricciones para Ganbaru AI",
     pausedFocusWarning: "Aviso de enfoque pausado",
     pausedFocusWarningDescription:
       "Recuérdate reanudar sesiones de enfoque pausadas",

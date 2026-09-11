@@ -1,5 +1,4 @@
 import {
-  COUNT_PRESET_RHYTHMS,
   createCustomCountPomodoroConfig,
   createPresetPomodoroConfig,
   type PomodoroConfig,

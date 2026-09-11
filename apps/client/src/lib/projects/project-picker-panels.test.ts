@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
   projectPickerBridgeFrameStyle,
+  projectPickerMobileBackAction,
+  projectPickerMobilePane,
   projectPickerMenuAimRect,
   projectPickerPanelEstimatedListHeight,
   projectPickerPanelFrameStyle,
@@ -18,6 +20,67 @@ function rect(input: ProjectPickerPanelRect): ProjectPickerPanelRect {
 }
 
 describe("project picker panel helpers", () => {
+  it("uses one compact pane for groups, a selected group's projects, and search", () => {
+    expect(projectPickerMobilePane({
+      mode: "groups",
+      activeGroupId: null,
+      searchActive: false,
+    })).toBe("groups");
+    expect(projectPickerMobilePane({
+      mode: "groups",
+      activeGroupId: "group-1",
+      searchActive: false,
+    })).toBe("projects");
+    expect(projectPickerMobilePane({
+      mode: "projects",
+      activeGroupId: null,
+      searchActive: false,
+    })).toBe("projects");
+    expect(projectPickerMobilePane({
+      mode: "groups",
+      activeGroupId: "group-1",
+      searchActive: true,
+    })).toBe("search");
+  });
+
+  it("closes compact nested layers before the picker surface", () => {
+    expect(projectPickerMobileBackAction({
+      mode: "groups",
+      activeGroupId: "group-1",
+      searchActive: false,
+      createGroupOpen: false,
+      createProjectGroupId: "group-1",
+    })).toBe("close-project-creator");
+    expect(projectPickerMobileBackAction({
+      mode: "groups",
+      activeGroupId: null,
+      searchActive: false,
+      createGroupOpen: true,
+      createProjectGroupId: null,
+    })).toBe("close-group-creator");
+    expect(projectPickerMobileBackAction({
+      mode: "groups",
+      activeGroupId: "group-1",
+      searchActive: true,
+      createGroupOpen: false,
+      createProjectGroupId: null,
+    })).toBe("clear-search");
+    expect(projectPickerMobileBackAction({
+      mode: "groups",
+      activeGroupId: "group-1",
+      searchActive: false,
+      createGroupOpen: false,
+      createProjectGroupId: null,
+    })).toBe("show-groups");
+    expect(projectPickerMobileBackAction({
+      mode: "groups",
+      activeGroupId: null,
+      searchActive: false,
+      createGroupOpen: false,
+      createProjectGroupId: null,
+    })).toBe("close-picker");
+  });
+
   it("estimates and caps main panel height", () => {
     expect(projectPickerPanelEstimatedListHeight({
       itemCount: 10,

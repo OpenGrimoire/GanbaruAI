@@ -26,6 +26,7 @@
   } from "$lib/music/playlist-window";
   import { getMusicPlayer } from "$lib/stores/music-player.svelte";
   import { getLocalization } from "$lib/i18n/translator.svelte";
+  import { BUILD_PLATFORM_PROFILE, platformHasCapability } from "$lib/platform";
   import { cn } from "$lib/utils";
   import { formatShortcut, hasShortcutModifier } from "$lib/keyboard-shortcuts";
   import {
@@ -35,11 +36,23 @@
   } from "$lib/music/music-builder-loader";
   import { getMusicSourcesController } from "$lib/music/music-sources-controller.svelte";
 
-  let { onclose }: { onclose: () => void } = $props();
+  let {
+    onclose,
+    presentation = "desktop",
+    mobilePlayerPanelStyle = "",
+    mobilePlaylistPanelStyle = "",
+  }: {
+    onclose: () => void;
+    presentation?: "desktop" | "mobile";
+    mobilePlayerPanelStyle?: string;
+    mobilePlaylistPanelStyle?: string;
+  } = $props();
 
   const player = getMusicPlayer();
   const sources = getMusicSourcesController();
   const { t } = getLocalization();
+  const supportsLocalFileReveal = platformHasCapability(BUILD_PLATFORM_PROFILE, "music.local-file-reveal");
+  const supportsSoundscapes = platformHasCapability(BUILD_PLATFORM_PROFILE, "music.soundscapes");
 
   type MusicPage = "player" | "playlist-builder";
 
@@ -104,6 +117,13 @@
   const panelMaximumHeight = $derived(
     playlistVisible && fittedPanelHeightPx !== null ? `${fittedPanelHeightPx}px` : "680px",
   );
+  const mobilePresentation = $derived(presentation === "mobile");
+  const mobileBuilderPresentation = $derived(
+    mobilePresentation && musicPage === "playlist-builder",
+  );
+  const mobileBuilderPanelStyle = "left: var(--visual-viewport-offset-left); top: var(--visual-viewport-offset-top); width: var(--visual-viewport-width); height: var(--visual-viewport-height); padding: var(--safe-area-top) var(--safe-area-right) var(--safe-area-bottom) var(--safe-area-left);";
+  const mobilePlayerFallbackStyle = "left:calc(var(--visual-viewport-offset-left) + var(--safe-area-left) + 0.5rem);top:calc(var(--visual-viewport-offset-top) + var(--safe-area-top) + var(--mobile-topbar-h) + 0.25rem);width:calc(var(--visual-viewport-width) - var(--safe-area-left) - var(--safe-area-right) - 1rem);height:calc(var(--visual-viewport-height) - var(--safe-area-top) - var(--safe-area-bottom) - var(--mobile-topbar-h) - 0.75rem);";
+  const desktopPanelStyle = $derived(`top: calc(var(--titlebar-h) + 4px); height: min(${panelMaximumHeight}, calc(100dvh - var(--titlebar-h) - 12px));`);
   const renderedPlaylistWindow = $derived(musicPlaylistWindow(
     player.queue.length,
     playlistScrollTop,
@@ -147,10 +167,9 @@
   });
 
   $effect(() => {
-    player.setSurfaceElement(mediaSurface);
-    return () => {
-      player.setSurfaceElement(null);
-    };
+    const surface = mediaSurface;
+    if (!surface) return;
+    return player.claimSurface("music-panel", surface);
   });
 
   $effect(() => {
@@ -676,18 +695,37 @@
 
 <!-- svelte-ignore a11y_click_events_have_key_events -->
 <!-- svelte-ignore a11y_no_static_element_interactions -->
-<div class="fixed inset-0 z-40" onclick={(event) => { if (event.target === event.currentTarget) onclose(); }}></div>
 <div
-  class="pointer-events-none fixed right-2 z-50 w-[min(1000px,calc(100vw-1rem))] overflow-hidden rounded-xl shadow-lg"
-  style={`top: calc(var(--titlebar-h) + 4px); height: min(${panelMaximumHeight}, calc(100dvh - var(--titlebar-h) - 12px));`}
-  aria-hidden="true"
->
-  <div class="h-full w-full" style="background-color: var(--cal-bg);"></div>
-</div>
+  class={cn("fixed z-40", mobileBuilderPresentation ? "bg-background" : !mobilePresentation && "inset-0")}
+  style={mobilePresentation ? "left: var(--visual-viewport-offset-left); top: var(--visual-viewport-offset-top); width: var(--visual-viewport-width); height: var(--visual-viewport-height);" : undefined}
+  onclick={(event) => { if (!mobileBuilderPresentation && event.target === event.currentTarget) onclose(); }}
+></div>
+{#if !mobilePresentation}
+  <div
+    class="pointer-events-none fixed right-2 z-50 w-[min(1000px,calc(100vw-1rem))] overflow-hidden rounded-xl shadow-lg"
+    style={desktopPanelStyle}
+    aria-hidden="true"
+  >
+    <div class="h-full w-full" style="background-color: var(--cal-bg);"></div>
+  </div>
+{/if}
 <div
   bind:this={panel}
-  class="music-panel-root fixed right-2 z-70 flex w-[min(1000px,calc(100vw-1rem))] flex-col overflow-hidden rounded-xl outline-none"
-  style={`top: calc(var(--titlebar-h) + 4px); height: min(${panelMaximumHeight}, calc(100dvh - var(--titlebar-h) - 12px));`}
+  class={cn(
+    "music-panel-root fixed z-70 flex flex-col overflow-hidden outline-none",
+    mobileBuilderPresentation
+      ? "bg-background"
+      : mobilePresentation
+        ? "rounded-xl border border-border shadow-xl"
+        : "right-2 w-[min(1000px,calc(100vw-1rem))] rounded-xl",
+  )}
+  style={mobilePresentation
+    ? mobileBuilderPresentation
+      ? mobileBuilderPanelStyle
+      : `${playlistVisible && mobilePlaylistPanelStyle
+        ? mobilePlaylistPanelStyle
+        : mobilePlayerPanelStyle || mobilePlayerFallbackStyle};background-color:var(--cal-bg);`
+    : desktopPanelStyle}
   role="dialog"
   aria-modal="true"
   aria-label={t("music.title")}
@@ -697,6 +735,7 @@
     <div class:hidden={musicPage !== "playlist-builder"} class="h-full min-h-0" aria-hidden={musicPage !== "playlist-builder"}>
       <PlaylistBuilder
         onOpenPlayer={closePlaylistBuilder}
+        presentation={mobilePresentation ? "mobile" : "desktop"}
         initialAction={playlistBuilderInitialAction}
         onInitialActionHandled={() => { playlistBuilderInitialAction = null; }}
       />
@@ -727,12 +766,21 @@
       use:releaseClickedButtonFocusAction
       onwheel={(event) => player.handleVolumeWheel(event)}
     >
-  <div bind:this={musicHeader} class="relative flex h-(--cal-header-row-h) shrink-0 items-center gap-3 px-2" style="background-color: var(--cal-bg);">
+  <div
+    bind:this={musicHeader}
+    data-music-player-header
+    class={cn(
+      "relative flex shrink-0 items-center gap-3 px-2",
+      mobilePresentation ? "py-2" : "h-(--cal-header-row-h)",
+    )}
+    style="background-color: var(--cal-bg);"
+  >
     <div class="relative z-10 flex min-w-0 shrink-0 items-center gap-2">
       <MusicPlaylistLauncher
         onOpenBuilder={() => openPlaylistBuilder()}
         onOpenIssues={() => openPlaylistBuilder({ kind: "open-issues" })}
         onNewPlaylist={() => openPlaylistBuilder("new-playlist")}
+        mobile={mobilePresentation}
       />
     </div>
     <div
@@ -740,7 +788,7 @@
       style={`left: ${mediaTitleLeft};`}
     >
       {#if topBarMediaTitle}
-        {#if player.currentSource?.kind === "local-file"}
+        {#if player.currentSource?.kind === "local-file" && supportsLocalFileReveal}
           <button
             type="button"
             onclick={() => { void openCurrentLocalFileLocation(); }}
@@ -758,9 +806,11 @@
       {/if}
     </div>
     {#if player.parseError || player.playerError}
-      <div class="relative z-10 ml-auto hidden min-w-0 max-w-56 items-center gap-1.5 text-[0.733333rem] text-destructive min-[720px]:flex" role="alert">
-        <AlertCircle class="shrink-0" size={musicIconSize} strokeWidth={musicIconStrokeWidth} />
-        <span class="truncate">{player.parseError ?? player.playerError}</span>
+      <div class="relative z-10 ml-auto flex min-w-0 items-center gap-2">
+        <div class="hidden min-w-0 max-w-56 items-center gap-1.5 text-[0.733333rem] text-destructive min-[720px]:flex" role="alert">
+          <AlertCircle class="shrink-0" size={musicIconSize} strokeWidth={musicIconStrokeWidth} />
+          <span class="truncate">{player.parseError ?? player.playerError}</span>
+        </div>
       </div>
     {/if}
   </div>
@@ -823,7 +873,8 @@
         bind:this={mediaSurface}
         class="music-media-surface relative cursor-default overflow-hidden"
         role="button"
-        tabindex="-1"
+        tabindex={player.currentSource ? 0 : -1}
+        aria-disabled={!player.currentSource}
         aria-label={player.isPlaying ? t("music.pause") : t("music.play")}
         data-app-tooltip-disabled="true"
         onclick={handleMediaSurfaceClick}
@@ -935,7 +986,6 @@
             class="music-seek-slider min-w-0 flex-1 disabled:opacity-50"
             style={`--music-seek-progress: ${seekSliderProgress};`}
             aria-label={t("music.seek")}
-            tabindex="-1"
             oninput={(event) => { void player.seekToMs(Number(event.currentTarget.value)); }}
             onpointerup={releaseRangeFocus}
             onpointercancel={releaseRangeFocus}
@@ -1026,7 +1076,6 @@
               style={`--music-volume-progress: ${volumeSliderProgress};`}
               aria-label={t("music.volume")}
               data-app-tooltip={t("music.volumeTooltip")}
-              tabindex="-1"
               oninput={(event) => { setVolumeFromControl(Number(event.currentTarget.value)); }}
               onpointerup={releaseRangeFocus}
               onpointercancel={releaseRangeFocus}
@@ -1046,7 +1095,9 @@
             </button>
           </div>
           <MusicCurrentItemMenu onOpenItem={(itemId) => openPlaylistBuilder({ kind: "open-item", itemId })} onOpenPlaylists={() => openPlaylistBuilder("open-playlists")} />
-          <MusicSoundscapeControl onOpenSoundscapes={() => openPlaylistBuilder({ kind: "open-soundscapes" })} />
+          {#if supportsSoundscapes}
+            <MusicSoundscapeControl onOpenSoundscapes={() => openPlaylistBuilder({ kind: "open-soundscapes" })} />
+          {/if}
           <div
             bind:this={volumeMenuRoot}
             class="music-compact-volume-control relative"
@@ -1098,7 +1149,6 @@
                     class="music-volume-slider music-volume-slider-vertical"
                     style={`--music-volume-progress: ${volumeSliderProgress};`}
                     aria-label={t("music.volume")}
-                    tabindex="-1"
                     oninput={(event) => { setVolumeFromControl(Number(event.currentTarget.value)); }}
                     onpointerup={releaseRangeFocus}
                     onpointercancel={releaseRangeFocus}
@@ -1201,10 +1251,6 @@
   .music-media-surface {
     aspect-ratio: 16 / 9;
     width: min(100%, calc(100cqh * 16 / 9));
-  }
-
-  .music-source-field {
-    width: clamp(5rem, 20vw, 12rem);
   }
 
   .music-compact-volume-control {

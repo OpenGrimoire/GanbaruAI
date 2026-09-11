@@ -1,36 +1,49 @@
 use std::{
-    collections::{hash_map::DefaultHasher, HashMap, HashSet},
-    fs::File,
-    hash::{Hash, Hasher},
-    io::{self, Read, Seek, SeekFrom, Write},
+    io::{self, Read, Write},
     net::{TcpListener, TcpStream},
-    path::{Path, PathBuf},
     sync::{
         atomic::{AtomicUsize, Ordering},
-        Arc, Mutex,
+        Arc,
     },
     thread,
     time::{Duration, Instant},
 };
 
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
+use std::{
+    collections::{hash_map::DefaultHasher, HashMap, HashSet},
+    fs::File,
+    hash::{Hash, Hasher},
+    io::{Seek, SeekFrom},
+    path::{Path, PathBuf},
+    sync::Mutex,
+};
+
 use tauri::{Manager, State};
 
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 use super::artwork::{embedded_artwork_id, extract_embedded_artwork};
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 use super::require_absolute_file;
 use super::youtube_host::{youtube_host_content_security_policy, youtube_host_html};
 
 pub struct MusicHostState {
     pub youtube_url: String,
+    #[cfg(not(any(target_os = "android", target_os = "ios")))]
     media_base_url: String,
+    #[cfg(not(any(target_os = "android", target_os = "ios")))]
     token: String,
+    #[cfg(not(any(target_os = "android", target_os = "ios")))]
     registry: Arc<Mutex<MusicMediaRegistry>>,
 }
 
 struct MusicHostShared {
     token: String,
+    #[cfg(not(any(target_os = "android", target_os = "ios")))]
     registry: Arc<Mutex<MusicMediaRegistry>>,
 }
 
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 #[derive(Clone)]
 enum HostedMedia {
     File(PathBuf),
@@ -40,6 +53,7 @@ enum HostedMedia {
     },
 }
 
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 impl HostedMedia {
     fn resident_bytes(&self) -> usize {
         match self {
@@ -49,6 +63,7 @@ impl HostedMedia {
     }
 }
 
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 #[derive(Clone)]
 struct HostedMediaEntry {
     media: HostedMedia,
@@ -56,6 +71,7 @@ struct HostedMediaEntry {
     last_used: u64,
 }
 
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 struct MusicMediaRegistry {
     entries: HashMap<String, HostedMediaEntry>,
     retained: HashSet<String>,
@@ -65,6 +81,7 @@ struct MusicMediaRegistry {
     max_resident_bytes: usize,
 }
 
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 impl MusicMediaRegistry {
     fn new() -> Self {
         Self::with_limits(
@@ -190,6 +207,7 @@ impl MusicMediaRegistry {
 struct HttpRequest {
     method: String,
     path: String,
+    #[cfg(not(any(target_os = "android", target_os = "ios")))]
     range: Option<String>,
 }
 
@@ -240,6 +258,7 @@ impl HttpRequestError {
     }
 }
 
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) struct ByteRange {
     pub(super) start: u64,
@@ -251,13 +270,17 @@ const MUSIC_HOST_MAX_CONNECTIONS: usize = 8;
 const MUSIC_HOST_MAX_REQUEST_HEADER_BYTES: usize = 16 * 1024;
 const MUSIC_HOST_READ_TIMEOUT: Duration = Duration::from_secs(3);
 const MUSIC_HOST_WRITE_TIMEOUT: Duration = Duration::from_secs(10);
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 const MUSIC_HOST_MAX_REGISTRY_ENTRIES: usize = 128;
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 const MUSIC_HOST_MAX_REGISTRY_BYTES: usize = 64 * 1024 * 1024;
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 const MUSIC_HOST_MAX_MEDIA_URLS_PER_COMMAND: usize = 128;
 const BASIC_RESPONSE_CSP: &str =
     "default-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'; sandbox";
 
 #[tauri::command]
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 pub fn music_register_media_file(
     state: State<'_, MusicHostState>,
     path: String,
@@ -275,6 +298,7 @@ pub fn music_register_media_file(
 }
 
 #[tauri::command]
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 pub fn music_register_embedded_artwork(
     state: State<'_, MusicHostState>,
     path: String,
@@ -310,6 +334,7 @@ pub fn music_register_embedded_artwork(
 }
 
 #[tauri::command]
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 pub fn music_retain_hosted_media(
     state: State<'_, MusicHostState>,
     media_urls: Vec<String>,
@@ -325,6 +350,7 @@ pub fn music_retain_hosted_media(
 }
 
 #[tauri::command]
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 pub fn music_unregister_hosted_media(
     state: State<'_, MusicHostState>,
     media_urls: Vec<String>,
@@ -340,6 +366,18 @@ pub fn music_unregister_hosted_media(
 }
 
 #[tauri::command]
+#[cfg(any(target_os = "android", target_os = "ios"))]
+pub fn music_retain_hosted_media(media_urls: Vec<String>, generation: u64) {
+    let _ = (media_urls, generation);
+}
+
+#[tauri::command]
+#[cfg(any(target_os = "android", target_os = "ios"))]
+pub fn music_unregister_hosted_media(media_urls: Vec<String>, generation: u64) {
+    let _ = (media_urls, generation);
+}
+
+#[tauri::command]
 pub fn music_youtube_host_url(state: State<'_, MusicHostState>) -> String {
     state.youtube_url.clone()
 }
@@ -349,16 +387,19 @@ pub fn setup_youtube_host(app: &tauri::AppHandle) -> Result<(), String> {
     Ok(())
 }
 
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 fn media_file_id(path: &Path) -> String {
     let mut hasher = DefaultHasher::new();
     path.hash(&mut hasher);
     format!("{:x}", hasher.finish())
 }
 
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 fn hosted_media_url(state: &MusicHostState, id: &str) -> String {
     format!("{}/media/{id}?token={}", state.media_base_url, state.token)
 }
 
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 fn hosted_media_ids(
     state: &MusicHostState,
     media_urls: Vec<String>,
@@ -442,9 +483,11 @@ fn spawn_music_host() -> Result<MusicHostState, String> {
         .local_addr()
         .map_err(|e| format!("failed to inspect music player host address: {e}"))?;
     let token = make_music_host_token()?;
+    #[cfg(not(any(target_os = "android", target_os = "ios")))]
     let registry = Arc::new(Mutex::new(MusicMediaRegistry::new()));
     let shared = Arc::new(MusicHostShared {
         token: token.clone(),
+        #[cfg(not(any(target_os = "android", target_os = "ios")))]
         registry: Arc::clone(&registry),
     });
     let connection_limit = Arc::new(MusicHostConnectionLimit::new(MUSIC_HOST_MAX_CONNECTIONS));
@@ -478,8 +521,11 @@ fn spawn_music_host() -> Result<MusicHostState, String> {
     let base_url = format!("http://{addr}");
     Ok(MusicHostState {
         youtube_url: format!("{base_url}/youtube-player.html?token={token}"),
+        #[cfg(not(any(target_os = "android", target_os = "ios")))]
         media_base_url: base_url,
+        #[cfg(not(any(target_os = "android", target_os = "ios")))]
         token,
+        #[cfg(not(any(target_os = "android", target_os = "ios")))]
         registry,
     })
 }
@@ -569,7 +615,10 @@ fn handle_music_host_request<W: Write>(
             is_head,
             youtube_host_content_security_policy(),
         );
-    } else if route.starts_with("/media/") && authorized {
+        return;
+    }
+    #[cfg(not(any(target_os = "android", target_os = "ios")))]
+    if route.starts_with("/media/") && authorized {
         match media_from_request(request, shared) {
             Ok(media) => {
                 if write_hosted_media_response(stream, request, &media).is_err() {
@@ -594,16 +643,16 @@ fn handle_music_host_request<W: Write>(
                 );
             }
         }
-    } else {
-        let _ = write_http_response(
-            stream,
-            "404 Not Found",
-            "text/plain; charset=utf-8",
-            "Not found",
-            is_head,
-            BASIC_RESPONSE_CSP,
-        );
+        return;
     }
+    let _ = write_http_response(
+        stream,
+        "404 Not Found",
+        "text/plain; charset=utf-8",
+        "Not found",
+        is_head,
+        BASIC_RESPONSE_CSP,
+    );
 }
 
 fn read_http_request<R: Read>(stream: &mut R) -> Result<HttpRequest, HttpRequestError> {
@@ -652,6 +701,7 @@ fn read_http_request<R: Read>(stream: &mut R) -> Result<HttpRequest, HttpRequest
     if !matches!(version, "HTTP/1.0" | "HTTP/1.1") || request_parts.next().is_some() {
         return Err(HttpRequestError::Malformed);
     }
+    #[cfg(not(any(target_os = "android", target_os = "ios")))]
     let mut range = None;
     for line in lines {
         let (name, value) = line.split_once(':').ok_or(HttpRequestError::Malformed)?;
@@ -665,6 +715,7 @@ fn read_http_request<R: Read>(stream: &mut R) -> Result<HttpRequest, HttpRequest
         {
             return Err(HttpRequestError::Malformed);
         }
+        #[cfg(not(any(target_os = "android", target_os = "ios")))]
         if name.eq_ignore_ascii_case("range") {
             if range.is_some() {
                 return Err(HttpRequestError::Malformed);
@@ -675,6 +726,7 @@ fn read_http_request<R: Read>(stream: &mut R) -> Result<HttpRequest, HttpRequest
     Ok(HttpRequest {
         method,
         path,
+        #[cfg(not(any(target_os = "android", target_os = "ios")))]
         range,
     })
 }
@@ -704,6 +756,7 @@ fn constant_time_token_eq(expected: &str, candidate: &str) -> bool {
     difference == 0
 }
 
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 fn media_from_request(
     request: &HttpRequest,
     shared: &MusicHostShared,
@@ -721,6 +774,7 @@ fn media_from_request(
         .ok_or("404 Not Found")
 }
 
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 fn write_media_file_response<W: Write>(
     stream: &mut W,
     request: &HttpRequest,
@@ -755,6 +809,7 @@ fn write_media_file_response<W: Write>(
     Ok(())
 }
 
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 fn write_hosted_media_response<W: Write>(
     stream: &mut W,
     request: &HttpRequest,
@@ -769,6 +824,7 @@ fn write_hosted_media_response<W: Write>(
     }
 }
 
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 fn write_media_bytes_response<W: Write>(
     stream: &mut W,
     request: &HttpRequest,
@@ -805,6 +861,7 @@ fn write_media_bytes_response<W: Write>(
     Ok(())
 }
 
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 fn write_media_headers<W: Write>(
     stream: &mut W,
     status: &str,
@@ -825,6 +882,7 @@ fn write_media_headers<W: Write>(
     stream.write_all(response.as_bytes())
 }
 
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 fn copy_limited<W: Write>(
     file: &mut File,
     stream: &mut W,
@@ -844,6 +902,7 @@ fn copy_limited<W: Write>(
     stream.flush()
 }
 
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 pub(super) fn parse_byte_range(header: &str, len: u64) -> Option<ByteRange> {
     if len == 0 {
         return None;
@@ -875,6 +934,7 @@ pub(super) fn parse_byte_range(header: &str, len: u64) -> Option<ByteRange> {
     Some(ByteRange { start, end })
 }
 
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 pub(super) fn media_content_type(path: &Path) -> &'static str {
     match path
         .extension()
@@ -928,7 +988,7 @@ fn write_http_response<W: Write>(
     stream.flush()
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(any(target_os = "android", target_os = "ios"))))]
 mod host_security_contract_tests {
     use super::*;
     use std::io::Cursor;
